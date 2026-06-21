@@ -1,6 +1,4 @@
-# Scope of Work
-
-## Predict-A-Trade — Institutional-Grade AI Trading Assistant
+# Predict-A-Trade — Institutional-Grade AI Trading Assistant
 
 ---
 
