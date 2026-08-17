@@ -1,0 +1,64 @@
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.msi
+*.wasm
+node_modules/
+dist/
+build/
+.next/
+out/
+coverage/
+*.egg-info/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+mcp.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test/coverage
+*.cover
+.coverage
+htmlcov/
+.nyc_output/
+junit.xml
+
+# Docker
+.docker/
+
+# Temporary
+tmp/
+*.tmp
+*.log
+
+# Go
+realtime/bin/
+windows-agent/bin/
+
+# NestJS
+control/dist/
+
+# Keep .codex and .agents (project controls)
+!.codex/
+!.agents/

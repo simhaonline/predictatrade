@@ -1,0 +1,53 @@
+# Predict-A-Trade v1.0.0 project-scoped Codex configuration.
+# Loaded only when the project is trusted.
+
+[agents]
+default_subagent_model = "kimi-k2.7-code:cloud"
+default_subagent_reasoning_effort = "medium"
+enabled = true
+max_concurrent_threads_per_session = 8
+
+# Authoritative OpenAI developer documentation.
+[mcp_servers.openaiDeveloperDocs]
+url = "https://developers.openai.com/mcp"
+enabled = true
+required = false
+startup_timeout_sec = 15
+tool_timeout_sec = 60
+
+# Version-aware framework/library documentation.
+# CONTEXT7_API_KEY is optional but recommended for higher rate limits.
+[mcp_servers.context7]
+url = "https://mcp.context7.com/mcp"
+bearer_token_env_var = "CONTEXT7_API_KEY"
+enabled = true
+required = false
+startup_timeout_sec = 15
+tool_timeout_sec = 60
+
+# Browser/E2E verification. Use local/test/staging targets only.
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@latest", "--headless"]
+enabled = true
+required = false
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+
+# Official GitHub MCP server. Read-only by default.
+# Requires GITHUB_PERSONAL_ACCESS_TOKEN in the environment.
+
+# ============================================================
+# GitHub MCP — official remote server
+# Predict-A-Trade: read-only repository / PR / CI / security
+# ============================================================
+
+[mcp_servers.github]
+url = "https://api.githubcopilot.com/mcp/"
+bearer_token_env_var = "GITHUB_PERSONAL_ACCESS_TOKEN"
+http_headers = { "X-MCP-Toolsets" = "repos,issues,pull_requests,actions,code_security", "X-MCP-Readonly" = "true" }
+enabled = true
+required = false
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+default_tools_approval_mode = "auto"

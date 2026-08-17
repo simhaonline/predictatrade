@@ -1,0 +1,85 @@
+name: Predict-A-Trade CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  go:
+    name: Go Real-Time Engine
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: realtime } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.23' }
+      - run: go mod download
+      - run: go vet ./...
+      - run: go test -race -count=1 -timeout=120s ./...
+      - run: go build -o bin/realtime-engine ./cmd/realtime-engine
+
+  nestjs:
+    name: NestJS Control Plane
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: control } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'npm', cache-dependency-path: control/package-lock.json }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  frontend:
+    name: Next.js Frontend
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'npm', cache-dependency-path: frontend/package-lock.json }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  python:
+    name: Python Research Plane
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: research } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install -e ".[dev]"
+      - run: python -m pytest tests/ -v --tb=short
+
+  windows-agent:
+    name: Windows Agent (cross-compile)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: windows-agent } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.23' }
+      - run: go mod download
+      - run: go test ./...
+      - run: GOOS=windows GOARCH=amd64 go build -o bin/PredictATradeAgent.exe ./cmd/agent
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Secret scan
+        run: |
+          if grep -r "ghp_\|sk-\|password.*=.*['\"]" --include="*.ts" --include="*.go" --include="*.py" --include="*.tsx" . 2>/dev/null | grep -v node_modules | grep -v ".git"; then
+            echo "WARNING: Potential secrets found"
+            exit 1
+          fi
+      - name: Dependency audit
+        run: |
+          cd control && npm audit --audit-level=high || true
+          cd ../frontend && npm audit --audit-level=high || true

@@ -1,0 +1,21 @@
+{
+  "title": "Predict-A-Trade — Gate Health",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "title": "Gate Pass Rate",
+      "type": "stat",
+      "targets": [{"expr": "rate(gate_pass_count_total[5m]) / (rate(gate_pass_count_total[5m]) + rate(gate_veto_count_total[5m]))"}]
+    },
+    {
+      "title": "NO-TRADE Reasons",
+      "type": "piechart",
+      "targets": [{"expr": "sum by (reason) (rate(no_trade_reason_count_total[5m]))"}]
+    },
+    {
+      "title": "Gate Latency p95",
+      "type": "timeseries",
+      "targets": [{"expr": "histogram_quantile(0.95, rate(gate_eval_latency_ms_bucket[5m]))"}]
+    }
+  ]
+}

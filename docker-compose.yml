@@ -1,0 +1,101 @@
+# Predict-A-Trade v1.0.0 — Local Development & Test Infrastructure
+# PostgreSQL 17 + TimescaleDB + pgvector + Valkey + PgBouncer
+# Usage: docker compose up -d
+# This is for LOCAL/TEST/CI only. Production uses systemd-managed services.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: pat-postgres
+    environment:
+      POSTGRES_USER: pat_admin
+      POSTGRES_PASSWORD: pat_local_dev_only
+      POSTGRES_DB: predictatrade
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C.UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - pat-pgdata:/var/lib/postgresql/data
+      - ./database/migrations:/docker-entrypoint-initdb.d:ro
+      - ./database/roles:/roles:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pat_admin -d predictatrade"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks:
+      - pat-net
+
+  valkey:
+    image: valkey/valkey:8.0
+    container_name: pat-valkey
+    command: valkey-server --save 60 1 --loglevel warning
+    ports:
+      - "6379:6379"
+    volumes:
+      - pat-valkey:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - pat-net
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: pat-pgbouncer
+    environment:
+      DB_USER: pat_admin
+      DB_PASSWORD: pat_local_dev_only
+      DB_HOST: postgres
+      DB_NAME: predictatrade
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 200
+      DEFAULT_POOL_SIZE: 20
+    ports:
+      - "6432:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - pat-net
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: pat-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - pat-prometheus:/prometheus
+    networks:
+      - pat-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: pat-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: pat_local_dev_only
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - pat-grafana:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - pat-net
+
+volumes:
+  pat-pgdata:
+  pat-valkey:
+  pat-prometheus:
+  pat-grafana:
+
+networks:
+  pat-net:
+    driver: bridge
