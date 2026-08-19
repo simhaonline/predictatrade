@@ -1,0 +1,1 @@
+"""Feature precomputation pipeline."""

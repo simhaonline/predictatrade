@@ -22,8 +22,21 @@ CREATE SCHEMA IF NOT EXISTS support;
 -- ============================================================
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS IF pg_version_num >= 170000 THEN "timescaledb" ELSE NULL END IF;
-CREATE EXTENSION IF NOT EXISTS IF pg_version_num >= 170000 THEN "vector" ELSE NULL END IF;
+-- TimescaleDB (optional — use timescale/timescaledb image in production)
+DO $$ BEGIN
+    IF pg_version_num >= 170000 THEN
+        CREATE EXTENSION IF NOT EXISTS "timescaledb";
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'TimescaleDB extension not available — using plain PostgreSQL tables';
+END $$;
+
+-- pgvector (available in pgvector/pgvector image)
+DO $$ BEGIN
+    CREATE EXTENSION IF NOT EXISTS "vector";
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'vector extension not available';
+END $$;
 
 -- ============================================================
 -- Least-Privilege Roles (SOW Section 55)
@@ -101,17 +114,17 @@ GRANT USAGE ON SCHEMA support TO nest_control, readonly_analytics, pat_backup;
 -- ============================================================
 -- Default privileges
 -- ============================================================
-ALTER DEFAULT PRIVILEGES IN SCHEMA iam GRANT SELECT, INSERT, UPDATE, DELETE TO nest_control;
-ALTER DEFAULT PRIVILEGES IN SCHEMA control GRANT SELECT, INSERT, UPDATE, DELETE TO nest_control;
-ALTER DEFAULT PRIVILEGES IN SCHEMA licensing GRANT SELECT, INSERT, UPDATE, DELETE TO nest_control;
-ALTER DEFAULT PRIVILEGES IN SCHEMA billing GRANT SELECT, INSERT, UPDATE, DELETE TO nest_control, billing_worker;
-ALTER DEFAULT PRIVILEGES IN SCHEMA referral GRANT SELECT, INSERT, UPDATE, DELETE TO nest_control, commission_worker;
-ALTER DEFAULT PRIVILEGES IN SCHEMA finance GRANT SELECT, INSERT, UPDATE, DELETE TO nest_control, payout_worker;
-ALTER DEFAULT PRIVILEGES IN SCHEMA trading GRANT SELECT, INSERT, UPDATE TO go_realtime;
-ALTER DEFAULT PRIVILEGES IN SCHEMA trading GRANT SELECT TO nest_control, readonly_analytics;
-ALTER DEFAULT PRIVILEGES IN SCHEMA market GRANT SELECT, INSERT, UPDATE TO go_realtime;
-ALTER DEFAULT PRIVILEGES IN SCHEMA market GRANT SELECT TO nest_control, python_research, readonly_analytics;
-ALTER DEFAULT PRIVILEGES IN SCHEMA research GRANT SELECT, INSERT, UPDATE, DELETE TO python_research;
-ALTER DEFAULT PRIVILEGES IN SCHEMA research GRANT SELECT TO readonly_analytics;
-ALTER DEFAULT PRIVILEGES IN SCHEMA audit GRANT SELECT TO audit_reader, nest_control;
-ALTER DEFAULT PRIVILEGES IN SCHEMA support GRANT SELECT, INSERT, UPDATE, DELETE TO nest_control;
+ALTER DEFAULT PRIVILEGES IN SCHEMA iam GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO nest_control;
+ALTER DEFAULT PRIVILEGES IN SCHEMA control GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO nest_control;
+ALTER DEFAULT PRIVILEGES IN SCHEMA licensing GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO nest_control;
+ALTER DEFAULT PRIVILEGES IN SCHEMA billing GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO nest_control, billing_worker;
+ALTER DEFAULT PRIVILEGES IN SCHEMA referral GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO nest_control, commission_worker;
+ALTER DEFAULT PRIVILEGES IN SCHEMA finance GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO nest_control, payout_worker;
+ALTER DEFAULT PRIVILEGES IN SCHEMA trading GRANT SELECT, INSERT, UPDATE ON TABLES TO go_realtime;
+ALTER DEFAULT PRIVILEGES IN SCHEMA trading GRANT SELECT ON TABLES TO nest_control, readonly_analytics;
+ALTER DEFAULT PRIVILEGES IN SCHEMA market GRANT SELECT, INSERT, UPDATE ON TABLES TO go_realtime;
+ALTER DEFAULT PRIVILEGES IN SCHEMA market GRANT SELECT ON TABLES TO nest_control, python_research, readonly_analytics;
+ALTER DEFAULT PRIVILEGES IN SCHEMA research GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO python_research;
+ALTER DEFAULT PRIVILEGES IN SCHEMA research GRANT SELECT ON TABLES TO readonly_analytics;
+ALTER DEFAULT PRIVILEGES IN SCHEMA audit GRANT SELECT ON TABLES TO audit_reader, nest_control;
+ALTER DEFAULT PRIVILEGES IN SCHEMA support GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO nest_control;

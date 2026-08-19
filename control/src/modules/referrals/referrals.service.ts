@@ -1,49 +1,39 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Inject } from '@nestjs/common';
+import { Pool } from 'pg';
+import { DB_POOL } from '../../common/database.module';
 
-// SOW Section 69.7, 69.26: Referral relationship management with cycle prevention
 @Injectable()
 export class ReferralsService {
-  // Build the five-level sponsor chain for a user
-  // Returns [L1 userId, L2 userId, ... L5 userId]
-  buildSponsorChain(
-    userId: string,
-    relationships: Map<string, string>, // child -> direct parent
-  ): string[] {
+  constructor(@Inject(DB_POOL) private pool: Pool) {}
+
+  buildSponsorChain(userId: string, relationships: Map<string, string>): string[] {
     const chain: string[] = [];
     let current = userId;
     const visited = new Set<string>([userId]);
-
     for (let level = 1; level <= 5; level++) {
       const parent = relationships.get(current);
       if (!parent) break;
-
-      // Cycle prevention (SOW Section 69.26)
-      if (visited.has(parent)) {
-        throw new BadRequestException('Circular referral detected');
-      }
-      visited.add(parent);
-      chain.push(parent);
-      current = parent;
+      if (visited.has(parent)) throw new BadRequestException('Circular referral detected');
+      visited.add(parent); chain.push(parent); current = parent;
     }
-
     return chain;
   }
 
-  // SOW Section 69.26: Self-referral prevention
-  validateNotSelfReferral(referrerId: string, referredId: string): void {
-    if (referrerId === referredId) {
-      throw new BadRequestException('Self-referral is not allowed');
-    }
+  async getReferralNetwork(userId: string) {
+    const direct = await this.pool.query(
+      `SELECT r.child_user_id, u.email, u.full_name, r.level, r.created_at
+       FROM referral.referral_relationships r JOIN iam.users u ON r.child_user_id = u.id
+       WHERE r.parent_user_id = $1 ORDER BY r.level, r.created_at`, [userId],
+    );
+    return { referrals: direct.rows, count: direct.rows.length };
   }
 
-  // SOW Section 69.16: First valid attribution wins
-  validateAttribution(
-    existingAttribution: { referrerId: string } | null,
-    newReferrerId: string,
-  ): { referrerId: string; isUpdate: boolean } {
-    if (existingAttribution) {
-      return { referrerId: existingAttribution.referrerId, isUpdate: false };
-    }
-    return { referrerId: newReferrerId, isUpdate: true };
+  async getCommissions(userId: string) {
+    const r = await this.pool.query(
+      `SELECT c.*, u.email as source_email FROM referral.commission_ledger c
+       LEFT JOIN iam.users u ON c.source_user_id = u.id
+       WHERE c.recipient_user_id = $1 ORDER BY c.created_at DESC LIMIT 50`, [userId],
+    );
+    return r.rows;
   }
 }

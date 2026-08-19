@@ -1,0 +1,61 @@
+"use client";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { customInstance } from "@/lib/axios-instance";
+import DataTable, { DataTableColumn } from "@/components/ui/data-table";
+import StatusBadge from "@/components/ui/status-badge";
+import { format } from "date-fns";
+
+interface Subscription {
+  id: string;
+  user_id: string;
+  user_email: string;
+  plan_id: string;
+  plan_name: string;
+  status: string;
+  billing_cycle: string;
+  current_period_start: string;
+  current_period_end: string;
+  auto_renew: boolean;
+  created_at: string;
+}
+
+export default function AdminSubscriptionsPage() {
+  const [page, setPage] = useState(1);
+  const { data, isLoading, error, refetch } = useQuery<{ items: Subscription[]; total: number; page: number; limit: number }>({
+    queryKey: ["admin-subscriptions", page],
+    queryFn: async () => {
+      const res = await customInstance.get(`/admin/subscriptions?page=${page}&limit=20`);
+      return res.data as { items: Subscription[]; total: number; page: number; limit: number };
+    },
+  });
+
+  const columns: DataTableColumn<Subscription>[] = [
+    { key: "user_email", header: "User", cell: (row) => <span className="text-sm text-pat-text-primary">{row.user_email || "—"}</span> },
+    { key: "plan_name", header: "Plan", cell: (row) => <span className="text-sm text-pat-text-primary">{row.plan_name || "—"}</span> },
+    { key: "billing_cycle", header: "Cycle", cell: (row) => <span className="text-xs text-pat-text-secondary">{row.billing_cycle || "—"}</span> },
+    { key: "status", header: "Status", cell: (row) => <StatusBadge status={row.status} /> },
+    { key: "current_period_start", header: "Period Start", cell: (row) => <span className="text-xs text-pat-text-muted">{row.current_period_start ? format(new Date(row.current_period_start), "MMM d, yyyy") : "—"}</span> },
+    { key: "current_period_end", header: "Period End", cell: (row) => <span className="text-xs text-pat-text-muted">{row.current_period_end ? format(new Date(row.current_period_end), "MMM d, yyyy") : "—"}</span> },
+    { key: "auto_renew", header: "Auto-Renew", cell: (row) => <span className={`text-xs ${row.auto_renew ? "text-pat-success" : "text-pat-text-muted"}`}>{row.auto_renew ? "Yes" : "No"}</span> },
+  ];
+
+  const totalPages = data?.total ? Math.ceil(data.total / 20) : 1;
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-xl font-bold text-pat-text-primary">Subscription Management</h1>
+        <p className="text-sm text-pat-text-secondary mt-1">Manage all user subscriptions.</p>
+      </div>
+      <DataTable data={data?.items || []} columns={columns} loading={isLoading} error={error as Error|null} onRetry={refetch} />
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 pt-2">
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary rounded disabled:opacity-30">Previous</button>
+          <span className="text-xs text-pat-text-secondary">Page {page} of {totalPages}</span>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary rounded disabled:opacity-30">Next</button>
+        </div>
+      )}
+    </div>
+  );
+}

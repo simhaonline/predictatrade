@@ -1,0 +1,24 @@
+[Unit]
+Description=Predict-A-Trade Next.js Frontend
+After=network.target predictatrade-control.service
+Wants=predictatrade-control.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/srv/predictatrade/xauusd/frontend
+EnvironmentFile=/srv/predictatrade/xauusd/infra/env/frontend.env
+ExecStart=/root/.nvm/versions/node/v24.19.0/bin/node node_modules/.bin/next start -H 127.0.0.1 -p 13082
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+LimitNOFILE=65536
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

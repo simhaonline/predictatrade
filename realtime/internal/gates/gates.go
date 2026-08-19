@@ -15,6 +15,7 @@ type GateState struct {
 	Scope         string
 	Value         any
 	State         types.GateResult
+	ReasonCode    string // human-readable reason for the current state (observability)
 	EvaluatedAt   time.Time
 	EventTime     time.Time
 	FreshnessMs   int64
@@ -147,10 +148,11 @@ func (r *Registry) EvaluateAll(input GateInput) (allPass bool, evaluations []Gat
 		state, stateExists := r.states[gateID]
 		if !stateExists {
 			// No cached state — fail closed (SOW Section 131.1)
+			// Distinguish NOT_INITIALIZED from missing
 			eval := GateEvaluation{
 				GateID:      gateID,
 				Result:      types.GateUnknown,
-				ReasonCodes: []string{"GATE_STATE_MISSING"},
+				ReasonCodes: []string{"GATE_NOT_INITIALIZED"},
 				EvaluatedAt: time.Now(),
 			}
 			evaluations = append(evaluations, eval)
@@ -163,7 +165,28 @@ func (r *Registry) EvaluateAll(input GateInput) (allPass bool, evaluations []Gat
 		}
 
 		// Check freshness (SOW Section 131.7)
+		// Stale gate state: fail closed for risk-critical gates,
+		// degrade (still allow) for non-critical gates if state was previously PASS
 		if !state.ValidUntil.IsZero() && time.Now().After(state.ValidUntil) {
+			// Risk-critical gates: exposure, margin — must have fresh state
+			isRiskCritical := gateID == types.GateExposure || gateID == types.GateMargin
+			if isRiskCritical {
+				eval := GateEvaluation{
+					GateID:      gateID,
+					Result:      types.GateVeto,
+					ReasonCodes: []string{"GATE_STATE_STALE"},
+					EvaluatedAt: time.Now(),
+					FreshnessMs: time.Since(state.EvaluatedAt).Milliseconds(),
+				}
+				evaluations = append(evaluations, eval)
+				allPass = false
+				if firstVeto == nil {
+					v := eval
+					firstVeto = &v
+				}
+				continue
+			}
+			// Non-critical gates: mark degraded but continue evaluation
 			eval := GateEvaluation{
 				GateID:      gateID,
 				Result:      types.GateDegraded,
@@ -172,19 +195,14 @@ func (r *Registry) EvaluateAll(input GateInput) (allPass bool, evaluations []Gat
 				FreshnessMs: time.Since(state.EvaluatedAt).Milliseconds(),
 			}
 			evaluations = append(evaluations, eval)
-			allPass = false
-			if firstVeto == nil {
-				v := eval
-				firstVeto = &v
-			}
-			continue
+			// Degraded is not a hard veto — continue evaluation
 		}
 
 		// Evaluate the gate
 		eval := gate.Evaluate(input, state)
 		evaluations = append(evaluations, eval)
 
-		if eval.Result == types.GateVeto || eval.Result == types.GateUnknown || eval.Result == types.GateDegraded {
+		if eval.Result == types.GateVeto || eval.Result == types.GateUnknown {
 			allPass = false
 			if firstVeto == nil {
 				v := eval
@@ -192,6 +210,11 @@ func (r *Registry) EvaluateAll(input GateInput) (allPass bool, evaluations []Gat
 			}
 			// Short-circuit: first hard veto terminates evaluation
 			break
+		}
+		// GateDegraded = stale but previously PASS — don't short-circuit, just mark as not all-pass
+		if eval.Result == types.GateDegraded {
+			allPass = false
+			// Don't set firstVeto for degraded — it's not a hard veto
 		}
 	}
 

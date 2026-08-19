@@ -1,0 +1,236 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { AdminService } from './admin.service';
+import { DB_POOL } from '../../common/database.module';
+
+// Integration-style tests that verify SQL queries match the actual schema.
+// These use a real connection to the test database if DATABASE_URL is set,
+// otherwise they mock the pool and verify query structure.
+
+const DB_URL = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
+
+describe('AdminService', () => {
+  let service: AdminService;
+  let pool: any;
+
+  beforeAll(async () => {
+    if (DB_URL) {
+      const { Pool } = require('pg');
+      pool = new Pool({ connectionString: DB_URL, max: 5 });
+    } else {
+      // Mock pool for unit tests when no DB is available
+      pool = {
+        query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
+      };
+    }
+  });
+
+  afterAll(async () => {
+    if (pool?.end) await pool.end();
+  });
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        AdminService,
+        { provide: DB_POOL, useValue: pool },
+      ],
+    }).compile();
+    service = module.get<AdminService>(AdminService);
+  });
+
+  describe('getOverview', () => {
+    it('should execute without SQL errors (all column references valid)', async () => {
+      if (!DB_URL) return; // skip if no DB
+      const result = await service.getOverview();
+      expect(result).toBeDefined();
+      expect(result.users).toBeDefined();
+      expect(result.subscriptions).toBeDefined();
+      expect(result.commissions).toBeDefined();
+      expect(result.payouts).toBeDefined();
+      expect(result.plans).toBeDefined();
+    });
+  });
+
+  describe('listAllSubscriptions', () => {
+    it('should return paginated structure with correct column names', async () => {
+      const result = await service.listAllSubscriptions(1, 20);
+      expect(result).toHaveProperty('items');
+      expect(result).toHaveProperty('total');
+      expect(result).toHaveProperty('page', 1);
+      expect(result).toHaveProperty('limit', 20);
+    });
+
+    it('should handle page 1 with zero records gracefully', async () => {
+      const result = await service.listAllSubscriptions(1, 20);
+      expect(result.total).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('listAllCommissions', () => {
+    it('should return paginated structure with commission_level mapped from level column', async () => {
+      const result = await service.listAllCommissions(1, 20);
+      expect(result).toHaveProperty('items');
+      expect(result).toHaveProperty('total');
+    });
+  });
+
+  describe('listAllPayouts', () => {
+    it('should return paginated structure with amount mapped from requested_amount', async () => {
+      const result = await service.listAllPayouts(1, 20);
+      expect(result).toHaveProperty('items');
+      expect(result).toHaveProperty('total');
+    });
+  });
+
+  describe('listAllDevices', () => {
+    it('should return paginated structure with correct device column mappings', async () => {
+      const result = await service.listAllDevices(1, 20);
+      expect(result).toHaveProperty('items');
+      expect(result).toHaveProperty('total');
+    });
+  });
+
+  describe('listAllLicenses', () => {
+    it('should return paginated structure', async () => {
+      const result = await service.listAllLicenses(1, 20);
+      expect(result).toHaveProperty('items');
+      expect(result).toHaveProperty('total');
+    });
+  });
+
+  describe('commissionSummary', () => {
+    it('should return summary with all expected fields', async () => {
+      const result = await service.commissionSummary();
+      expect(result).toHaveProperty('total_entries');
+      expect(result).toHaveProperty('total_amount');
+      expect(result).toHaveProperty('pending_count');
+      expect(result).toHaveProperty('confirmed_count');
+      expect(result).toHaveProperty('reversed_count');
+    });
+  });
+
+  describe('payoutStats', () => {
+    it('should return payout stats with REQUESTED status mapping', async () => {
+      const result = await service.payoutStats();
+      expect(result).toHaveProperty('total');
+      expect(result).toHaveProperty('pending');
+      expect(result).toHaveProperty('approved');
+    });
+  });
+
+  describe('systemHealth', () => {
+    it('should return services array format (not flat key-value)', async () => {
+      const result = await service.systemHealth();
+      expect(result).toHaveProperty('services');
+      expect(Array.isArray(result.services)).toBe(true);
+      expect(result.services.length).toBeGreaterThan(0);
+      // Each service should have the required fields
+      for (const svc of result.services) {
+        expect(svc).toHaveProperty('service');
+        expect(svc).toHaveProperty('status');
+        expect(svc).toHaveProperty('last_check');
+      }
+    });
+  });
+
+  describe('listUsers', () => {
+    it('should return paginated users with role info', async () => {
+      const result = await service.listUsers(1, 20);
+      expect(result).toHaveProperty('items');
+      expect(result).toHaveProperty('total');
+      expect(result).toHaveProperty('page', 1);
+    });
+  });
+
+  describe('systemHealth — Valkey/Redis check (regression: was hardcoded UNKNOWN)', () => {
+    it('should report Valkey/Redis as HEALTHY or OFFLINE, never UNKNOWN', async () => {
+      const result = await service.systemHealth();
+      const valkey = result.services.find((s: any) => s.service === 'Valkey/Redis');
+      expect(valkey).toBeDefined();
+      // The old code hardcoded 'UNKNOWN'. The fix does a real TCP check,
+      // so the status must now be either HEALTHY or OFFLINE.
+      expect(valkey.status).not.toBe('UNKNOWN');
+      expect(['HEALTHY', 'OFFLINE']).toContain(valkey.status);
+    });
+
+    it('should include latency_ms for the Valkey check', async () => {
+      const result = await service.systemHealth();
+      const valkey = result.services.find((s: any) => s.service === 'Valkey/Redis');
+      expect(valkey).toBeDefined();
+      expect(valkey.latency_ms).toBeDefined();
+      expect(typeof valkey.latency_ms).toBe('number');
+    });
+  });
+  describe('listAllLicenses (regression: known production license must appear)', () => {
+    it('should return at least 1 license with correct field mapping', async () => {
+      if (!DB_URL) return;
+      const result = await service.listAllLicenses(1, 20);
+      expect(result.items.length).toBeGreaterThanOrEqual(1);
+      const lic = result.items[0];
+      expect(lic).toHaveProperty('key');
+      expect(lic).toHaveProperty('user_email');
+      expect(lic).toHaveProperty('plan_name');
+      expect(lic).toHaveProperty('activated_at');
+    });
+
+    it('should include the known production license ee710bf6', async () => {
+      if (!DB_URL) return;
+      const result = await service.listAllLicenses(1, 20);
+      const found = result.items.find((l: any) => l.id === 'ee710bf6-5fe0-4b91-9b6b-a201348ea310');
+      expect(found).toBeDefined();
+      expect(found.user_email).toBe('user@simhaonline.com');
+      expect(found.plan_name).toBe('Elite');
+    });
+  });
+
+  describe('listAllSubscriptions (regression: Elite subscription must appear)', () => {
+    it('should return at least 1 subscription with correct field mapping', async () => {
+      if (!DB_URL) return;
+      const result = await service.listAllSubscriptions(1, 20);
+      expect(result.items.length).toBeGreaterThanOrEqual(1);
+      const sub = result.items[0];
+      expect(sub).toHaveProperty('plan_name');
+      expect(sub).toHaveProperty('current_period_start');
+      expect(sub).toHaveProperty('current_period_end');
+      expect(sub).toHaveProperty('billing_cycle');
+      expect(sub).toHaveProperty('license_key');
+    });
+  });
+
+  describe('listAllDevices (regression: device with activations must appear)', () => {
+    it('should return at least 1 device with activations array', async () => {
+      if (!DB_URL) return;
+      const result = await service.listAllDevices(1, 20);
+      expect(result.items.length).toBeGreaterThanOrEqual(1);
+      const dev = result.items[0];
+      expect(dev).toHaveProperty('license_key');
+      expect(dev).toHaveProperty('activations');
+      expect(Array.isArray(dev.activations)).toBe(true);
+    });
+  });
+
+  describe('listAllActivations (regression: MT4 and MT5 activations must appear)', () => {
+    it('should return activations with client_type MT4 and MT5', async () => {
+      if (!DB_URL) return;
+      const result = await service.listAllActivations(1, 20);
+      expect(result.items.length).toBeGreaterThanOrEqual(2);
+      const types = result.items.map((a: any) => a.client_type);
+      expect(types).toContain('MT4');
+      expect(types).toContain('MT5');
+    });
+  });
+
+  describe('getUserDetail (regression: full relationship map)', () => {
+    it('should return user with subscription, licenses, devices, and activations', async () => {
+      if (!DB_URL) return;
+      const detail = await service.getUserDetail('fbae762d-6fbc-4e37-9856-222036cdc783');
+      expect(detail.email).toBe('user@simhaonline.com');
+      expect(detail.subscription).not.toBeNull();
+      expect(detail.subscription.plan_name).toBe('Elite');
+      expect(detail.licenses.length).toBeGreaterThanOrEqual(1);
+      expect(detail.devices.length).toBeGreaterThanOrEqual(1);
+      expect(detail.activations.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+});

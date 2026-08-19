@@ -990,9 +990,8 @@ CREATE TABLE trading.signal_delivery_receipts (
     stream_id       VARCHAR(100),
     sequence        BIGINT NOT NULL,
     delivered_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    acknowledged_at TIMESTAMPTZ,
-    delivery_latency_ms INTEGER,
-    PRIMARY KEY (id)
+    acknowledged_at TIMESTAMPTZ
+    -- PK is id (defined above)
 );
 
 -- Convert high-volume tables to TimescaleDB hypertables if available

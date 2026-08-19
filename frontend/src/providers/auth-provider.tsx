@@ -1,0 +1,197 @@
+'use client';
+
+import React, { createContext, useContext, useEffect, useState, useCallback, useSyncExternalStore } from 'react';
+import { useRouter } from 'next/navigation';
+import { customInstance } from '@/lib/axios-instance';
+import { setAccessToken, clearAccessToken, getAccessToken, getRoleFromToken, getRoleFromTokenUnchecked } from '@/lib/auth';
+import { homeRouteForRole, type Role } from '@/lib/roles';
+
+export interface User {
+  id: string;
+  email: string;
+  role: Role;
+  name?: string;
+  avatar?: string;
+  mfaEnabled?: boolean;
+}
+
+type SessionState = 'LOADING' | 'AUTHENTICATED' | 'UNAUTHENTICATED';
+
+interface AuthContextValue {
+  user: User | null;
+  loading: boolean;
+  sessionState: SessionState;
+  login: (email: string, password: string, trustDevice?: boolean) => Promise<void>;
+  logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+/**
+ * Normalize a raw API response into a User, extracting role from the
+ * CURRENT (possibly just-refreshed) access token — not a stale captured one.
+ */
+function normalizeUser(raw: unknown): User | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  if (!r.id || !r.email) return null;
+
+  // Always read the CURRENT token — never a captured one.
+  const token = getAccessToken();
+  const role = getRoleFromToken(token) || getRoleFromTokenUnchecked(token) || 'USER';
+
+  return {
+    id: String(r.id),
+    email: String(r.email),
+    role,
+    name: String(r.full_name || r.displayName || r.email),
+    avatar: r.avatar ? String(r.avatar) : undefined,
+    mfaEnabled: Boolean(r.mfa_enabled || r.mfaEnabled),
+  };
+}
+
+/** SSR-safe token subscriber so loading is correct on first paint. */
+function useHasToken(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    () => !!getAccessToken(),
+    () => false,
+  );
+}
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const hasToken = useHasToken();
+  const [sessionState, setSessionState] = useState<SessionState>(hasToken ? 'LOADING' : 'UNAUTHENTICATED');
+  const router = useRouter();
+
+  const fetchMe = useCallback(async (): Promise<User | null> => {
+    const token = getAccessToken();
+    if (!token) {
+      setUser(null);
+      setSessionState('UNAUTHENTICATED');
+      return null;
+    }
+    try {
+      const res = await customInstance.get('/auth/me');
+      // Re-read the token AFTER the request — it may have been refreshed
+      const fetchedUser = normalizeUser(res.data);
+      if (fetchedUser) {
+        setUser(fetchedUser);
+        setSessionState('AUTHENTICATED');
+      } else {
+        setUser(null);
+        setSessionState('UNAUTHENTICATED');
+      }
+      return fetchedUser;
+    } catch {
+      setUser(null);
+      setSessionState('UNAUTHENTICATED');
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    const token = getAccessToken();
+    if (!token) {
+      // Use queueMicrotask to avoid setState synchronously in effect
+      queueMicrotask(() => {
+        setSessionState('UNAUTHENTICATED');
+      });
+      return;
+    }
+    void (async () => {
+      await fetchMe();
+    })();
+  }, [fetchMe]);
+
+  // Listen for forced logout from axios interceptor (refresh failure)
+  useEffect(() => {
+    const handler = () => {
+      setUser(null);
+      setSessionState('UNAUTHENTICATED');
+      router.replace('/login');
+    };
+    window.addEventListener('pat:logout', handler);
+    return () => window.removeEventListener('pat:logout', handler);
+  }, [router]);
+
+  const login = async (email: string, password: string, trustDevice = false) => {
+    const res = await customInstance.post<{
+      accessToken?: string;
+      user?: { id: string; email: string; displayName?: string };
+      mfaRequired?: boolean;
+      challengeId?: string;
+      method?: string;
+    }>('/auth/login', { email, password, trustDevice });
+    const data = res.data;
+
+    if (data.mfaRequired) {
+      if (typeof window !== 'undefined') {
+        (window as unknown as Window & { __MFA_CHALLENGE__?: string }).__MFA_CHALLENGE__ = data.challengeId ?? '';
+      }
+      router.push('/verify-otp');
+      return;
+    }
+
+    if (!data.accessToken) {
+      throw new Error('Login failed: no access token returned');
+    }
+
+    setAccessToken(data.accessToken);
+
+    // Build user from login response + token role
+    const token = getAccessToken();
+    const role = getRoleFromToken(token) || getRoleFromTokenUnchecked(token) || 'USER';
+
+    let loggedInUser: User | null = null;
+    if (data.user) {
+      loggedInUser = {
+        id: data.user.id,
+        email: data.user.email,
+        role,
+        name: data.user.displayName || data.user.email,
+      };
+    } else {
+      loggedInUser = await fetchMe();
+    }
+
+    setUser(loggedInUser);
+    setSessionState('AUTHENTICATED');
+
+    // Canonical role-aware redirect — handles SUPER_ADMIN too
+    const dest = homeRouteForRole(role);
+    router.replace(dest);
+  };
+
+  const logout = async () => {
+    try {
+      await customInstance.post('/auth/logout');
+    } catch {
+      /* ignore */
+    }
+    clearAccessToken();
+    setUser(null);
+    setSessionState('UNAUTHENTICATED');
+    router.replace('/login');
+  };
+
+  const refreshUser = async () => {
+    await fetchMe();
+  };
+
+  const loading = sessionState === 'LOADING';
+
+  return (
+    <AuthContext.Provider value={{ user, loading, sessionState, login, logout, refreshUser }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be inside AuthProvider');
+  return ctx;
+}

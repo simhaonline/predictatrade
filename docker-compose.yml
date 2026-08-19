@@ -5,7 +5,7 @@
 
 services:
   postgres:
-    image: pgvector/pgvector:pg17
+    image: timescale/timescaledb-ha:pg17
     container_name: pat-postgres
     environment:
       POSTGRES_USER: pat_admin
@@ -42,35 +42,13 @@ services:
     networks:
       - pat-net
 
-  pgbouncer:
-    image: edoburu/pgbouncer:latest
-    container_name: pat-pgbouncer
-    environment:
-      DB_USER: pat_admin
-      DB_PASSWORD: pat_local_dev_only
-      DB_HOST: postgres
-      DB_NAME: predictatrade
-      POOL_MODE: transaction
-      MAX_CLIENT_CONN: 200
-      DEFAULT_POOL_SIZE: 20
-    ports:
-      - "6432:5432"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - pat-net
-
   prometheus:
     image: prom/prometheus:latest
     container_name: pat-prometheus
-    ports:
-      - "9090:9090"
+    network_mode: host
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - pat-prometheus:/prometheus
-    networks:
-      - pat-net
 
   grafana:
     image: grafana/grafana:latest

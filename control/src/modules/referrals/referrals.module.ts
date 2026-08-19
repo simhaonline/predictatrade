@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ReferralsService } from './referrals.service';
-import { CommissionsModule } from '../commissions/commissions.module';
+import { ReferralsController } from './referrals.controller';
+import { DatabaseModule } from '../../common/database.module';
 
 @Module({
-  imports: [CommissionsModule],
+  imports: [DatabaseModule],
+  controllers: [ReferralsController],
   providers: [ReferralsService],
-  exports: [ReferralsService],
 })
 export class ReferralsModule {}

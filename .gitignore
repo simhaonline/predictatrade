@@ -21,6 +21,7 @@ venv/
 .env
 .env.local
 .env.*.local
+infra/env/*.env
 *.pem
 *.key
 secrets/
@@ -62,3 +63,6 @@ control/dist/
 # Keep .codex and .agents (project controls)
 !.codex/
 !.agents/
+*.bak
+jwt_secret.txt
+database_url.txt

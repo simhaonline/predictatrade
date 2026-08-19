@@ -32,6 +32,10 @@ func NewEngine(gateReg *gates.Registry) *Engine {
 // DecisionInput provides all inputs for a master decision.
 type DecisionInput struct {
 	StrategyID    types.StrategyID
+	Direction     types.Direction  // Pre-computed by strategy
+	RawScore      decimal.Decimal  // Pre-computed by strategy
+	LongScore     decimal.Decimal  // Pre-computed by strategy
+	ShortScore    decimal.Decimal  // Pre-computed by strategy
 	Tick          *types.Tick
 	Regime        types.Regime
 	Session       string
@@ -49,6 +53,7 @@ type DecisionInput struct {
 	EntitlementOK  bool
 	LicenseActive  bool
 	ExecutionPermitted bool
+	ATR            decimal.Decimal  // Phase 2: Real ATR propagation to gates
 }
 
 // DecisionResult is the final output of the master decision hierarchy.
@@ -61,43 +66,51 @@ type DecisionResult struct {
 }
 
 // Decide runs the complete master decision hierarchy (SOW Section 24).
-// 1. Evaluate confluence scoring
-// 2. Determine direction
-// 3. Run hard gates (short-circuit)
-// 4. Produce BUY/SELL/NO-TRADE
+// The strategy has already done: evidence scoring, direction determination,
+// conflict detection, MTF check, regime/session check.
+// This function runs the 12 hard gates on the strategy's pre-computed result.
+// 1. Accept strategy direction and score
+// 2. Run hard gates (short-circuit)
+// 3. Produce BUY/SELL/NO-TRADE
 func (e *Engine) Decide(input DecisionInput) DecisionResult {
 	result := DecisionResult{}
 
-	// Step 1: Confluence scoring
-	profile, ok := e.strategyProfiles[input.StrategyID]
-	if !ok {
-		result.NoTradeReasons = append(result.NoTradeReasons, types.NTSystemDegraded)
-		return result
-	}
-
-	confluenceResult := strategy.Evaluate(profile, strategy.ConfluenceInput{
-		Evidence: input.Evidence,
-	})
-
-	// Step 2: Determine direction
-	direction := strategy.Direction(confluenceResult)
-	if direction == types.DirectionNoTrade {
-		result.NoTradeReasons = append(result.NoTradeReasons, confluenceResult.ReasonCodes...)
-		// Still create a NO-TRADE signal for audit
+	// Step 1: Use the strategy's pre-computed direction
+	// The strategy has already evaluated all evidence, conflicts, MTF, regime, session
+	direction := input.Direction
+	if direction != types.DirectionBuy && direction != types.DirectionSell {
+		// NO_TRADE, WAIT, ERROR, BLOCKED — skip gates, persist as-is
+		result.NoTradeReasons = append(result.NoTradeReasons, types.NTInsufficientScore)
+		grade := types.GradeNoTrade
+		if direction == types.DirectionWait {
+			grade = types.GradeWait
+		} else if direction == types.DirectionError {
+			grade = types.GradeError
+		} else if direction == types.DirectionBlocked {
+			grade = types.GradeBlocked
+		}
 		result.Signal = &types.Signal{
 			ID:         uuid.New().String(),
 			Symbol:     types.SymbolXAUUSD,
 			StrategyID: input.StrategyID,
-			Direction:  types.DirectionNoTrade,
-			Grade:      types.GradeNoTrade,
+			Direction:  direction,
+			Grade:      grade,
 			Status:     types.SignalDetected,
-			RawScore:   confluenceResult.TotalScore,
-			LongScore:  confluenceResult.LongScore,
-			ShortScore: confluenceResult.ShortScore,
+			RawScore:   input.RawScore,
+			LongScore:  input.LongScore,
+			ShortScore: input.ShortScore,
+			EntryPrice: input.EntryPrice,
+			StopLoss:   input.StopLoss,
+			TP1:        input.TP1,
+			TP2:        input.TP2,
+			TP3:        input.TP3,
+			Regime:     input.Regime,
+			Session:    input.Session,
+			NewsRisk:   input.NewsRisk,
 			ReasonCodes: result.NoTradeReasons,
 			Evidence:   input.Evidence,
-			CreatedAt:  time.Now(),
-			ExpiresAt:  time.Now().Add(time.Minute * 15),
+			CreatedAt:  time.Now().UTC(),
+			ExpiresAt:  time.Now().UTC().Add(time.Minute * 15),
 		}
 		return result
 	}
@@ -107,6 +120,10 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 	atr := 0.0
 	if input.Tick != nil {
 		spread, _ = input.Tick.Spread.Float64()
+	}
+	// CRITICAL FIX: Propagate real ATR to gates (was hardcoded to 0.0)
+	if !input.ATR.IsZero() {
+		atr, _ = input.ATR.Float64()
 	}
 
 	gateInput := gates.GateInput{
@@ -136,32 +153,39 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 	// Step 4: Final decision
 	if !allPass {
 		// Hard gate veto → NO-TRADE
-		result.NoTradeReasons = append(result.NoTradeReasons, types.NTRiskLimitReached)
+		// prompt.md Section 17: Preserve market direction (BUY/SELL), set status to BLOCKED
+		// Do NOT set Direction=BLOCKED — that loses the market thesis
 		if firstVeto != nil {
 			for _, rc := range firstVeto.ReasonCodes {
 				result.NoTradeReasons = append(result.NoTradeReasons, types.NoTradeReason(rc))
 			}
+		} else {
+			// No specific veto found — generic gate failure
+			result.NoTradeReasons = append(result.NoTradeReasons, types.NTGateDegraded)
 		}
 		result.Signal = &types.Signal{
 			ID:         uuid.New().String(),
 			Symbol:     types.SymbolXAUUSD,
 			StrategyID: input.StrategyID,
-			Direction:  types.DirectionNoTrade,
-			Grade:      types.GradeNoTrade,
+			Direction:  direction, // Keep BUY/SELL — do NOT set BLOCKED
+			Grade:      types.GradeBlocked,
 			Status:     types.SignalDetected,
-			RawScore:   confluenceResult.TotalScore,
-			LongScore:  confluenceResult.LongScore,
-			ShortScore: confluenceResult.ShortScore,
+			RawScore:   input.RawScore,
+			LongScore:  input.LongScore,
+			ShortScore: input.ShortScore,
 			EntryPrice: input.EntryPrice,
 			StopLoss:   input.StopLoss,
 			TP1:        input.TP1,
 			TP2:        input.TP2,
 			TP3:        input.TP3,
+			Regime:     input.Regime,
+			Session:    input.Session,
+			NewsRisk:   input.NewsRisk,
 			ReasonCodes: result.NoTradeReasons,
 			Evidence:   input.Evidence,
 			GateResults: convertGateEvals(gateEvals),
-			CreatedAt:  time.Now(),
-			ExpiresAt:  time.Now().Add(time.Minute * 15),
+			CreatedAt:  time.Now().UTC(),
+			ExpiresAt:  time.Now().UTC().Add(time.Minute * 15),
 		}
 		return result
 	}
@@ -180,9 +204,9 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 		Direction:  direction,
 		Grade:      types.GradeUnrated, // Before calibration sufficiency (SOW Section 17A)
 		Status:     types.SignalCandidate,
-		RawScore:   confluenceResult.TotalScore,
-		LongScore:  confluenceResult.LongScore,
-		ShortScore: confluenceResult.ShortScore,
+		RawScore:   input.RawScore,
+		LongScore:  input.LongScore,
+		ShortScore: input.ShortScore,
 		EntryPrice: input.EntryPrice,
 		StopLoss:   input.StopLoss,
 		TP1:        input.TP1,
@@ -196,8 +220,8 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 		ReasonCodes: nil,
 		Evidence:   input.Evidence,
 		GateResults: convertGateEvals(gateEvals),
-		CreatedAt:  time.Now(),
-		ExpiresAt:  time.Now().Add(time.Minute * 15),
+		CreatedAt:  time.Now().UTC(),
+		ExpiresAt:  time.Now().UTC().Add(time.Minute * 15),
 	}
 
 	return result

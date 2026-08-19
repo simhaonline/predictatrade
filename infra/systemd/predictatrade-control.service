@@ -1,0 +1,24 @@
+[Unit]
+Description=Predict-A-Trade NestJS Control Plane
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/srv/predictatrade/xauusd/control
+EnvironmentFile=/srv/predictatrade/xauusd/infra/env/control.env
+ExecStart=/root/.nvm/versions/node/v24.19.0/bin/node dist/main.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+LimitNOFILE=65536
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

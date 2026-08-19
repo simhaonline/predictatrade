@@ -1,0 +1,24 @@
+[Unit]
+Description=Predict-A-Trade Status Page
+After=network.target predictatrade-control.service predictatrade-realtime.service
+Wants=predictatrade-control.service predictatrade-realtime.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/srv/predictatrade/xauusd/status
+EnvironmentFile=/srv/predictatrade/xauusd/infra/env/status.env
+ExecStart=/root/.nvm/versions/node/v24.19.0/bin/node server.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+LimitNOFILE=4096
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target

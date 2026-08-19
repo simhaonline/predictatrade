@@ -1,0 +1,210 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ─── LIGHT MODE (default) ─── */
+  :root {
+    /* Page & surfaces */
+    --pat-bg-page: 210 40 98;           /* #F8FAFC */
+    --pat-bg-surface: 0 0 100;           /* #FFFFFF */
+    --pat-bg-surface-secondary: 210 40 96; /* #F1F5F9 */
+    --pat-bg-header: 0 0 100;           /* #FFFFFF */
+
+    /* Sidebar — dark in both modes */
+    --pat-bg-sidebar: 222 47 11;        /* #0F172A */
+    --pat-bg-sidebar-hover: 217 33 17;  /* #1E293B */
+    --pat-bg-sidebar-active: 217 33 17; /* #1E293B */
+    --pat-text-sidebar: 213 27 84;     /* #CBD5E1 */
+    --pat-text-sidebar-active: 0 0 100; /* #FFFFFF */
+    --pat-text-sidebar-muted: 215 16 47;/* #64748B */
+    --pat-border-sidebar: 217 33 17;   /* #1E293B */
+
+    /* Text */
+    --pat-text-primary: 222 47 11;     /* #0F172A */
+    --pat-text-secondary: 215 25 27;   /* #334155 */
+    --pat-text-muted: 215 16 47;        /* #64748B */
+    --pat-text-inverse: 0 0 100;       /* #FFFFFF */
+
+    /* Borders */
+    --pat-border: 214 32 91;           /* #E2E8F0 */
+    --pat-border-strong: 213 27 84;    /* #CBD5E1 */
+
+    /* Primary (info blue) */
+    --pat-primary: 217 91 60;          /* #3B82F6 */
+    --pat-primary-foreground: 0 0 100; /* #FFFFFF */
+    --pat-primary-hover: 221 83 53;    /* #2563EB */
+
+    /* Semantic — identical across modes */
+    --pat-success: 160 84 39;          /* #10B981 */
+    --pat-success-surface: 160 84 39;
+    --pat-danger: 0 84 60;             /* #EF4444 */
+    --pat-danger-surface: 0 84 60;
+    --pat-warning: 38 92 50;           /* #F59E0B */
+    --pat-warning-surface: 38 92 50;
+    --pat-info: 217 91 60;             /* #3B82F6 */
+    --pat-info-surface: 217 91 60;
+
+    /* Cards */
+    --pat-card-bg: 0 0 100;            /* #FFFFFF */
+    --pat-card-border: 214 32 91;      /* #E2E8F0 */
+
+    /* Tables */
+    --pat-table-bg: 0 0 100;           /* #FFFFFF */
+    --pat-table-header: 210 40 96;     /* #F1F5F9 */
+    --pat-table-hover: 210 40 96;     /* #F1F5F9 */
+    --pat-table-border: 214 32 91;    /* #E2E8F0 */
+
+    /* Inputs */
+    --pat-input-bg: 0 0 100;          /* #FFFFFF */
+    --pat-input-border: 214 32 91;   /* #E2E8F0 */
+    --pat-input-text: 222 47 11;    /* #0F172A */
+
+    /* Misc */
+    --pat-overlay: 0 0 0;
+    --pat-shadow: 0 1% 0%;
+    --pat-radius: 0.5rem;
+
+    /* Status badge surfaces (lighter tints for light mode) */
+    --pat-badge-success-bg: 149 80 90; /* #D1FAE5 */
+    --pat-badge-success-text: 163 88 20; /* #065F46 */
+    --pat-badge-danger-bg: 0 93 94;   /* #FEE2E2 */
+    --pat-badge-danger-text: 0 70 35; /* #991B1B */
+    --pat-badge-warning-bg: 48 96 89; /* #FEF3C7 */
+    --pat-badge-warning-text: 23 82 31;/* #92400E */
+    --pat-badge-info-bg: 214 95 93;  /* #DBEAFE */
+    --pat-badge-info-text: 226 71 40;/* #1E40AF */
+    --pat-badge-neutral-bg: 210 40 96;/* #F1F5F9 */
+    --pat-badge-neutral-text: 215 16 47;/* #64748B */
+
+    /* Trading-specific colors — identical across themes */
+    --pat-price-bid: 160 84 39;       /* #10B981 */
+    --pat-price-ask: 0 84 60;        /* #EF4444 */
+    --pat-value-tp: 160 84 39;      /* #10B981 */
+    --pat-value-sl: 0 84 60;       /* #EF4444 */
+    --pat-session-highlight: 45 93 47; /* #EAB308 */
+
+    /* Candidate advisory colors */
+    --pat-candidate-buy: 38 92 50;  /* #F59E0B amber for BUY_CANDIDATE */
+    --pat-candidate-sell: 25 95 53; /* #FB923C orange for SELL_CANDIDATE */
+  }
+
+  /* ─── DARK MODE ─── */
+  .dark {
+    /* Page & surfaces */
+    --pat-bg-page: 222 47 11;         /* #0F172A */
+    --pat-bg-surface: 217 33 17;     /* #1E293B */
+    --pat-bg-surface-secondary: 215 25 27; /* #334155 */
+    --pat-bg-header: 222 47 11;      /* #0F172A */
+
+    /* Sidebar — stays dark */
+    --pat-bg-sidebar: 229 84 5;     /* #020617 */
+    --pat-bg-sidebar-hover: 217 33 17; /* #1E293B */
+    --pat-bg-sidebar-active: 217 33 17;/* #1E293B */
+    --pat-text-sidebar: 215 20 65;  /* #94A3B8 */
+    --pat-text-sidebar-active: 0 0 100; /* #FFFFFF */
+    --pat-text-sidebar-muted: 215 19 35; /* #475569 */
+    --pat-border-sidebar: 217 33 17; /* #1E293B */
+
+    /* Text */
+    --pat-text-primary: 210 40 98;  /* #F8FAFC */
+    --pat-text-secondary: 213 27 84;/* #CBD5E1 */
+    --pat-text-muted: 215 20 65;   /* #94A3B8 */
+    --pat-text-inverse: 222 47 11;/* #0F172A */
+
+    /* Borders */
+    --pat-border: 215 25 27;      /* #334155 */
+    --pat-border-strong: 215 19 35; /* #475569 */
+
+    /* Primary */
+    --pat-primary: 217 91 60;   /* #3B82F6 */
+    --pat-primary-foreground: 0 0 100; /* #FFFFFF */
+    --pat-primary-hover: 221 83 53; /* #2563EB */
+
+    /* Semantic — identical across modes */
+    --pat-success: 160 84 39;  /* #10B981 */
+    --pat-success-surface: 160 84 39;
+    --pat-danger: 0 84 60;    /* #EF4444 */
+    --pat-danger-surface: 0 84 60;
+    --pat-warning: 38 92 50; /* #F59E0B */
+    --pat-warning-surface: 38 92 50;
+    --pat-info: 217 91 60;  /* #3B82F6 */
+    --pat-info-surface: 217 91 60;
+
+    /* Cards */
+    --pat-card-bg: 217 33 17; /* #1E293B */
+    --pat-card-border: 215 25 27; /* #334155 */
+
+    /* Tables */
+    --pat-table-bg: 217 33 17; /* #1E293B */
+    --pat-table-header: 215 25 27; /* #334155 */
+    --pat-table-hover: 215 25 27; /* #334155 */
+    --pat-table-border: 215 25 27; /* #334155 */
+
+    /* Inputs */
+    --pat-input-bg: 217 33 17; /* #1E293B */
+    --pat-input-border: 215 25 27; /* #334155 */
+    --pat-input-text: 210 40 98; /* #F8FAFC */
+
+    /* Misc */
+    --pat-overlay: 0 0 0;
+    --pat-shadow: 0 0 0;
+    --pat-radius: 0.5rem;
+
+    /* Status badge surfaces (darker tints for dark mode) */
+    --pat-badge-success-bg: 164 86 16; /* #064E3B */
+    --pat-badge-success-text: 160 84 39; /* #10B981 */
+    --pat-badge-danger-bg: 0 63 31; /* #7F1D1D */
+    --pat-badge-danger-text: 0 84 60; /* #EF4444 */
+    --pat-badge-warning-bg: 22 78 26; /* #78350F */
+    --pat-badge-warning-text: 38 92 50; /* #F59E0B */
+    --pat-badge-info-bg: 224 64 33; /* #1E3A8A */
+    --pat-badge-info-text: 217 91 60; /* #3B82F6 */
+    --pat-badge-neutral-bg: 215 25 27; /* #334155 */
+    --pat-badge-neutral-text: 215 20 65; /* #94A3B8 */
+
+    /* Trading-specific colors — identical across themes */
+    --pat-price-bid: 160 84 39; /* #10B981 */
+    --pat-price-ask: 0 84 60; /* #EF4444 */
+    --pat-value-tp: 160 84 39; /* #10B981 */
+    --pat-value-sl: 0 84 60; /* #EF4444 */
+    --pat-session-highlight: 45 93 47; /* #EAB308 */
+
+    /* Candidate advisory colors */
+    --pat-candidate-buy: 38 92 50; /* #F59E0B */
+    --pat-candidate-sell: 25 95 53; /* #FB923C */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-pat-border;
+  }
+  body {
+    @apply bg-pat-bg-page text-pat-text-primary;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+/* Trading semantic colors — theme-independent */
+.price-up { color: hsl(var(--pat-success)); }
+.price-down { color: hsl(var(--pat-danger)); }
+.spread-warning { color: hsl(var(--pat-warning)); }
+
+/* Scrollbar theming */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: hsl(var(--pat-bg-surface-secondary)); }
+::-webkit-scrollbar-thumb { background: hsl(var(--pat-border-strong)); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--pat-text-muted)); }
+
+/* Autofill fix — prevents browser from overriding theme colors */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: hsl(var(--pat-input-text));
+  -webkit-box-shadow: 0 0 0px 1000px hsl(var(--pat-input-bg)) inset;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Reduced motion */
+.reduce-motion * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }

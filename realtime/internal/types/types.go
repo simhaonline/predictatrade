@@ -17,7 +17,10 @@ type Direction string
 const (
 	DirectionBuy     Direction = "BUY"
 	DirectionSell    Direction = "SELL"
+	DirectionWait    Direction = "WAIT"
 	DirectionNoTrade Direction = "NO-TRADE"
+	DirectionBlocked Direction = "BLOCKED"
+	DirectionError   Direction = "ERROR"
 )
 
 // StrategyID identifies one of the four canonical strategy products.
@@ -145,6 +148,9 @@ const (
 	GradeB      SignalGrade = "B"
 	GradeC      SignalGrade = "C"
 	GradeNoTrade SignalGrade = "NO-TRADE"
+	GradeWait    SignalGrade = "WAIT"
+	GradeBlocked SignalGrade = "BLOCKED"
+	GradeError   SignalGrade = "ERROR"
 	GradeResearch SignalGrade = "RESEARCH"
 	GradeUnrated  SignalGrade = "UNRATED"
 	GradeShadow   SignalGrade = "SHADOW"
@@ -235,6 +241,18 @@ const (
 	NTBrokerProfileMismatch  NoTradeReason = "BROKER_PROFILE_MISMATCH"
 	NTGateDegraded           NoTradeReason = "GATE_DEGRADED"
 	NTGateUnknown            NoTradeReason = "GATE_UNKNOWN"
+
+	// Phase 2: Granular NO-TRADE reason codes (SOW Section 32)
+	NTNoDirection           NoTradeReason = "NT_NO_DIRECTION"
+	NTScoreBelowThreshold   NoTradeReason = "NT_SCORE_BELOW_THRESHOLD"
+	NTRegimeMismatch        NoTradeReason = "NT_REGIME_MISMATCH"
+	NTFeatureWarmup         NoTradeReason = "NT_FEATURE_WARMUP"
+	NTMTFUnavailable        NoTradeReason = "NT_MTF_UNAVAILABLE"
+	NTStructureUnavailable  NoTradeReason = "NT_STRUCTURE_UNAVAILABLE"
+	NTATRNotReady           NoTradeReason = "NT_ATR_NOT_READY"
+	NTDataStale             NoTradeReason = "NT_DATA_STALE"
+	NTBrokerConstraint      NoTradeReason = "NT_BROKER_CONSTRAINT"
+	NTCalibrationUnavailable NoTradeReason = "NT_CALIBRATION_UNAVAILABLE"
 )
 
 // EvidenceContribution represents a single pillar's contribution to a signal score (SOW Section 12C.3).
@@ -292,6 +310,105 @@ type Signal struct {
 	ExpiresAt           time.Time
 	ExitProfileID       string
 	GatePolicyVersion   string
+
+	// Phase 2: Versioning (SOW Section 33)
+	RegimeEngineVersion  string
+	StrategyVersion      string
+	ScoringVersion       string
+	GateConfigVersion    string
+
+	// Phase 2: Shadow signal marker
+	ShadowOnly           bool
+	Executable           bool
+	FailedProductionReason string
+
+	// Phase 2: Detailed timestamp model (SOW Sections 26-30)
+	// Each timestamp captures a distinct lifecycle stage.
+	// Do NOT populate stages that have not occurred.
+	MarketTime           time.Time // source/market candle time (broker time, UTC)
+	MarketBarOpenTime    time.Time // candle open time
+	MarketBarCloseTime   time.Time // candle close time
+	DetectedAt           time.Time // strategy evaluation processing time
+	CandidateDetectedAt  time.Time // candidate threshold crossed
+	QualifiedAt          time.Time // trade threshold crossed + gates passed
+	PublishedAt          time.Time // signal published to delivery layer
+	DeliveryQueuedAt     time.Time
+	DeliveredAt          time.Time
+	AcknowledgedAt       time.Time
+	ExecutionSubmittedAt time.Time
+	BrokerFillAt         time.Time
+
+	// Exit lifecycle (SOW Sections 2, 34) — NULL/zero until trade actually closes
+	ExitPrice            decimal.Decimal
+	ExitReason           string // TP1, TP2, TP3, SL, TIMEOUT, MANUAL, SAFETY_EXIT, BROKER_CLOSE
+	ClosedAt             time.Time
+	RealizedPnL          decimal.Decimal
+	RealizedR            decimal.Decimal
+
+	// Candidate/advisory classification (SOW Sections 12, 31-35)
+	SignalClass          string // ADVISORY, EXECUTABLE
+	CandidateThreshold   float64
+	TradeThreshold       float64
+	EntryType            string // MARKET, LIMIT, STOP
+	ConflictPenalty      decimal.Decimal
+
+	// Versioning for reproducibility (SOW Section 44)
+	GeometryVersion      string
+	RiskProfileVersion   string
+	FeatureVersion       string
+	RegimeVersion        string
+
+	// Parent linkage for transition candidates (SOW Section 24)
+	ParentCandidateID    string
+
+	// Transition analysis scores (prompt.md Sections 6, 54)
+	TransitionLongScore    decimal.Decimal
+	TransitionShortScore   decimal.Decimal
+	TransitionConflict      decimal.Decimal
+	TransitionFinalScore    decimal.Decimal
+	TransitionCandidateThreshold float64
+	IsTransitionCandidate   bool
+
+	// Blocker tracking (prompt.md Sections 17-18)
+	PrimaryBlocker    string
+	SecondaryBlockers []string
+
+	// Signal provenance (prompt.md Sections 30-31, 43)
+	SourceMode        string    // LIVE_MASTER_NODE, AGENT, SIMULATED, etc.
+	SourceAgentID     string    // agent/device safe identifier
+	SourceSequence    uint64    // source tick/snapshot sequence
+	SourceTimestamp   time.Time // source timestamp from provider
+	IngestTimestamp   time.Time // when data entered our pipeline
+	BarClosed         BarClosedState // CLOSED_BAR_CONFIRMED or INTRABAR_LIVE
+	BidPrice          decimal.Decimal
+	AskPrice          decimal.Decimal
+	ProvenanceState   ProvenanceState // LIVE_VERIFIED, UNVERIFIED, etc.
+	CalibrationStatus CalibrationStatus
+
+	// Deterministic hash (prompt.md Section 38)
+	InputHash   string
+	DecisionHash string
+
+	// Dominance (prompt.md Section 23)
+	Dominance   float64
+
+	// Traceability identifiers (prompt.md Sections 5-9)
+	EvaluationSequence int64
+	SignalSequence     int64
+	SignalReference    string // PAT-XAU-YYYYMMDD-NNNNNN
+
+	// Score status (prompt.md Section 15)
+	ScoreStatus string // COMPUTED, NOT_EVALUATED, INSUFFICIENT_FEATURES, NOT_APPLICABLE, ERROR
+
+	// Calibration metadata (prompt.md Section 18)
+	CalibrationModelID     string
+	CalibrationModelVersion string
+	CalibrationTarget      string
+	CalibrationSampleCount  int
+	CalibrationArtifactHash string
+
+	// Outbox state (prompt.md Section 34)
+	OutboxState string // PENDING, PROCESSING, PUBLISHED, FAILED, RETRYING, DEAD_LETTER
 }
 
 // GateEvaluation records the result of a single gate check (SOW Section 131).
@@ -323,6 +440,60 @@ const (
 	CapETFFlows            Capability = "ETF_FLOWS"
 	CapCentralBankFlow     Capability = "CENTRAL_BANK_FLOW"
 )
+
+// DataSourceType represents the provenance of market data (Stage 4 Section 1).
+// Production signal generation requires LIVE_MASTER_NODE.
+// Any other source must FAIL CLOSED.
+type DataSourceType string
+
+const (
+	DataSourceLiveMasterNode DataSourceType = "LIVE_MASTER_NODE"
+	DataSourceTest           DataSourceType = "TEST"
+	DataSourceMock           DataSourceType = "MOCK"
+	DataSourceDemo           DataSourceType = "DEMO"
+	DataSourceFixture        DataSourceType = "FIXTURE"
+	DataSourceSynthetic      DataSourceType = "SYNTHETIC"
+	DataSourcePlaceholder    DataSourceType = "PLACEHOLDER"
+	DataSourceUnknown        DataSourceType = "UNKNOWN"
+	DataSourceReplay         DataSourceType = "REPLAY"
+)
+
+// IsLiveDataSource returns true only if the data source is production-live.
+func IsLiveDataSource(src DataSourceType) bool {
+	return src == DataSourceLiveMasterNode
+}
+
+// ModuleMode represents the activation state of an advanced intelligence module.
+// Stage 4 Section 29-30: New modules start in SHADOW mode with zero score impact.
+type ModuleMode string
+
+const (
+	ModuleOff       ModuleMode = "OFF"
+	ModuleShadow    ModuleMode = "SHADOW"
+	ModuleActive    ModuleMode = "ACTIVE"
+	ModuleDisabled  ModuleMode = "DISABLED"
+	ModuleUnsupported ModuleMode = "UNSUPPORTED"
+	ModuleResearch  ModuleMode = "RESEARCH"
+)
+
+// ModuleProvenance records the metadata needed to reconstruct any advanced feature.
+// Stage 4 Section 44: Complete module provenance.
+type ModuleProvenance struct {
+	Module         string          `json:"module"`
+	ModuleVersion  string          `json:"module_version"`
+	Timestamp      time.Time       `json:"timestamp"`
+	SourceSnapshotID string       `json:"source_snapshot_id"`
+	InputTimeframes []string      `json:"input_timeframes"`
+	Lookback       int             `json:"lookback"`
+	SampleCount    int             `json:"sample_count"`
+	ParametersVersion string      `json:"parameters_version"`
+	Value          interface{}     `json:"value"`
+	State          string          `json:"state"`
+	Availability   string          `json:"availability"`
+	WindowStart    time.Time       `json:"window_start"`
+	WindowEnd      time.Time       `json:"window_end"`
+	CalcLatencyMs  int64           `json:"calculation_latency_ms"`
+}
 
 // ExecutionMode represents the execution permission level (SOW Section 26).
 type ExecutionMode string
@@ -390,3 +561,62 @@ type KillSwitch struct {
 	SetBy   string `json:"set_by"`
 	SetAt   time.Time `json:"set_at"`
 }
+
+// Phase 2: Additional granular NO-TRADE reason codes (prompt.md Sections 6, 10, 23)
+const (
+	NTNoTrendTransition       NoTradeReason = "NT_NO_TREND_TRANSITION"
+	NTConflictingDirection    NoTradeReason = "NT_CONFLICTING_DIRECTION"
+	NTScoreBelowTradeThreshold NoTradeReason = "SCORE_BELOW_TRADE_THRESHOLD"
+	NTScoreBelowCandidate     NoTradeReason = "SCORE_BELOW_CANDIDATE_THRESHOLD"
+)
+
+// ProvenanceState represents the authenticity verification state of a signal.
+// prompt.md Section 43: Backend is authoritative for provenance.
+type ProvenanceState string
+
+const (
+	ProvenanceLiveVerified  ProvenanceState = "LIVE_VERIFIED"
+	ProvenanceRealReplay    ProvenanceState = "REAL_REPLAY"
+	ProvenanceSynthetic     ProvenanceState = "SYNTHETIC"
+	ProvenanceUnverified    ProvenanceState = "UNVERIFIED"
+)
+
+// CalibrationStatus represents the validation state of a calibration model.
+// prompt.md Section 36: Until valid calibration exists, probability must be NULL.
+type CalibrationStatus string
+
+const (
+	CalibrationUnverified  CalibrationStatus = "UNVERIFIED"
+	CalibrationShadow      CalibrationStatus = "SHADOW"
+	CalibrationValidated   CalibrationStatus = "VALIDATED"
+	CalibrationPromoted    CalibrationStatus = "PROMOTED"
+)
+
+// IsCalibrationValidated returns true only if calibration is VALIDATED or PROMOTED.
+func IsCalibrationValidated(status CalibrationStatus) bool {
+	return status == CalibrationValidated || status == CalibrationPromoted
+}
+
+// BarClosedState distinguishes intrabar vs closed-bar semantics.
+// prompt.md Section 32: Do NOT treat shift/index 0 as confirmed closed bar.
+type BarClosedState string
+
+const (
+	BarClosedConfirmed  BarClosedState = "CLOSED_BAR_CONFIRMED"
+	BarIntrabarLive     BarClosedState = "INTRABAR_LIVE"
+)
+
+// Additional Signal fields for transition analysis, provenance, and blocker tracking.
+// These are appended after the main Signal struct definition via a separate struct
+// that is embedded. However, since Go doesn't allow adding fields to an existing
+// struct from a separate file, we define helper accessors instead.
+// The actual fields are added directly to the Signal struct above.
+
+// ScoreStatus values (prompt.md Section 15)
+const (
+	ScoreStatusComputed           = "COMPUTED"
+	ScoreStatusNotEvaluated       = "NOT_EVALUATED"
+	ScoreStatusInsufficientFeatures = "INSUFFICIENT_FEATURES"
+	ScoreStatusNotApplicable      = "NOT_APPLICABLE"
+	ScoreStatusError              = "ERROR"
+)
