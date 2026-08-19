@@ -1,0 +1,7 @@
+# Predict-A-Trade
+
+Predict-A-Trade is a market-intelligence website focused on explainable XAUUSD analysis.
+It describes indicators, market structure, liquidity, sessions, and multi-timeframe context.
+
+Canonical site: https://predictatrade.com/
+Contact: https://predictatrade.com/#contact
