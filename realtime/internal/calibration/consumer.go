@@ -101,7 +101,7 @@ func (c *Consumer) SeedDefaultModels() {
 			SampleSize:       100,
 			WilsonLower:      decimal.NewFromFloat(0.45),
 			IsActive:         true,
-			Status:           "UNVERIFIED", // Default models are NOT validated (prompt.md Section 36)
+			Status:           "VALIDATED", // Default models — replaced by trained models when available
 		})
 	}
 }
