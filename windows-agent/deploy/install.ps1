@@ -200,6 +200,7 @@ $FilesToDownload = @(
     @{ Name = "agent.exe";        Dest = "agent.exe";        Overwrite = $true  }
     @{ Name = "notify.ps1";        Dest = "notify.ps1";        Overwrite = $true  }
     @{ Name = "health-check.ps1"; Dest = "health-check.ps1"; Overwrite = $true  }
+    @{ Name = "status.ps1";       Dest = "status.ps1";        Overwrite = $true  }
     @{ Name = "settings.json";    Dest = "settings.json";    Overwrite = $false }
 )
 
