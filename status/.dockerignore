@@ -1,0 +1,11 @@
+.git
+.gitignore
+*.md
+*_test.go
+__pycache__
+*.pyc
+.venv
+node_modules
+.next
+bin/
+*.exe

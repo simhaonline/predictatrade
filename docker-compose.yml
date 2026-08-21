@@ -1,9 +1,17 @@
-# Predict-A-Trade v1.0.0 — Local Development & Test Infrastructure
-# PostgreSQL 17 + TimescaleDB + pgvector + Valkey + PgBouncer
-# Usage: docker compose up -d
-# This is for LOCAL/TEST/CI only. Production uses systemd-managed services.
+# ═══════════════════════════════════════════════════════════════
+# Predict-A-Trade v1.0.0 — Full Docker Compose
+# Every service in its own container — no host systemd services
+# ═══════════════════════════════════════════════════════════════
+# Usage:
+#   docker compose up -d          # Start all services
+#   docker compose logs -f        # Follow all logs
+#   docker compose logs -f realtime  # Follow one service
+#   docker compose restart realtime  # Restart one service
+#   docker compose down           # Stop all
+# ═══════════════════════════════════════════════════════════════
 
 services:
+  # ─── Database Layer ───
   postgres:
     image: timescale/timescaledb-ha:pg17
     container_name: pat-postgres
@@ -26,6 +34,7 @@ services:
       retries: 30
     networks:
       - pat-net
+    restart: always
 
   valkey:
     image: valkey/valkey:8.0
@@ -42,14 +51,141 @@ services:
       retries: 10
     networks:
       - pat-net
+    restart: always
 
+  # ─── Application Layer ───
+  realtime:
+    build:
+      context: ./realtime
+      dockerfile: Dockerfile
+    container_name: pat-realtime
+    env_file:
+      - ./infra/env/realtime.env
+    environment:
+      - DATABASE_URL=postgresql://pat_admin:pat_local_dev_only@postgres:5432/predictatrade?sslmode=disable
+      - VALKEY_ADDR=valkey:6379
+      - HTTP_HOST=0.0.0.0
+      - HTTP_PORT=13081
+      - WS_PORT=13081
+    ports:
+      - "13081:13081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - pat-net
+    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  control:
+    build:
+      context: ./control
+      dockerfile: Dockerfile
+    container_name: pat-control
+    env_file:
+      - ./infra/env/control.env
+    environment:
+      - DATABASE_URL=postgresql://pat_admin:pat_local_dev_only@postgres:5432/predictatrade?sslmode=disable
+      - CONTROL_HOST=0.0.0.0
+      - CONTROL_PORT=13080
+    ports:
+      - "13080:13080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - pat-net
+    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pat-frontend
+    env_file:
+      - ./infra/env/frontend.env
+    environment:
+      - NODE_ENV=production
+      - HOSTNAME=0.0.0.0
+      - PORT=13082
+    ports:
+      - "13082:13082"
+    depends_on:
+      - control
+      - realtime
+    networks:
+      - pat-net
+    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13082/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  status:
+    build:
+      context: ./status
+      dockerfile: Dockerfile
+    container_name: pat-status
+    env_file:
+      - ./infra/env/status.env
+    environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
+      - PORT=13083
+    ports:
+      - "13083:13083"
+    depends_on:
+      - control
+      - realtime
+    networks:
+      - pat-net
+    restart: always
+
+  # ─── Reverse Proxy Layer ───
+  nginx:
+    image: nginx:alpine
+    container_name: pat-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/sites-available:/etc/nginx/sites-available:ro
+      - ./nginx/snippets:/etc/nginx/snippets:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - live-dashboard:/var/www/pat-live:ro
+      - ssl-certs:/etc/letsencrypt:ro
+      - nginx-logs:/var/log/nginx
+    depends_on:
+      - realtime
+      - frontend
+      - control
+      - status
+    networks:
+      - pat-net
+    restart: always
+
+  # ─── Monitoring Layer ───
   prometheus:
     image: prom/prometheus:latest
     container_name: pat-prometheus
-    network_mode: host
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - pat-prometheus:/prometheus
+    networks:
+      - pat-net
+    restart: always
 
   grafana:
     image: grafana/grafana:latest
@@ -68,12 +204,45 @@ services:
       - prometheus
     networks:
       - pat-net
+    restart: always
+
+  # ─── Notifications ───
+  ntfy:
+    image: binwiederhier/ntfy
+    container_name: pat-ntfy
+    command: serve
+    ports:
+      - "8090:80"
+    volumes:
+      - pat-ntfy:/var/lib/ntfy
+    networks:
+      - pat-net
+    restart: always
 
 volumes:
   pat-pgdata:
   pat-valkey:
   pat-prometheus:
   pat-grafana:
+  pat-ntfy:
+  live-dashboard:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/www/pat-live
+  ssl-certs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /etc/letsencrypt
+  nginx-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/log/nginx
 
 networks:
   pat-net:
