@@ -64,5 +64,5 @@ ${results.map(r=>`<div class="service"><span class="service-name">${r.name}</spa
 });
 
 const PORT = process.env.STATUS_PORT || 13083;
-const HOST = process.env.HOST || process.env.STATUS_HOST || '0.0.0.0';
+const HOST = process.env.HOST || process.env.HOST || '0.0.0.0' || '0.0.0.0';
 server.listen(PORT, HOST, () => { console.log(`Status page running on ${HOST}:${PORT}`); });
