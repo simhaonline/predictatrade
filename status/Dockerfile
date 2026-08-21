@@ -1,9 +1,7 @@
-# Predict-A-Trade — Status Page
+# Predict-A-Trade — Status Page (plain Node.js, no dependencies)
 FROM node:24-alpine
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm ci --omit-dev
-COPY . .
+COPY server.js ./
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=13083

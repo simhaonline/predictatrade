@@ -1,9 +1,8 @@
 # Predict-A-Trade — NestJS Control Plane
-# Multi-stage build: deps → build → runtime
 FROM node:24-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci --omit-dev
+RUN npm install --legacy-peer-deps
 
 FROM node:24-alpine AS builder
 WORKDIR /app

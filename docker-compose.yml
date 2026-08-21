@@ -165,6 +165,7 @@ services:
       - ./nginx/snippets:/etc/nginx/snippets:ro
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - live-dashboard:/var/www/pat-live:ro
+      - ./windows-agent/deploy:/var/www/pat-deploy:ro
       - ssl-certs:/etc/letsencrypt:ro
       - nginx-logs:/var/log/nginx
     depends_on:
@@ -212,7 +213,7 @@ services:
     container_name: pat-ntfy
     command: serve
     ports:
-      - "8090:80"
+      - "8091:80"
     volumes:
       - pat-ntfy:/var/lib/ntfy
     networks:

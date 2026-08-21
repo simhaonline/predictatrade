@@ -1,20 +1,19 @@
 # Predict-A-Trade — Go Real-Time Engine
-# Multi-stage build: build stage + runtime stage
-FROM golang:1.25-alpine AS builder
+FROM golang:1.25 AS builder
 
-RUN apk add --no-cache git gcc musl-dev
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 go build -o bin/realtime-engine ./cmd/realtime-engine/
+RUN CGO_ENABLED=1 go build -o bin/realtime-engine ./cmd/realtime-engine/
 
-# Runtime stage — minimal image
-FROM alpine:3.20
+# Runtime stage
+FROM debian:bookworm-slim
 
-RUN apk add --no-cache ca-certificates tzdata
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata && rm -rf /var/lib/apt/lists/*
 ENV TZ=UTC
 
 WORKDIR /app

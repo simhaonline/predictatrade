@@ -2,10 +2,10 @@
 const http = require('http');
 
 const SERVICES = [
-  { name: 'API', url: 'http://127.0.0.1:13080/api/v1/health', public: 'https://api.predictatrade.com' },
-  { name: 'Realtime Gateway', url: 'http://127.0.0.1:13081/health', public: 'https://live.predictatrade.com' },
-  { name: 'Platform', url: 'http://127.0.0.1:13082/', public: 'https://platform.predictatrade.com' },
-  { name: 'Database', url: 'http://127.0.0.1:13080/api/v1/health', public: 'internal' },
+  { name: 'API', url: 'http://control:13080/api/v1/health', public: 'https://api.predictatrade.com' },
+  { name: 'Realtime Gateway', url: 'http://realtime:13081/health', public: 'https://live.predictatrade.com' },
+  { name: 'Platform', url: 'http://frontend:13082/', public: 'https://platform.predictatrade.com' },
+  { name: 'Database', url: 'http://control:13080/api/v1/health', public: 'internal' },
 ];
 
 async function checkService(svc) {
@@ -64,5 +64,5 @@ ${results.map(r=>`<div class="service"><span class="service-name">${r.name}</spa
 });
 
 const PORT = process.env.STATUS_PORT || 13083;
-const HOST = process.env.STATUS_HOST || '127.0.0.1';
+const HOST = process.env.HOST || process.env.STATUS_HOST || '0.0.0.0';
 server.listen(PORT, HOST, () => { console.log(`Status page running on ${HOST}:${PORT}`); });
