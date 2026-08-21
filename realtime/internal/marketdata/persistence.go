@@ -98,12 +98,16 @@ func (p *Persister) SaveSignal(ctx context.Context, s *types.Signal) error {
 			transition_long_score, transition_short_score, transition_conflict, transition_final_score,
 			is_transition_candidate, primary_blocker, secondary_blockers,
 			input_hash, decision_hash, outbox_state,
-			strategy_version, feature_version, risk_profile_version, regime_version
+			strategy_version, feature_version, risk_profile_version, regime_version,
+			gross_rr_tp1, gross_rr_tp2, gross_rr_tp3,
+			net_rr_tp1, net_rr_tp2, net_rr_tp3,
+			expected_cost, executable, failed_production_reason
 		) VALUES (
 			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
 			$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,
 			$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,
-			$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73
+			$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,
+			$74,$75,$76,$77,$78,$79,$80,$81,$82
 		)
 		ON CONFLICT (id, created_at) DO UPDATE SET
 			status = EXCLUDED.status,
@@ -134,6 +138,9 @@ func (p *Persister) SaveSignal(ctx context.Context, s *types.Signal) error {
 		s.IsTransitionCandidate, s.PrimaryBlocker, string(secondaryBlockersJSON),
 		s.InputHash, s.DecisionHash, s.OutboxState,
 		s.StrategyVersion, s.FeatureVersion, s.RiskProfileVersion, s.RegimeVersion,
+		s.GrossRRTP1.String(), s.GrossRRTP2.String(), s.GrossRRTP3.String(),
+		s.NetRRTP1.String(), s.NetRRTP2.String(), s.NetRRTP3.String(),
+		s.ExpectedCost.String(), s.Executable, s.FailedProductionReason,
 	)
 	if err != nil {
 		// SOW Section 13: canonical idempotency — duplicate signal for same
@@ -192,7 +199,9 @@ func (p *Persister) GetRecentSignals(ctx context.Context, limit int) ([]*types.S
 			regime, session, news_risk, timeframe, status, created_at, expires_at,
 			reason_codes, evidence_summary, gate_results,
 			market_time, detected_at, signal_class, candidate_threshold, trade_threshold,
-			entry_type, exit_price, exit_reason, closed_at, realized_pnl, realized_r
+			entry_type, exit_price, exit_reason, closed_at, realized_pnl, realized_r,
+			gross_rr_tp1, gross_rr_tp2, gross_rr_tp3,
+			executable, failed_production_reason
 		FROM trading.signals ORDER BY created_at DESC LIMIT $1
 	`, limit)
 	if err != nil {
@@ -207,13 +216,16 @@ func (p *Persister) GetRecentSignals(ctx context.Context, limit int) ([]*types.S
 		var strategyID, direction, grade, regime, status, timeframe string
 		var signalClass, entryType, exitReason string
 		var candidateThreshold, tradeThreshold, exitPriceStr, realizedPnLStr, realizedRStr string
+		var grossRR1Str, grossRR2Str, grossRR3Str string
 		var reasonCodesJSON, evidenceJSON, gateJSON []byte
 		err := rows.Scan(&s.ID, &s.Symbol, &strategyID, &direction, &grade,
 			&rawScore, &longScore, &shortScore, &calProb, &entry, &sl, &tp1, &tp2, &tp3,
 			&regime, &s.Session, &s.NewsRisk, &timeframe, &status, &s.CreatedAt, &s.ExpiresAt,
 			&reasonCodesJSON, &evidenceJSON, &gateJSON,
 			&s.MarketTime, &s.DetectedAt, &signalClass, &candidateThreshold, &tradeThreshold,
-			&entryType, &exitPriceStr, &exitReason, &s.ClosedAt, &realizedPnLStr, &realizedRStr)
+			&entryType, &exitPriceStr, &exitReason, &s.ClosedAt, &realizedPnLStr, &realizedRStr,
+			&grossRR1Str, &grossRR2Str, &grossRR3Str,
+			&s.Executable, &s.FailedProductionReason)
 		if err != nil {
 			continue
 		}
@@ -240,6 +252,9 @@ func (p *Persister) GetRecentSignals(ctx context.Context, limit int) ([]*types.S
 		s.ExitPrice = parseDecimal(exitPriceStr)
 		s.RealizedPnL = parseDecimal(realizedPnLStr)
 		s.RealizedR = parseDecimal(realizedRStr)
+		s.GrossRRTP1 = parseDecimal(grossRR1Str)
+		s.GrossRRTP2 = parseDecimal(grossRR2Str)
+		s.GrossRRTP3 = parseDecimal(grossRR3Str)
 		// Unmarshal JSON fields
 		if len(reasonCodesJSON) > 0 {
 			json.Unmarshal(reasonCodesJSON, &s.ReasonCodes)
