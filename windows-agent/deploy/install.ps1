@@ -284,18 +284,24 @@ if ($nssmDownloaded -and (Test-Path $nssmDest)) {
     & $nssmDest set $ServiceName AppRotateFiles 1 2>&1 | Out-Null
     & $nssmDest set $ServiceName AppRotateOnline 1 2>&1 | Out-Null
     & $nssmDest set $ServiceName AppNoConsole 1 2>&1 | Out-Null
+    # ─── NSSM Auto-Restart Configuration ───
+    # AppExit Default Restart: auto-restart on ANY crash (unhandled exit codes)
+    # AppExit 0 Exit: do NOT restart on clean manual stop (exit code 0)
+    # AppRestartDelay 5000: wait 5 seconds before restarting
+    # The health-check.ps1 (runs every 1 min) handles crash detection,
+    # Windows popup alerts, and external notifications (Telegram/Discord/Email).
     & $nssmDest set $ServiceName AppExit Default Restart 2>&1 | Out-Null
+    & $nssmDest set $ServiceName AppExit 0 Exit 2>&1 | Out-Null
     & $nssmDest set $ServiceName AppRestartDelay 5000 2>&1 | Out-Null
-
-    $notifyPath = Join-Path $InstallDir "notify.ps1"
-    & $nssmDest set $ServiceName AppExit 0 "powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -WindowStyle Hidden -File `"$notifyPath`" -ExitCode 0" 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppExit 1 "powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -WindowStyle Hidden -File `"$notifyPath`" -ExitCode 1" 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppExit 2 "powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -WindowStyle Hidden -File `"$notifyPath`" -ExitCode 2" 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppExit Default "powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -WindowStyle Hidden -File `"$notifyPath`" -ExitCode %e" 2>&1 | Out-Null
+    & $nssmDest set $ServiceName AppStdout (Join-Path $logsDir "stdout.log") 2>&1 | Out-Null
+    & $nssmDest set $ServiceName AppStderr (Join-Path $logsDir "stderr.log") 2>&1 | Out-Null
+    & $nssmDest set $ServiceName AppRotateFiles 1 2>&1 | Out-Null
+    & $nssmDest set $ServiceName AppRotateOnline 1 2>&1 | Out-Null
+    & $nssmDest set $ServiceName AppNoConsole 1 2>&1 | Out-Null
     & $nssmDest set $ServiceName DisplayName "Predict-A-Trade XAUUSD Agent" 2>&1 | Out-Null
     & $nssmDest set $ServiceName Description "Predict-A-Trade XAUUSD Windows Agent - MT4/MT5 bridge and signal delivery" 2>&1 | Out-Null
     & $nssmDest set $ServiceName Start SERVICE_AUTO_START 2>&1 | Out-Null
-    Write-Host "  OK: Service registered via NSSM with auto-restart and crash notification"
+    Write-Host "  OK: Service registered with NSSM auto-restart (5s delay on crash)"
 } else {
     Write-Host "[install] WARNING: NSSM not available - falling back to sc.exe"
     sc.exe create $ServiceName binPath= "$agentPath" start= auto 2>&1 | Out-Null

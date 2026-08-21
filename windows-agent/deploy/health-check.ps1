@@ -85,29 +85,60 @@ if (-not $agentProcess) {
         Write-Host $msg
         Write-PATEventLog -Message $msg -Level "Warning" -EventId 304
 
-        # Restart the service via NSSM
-        try {
-            $nssm = Join-Path $InstallDir "nssm.exe"
-            if (Test-Path $nssm) {
-                & $nssm restart $ServiceName 2>&1 | Out-Null
-            } else {
-                Restart-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
-            }
-            Start-Sleep -Seconds 3
+        # Restart the service via NSSM with retry logic
+        $nssm = Join-Path $InstallDir "nssm.exe"
+        $restartSuccess = $false
+        $maxRetries = 3
 
-            # Verify restart
-            $svc2 = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-            if ($svc2 -and $svc2.Status -eq "Running") {
-                Write-PATEventLog -Message "health-check.ps1: Service restarted successfully after process was not running" -EventId 305
-                # Send notification
-                if (Test-Path $NotifyScript) {
-                    & powershell -ExecutionPolicy Bypass -NoProfile -NonInteractive -WindowStyle Hidden -File $NotifyScript -ExitCode -999
+        for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+            try {
+                if (Test-Path $nssm) {
+                    & $nssm restart $ServiceName 2>&1 | Out-Null
+                } else {
+                    Restart-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
                 }
-            } else {
-                Write-PATEventLog -Message "health-check.ps1: Failed to restart service after process was not running" -Level "Error" -EventId 306
+                Start-Sleep -Seconds (3 + $attempt * 2)  # 5s, 7s, 9s
+
+                # Verify restart
+                $svc2 = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+                if ($svc2 -and $svc2.Status -eq "Running") {
+                    $restartSuccess = $true
+                    Write-PATEventLog -Message "health-check.ps1: Service restarted successfully on attempt $attempt" -EventId 305
+                    break
+                }
+            } catch {
+                Write-PATEventLog -Message "health-check.ps1: Restart attempt $attempt failed: $_" -Level "Warning" -EventId 307
             }
-        } catch {
-            Write-PATEventLog -Message "health-check.ps1: Exception during restart: $_" -Level "Error" -EventId 307
+        }
+
+        if ($restartSuccess) {
+            # Send notification (includes Windows popup)
+            if (Test-Path $NotifyScript) {
+                & powershell -ExecutionPolicy Bypass -NoProfile -NonInteractive -WindowStyle Hidden -File $NotifyScript -ExitCode -999
+            }
+        } else {
+            # ALL retries failed — show critical alert
+            Write-PATEventLog -Message "health-check.ps1: FAILED to restart after $maxRetries attempts — CRITICAL" -Level "Error" -EventId 306
+
+            # Show Windows popup alert
+            try {
+                Add-Type -AssemblyName System.Windows.Forms
+                $job = Start-Job -ScriptBlock {
+                    [System.Windows.Forms.MessageBox]::Show(
+                        "Predict-A-Trade Agent has CRASHED and could NOT be restarted after 3 attempts!`n`nHost: $env:COMPUTERNAME`nTime: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`n`nTo reinstall:`nirm https://downloads.predictatrade.com/windows-agent/install.ps1 | iex",
+                        "Predict-A-Trade CRITICAL ALERT",
+                        [System.Windows.Forms.MessageBoxButtons]::OK,
+                        [System.Windows.Forms.MessageBoxIcon]::Error
+                    ) | Out-Null
+                }
+                # Also try msg.exe for immediate popup
+                & msg.exe * /TIME:120 "Predict-A-Trade Agent CRASHED and could NOT restart! Manual intervention required." 2>&1 | Out-Null
+            } catch {}
+
+            # Send notification
+            if (Test-Path $NotifyScript) {
+                & powershell -ExecutionPolicy Bypass -NoProfile -NonInteractive -WindowStyle Hidden -File $NotifyScript -ExitCode -998
+            }
         }
         exit 0
     }
@@ -160,25 +191,35 @@ try {
     Write-PATEventLog -Message "health-check.ps1: Force-stop failed: $_" -Level "Error" -EventId 309
 }
 
-# Step b: Restart the service
-try {
-    $nssm = Join-Path $InstallDir "nssm.exe"
-    if (Test-Path $nssm) {
-        & $nssm start $ServiceName 2>&1 | Out-Null
-    } else {
-        Start-Service -Name $ServiceName -ErrorAction SilentlyContinue
-    }
-    Start-Sleep -Seconds 3
+# Step b: Restart the service with retry
+$hangRestartOK = $false
+for ($attempt = 1; $attempt -le 3; $attempt++) {
+    try {
+        $nssm = Join-Path $InstallDir "nssm.exe"
+        if (Test-Path $nssm) {
+            & $nssm start $ServiceName 2>&1 | Out-Null
+        } else {
+            Start-Service -Name $ServiceName -ErrorAction SilentlyContinue
+        }
+        Start-Sleep -Seconds (3 + $attempt * 2)
 
-    # Verify
-    $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-    if ($svc -and $svc.Status -eq "Running") {
-        Write-PATEventLog -Message "health-check.ps1: Service force-restarted successfully after hang detection" -EventId 310
-    } else {
-        Write-PATEventLog -Message "health-check.ps1: Service failed to restart after hang detection" -Level "Error" -EventId 311
+        $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+        if ($svc -and $svc.Status -eq "Running") {
+            $hangRestartOK = $true
+            Write-PATEventLog -Message "health-check.ps1: Service restarted on attempt $attempt after hang" -EventId 310
+            break
+        }
+    } catch {
+        Write-PATEventLog -Message "health-check.ps1: Hang restart attempt $attempt failed: $_" -Level "Warning" -EventId 312
     }
-} catch {
-    Write-PATEventLog -Message "health-check.ps1: Restart failed: $_" -Level "Error" -EventId 312
+}
+
+if (-not $hangRestartOK) {
+    Write-PATEventLog -Message "health-check.ps1: FAILED to restart after hang — 3 attempts exhausted" -Level "Error" -EventId 311
+    # Show critical popup
+    try {
+        & msg.exe * /TIME:120 "Predict-A-Trade Agent HUNG and could NOT restart! Manual intervention required." 2>&1 | Out-Null
+    } catch {}
 }
 
 # Step c: Send notification (special exit code -999 = hang)

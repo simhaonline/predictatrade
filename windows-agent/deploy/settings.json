@@ -11,5 +11,7 @@
     "email_from": "predictatrade@yourdomain.com",
     "health_check_url": "http://localhost:9000/health",
     "health_check_timeout_seconds": 5,
-    "health_check_interval_minutes": 1
+    "health_check_interval_minutes": 1,
+    "show_popup_notifications": true,
+    "show_toast_notifications": true
 }
