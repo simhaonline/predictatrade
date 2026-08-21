@@ -95,24 +95,6 @@ string FormatISO8601UTC(datetime t)
 }
 
 //+------------------------------------------------------------------+
-//| FormatISO8601Broker — Broker time as ISO8601 (for reference)     |
-//| Returns: "2026-08-21T19:25:11+03:00" (with broker offset)        |
-//+------------------------------------------------------------------+
-string FormatISO8601Broker(datetime t)
-{
-    MqlDateTime dt;
-    TimeToStruct(t, dt);
-    // Calculate broker offset: TimeCurrent() - TimeGMT()
-    long offsetSec = (long)TimeCurrent() - (long)TimeGMT();
-    int offsetH = (int)(offsetSec / 3600);
-    long absOffsetSec = offsetSec >= 0 ? offsetSec : -offsetSec;
-    int offsetM = (int)((absOffsetSec % 3600) / 60);
-    string sign = offsetSec >= 0 ? "+" : "-";
-    return StringFormat("%04d-%02d-%02dT%02d:%02d:%02d%s%02d:%02d",
-        dt.year, dt.mon, dt.day, dt.hour, dt.min, dt.sec, sign, offsetH >= 0 ? offsetH : -offsetH, offsetM);
-}
-
-//+------------------------------------------------------------------+
 int OnInit()
 {
     Print("Predict-A-Trade Master Node v1.00 initializing (MT5)...");
@@ -498,7 +480,7 @@ string GetBarJSON(ENUM_TIMEFRAMES timeframe)
         s += ",\"low\":" + DoubleToString(rates[0].low, 5);
         s += ",\"close\":" + DoubleToString(rates[0].close, 5);
         s += ",\"volume\":" + IntegerToString((long)rates[0].tick_volume);
-        s += ",\"time\":\"" + FormatISO8601UTC(rates[0].time - (long)TimeCurrent() + (long)TimeGMT()) + "\"";
+        s += ",\"time\":\"" + FormatISO8601UTC((datetime)((long)rates[0].time - (long)TimeCurrent() + (long)TimeGMT())) + "\"";
     }
 
     if(copied >= 2)

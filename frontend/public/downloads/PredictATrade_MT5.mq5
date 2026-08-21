@@ -269,24 +269,6 @@ string FormatISO8601UTC(datetime t)
         dt.year, dt.mon, dt.day, dt.hour, dt.min, dt.sec);
 }
 
-//+------------------------------------------------------------------+
-//| FormatISO8601Broker — Broker time as ISO8601 (for reference)     |
-//| Returns: "2026-08-21T19:25:11+03:00" (with broker offset)        |
-//+------------------------------------------------------------------+
-string FormatISO8601Broker(datetime t)
-{
-    MqlDateTime dt;
-    TimeToStruct(t, dt);
-    // Calculate broker offset: TimeCurrent() - TimeGMT()
-    long offsetSec = (long)TimeCurrent() - (long)TimeGMT();
-    int offsetH = (int)(offsetSec / 3600);
-    long absOffsetSec = offsetSec >= 0 ? offsetSec : -offsetSec;
-    int offsetM = (int)((absOffsetSec % 3600) / 60);
-    string sign = offsetSec >= 0 ? "+" : "-";
-    return StringFormat("%04d-%02d-%02dT%02d:%02d:%02d%s%02d:%02d",
-        dt.year, dt.mon, dt.day, dt.hour, dt.min, dt.sec, sign, offsetH >= 0 ? offsetH : -offsetH, offsetM);
-}
-
 int OnInit()
 {
     Print("Predict-A-Trade MT5 EA v1.06 initializing...");
