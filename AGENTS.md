@@ -183,3 +183,38 @@ Final status is `PASS`, `PARTIAL` or `BLOCKED`. `PASS` is forbidden while any ap
 - `.codex/config.toml` — Codex-native project/subagent/MCP config.
 - `.codex/agents/*.toml` — actual project subagents.
 - `.mcp.json` — portability/compatibility representation; Codex-native MCP truth is `.codex/config.toml`.
+
+## Auto-Push Rule (CRITICAL — ALWAYS FOLLOW)
+
+**After every code change, ALWAYS:**
+1. `git add -A`
+2. `git commit -m "<descriptive message>"`
+3. `git push origin main`
+
+**Never leave uncommitted or unpushed changes.**
+**Never ask the user "should I push?" — just push.**
+**Remote: https://github.com/simhaonline/predictatrade.git (main branch)**
+
+## Docker-First Architecture (CRITICAL — ALWAYS FOLLOW)
+
+**ALL services run in Docker containers via `docker compose`.**
+**NEVER use systemd services. ALL systemd services are DISABLED.**
+
+Services (all in docker-compose.yml):
+- pat-postgres (TimescaleDB) — pat-valkey (cache) — pat-realtime (Go engine)
+- pat-control (NestJS) — pat-frontend (Next.js) — pat-status (status page)
+- pat-nginx (reverse proxy + SSL) — pat-prometheus (metrics)
+- pat-grafana (dashboards) — pat-ntfy (notifications)
+
+**Restart:** `docker compose restart <service>`
+**Rebuild:** `docker compose build <service> && docker compose up -d <service>`
+**Logs:** `docker compose logs -f <service>`
+**Status:** `docker compose ps`
+
+## Build Commands
+
+- **Realtime:** `docker compose build realtime && docker compose up -d realtime`
+- **Frontend:** `docker compose build frontend && docker compose up -d frontend`
+- **Control:** `docker compose build control && docker compose up -d control`
+- **Windows Agent:** `./scripts/build-windows-agent.sh --bump`
+- **All:** `docker compose up -d --build`
