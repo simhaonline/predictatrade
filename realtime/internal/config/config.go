@@ -51,6 +51,57 @@ type Config struct {
 	// DXY (US Dollar Index) — Twelve Data API
 	TwelveDataAPIKey string
 	DXYEnabled       bool
+
+	// ML Inference Engine
+	MLEnabled   bool
+	ModelsDir    string
+
+	// News / Economic Calendar
+	NewsProvider            string // disabled|fmp|...
+	NewsMode                string // OFF|PROTECT_ONLY|EVENT_BREAKOUT
+	NewsFailPolicy          string // BLOCK_TRADING|ALLOW_TRADING
+	NewsSyncIntervalSec     int
+	NewsStaleAfterSec       int
+	NewsPreBlackoutMinutes  int
+	NewsPostBlackoutMinutes int
+	NewsMinImpact           string // NONE|LOW|MEDIUM|HIGH|EXTREME
+	NewsProviderAPIKey      string
+
+	// News Breakout
+	NewsBreakoutEnabled     bool
+	NewsBreakoutPrepareSec  int
+	NewsBreakoutExpirySec   int
+	NewsBreakoutEntryATR    float64
+	NewsBreakoutMaxSpread   float64
+	NewsBreakoutMaxRiskPct  float64
+	NewsBreakoutSLATR       float64
+	NewsBreakoutTPATR       float64
+
+	// Notifications
+	NotifyEmailEnabled    bool
+	NotifyTelegramEnabled bool
+	NotifyPushEnabled     bool
+	SMTPHost              string
+	SMTPPort              int
+	SMTPUsername          string
+	SMTPPassword          string
+	SMTPFrom              string
+	SMTPTLS               bool
+	TelegramBotToken      string
+	TelegramChatID        string
+	WhatsAppServerURL     string `json:"-"`
+	WhatsAppToken         string `json:"-"`
+	WhatsAppSession       string `json:"-"`
+	WhatsAppPhone         string `json:"-"`
+	NtfyServerURL         string `json:"-"`
+	NtfyTopic             string `json:"-"`
+	NtfyAccessToken       string `json:"-"`
+
+	// Ollama (LLM sentiment analysis)
+	OllamaEnabled bool
+	OllamaHost    string
+	OllamaModel   string
+	OllamaTimeout  string
 }
 
 // Default returns a config suitable for local development/testing.
@@ -89,6 +140,52 @@ func Default() *Config {
 		// DXY provider — Twelve Data API for DXY computation
 		TwelveDataAPIKey: getEnv("TWELVEDATA_API_KEY", ""),
 		DXYEnabled:      getEnvBool("DXY_ENABLED", false),
+		MLEnabled:       getEnvBool("ML_ENABLED", false),
+		ModelsDir:       getEnv("MODELS_DIR", "models"),
+
+		// News / Economic Calendar — PROTECT_ONLY by default, disabled provider
+		NewsProvider:            getEnv("NEWS_PROVIDER", "disabled"),
+		NewsMode:                getEnv("NEWS_MODE", "PROTECT_ONLY"),
+		NewsFailPolicy:          getEnv("NEWS_FAIL_POLICY", "BLOCK_TRADING"),
+		NewsSyncIntervalSec:     getEnvInt("NEWS_SYNC_INTERVAL_SEC", 300),
+		NewsStaleAfterSec:       getEnvInt("NEWS_STALE_AFTER_SEC", 900),
+		NewsPreBlackoutMinutes:  getEnvInt("NEWS_PRE_BLACKOUT_MINUTES", 15),
+		NewsPostBlackoutMinutes: getEnvInt("NEWS_POST_BLACKOUT_MINUTES", 15),
+		NewsMinImpact:           getEnv("NEWS_MIN_IMPACT", "MEDIUM"),
+		NewsProviderAPIKey:      getEnv("NEWS_PROVIDER_API_KEY", ""),
+
+		// News Breakout — DISABLED BY DEFAULT
+		NewsBreakoutEnabled:     getEnvBool("NEWS_BREAKOUT_ENABLED", false),
+		NewsBreakoutPrepareSec:  getEnvInt("NEWS_BREAKOUT_PREPARE_SECONDS", 120),
+		NewsBreakoutExpirySec:   getEnvInt("NEWS_BREAKOUT_EXPIRY_SECONDS", 300),
+		NewsBreakoutEntryATR:    getEnvFloat("NEWS_BREAKOUT_ENTRY_ATR_MULTIPLIER", 0.5),
+		NewsBreakoutMaxSpread:   getEnvFloat("NEWS_BREAKOUT_MAX_SPREAD", 3.0),
+		NewsBreakoutMaxRiskPct:  getEnvFloat("NEWS_BREAKOUT_MAX_RISK_PCT", 1.0),
+		NewsBreakoutSLATR:       getEnvFloat("NEWS_BREAKOUT_SL_ATR_MULTIPLIER", 1.0),
+		NewsBreakoutTPATR:       getEnvFloat("NEWS_BREAKOUT_TP_ATR_MULTIPLIER", 2.0),
+
+		// Notifications — all DISABLED BY DEFAULT
+		NotifyEmailEnabled:    getEnvBool("NOTIFICATION_EMAIL_ENABLED", false),
+		NotifyTelegramEnabled: getEnvBool("NOTIFICATION_TELEGRAM_ENABLED", false),
+		NotifyPushEnabled:     getEnvBool("NOTIFICATION_PUSH_ENABLED", false),
+		SMTPHost:              getEnv("SMTP_HOST", ""),
+		SMTPPort:              getEnvInt("SMTP_PORT", 587),
+		SMTPUsername:          getEnv("SMTP_USERNAME", ""),
+		SMTPPassword:          getEnv("SMTP_PASSWORD", ""),
+		SMTPFrom:              getEnv("SMTP_FROM", ""),
+		SMTPTLS:               getEnvBool("SMTP_TLS", true),
+		TelegramBotToken:      getEnv("TELEGRAM_BOT_TOKEN", ""),
+		TelegramChatID:        getEnv("TELEGRAM_CHAT_ID", ""),
+		// Push (self-hosted ntfy)
+		NtfyServerURL:         getEnv("NTFY_SERVER_URL", ""),
+		NtfyTopic:             getEnv("NTFY_TOPIC", ""),
+		NtfyAccessToken:       getEnv("NTFY_ACCESS_TOKEN", ""),
+
+		// Ollama (LLM Sentiment Analysis)
+		OllamaEnabled: getEnvBool("OLLAMA_ENABLED", false),
+		OllamaHost:    getEnv("OLLAMA_HOST", "http://localhost:11434"),
+		OllamaModel:   getEnv("OLLAMA_MODEL", "deepseek-v4-pro:cloud"),
+		OllamaTimeout: getEnv("OLLAMA_TIMEOUT", "2s"),
 	}
 }
 

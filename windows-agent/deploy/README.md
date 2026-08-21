@@ -1,0 +1,164 @@
+# Predict-A-Trade XAUUSD — Windows Agent Deployment System
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `install.ps1` | NSSM-based installer with UAC self-elevation, downloads, event log, scheduled task |
+| `uninstall.ps1` | Uninstaller with `-Silent` switch, service/task/event-source removal |
+| `health-check.ps1` | Hang detection monitor (runs via Scheduled Task every 60s) |
+| `notify.ps1` | Multi-channel notification dispatcher (Telegram/Discord/Email) |
+| `settings.json` | Configuration template (notification credentials + health check params) |
+| `install.bat` | Batch wrapper for double-click installation |
+
+## Server-Side File Placement
+
+Place all files in `/srv/predictatrade/xauusd/windows-agent/deploy/` on the server.
+The web server must serve them at `https://downloads.predictatrade.com/windows-agent/`.
+
+The `nssm/` subdirectory contains both architectures:
+```
+  deploy/nssm/win32/nssm.exe   (32-bit)
+  deploy/nssm/win64/nssm.exe   (64-bit)
+```
+The installer auto-detects the OS architecture and downloads the correct one.
+
+Also ensure these are present:
+- `agent.exe` — the compiled Go agent binary (cross-compile: `GOOS=windows GOARCH=amd64 go build -o deploy/agent.exe ./cmd/agent/`)
+- `nssm/win32/nssm.exe` and `nssm/win64/nssm.exe` — NSSM binaries (from https://nssm.cc)
+  The installer auto-detects 32-bit vs 64-bit and downloads the correct one.
+
+## Client Commands
+
+```powershell
+# Install
+irm https://downloads.predictatrade.com/windows-agent/install.ps1 | iex
+
+# Uninstall (interactive — prompts to keep logs)
+irm https://downloads.predictatrade.com/windows-agent/uninstall.ps1 | iex
+
+# Uninstall (silent — removes everything, no prompts)
+irm "https://downloads.predictatrade.com/windows-agent/uninstall.ps1?Silent=true" | iex
+```
+
+## Configuration
+
+Edit `settings.json` with your actual credentials:
+- `notification_type`: "telegram", "discord", or "email"
+- Telegram: set `telegram_bot_token` and `telegram_chat_id`
+- Discord: set `discord_webhook`
+- Email: set `email_smtp`, `email_to`, `email_from`, `email_port`, `email_user`, `email_password`
+- `health_check_url`: the agent's local health endpoint (default: `http://localhost:9000/health`)
+- `health_check_timeout_seconds`: HTTP probe timeout (default: 5)
+- `health_check_interval_minutes`: Scheduled Task interval (default: 1)
+
+## Architecture
+
+```
+Client Machine                          Server
+┌─────────────────────┐                ┌──────────────────────────┐
+│  install.ps1        │──download─────│  predictatrade.com/       │
+│  (self-elevates)    │                │  downloads/windows-agent/ │
+│                     │                │  ├── install.ps1          │
+│  NSSM Service       │                │  ├── uninstall.ps1       │
+│  PredictATradeXAUUSD│                │  ├── agent.exe            │
+│  ├─ agent.exe       │                │  ├── nssm.exe             │
+│  ├─ notify.ps1      │                │  ├── notify.ps1           │
+│  ├─ settings.json   │                │  ├── health-check.ps1     │
+│  └─ logs/           │                │  ├── settings.json        │
+│                     │                │  └── install.bat          │
+│  Scheduled Task    │                └──────────────────────────┘
+│  PredictATradeHealthCheck
+│  └─ health-check.ps1│
+│     (every 60s)     │
+│                     │
+│  Event Log Source   │
+│  PredictATradeXAUUSD │
+└─────────────────────┘
+```
+
+## Testing
+
+### Test crash notification
+1. Start the service: `nssm start PredictATradeXAUUSD`
+2. Kill the agent process: `taskkill /F /IM agent.exe`
+3. NSSM auto-restarts after 5 seconds
+4. `notify.ps1` fires with the exit code → sends Telegram/Discord/Email alert
+
+### Test hang detection
+1. Start the service
+2. Block the health endpoint (e.g., firewall port 9000) or make the agent hang
+3. Wait 60 seconds (health check interval)
+4. `health-check.ps1` detects hang → kills process → restarts → calls `notify.ps1 -ExitCode -999`
+5. Check Event Log: `Get-EventLog -Source PredictATradeXAUUSD -Newest 10`
+
+### Test uninstall
+```powershell
+# Interactive (prompts to keep logs)
+irm https://downloads.predictatrade.com/windows-agent/uninstall.ps1 | iex
+
+# Silent
+irm "https://downloads.predictatrade.com/windows-agent/uninstall.ps1?Silent=true" | iex
+```
+
+## Auto-Update System
+
+The Go agent includes a built-in auto-updater that:
+
+1. **Checks every 60 minutes** (configurable via `PAT_UPDATE_INTERVAL_MIN` env var) for a new version by fetching `https://downloads.predictatrade.com/windows-agent/update-manifest.json`
+2. **Compares versions** — if the server version is newer, downloads the new `agent.exe`
+3. **Verifies SHA-256 checksum** — refuses to apply if checksum doesn't match
+4. **Applies via helper script** — on Windows, the running binary is locked, so a helper batch script:
+   - Stops the NSSM service
+   - Backs up the current `agent.exe` → `agent.exe.bak`
+   - Replaces with the new binary
+   - Updates `version.txt`
+   - Restarts the service
+   - Cleans up the backup and itself
+5. **Rollback** — if the new binary fails to start, the backup can be restored manually
+
+### Server-side files for updates:
+
+| File | Purpose |
+|------|---------|
+| `update-manifest.json` | Version, download URL, SHA-256 checksum, release notes |
+| `agent.exe` | The new binary (downloaded and checksum-verified) |
+| `version.txt` | Plain-text version number (used by installer for update detection) |
+
+### How to push an update:
+
+```bash
+cd /srv/predictatrade/xauusd/windows-agent
+
+# 1. Update version constant
+# Edit internal/version.go: const AgentVersion = "1.1.0"
+
+# 2. Rebuild Windows binary
+GOOS=windows GOARCH=amd64 go build -o deploy/agent.exe ./cmd/agent/
+
+# 3. Compute new checksum
+SHA256=$(sha256sum deploy/agent.exe | awk '{print $1}')
+
+# 4. Update manifest (version + checksum)
+# Edit deploy/update-manifest.json: set "version" and "checksum" fields
+
+# 5. Update version file
+echo "1.1.0" > deploy/version.txt
+
+# 6. Done — agent auto-updates within 60 minutes, or user runs install.ps1 for immediate update
+```
+
+### Manual update (immediate):
+
+```powershell
+irm https://downloads.predictatrade.com/windows-agent/install.ps1 | iex
+```
+
+## Go Agent Health Endpoint
+
+The agent exposes a local HTTP health endpoint at `http://127.0.0.1:9000/health`
+that returns:
+```json
+{"status":"ok","uptime_seconds":42,"agent_version":"1.0.0","timestamp":"2026-08-21T12:00:00Z"}
+```
+The port can be changed via the `PAT_HEALTH_PORT` environment variable.

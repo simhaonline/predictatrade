@@ -121,3 +121,9 @@ npm run build   # Production build
 - WebSocket: live.predictatrade.com/ws (port 8080)
 
 **Do not change these values.** They are determined by existing Nginx/systemd configuration.
+
+## v1.4.0 Update (19 August 2026)
+
+- **Color palette**: All CSS variables replaced with approved Predict-A-Trade hex values (see `docs/frontend/theme-system.md` v1.4.0 section). 80+ hardcoded Tailwind color classes replaced with semantic tokens (`pat-success`, `pat-danger`, `pat-warning`, `pat-info`, `pat-candidate-buy`, `pat-candidate-sell`).
+- **HSL fix**: Critical bug — HSL CSS variables missing `%` signs on S/L components caused invisible colors. Fixed in `globals.css`.
+- **Signal display**: BUY_CANDIDATE (#F59E0B amber) and SELL_CANDIDATE (#FB923C orange) now use approved semantic tokens.

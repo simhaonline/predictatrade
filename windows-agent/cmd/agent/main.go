@@ -11,7 +11,7 @@ import (
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-	log.Println("Predict-A-Trade Windows Agent v1.0.0 starting...")
+	log.Println("Predict-A-Trade Windows Agent v" + agent.AgentVersion + " starting...")
 
 	config := agent.LoadConfig()
 	a := agent.NewAgent(config)

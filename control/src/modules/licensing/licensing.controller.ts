@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put, Param, UseGuards } from '@nestjs/common';
 import { LicensingService } from './licensing.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -29,7 +29,22 @@ export class LicensingController {
   }
 
   @Post('mt-accounts')
-  async addMtAccount(@CurrentUser('sub') userId: string, @Body() body: any) {
-    return this.licensingService.addMtAccount(userId, body);
+  async registerTerminal(@CurrentUser('sub') userId: string, @Body() body: any) {
+    return this.licensingService.registerTerminal(userId, body);
+  }
+
+  @Put('devices/:id/heartbeat')
+  async heartbeat(@Param('id') deviceId: string, @Body() body: any) {
+    return this.licensingService.heartbeat(deviceId, body);
+  }
+
+  @Post('devices/:id/revoke')
+  async revokeDevice(@CurrentUser('sub') userId: string, @Param('id') deviceId: string, @Body() body: any) {
+    return this.licensingService.revokeDevice(deviceId, body.reason || 'User revoked');
+  }
+
+  @Post('terminals/sync')
+  async syncTerminalAccount(@CurrentUser('sub') userId: string, @Body() body: any) {
+    return this.licensingService.syncTerminalAccount(userId, body);
   }
 }

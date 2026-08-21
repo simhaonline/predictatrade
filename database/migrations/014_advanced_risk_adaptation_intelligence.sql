@@ -361,6 +361,6 @@ COMMENT ON TABLE trading.blocked_signals IS 'Audit trail of signals blocked by r
 COMMENT ON TABLE trading.adaptation_history IS 'Rule-based and ML-based adaptation decisions with full context';
 COMMENT ON TABLE trading.hedge_positions IS 'Active hedge lifecycle tracking — original/hedge correlation audit';
 COMMENT ON TABLE trading.hedge_history IS 'Closed hedge audit trail with net PnL';
-COMMENT ON TABLE.rl_training_history IS 'RL model training runs with OOS validation metrics';
+COMMENT ON TABLE trading.rl_training_history IS 'RL model training runs with OOS validation metrics';
 COMMENT ON TABLE trading.sentiment_snapshots IS 'Cached real-time sentiment state with provider health';
 COMMENT ON TABLE trading.sentiment_items IS 'Individual sentiment data points with full provenance';

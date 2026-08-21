@@ -30,6 +30,29 @@
 | MT4 trade-close feedback | PARTIAL | MQL EAs exist | N/A | N/A | Yes | Live MT4 terminal |
 | MT5 trade-close feedback | PARTIAL | MQL EAs exist | N/A | N/A | Yes | Live MT5 terminal |
 | Documentation | IMPLEMENTED | docs/*.md | N/A | N/A | Yes | None |
+| Vectorized Strategy Engine | IMPLEMENTED | quantitative_strategy_engine.py | 29 tests | patresearch package export | Yes | None |
+| Microprofit Candidate Geometry | IMPLEMENTED | candidate_geometry.go | — | main.go pipeline | Yes | None |
+| Indicator Historical Bootstrap | IMPLEMENTED | main.go | — | engine startup | Yes | None |
+| Valkey Candle Cache | IMPLEMENTED | valkey_candles.go | — | handleCandles + bootstrap | Yes | None |
+| Capital Protection Engine | IMPLEMENTED | capital_protection.go | 11 tests | gates package | Yes | None |
+| Wilder Smoothing (RSI/ATR/ADX) | IMPLEMENTED | wilder.go | 7 tests | patmath package | Yes | None |
+| Indicator Monitor Page | IMPLEMENTED | 6 components + page | — | /admin/indicator-monitor | Yes | None |
+| DXY Provider (Twelve Data) | IMPLEMENTED | realtime.env + dxy_provider.go | — | Go engine startup | Yes | Free tier API |
+| Projected Performance Metrics | IMPLEMENTED | use-signal-performance.ts | — | Performance tab | Yes | None |
+| Dashboard Auto-Refresh | IMPLEMENTED | dashboard/page.tsx | — | /admin/dashboard | Yes | None |
+| Trade Management Audit | IMPLEMENTED | trade_management.go | 27 tests | gates package | Yes | Live terminal compile |
+| Broker Stop Validation | IMPLEMENTED | MT4 + MT5 EAs | — | EA trade management | Yes | MetaEditor compile |
+| Cost-Aware Break-Even | IMPLEMENTED | MT4 + MT5 EAs | — | EA trade management | Yes | MetaEditor compile |
+| SL Audit Trail | IMPLEMENTED | Migration 021 | — | trading.sl_modification_history | Yes | None |
+| Economic Calendar Provider | SOFTWARE_READY | pkg/news/risk_engine.go | 12 tests | **WIRED** session engine (v1.10.1) | Yes | FMP API key |
+| News Risk Engine (fail-safe) | **WIRED** | pkg/news/risk_engine.go | 12 tests | features/session.go → NewsGate | Yes | None (disabled=NONE fallback) |
+| NewsGate (EXTREME/DATA_UNAVAILABLE) | **FIXED** | gates/implementations.go | gates_test.go | gate registry | Yes | None |
+| News Breakout Engine | IMPLEMENTED (OFF) | internal/breakout/ | 11 tests | Disabled by default | Yes | Live terminal |
+| OCO State Machine | IMPLEMENTED (OFF) | internal/oco/ | 11 tests | Disabled by default | Yes | Live terminal |
+| Notification Adapters | SOFTWARE_READY | pkg/notifications/ | 12 tests | Async queue, disabled by default | Yes | SMTP/Telegram/WhatsApp/Push credentials |
+| Migration 022 (news/OCO/notifications) | **APPLIED** | database/migrations/022 | — | 6 new tables + 2 columns | Yes | None |
+| Migration History Tracking | **CREATED** | audit.migration_history | — | scripts/migrate.sh | Yes | None |
+| NestJS Admin Health (Valkey fix) | **FIXED** | admin.service.ts | admin.service.spec.ts | /api/v1/admin/health | Yes | None |
 
 ## v1.3.0 Production Remediation Features
 
@@ -48,20 +71,28 @@
 | WS Entitlement Fail-Closed | IMPLEMENTED | gateway/websocket.go | N/A | isEntitled() returns false for empty | None |
 | Entitlement Denial Metrics | IMPLEMENTED | observability/metrics.go | N/A | pat_entitlement_denial_total | None |
 
-## v1.3.1 Signal Display Fix (19 August 2026)
+## v1.4.0 Color Palette + Signal Delivery + Geometry Fix (19 August 2026)
 
 | Feature | Status | Code | Tests | Notes |
 |---------|--------|------|-------|-------|
-| BUY_CANDIDATE/SELL_CANDIDATE direction filters | IMPLEMENTED | admin/signals/page.tsx | TypeScript compile | Added to DIRECTION_FILTERS |
-| Candidate direction color coding | IMPLEMENTED | admin + user signal pages | TypeScript compile | Amber/orange for candidates |
-| PROB "Pending" label | IMPLEMENTED | admin + user signal pages | TypeScript compile | Replaces "—" with "Pending" + tooltip |
-| Candidate CalibratedProbability field | IMPLEMENTED | main.go (processCandle) | Go build + tests | Was missing on advisory signals |
-| Signal lifecycle status badges | IMPLEMENTED | status-badge.tsx | TypeScript compile | DETECTED, CONFIRMED, CANDIDATE, BLOCKED, etc. |
-| Signal types documentation | IMPLEMENTED | docs/SIGNAL_TYPES_AND_PROBABILITY.md | — | Comprehensive reference |
+| Approved color palette (light/dark) | IMPLEMENTED | globals.css | TypeScript compile + build | All CSS variables updated to approved hex values |
+| Trading semantic color tokens | IMPLEMENTED | tailwind.config.ts | TypeScript compile | pat-success, pat-danger, pat-warning, pat-info, pat-session, pat-candidate-buy/sell |
+| Hardcoded Tailwind color replacement | IMPLEMENTED | 20+ TSX files | TypeScript compile | 80+ text-green-400 → text-pat-success, etc. |
+| HSL `%` sign fix | IMPLEMENTED | globals.css | Visual verification | Critical: colors invisible without `%` on S/L values |
+| Signal delivery to Windows Agents | IMPLEMENTED | agent_ws.go + main.go | Go build + tests | BroadcastSignalToAgents method added |
+| TP/SL geometry fix (ATR-based) | IMPLEMENTED | strategies.go | Go build + tests | TP now uses ATRMultiplierTP, not MinRR×SL_dist |
+| Minimum SL distance enforcement | IMPLEMENTED | strategies.go | Go build + tests | SL must be ≥ ATRMultiplierSL × ATR from entry |
+| MQL v1.05 strategy selection | IMPLEMENTED | mql/mt4 + mql/mt5 | — | 4 strategy toggles + 4 direction filters |
+| MQL v1.05 debug logging | IMPLEMENTED | mql/mt4 + mql/mt5 | — | Signal reception, parsing, filtering logged |
+| MQL ExtractJSONDouble quote fix | IMPLEMENTED | mql/mt4 + mql/mt5 | — | Skips leading quotes in decimal JSON values |
+| Regime diagnostics nginx route | IMPLEMENTED | nginx config | curl test | /api/v1/admin/regime-diagnostics → Go engine |
+| Entitlement/license gate hydration | IMPLEMENTED | main.go | Go build + tests | hydrateEntitlementLicenseGates() goroutine |
+| Session gate overlap fix | IMPLEMENTED | session.go | Go test | LONDON_NEWYORK_OVERLAP accepted |
+| Canonical idempotency duplicate handling | IMPLEMENTED | persistence.go | Go build | idx_signals_canonical_idempotency errors → nil |
 
 ## Summary
 
-- **Implemented:** 28 + 12 + 6 = 46 features
+- **Implemented:** 28 + 12 + 6 + 14 = 60 features
 - **Partial:** 4 features (require external dependencies or additional API wiring)
 - **Missing:** 0 features
 
@@ -109,3 +140,71 @@
 | Golden Replay Test | IMPLEMENTED | tests/backtesting/test_integration.py | 2 | None |
 | No-Lookahead Test | IMPLEMENTED | tests/backtesting/test_integration.py | 1 | None |
 | Documentation | IMPLEMENTED | docs/BACKTESTING.md | N/A | None |
+| pprof Diagnostic Endpoints | IMPLEMENTED | gateway/http.go | — | Go HTTP server | Yes | None |
+| Agent WebSocket Goroutine Leak Fix | IMPLEMENTED | gateway/agent_ws.go | 2 tests | AgentHub | Yes | None |
+| Gitleaks Secret Scanning | IMPLEMENTED | .gitleaks.toml | — | audit script | Yes | None |
+| Full Production Audit | IMPLEMENTED | scripts/full_audit.sh | — | 51 checks, all PASS | Yes | None |
+| COT Provider (FMP API) | IMPLEMENTED | pkg/macro/cot.go | — | Go engine startup | Yes | FMP API key |
+| Broker Stop Level Validation | IMPLEMENTED | MT4/MT5 EAs | — | MQL code | Yes | None |
+| Trade Management State Machine | IMPLEMENTED | gates/trade_management.go | 27 tests | gates package | Yes | None |
+| Cost-Aware Break-Even | IMPLEMENTED | gates/trade_management.go | — | gates package | Yes | None |
+| SL Modification Audit Trail | IMPLEMENTED | migration 021 | — | DB schema | Yes | Database |
+| Backtesting Engine | IMPLEMENTED | cmd/backtest-engine + internal/backtest | — | CLI tool | Yes | None |
+| Signal Delivery to MT4/MT5 | IMPLEMENTED | AgentHub + MQL EAs | — | WebSocket → Agent | Yes | None |
+| Percentage SL/TP Config | IMPLEMENTED | percentage_geometry.go | — | strategy package | Yes | None |
+| Signal Replay & Idempotency | IMPLEMENTED | internal/replay | tests | signal pipeline | Yes | None |
+| Health Manager | IMPLEMENTED | pkg/health | tests | main.go (6 refs) | Yes | None |
+
+## Summary
+
+| Category | Implemented | Partial | Missing |
+|----------|------------|---------|---------|
+| Risk & Adaptation | 10 | 1 | 0 |
+| ML & RL | 6 | 0 | 0 |
+| Sentiment | 2 | 0 | 0 |
+| Data & Persistence | 6 | 0 | 0 |
+| Observability | 2 | 1 | 0 |
+| MT4/MT5 Integration | 3 | 2 | 0 |
+| Strategy & Geometry | 5 | 0 | 0 |
+| Gates & Safety | 4 | 0 | 0 |
+| Diagnostics & Audit | 4 | 0 | 0 |
+| **Total** | **42** | **4** | **0** |
+
+**Overall: 42 IMPLEMENTED, 4 PARTIAL, 0 MISSING**
+
+The 4 PARTIAL items are:
+1. **Advanced Hedge Manager** — requires broker API for execution (evaluation-only mode active)
+2. **Dashboard/API Exposure** — admin API endpoints for advanced risk metrics need implementation
+3. **MT4 trade-close feedback** — requires live MT4 terminal connection
+4. **MT5 trade-close feedback** — requires live MT5 terminal connection
+
+## Feature Capability Forensic Audit Summary (v1.9.0)
+
+| Feature Group | Status | Details |
+|--------------|--------|---------|
+| A. Flip/Reversal Engine | VERIFIED | Trend transition evidence in TrendSwing |
+| B. Trap Zone Detection | VERIFIED | Liquidity sweeps, CHoCH, FVG zones |
+| C. Momentum Strategy | VERIFIED | RSI, MACD, ADX, StochRSI feed strategy evaluation |
+| D. Multi-Timeframe Analysis | VERIFIED | MTFEngine with per-strategy TF config |
+| E. Gold-Specific Logic | VERIFIED | XAU symbol info, ATR-based SL/TP |
+| F. Adaptive/Regime Logic | VERIFIED | RegimeEngine with hysteresis, adaptation manager |
+| G. Volatility Filter | VERIFIED | Hard gates with explicit reason codes |
+| H. Session-Based Trading | VERIFIED | UTC-based sessions, SessionGate |
+| I. News Calendar | EXTERNAL_DEPENDENCY_BLOCKED | Gate exists, no calendar provider |
+| J. News Breakout | MISSING | Requires operator authorization to implement |
+| K. OCO | MISSING | Dependency of News Breakout |
+| L. Auto Lot Sizing | VERIFIED | Money-at-risk calculation with tick value |
+| M. Dynamic Risk Management | VERIFIED | 12 hard gates, recovery, capital protection |
+| N. Equity/Drawdown Protection | VERIFIED | Daily loss circuit breaker, halt state |
+| O. Smart Grid | IMPLEMENTED_BUT_DISABLED | Correctly OFF, no martingale |
+| P. Recovery Mode | VERIFIED | State machine, risk reduction (0.5x), no martingale |
+| Q. ATR-Based SL/TP | VERIFIED | Per-strategy ATR multipliers, geometry validation |
+| R. Break-Even/Profit Protection | VERIFIED | R-based stage transitions, monotonic SL |
+| S. Trailing Stop | VERIFIED | Monotonic SL validation, broker stop level checks |
+| T. Advanced Trailing | VERIFIED | ATR-adaptive, per-strategy configs |
+| U. Smart Exit Strategy | VERIFIED | Full exit state machine, audit trail |
+| V. Partial Profit Taking | VERIFIED | TP1/TP2/TP3 with geometry validation |
+| W. Notifications | PARTIAL | WS delivery ready, external channels need credentials |
+| X. Dashboard | VERIFIED | Server-authoritative data, admin/user separation |
+| Y. MT5 Execution | VERIFIED | AgentHub, delivery manager, duplicate prevention |
+| Z. User-Friendly Config | VERIFIED | Server-side validated, safe defaults |

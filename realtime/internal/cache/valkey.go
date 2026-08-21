@@ -173,3 +173,28 @@ func (v *ValkeyCache) ClearFingerprint(ctx context.Context, fingerprint string) 
 	key := fmt.Sprintf("signal:fingerprint:%s", fingerprint)
 	return v.client.Del(ctx, key).Err()
 }
+
+// SetLatestSignals caches the most recent signals for fast dashboard reads.
+// Avoids querying the database on every dashboard refresh.
+func (v *ValkeyCache) SetLatestSignals(data interface{}) error {
+	if v.client == nil {
+		return nil
+	}
+	b, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	return v.client.Set(v.ctx, "pat:latest_signals", b, 10*time.Second).Err()
+}
+
+// GetLatestSignals reads the cached latest signals from Valkey.
+func (v *ValkeyCache) GetLatestSignals() (json.RawMessage, error) {
+	if v.client == nil {
+		return nil, fmt.Errorf("no client")
+	}
+	b, err := v.client.Get(v.ctx, "pat:latest_signals").Bytes()
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(b), nil
+}

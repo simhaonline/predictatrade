@@ -1,6 +1,6 @@
 # User Guide
 
-**Version:** v1.2.0 — Advanced Risk + Backtesting  
+**Version:** v1.4.0 — Color Palette + Signal Delivery + TP/SL Geometry Fix  
 **Date:** 18 August 2026
 
 ---
@@ -109,6 +109,41 @@ The calibrated probability represents the model's confidence that the signal's p
 | PROMOTED | Model promoted to production | Shows percentage |
 
 **Important**: Calibrated probability is **NOT** a guaranteed win rate. It is a statistical estimate based on historical calibration data.
+
+---
+
+## TP/SL Levels (v1.4.0)
+
+Take Profit and Stop Loss levels are computed using ATR (Average True Range) — a volatility-based measure that adapts to market conditions:
+
+| Strategy | SL Distance | TP1 Distance | TP2 Distance | TP3 Distance |
+|----------|-------------|---------------|--------------|--------------|
+| STANDARD_SCALPING | 1.0 × ATR | 1.0 × ATR | 1.5 × ATR | 2.0 × ATR |
+| ULTRA_SCALPING | 0.5 × ATR | 0.5 × ATR | 0.75 × ATR | 1.0 × ATR |
+| STANDARD_SWING | 1.5 × ATR | 1.5 × ATR | 2.5 × ATR | 3.5 × ATR |
+| TREND_SWING | 2.0 × ATR | 2.0 × ATR | 4.0 × ATR | 6.0 × ATR |
+
+TP1 is approximately the same distance as SL (balanced R:R ≈ 1:1). TP2 and TP3 provide larger targets for trend continuation.
+
+---
+
+## MT4/MT5 EA Strategy Selection (v1.05)
+
+When attaching the Predict-A-Trade EA to a chart, you can select which strategies and signal directions to receive:
+
+### Strategy Selection
+- `ReceiveStandardScalping` (default: true) — M1/M5 scalping signals
+- `ReceiveUltraScalping` (default: true) — M1 ultra-fast scalping signals
+- `ReceiveStandardSwing` (default: true) — M15/H1 swing trading signals
+- `ReceiveTrendSwing` (default: true) — H1/H4 trend following signals
+
+### Direction Filter
+- `ReceiveBuy` (default: true) — Qualified BUY signals (executable)
+- `ReceiveSell` (default: true) — Qualified SELL signals (executable)
+- `ReceiveBuyCandidate` (default: true) — Advisory BUY_CANDIDATE signals
+- `ReceiveSellCandidate` (default: true) — Advisory SELL_CANDIDATE signals
+
+All are enabled by default. Set any to `false` to filter out those signals. The chart panel shows a counter: "X recv, Y shown, Z filtered" and which strategies are active: "Strats: SS US SW TW".
 
 ### Signal Grades
 

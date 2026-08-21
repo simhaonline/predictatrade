@@ -16530,3 +16530,22 @@ This appendix annotates the implementation status of SOW requirements after the 
 
 All repository-controlled software blockers (P1-001, P1-002, P2-001, P2-002, P2-003) are RESOLVED.
 Remaining: external configuration (SMTP/TLS/COT/DXY) and runtime validation (live MT4/MT5).
+
+### v1.4.0 Update Summary (19 August 2026)
+
+| Change | SOW Section | Implementation | Status |
+|--------|------------|----------------|--------|
+| Approved color palette | §UI/Command Center | globals.css, tailwind.config.ts, 80+ TSX class replacements | ✅ COMPLETE |
+| HSL `%` sign fix | §UI/Command Center | globals.css — critical bug fix | ✅ COMPLETE |
+| Signal delivery to MT4/MT5 agents | §3.1 Real-Time Trading Plane | agent_ws.go BroadcastSignalToAgents(), main.go broadcastSignalToAll() | ✅ COMPLETE |
+| TP/SL geometry fix (ATR-based) | §Strategy | strategies.go — TP now uses ATRMultiplierTP, not MinRR×SL_dist | ✅ COMPLETE |
+| Minimum SL distance enforcement | §Risk and Execution | strategies.go — SL must be ≥ ATRMultiplierSL × ATR | ✅ COMPLETE |
+| MQL EA v1.05 strategy selection | §Windows/MQL Edge | mql/mt4, mql/mt5 — 4 strategy toggles + 4 direction filters | ✅ COMPLETE |
+| MQL EA v1.05 JSON fix | §Windows/MQL Edge | ExtractJSONDouble skips leading quotes | ✅ COMPLETE |
+| Regime diagnostics route | §Observability | nginx proxy /api/v1/admin/regime-diagnostics → Go engine | ✅ COMPLETE |
+| Entitlement/license gate hydration | §3.1/Entitlement | main.go hydrateEntitlementLicenseGates() goroutine | ✅ COMPLETE |
+| Session gate overlap fix | §Market-Data Truth | session.go — LONDON_NEWYORK_OVERLAP accepted | ✅ COMPLETE |
+| Canonical idempotency handling | §API/Events | persistence.go — duplicate key errors → nil | ✅ COMPLETE |
+
+**Overall: 490 tests, 0 failures. Production Readiness: CONDITIONAL GO (v1.4.0)**
+No new database migrations. No financial ledger changes. No new P0/P1 blockers.

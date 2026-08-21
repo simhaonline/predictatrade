@@ -209,6 +209,8 @@ const (
 	GateEntitlement       GateID = "entitlement"
 	GateLicense           GateID = "license"
 	GateExecutionPermit   GateID = "execution_permission"
+	GateStopHuntFilter    GateID = "stop_hunt_filter"
+	GateMinATR            GateID = "min_atr"
 )
 
 // NoTradeReason represents a standardized NO-TRADE reason (SOW Section 18).
@@ -247,6 +249,11 @@ const (
 	NTScoreBelowThreshold   NoTradeReason = "NT_SCORE_BELOW_THRESHOLD"
 	NTRegimeMismatch        NoTradeReason = "NT_REGIME_MISMATCH"
 	NTFeatureWarmup         NoTradeReason = "NT_FEATURE_WARMUP"
+	NTLowATR                NoTradeReason = "LOW_ATR_COST_RISK"
+	NTStructuralStopHunt    NoTradeReason = "STRUCTURAL_STOP_HUNT"
+	NTRegimeMismatchNew     NoTradeReason = "REGIME_MISMATCH"
+	NTMinLotExceedsEquity   NoTradeReason = "MIN_LOT_EXCEEDS_EQUITY"
+	NTDailySoftCap          NoTradeReason = "DAILY_SOFT_CAP"
 	NTMTFUnavailable        NoTradeReason = "NT_MTF_UNAVAILABLE"
 	NTStructureUnavailable  NoTradeReason = "NT_STRUCTURE_UNAVAILABLE"
 	NTATRNotReady           NoTradeReason = "NT_ATR_NOT_READY"
@@ -269,6 +276,10 @@ type EvidenceContribution struct {
 	Source         string          `json:"source"`
 	Version        string          `json:"version"`
 	ReasonCode     string          `json:"reason_code"`
+
+	// ML & Sentiment injection (v1.7.0) — default 0, does not affect existing tests
+	ML       float64 `json:"ml,omitempty"`
+	Sentiment float64 `json:"sentiment,omitempty"`
 }
 
 // Signal represents a complete trading signal (SOW Sections 15, 16, 64).

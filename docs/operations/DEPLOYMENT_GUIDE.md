@@ -1,6 +1,6 @@
 # Deployment Guide
 
-## Version: v1.3.0 — Production Remediation + External Feeds
+## Version: v1.4.0 — Color Palette + Signal Delivery + TP/SL Geometry Fix
 
 ## Services
 

@@ -54,6 +54,9 @@ type DecisionInput struct {
 	LicenseActive  bool
 	ExecutionPermitted bool
 	ATR            decimal.Decimal  // Phase 2: Real ATR propagation to gates
+	// Phase 3: Structural levels for StopHuntFilterGate
+	StructuralLow  float64
+	StructuralHigh float64
 }
 
 // DecisionResult is the final output of the master decision hierarchy.
@@ -143,6 +146,8 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 		EntitlementOK:   input.EntitlementOK,
 		LicenseActive:   input.LicenseActive,
 		ExecutionPermitted: input.ExecutionPermitted,
+		StructuralLow:  input.StructuralLow,
+		StructuralHigh: input.StructuralHigh,
 	}
 
 	allPass, gateEvals, firstVeto := e.gateRegistry.EvaluateAll(gateInput)

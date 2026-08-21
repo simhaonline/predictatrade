@@ -152,7 +152,19 @@ export class AdminService {
               COALESCE(SUM(CASE WHEN status = 'REVERSED' THEN commission_amount ELSE 0 END), 0) as reversed_amount
        FROM referral.commission_ledger`,
     );
-    return r.rows[0];
+    // Defensive defaults — aggregate queries always return one row in Postgres,
+    // but guard against empty-result mocks and unexpected edge cases.
+    return {
+      total_entries: 0,
+      total_amount: 0,
+      pending_count: 0,
+      pending_amount: 0,
+      confirmed_count: 0,
+      confirmed_amount: 0,
+      reversed_count: 0,
+      reversed_amount: 0,
+      ...(r.rows[0] || {}),
+    };
   }
 
   /** Payout statistics (admin only). */
@@ -166,7 +178,17 @@ export class AdminService {
               COALESCE(SUM(CASE WHEN status = 'APPROVED' THEN requested_amount ELSE 0 END), 0) as approved_amount
        FROM referral.payouts`,
     );
-    return r.rows[0];
+    // Defensive defaults — aggregate queries always return one row in Postgres,
+    // but guard against empty-result mocks and unexpected edge cases.
+    return {
+      total: 0,
+      pending: 0,
+      approved: 0,
+      rejected: 0,
+      pending_amount: 0,
+      approved_amount: 0,
+      ...(r.rows[0] || {}),
+    };
   }
 
   /** List all payouts (admin only). */
@@ -220,11 +242,20 @@ export class AdminService {
                 d.first_seen_at as registered_at, d.last_seen_at,
                 d.bound_license_id, d.revoked_at, d.revocation_reason,
                 d.security_state, d.installation_id,
+                d.fingerprint_hash, d.fingerprint_version, d.fingerprint_components,
+                d.last_activation_at,
                 l.license_key, l.status as license_status,
+                l.max_devices, l.max_mt_accounts,
                 (SELECT json_agg(json_build_object(
+                    'id', da.id,
                     'client_type', da.client_type,
+                    'terminal_build', da.terminal_build,
+                    'ea_version', da.ea_version,
                     'broker_name', da.broker_name,
+                    'broker_server', da.broker_server,
                     'mt_account_login', da.mt_account_login,
+                    'installation_id', da.installation_id,
+                    'fingerprint_hash', da.fingerprint_hash,
                     'activated_at', da.activated_at
                  )) FROM licensing.device_activations da WHERE da.device_id = d.id) as activations
          FROM licensing.devices d
@@ -379,7 +410,7 @@ export class AdminService {
       });
     }
 
-    // 2. Control Plane (NestJS) — self
+    // 2. Control Plane (NestJS) - self
     services.push({
       service: 'Control Plane (NestJS)',
       status: 'HEALTHY',
@@ -416,7 +447,7 @@ export class AdminService {
       });
     }
 
-    // 4. Valkey/Redis — perform an actual TCP connection check.
+    // 4. Valkey/Redis - perform an actual TCP connection check.
     // Previously this was hardcoded UNKNOWN, which showed a false "Unknown"
     // status on the System Health page even when Valkey was running.
     const valkeyAddr = process.env.VALKEY_ADDR || '127.0.0.1:6379';
@@ -473,7 +504,7 @@ export class AdminService {
       });
     }
 
-    // 6. Windows Agent / Master Node — derived from Go engine agents endpoint
+    // 6. Windows Agent / Master Node - derived from Go engine agents endpoint
     try {
       const goAgentsUrl = process.env.GO_ENGINE_AGENTS_URL || 'http://127.0.0.1:13081/api/v1/agents/status';
       const controller = new AbortController();
@@ -503,5 +534,98 @@ export class AdminService {
     }
 
     return { services };
+  }
+
+  /** Trading report statistics - signal counts, strategy breakdown, hourly trends. */
+  async getTradingReport() {
+    const [
+      directionStats,
+      strategyStats,
+      hourlyTrend,
+      recentSignals,
+      regimeStats,
+      sessionStats,
+      totalSignals,
+      last24h,
+      gateVetoStats,
+    ] = await Promise.all([
+      // Signal counts by direction
+      this.pool.query(`
+        SELECT direction, count(*) as count, 
+               round(avg(raw_score)::numeric, 2) as avg_score,
+               round(avg(calibrated_probability)::numeric, 4) as avg_prob
+        FROM trading.signals GROUP BY direction ORDER BY count DESC`),
+
+      // Signal counts by strategy + direction
+      this.pool.query(`
+        SELECT strategy_id, direction, count(*) as count,
+               round(avg(raw_score)::numeric, 2) as avg_score
+        FROM trading.signals GROUP BY strategy_id, direction 
+        ORDER BY strategy_id, count DESC`),
+
+      // Hourly trend (last 24 hours)
+      this.pool.query(`
+        SELECT date_trunc('hour', created_at) as hour, direction, count(*) as count
+        FROM trading.signals 
+        WHERE created_at > now() - interval '24 hours'
+        GROUP BY hour, direction ORDER BY hour DESC`),
+
+      // Recent actionable signals (BUY/SELL/CANDIDATE)
+      this.pool.query(`
+        SELECT s.signal_id, s.strategy_id, s.direction, s.raw_score, 
+               s.calibrated_probability, s.entry_price, s.stop_loss, 
+               s.tp1, s.tp2, s.tp3, s.regime, s.session, s.status,
+               s.created_at
+        FROM trading.signals s
+        WHERE s.direction IN ('BUY','SELL','BUY_CANDIDATE','SELL_CANDIDATE','BLOCKED')
+        ORDER BY s.created_at DESC LIMIT 50`),
+
+      // Regime distribution
+      this.pool.query(`
+        SELECT regime, count(*) as count 
+        FROM trading.signals WHERE regime IS NOT NULL 
+        GROUP BY regime ORDER BY count DESC`),
+
+      // Session distribution
+      this.pool.query(`
+        SELECT session, count(*) as count 
+        FROM trading.signals WHERE session IS NOT NULL 
+        GROUP BY session ORDER BY count DESC`),
+
+      // Total signal count
+      this.pool.query(`SELECT count(*) as total FROM trading.signals`),
+
+      // Last 24h summary
+      this.pool.query(`
+        SELECT count(*) as total,
+               count(CASE WHEN direction = 'BUY' THEN 1 END) as buy,
+               count(CASE WHEN direction = 'SELL' THEN 1 END) as sell,
+               count(CASE WHEN direction = 'BUY_CANDIDATE' THEN 1 END) as buy_candidate,
+               count(CASE WHEN direction = 'SELL_CANDIDATE' THEN 1 END) as sell_candidate,
+               count(CASE WHEN direction = 'NO-TRADE' THEN 1 END) as no_trade,
+               count(CASE WHEN direction = 'BLOCKED' THEN 1 END) as blocked
+        FROM trading.signals WHERE created_at > now() - interval '24 hours'`),
+
+      // Gate veto reasons (from reason_codes in BLOCKED signals)
+      this.pool.query(`
+        SELECT jsonb_array_elements_text(reason_codes) as reason, count(*) as count
+        FROM trading.signals 
+        WHERE direction = 'BLOCKED' AND reason_codes != '[]'::jsonb
+        GROUP BY reason ORDER BY count DESC LIMIT 10`),
+    ]);
+
+    return {
+      summary: {
+        total_signals: parseInt(totalSignals.rows[0]?.total ?? '0', 10),
+        last_24h: last24h.rows[0] ?? { total: '0', buy: '0', sell: '0', buy_candidate: '0', sell_candidate: '0', no_trade: '0', blocked: '0' },
+      },
+      by_direction: directionStats.rows,
+      by_strategy: strategyStats.rows,
+      hourly_trend: hourlyTrend.rows,
+      by_regime: regimeStats.rows,
+      by_session: sessionStats.rows,
+      recent_signals: recentSignals.rows,
+      gate_vetoes: gateVetoStats.rows,
+    };
   }
 }

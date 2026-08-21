@@ -51,11 +51,17 @@ type StrategyResult struct {
 
 	// Dominance (prompt.md Section 23)
 	Dominance   float64
+
+	// ML & Sentiment contributions (v1.7.0) — default 0, does not affect existing tests
+	MLContribution       float64 `json:"ml_contribution,omitempty"`
+	SentimentContribution float64 `json:"sentiment_contribution,omitempty"`
+	Confidence           float64 `json:"confidence,omitempty"`
 }
 
 // StrategyConfig defines strategy-specific configuration.
 // SOW: Configuration should be externalized, not scattered magic constants.
 type StrategyConfig struct {
+	StrategyID        types.StrategyID
 	MinConfluence     float64
 	MinMTFAlignment   float64
 	ATRMultiplierSL   float64
@@ -63,6 +69,7 @@ type StrategyConfig struct {
 	ATRMultiplierTP2  float64
 	ATRMultiplierTP3  float64
 	MaxSpreadPips     float64
+	MaxSlippagePoints int   // per-strategy max slippage in points (prompt.md Section 4.2)
 	MinADX            float64
 	MinRR             float64
 	ExpiryMinutes     int
@@ -102,6 +109,9 @@ func applyFamilyCaps(evidence []types.EvidenceContribution) []types.EvidenceCont
 		"MTF":        0.15,
 		"CANDLE":     0.15,
 		"REGIME":     0.10,
+		// ML and Sentiment are applied post-caps to avoid altering family cap logic for existing pillars.
+		"ML":         0.25, // same cap as TREND
+		"SENTIMENT":  0.25, // same cap as TREND
 	}
 	familySums := map[string]float64{}
 	for _, e := range evidence {
@@ -168,45 +178,88 @@ func computeStructuralSLTP(state *features.MarketState, direction types.Directio
 	}
 	entry = state.CurrentPrice
 	atr := state.Indicators.ATR
+
+	// ─── NEW: Check for percentage-based SL/TP from database ───
+	exitProfile := LoadExitProfile(string(cfg.StrategyID))
+	if exitProfile != nil && exitProfile.CalculationMode == "PERCENTAGE" {
+		pSL, pTP1, pTP2, pTP3 := computePercentageSLTP(entry, direction, atr, exitProfile)
+		if !pSL.IsZero() {
+			return entry, pSL, pTP1, pTP2, pTP3
+		}
+	}
+	// ─── FALLBACK: ATR/structural calculation below ───
 	spread := state.Spread
 	halfSpread := spread.Div(decimal.NewFromInt(2))
 	
 	if direction == types.DirectionBuy {
 		// SL = structural low - lambda*ATR - 0.5*spread
+		// CRITICAL FIX: Ensure minimum SL distance = ATRMultiplierSL * ATR
+		// Without this, when swing low is close to entry, SL becomes too tight
+		// and trades hit SL before reaching TP (SL 2.5x closer than TP1).
+		atrSL := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL))
 		slBase := structuralLow
 		if slBase.IsZero() {
-			slBase = entry.Sub(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL)))
+			slBase = entry.Sub(atrSL)
 		} else {
-			slBase = slBase.Sub(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL)))
+			slBase = slBase.Sub(atrSL)
 		}
 		sl = slBase.Sub(halfSpread)
-		// TP = Entry + max(R_min * (Entry-SL), 1.5*ATR)
-		riskDist := entry.Sub(sl).Abs()
-		minTP := atr.Mul(decimal.NewFromFloat(1.5))
-		tp1Dist := riskDist.Mul(decimal.NewFromFloat(cfg.MinRR))
-		if tp1Dist.LessThan(minTP) {
-			tp1Dist = minTP
+		// Enforce minimum SL distance: SL must be at least ATRMultiplierSL * ATR below entry
+		minSLDist := atrSL
+		actualSLDist := entry.Sub(sl).Abs()
+		if actualSLDist.LessThan(minSLDist) {
+			// SL too tight — use ATR-based SL instead
+			sl = entry.Sub(atrSL).Sub(halfSpread)
 		}
+		// TP = Entry + ATRMultiplierTP1 * ATR (ATR-based, balanced with SL)
+		// The old logic used max(MinRR * SL_dist, ATR*1.5) which made TP1
+		// always 2.5x further than SL — trades hit SL before reaching TP1.
+		// Now TP1 is ATR-based (same basis as SL), giving balanced geometry.
+		// The MinRR gate validates the resulting R:R; if R:R < MinRR, the
+		// signal is rejected by the gate — TP is NOT inflated to force R:R.
+		tp1Dist := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP1))
 		tp1 = entry.Add(tp1Dist)
-		tp2 = entry.Add(tp1Dist.Mul(decimal.NewFromFloat(1.5)))
-		tp3 = entry.Add(tp1Dist.Mul(decimal.NewFromFloat(2.0)))
+		tp2 = entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2)))
+		tp3 = entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP3)))
 	} else {
+		// CRITICAL FIX: Same minimum SL distance enforcement for SELL
+		atrSL := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL))
 		slBase := structuralHigh
 		if slBase.IsZero() {
-			slBase = entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL)))
+			slBase = entry.Add(atrSL)
 		} else {
-			slBase = slBase.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL)))
+			slBase = slBase.Add(atrSL)
 		}
 		sl = slBase.Add(halfSpread)
-		riskDist := sl.Sub(entry).Abs()
-		minTP := atr.Mul(decimal.NewFromFloat(1.5))
-		tp1Dist := riskDist.Mul(decimal.NewFromFloat(cfg.MinRR))
-		if tp1Dist.LessThan(minTP) {
-			tp1Dist = minTP
+		// Enforce minimum SL distance: SL must be at least ATRMultiplierSL * ATR above entry
+		minSLDist := atrSL
+		actualSLDist := sl.Sub(entry).Abs()
+		if actualSLDist.LessThan(minSLDist) {
+			sl = entry.Add(atrSL).Add(halfSpread)
 		}
-		tp1 = entry.Sub(tp1Dist)
-		tp2 = entry.Sub(tp1Dist.Mul(decimal.NewFromFloat(1.5)))
-		tp3 = entry.Sub(tp1Dist.Mul(decimal.NewFromFloat(2.0)))
+		// TP: use the LARGER of ATR-based or R:R-based distance for guaranteed R:R
+		actualSLDistSell := sl.Sub(entry).Abs()
+		atrTP1Sell := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP1))
+		rrBasedTP1Sell := actualSLDistSell.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP1 / cfg.ATRMultiplierSL))
+		tp1DistSell := atrTP1Sell
+		if rrBasedTP1Sell.GreaterThan(atrTP1Sell) {
+			tp1DistSell = rrBasedTP1Sell
+		}
+		tp1 = entry.Sub(tp1DistSell)
+		tp2DistSell := actualSLDistSell.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2 / cfg.ATRMultiplierSL))
+		atrTP2Sell := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2))
+		if tp2DistSell.GreaterThan(atrTP2Sell) {
+			tp2 = entry.Sub(tp2DistSell)
+		} else {
+			tp2 = entry.Sub(atrTP2Sell)
+		}
+		tp3DistSell := actualSLDistSell.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP3 / cfg.ATRMultiplierSL))
+		atrTP3Sell := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP3))
+		if tp3DistSell.GreaterThan(atrTP3Sell) {
+			tp3 = entry.Sub(tp3DistSell)
+		} else {
+			tp3 = entry.Sub(atrTP3Sell)
+		}
 	}
 	return
 }
@@ -491,14 +544,15 @@ type StandardScalping struct{ cfg StrategyConfig }
 
 func NewStandardScalping() *StandardScalping {
 	return &StandardScalping{cfg: StrategyConfig{
+		StrategyID: types.StrategyStandardScalping,
 		MinConfluence: 65, MinMTFAlignment: 40,
-		ATRMultiplierSL: 1.0, ATRMultiplierTP1: 1.0, ATRMultiplierTP2: 1.5, ATRMultiplierTP3: 2.0,
-		MaxSpreadPips: 2.0, MinADX: 20, MinRR: 1.2,
+		ATRMultiplierSL: 1.5, ATRMultiplierTP1: 2.5, ATRMultiplierTP2: 4.0, ATRMultiplierTP3: 6.0,
+		MaxSpreadPips: 2.5, MaxSlippagePoints: 10, MinADX: 20, MinRR: 2.0,
 		ExpiryMinutes: 10, CooldownMinutes: 15,
 		DecisionTFs: []types.Timeframe{types.TFM1, types.TFM5},
 		ContextTFs: []types.Timeframe{types.TFM15, types.TFM30},
-		AcceptedRegimes: []types.Regime{types.RegimeTrendingBullish, types.RegimeTrendingBearish, types.RegimeBreakout, types.RegimeMeanReversion, types.RegimeRange},
-		AcceptedSessions: []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO"},
+		AcceptedRegimes: []types.Regime{types.RegimeTrendingBullish, types.RegimeTrendingBearish, types.RegimeBreakout, types.RegimeMeanReversion, types.RegimeRange, types.RegimeHighVolatility},
+		AcceptedSessions: []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"},
 		MinQualityState: types.QualityAuthoritative,
 	}}
 }
@@ -664,14 +718,15 @@ type UltraScalping struct{ cfg StrategyConfig }
 
 func NewUltraScalping() *UltraScalping {
 	return &UltraScalping{cfg: StrategyConfig{
+		StrategyID: types.StrategyUltraScalping,
 		MinConfluence: 65, MinMTFAlignment: 50,
-		ATRMultiplierSL: 0.5, ATRMultiplierTP1: 0.5, ATRMultiplierTP2: 0.75, ATRMultiplierTP3: 1.0,
-		MaxSpreadPips: 1.5, MinADX: 25, MinRR: 1.0,
+		ATRMultiplierSL: 1.0, ATRMultiplierTP1: 1.5, ATRMultiplierTP2: 2.5, ATRMultiplierTP3: 4.0,
+		MaxSpreadPips: 1.5, MaxSlippagePoints: 5, MinADX: 25, MinRR: 2.0,
 		ExpiryMinutes: 3, CooldownMinutes: 5,
 		DecisionTFs: []types.Timeframe{types.TFM1},
 		ContextTFs: []types.Timeframe{types.TFM5, types.TFM15},
-		AcceptedRegimes: []types.Regime{types.RegimeTrendingBullish, types.RegimeTrendingBearish, types.RegimeBreakout, types.RegimeMeanReversion, types.RegimeRange},
-		AcceptedSessions: []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO"},
+		AcceptedRegimes: []types.Regime{types.RegimeTrendingBullish, types.RegimeTrendingBearish, types.RegimeBreakout, types.RegimeMeanReversion, types.RegimeRange, types.RegimeHighVolatility},
+		AcceptedSessions: []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"},
 		MinQualityState: types.QualityAuthoritative,
 	}}
 }
@@ -859,14 +914,15 @@ type StandardSwing struct{ cfg StrategyConfig }
 
 func NewStandardSwing() *StandardSwing {
 	return &StandardSwing{cfg: StrategyConfig{
+		StrategyID: types.StrategyStandardSwing,
 		MinConfluence: 55, MinMTFAlignment: 30,
-		ATRMultiplierSL: 1.5, ATRMultiplierTP1: 1.5, ATRMultiplierTP2: 2.5, ATRMultiplierTP3: 3.5,
-		MaxSpreadPips: 3.0, MinADX: 18, MinRR: 1.8,
+		ATRMultiplierSL: 2.0, ATRMultiplierTP1: 3.0, ATRMultiplierTP2: 5.0, ATRMultiplierTP3: 8.0,
+		MaxSpreadPips: 4.0, MaxSlippagePoints: 20, MinADX: 20, MinRR: 2.0,
 		ExpiryMinutes: 60, CooldownMinutes: 120,
 		DecisionTFs: []types.Timeframe{types.TFM15, types.TFM30, types.TFH1},
 		ContextTFs: []types.Timeframe{types.TFH4, types.TFD1},
-		AcceptedRegimes: []types.Regime{types.RegimeTrendingBullish, types.RegimeTrendingBearish, types.RegimeBreakout, types.RegimeMeanReversion, types.RegimeRange},
-		AcceptedSessions: []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO"},
+		AcceptedRegimes: []types.Regime{types.RegimeTrendingBullish, types.RegimeTrendingBearish, types.RegimeBreakout, types.RegimeMeanReversion, types.RegimeRange, types.RegimeHighVolatility},
+		AcceptedSessions: []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"},
 		MinQualityState: types.QualityAuthoritative,
 	}}
 }
@@ -1052,13 +1108,14 @@ type TrendSwing struct{ cfg StrategyConfig }
 
 func NewTrendSwing() *TrendSwing {
 	return &TrendSwing{cfg: StrategyConfig{
+		StrategyID: types.StrategyTrendSwing,
 		MinConfluence: 50, MinMTFAlignment: 25,
-		ATRMultiplierSL: 2.0, ATRMultiplierTP1: 2.0, ATRMultiplierTP2: 4.0, ATRMultiplierTP3: 6.0,
-		MaxSpreadPips: 4.0, MinADX: 22, MinRR: 2.5,
+		ATRMultiplierSL: 2.5, ATRMultiplierTP1: 4.0, ATRMultiplierTP2: 6.5, ATRMultiplierTP3: 10.0,
+		MaxSpreadPips: 5.0, MaxSlippagePoints: 30, MinADX: 25, MinRR: 2.0,
 		ExpiryMinutes: 240, CooldownMinutes: 360,
 		DecisionTFs: []types.Timeframe{types.TFH1, types.TFH4},
 		ContextTFs: []types.Timeframe{types.TFD1, types.TFW1},
-		AcceptedRegimes: []types.Regime{types.RegimeTrendingBullish, types.RegimeTrendingBearish, types.RegimeBreakout},
+		AcceptedRegimes: []types.Regime{types.RegimeTrendingBullish, types.RegimeTrendingBearish, types.RegimeBreakout, types.RegimeHighVolatility},
 		AcceptedSessions: []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"},
 		MinQualityState: types.QualityAuthoritative,
 	}}

@@ -1,6 +1,6 @@
 # Trading Mathematics Specification
 
-## Version: v1.0.0 — Stage 4 PTB
+## Version: v1.8.0 — Trade Management Audit + Broker Stop Validation + Cost-Aware Break-Even
 
 ## Four Strategy Scoring Formula
 
@@ -35,6 +35,46 @@ LIQUIDITY ≤ 0.15, SSMC ≤ 0.15, MTF ≤ 0.15, CANDLE ≤ 0.15, REGIME ≤ 0.1
 MTF score range: [-100, +100]
 Contribution = (mtfScore / 100.0) × factor
 ```
+
+
+
+## Candidate Microprofit Geometry (v1.6.0)
+
+Candidate signals (BUY_CANDIDATE/SELL_CANDIDATE) use tighter ATR multipliers
+than qualified signals to capture microprofit from weaker directional edges.
+
+```
+Candidate SL  = ATR × candidate_sl_multiplier
+Candidate TP1 = Entry ± (ATR × candidate_tp1_multiplier)
+Candidate TP2 = Entry ± (ATR × candidate_tp2_multiplier)
+Candidate TP3 = Entry ± (ATR × candidate_tp3_multiplier)
+```
+
+| Strategy | SL Mult | TP1 Mult | TP2 Mult | TP3 Mult |
+|----------|---------|----------|----------|----------|
+| Ultra Scalping | 1.0 | 1.0 | 2.0 | 3.0 |
+| Standard Scalping | 1.0 | 1.5 | 2.5 | 4.0 |
+| Standard Swing | 1.5 | 1.5 | 3.0 | 5.0 |
+| Trend Swing | 2.0 | 2.0 | 3.5 | 5.0 |
+
+## Vectorized Python Implementations (v1.5.0)
+
+All indicator formulas above have vectorized pandas/numpy implementations in
+`research/src/patresearch/quantitative_strategy_engine.py` (`QuantitativeStrategyEngine`).
+These are used for batch historical computation and are parity-verified against
+the scalar `reference_math.py` functions (SOW Section 137). The vectorized engine
+does **not** replace the Go production indicator implementations — it provides a
+fast research-plane counterpart for large-scale backtesting and feature studies.
+
+| Indicator | Vectorized Method | Scalar Reference |
+|-----------|------------------|-----------------|
+| SMA | `compute_sma(df, period)` | — |
+| EMA | `compute_ema(df, period)` | `reference_math.ema()` |
+| RSI (Wilder) | `compute_rsi(df, period)` | `reference_math.rsi()` |
+| ATR (Wilder) | `compute_atr(df, period)` | `reference_math.atr()` |
+| ADX + DI | `compute_adx(df, period)` | — |
+| MACD | `compute_macd(df, 12, 26, 9)` | — |
+| Bollinger Bands | `compute_bollinger_bands(df, 20, 2.0)` | — |
 
 ## Calibration
 
@@ -313,3 +353,49 @@ if diff > 0 AND normalized > 0.3: BULLISH
 if diff < 0 AND normalized > 0.3: BEARISH
 else: BALANCED
 ```
+
+
+---
+
+## TP/SL Geometry (v1.4.0)
+
+### ATR-Based Level Computation
+
+Entry, Stop Loss, and Take Profit levels are computed using ATR (Average True Range) multipliers:
+
+**BUY:**
+```
+Entry = Ask price
+SL    = Entry - (ATRMultiplierSL × ATR)
+TP1   = Entry + (ATRMultiplierTP1 × ATR)
+TP2   = Entry + (ATRMultiplierTP2 × ATR)
+TP3   = Entry + (ATRMultiplierTP3 × ATR)
+```
+
+**SELL:**
+```
+Entry = Bid price
+SL    = Entry + (ATRMultiplierSL × ATR)
+TP1   = Entry - (ATRMultiplierTP1 × ATR)
+TP2   = Entry - (ATRMultiplierTP2 × ATR)
+TP3   = Entry - (ATRMultiplierTP3 × ATR)
+```
+
+### Strategy ATR Multipliers
+
+| Strategy | SL | TP1 | TP2 | TP3 | MinRR |
+|----------|-----|-----|-----|-----|-------|
+| STANDARD_SCALPING | 1.0×ATR | 1.0×ATR | 1.5×ATR | 2.0×ATR | 1.2 |
+| ULTRA_SCALPING | 0.5×ATR | 0.5×ATR | 0.75×ATR | 1.0×ATR | 1.0 |
+| STANDARD_SWING | 1.5×ATR | 1.5×ATR | 2.5×ATR | 3.5×ATR | 1.8 |
+| TREND_SWING | 2.0×ATR | 2.0×ATR | 4.0×ATR | 6.0×ATR | 2.5 |
+
+### Minimum SL Distance
+
+SL distance is enforced to be at least `ATRMultiplierSL × ATR` from entry. When structural levels (swing lows/highs) are close to entry, the ATR-based minimum prevents SL from being too tight.
+
+### v1.4.0 Fix
+
+**Before**: TP1 = max(MinRR × SL_distance, 1.5×ATR) — made TP1 2.5x further than SL.
+**After**: TP1 = ATRMultiplierTP1 × ATR — balanced with SL (R:R ≈ 1:1 for TP1).
+The MinRR gate validates R:R and rejects insufficient signals — TP is not inflated.

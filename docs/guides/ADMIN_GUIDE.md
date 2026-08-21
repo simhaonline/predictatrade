@@ -1,6 +1,6 @@
 # Admin Guide
 
-**Version:** v1.2.0 — Advanced Risk + Backtesting  
+**Version:** v1.4.0 — Color Palette + Signal Delivery + TP/SL Geometry Fix  
 **Date:** 18 August 2026
 
 ---
@@ -293,6 +293,31 @@ The admin signal panel displays all signals (including NO-TRADE and candidates) 
 | TREND_SWING | 30 | 50 |
 
 See `docs/SIGNAL_TYPES_AND_PROBABILITY.md` for the full reference.
+
+### TP/SL Geometry (v1.4.0)
+
+TP and SL levels are ATR-based (not MinRR-inflated). This fixes the issue where TP1 was 2.5x further than SL, causing trades to hit SL before reaching TP1.
+
+| Strategy | SL (×ATR) | TP1 (×ATR) | TP2 (×ATR) | TP3 (×ATR) |
+|----------|----------|-----------|-----------|-----------|
+| STANDARD_SCALPING | 1.0 | 1.0 | 1.5 | 2.0 |
+| ULTRA_SCALPING | 0.5 | 0.5 | 0.75 | 1.0 |
+| STANDARD_SWING | 1.5 | 1.5 | 2.5 | 3.5 |
+| TREND_SWING | 2.0 | 2.0 | 4.0 | 6.0 |
+
+### Signal Delivery to MT4/MT5
+
+Signals are broadcast to both frontend dashboard and Windows Agent simultaneously. The delivery chain: Go Engine → WebSocket → Windows Agent → PAT_signals.txt → MT4/MT5 EA.
+
+The Windows Agent receives directional signals (BUY, SELL, BUY_CANDIDATE, SELL_CANDIDATE) and forwards them to the MT4/MT5 EA via file IPC (FILE_COMMON folder). NO-TRADE signals are not forwarded.
+
+### MQL EA v1.05 Strategy Selection
+
+Both MT4 and MT5 EAs (v1.05) include input parameters for strategy and direction filtering. All 4 strategies and all 4 directions are enabled by default. Subscribers can disable specific strategies via EA inputs — no server-side change needed.
+
+### Regime Diagnostics
+
+The Regime Diagnostics page (`/admin/regime-diagnostics`) displays real-time regime state from the Go engine. The endpoint is proxied through nginx at `/api/v1/admin/regime-diagnostics` → Go engine (port 13081).
 
 ---
 

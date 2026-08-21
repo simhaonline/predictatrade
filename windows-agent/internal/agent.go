@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	mrand "math/rand"
+	"strconv"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,6 +20,11 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/google/uuid"
 )
+
+// logf is a convenience wrapper for log.Printf.
+func logf(format string, args ...any) {
+	log.Printf(format, args...)
+}
 
 type Agent struct {
 	config        *Config
@@ -33,6 +39,8 @@ type Agent struct {
 	lastSignal    time.Time
 	reconnectDelay time.Duration
 	pipeManager   *PipeManager
+	health        *healthServer
+	updater       *Updater
 	processedSignals map[string]bool  // idempotency: track processed signal IDs
 }
 
@@ -92,6 +100,10 @@ func (a *Agent) Start() error {
 	// Initialize named pipe manager for MT4/MT5 EA communication
 	a.pipeManager = NewPipeManager(findCommonFolder(), a.sendToServer, a.config.APIURL)
 	a.pipeManager.SetCallbacks(a.onTickFromEA, a.onLicenseCheck)
+	a.pipeManager.SetTerminalCallback(func(term TerminalInfo) {
+		// Register each new terminal with the NestJS control plane
+		go a.registerTerminalWithBackend(term)
+	})
 	a.pipeManager.Start()
 	log.Printf("File IPC started at: %s", findCommonFolder())
 
@@ -104,18 +116,34 @@ func (a *Agent) Start() error {
 	// Start signal processor (receives signals from server → forwards to EA)
 	go a.processSignals()
 
+	// Start local HTTP health endpoint (for health-check.ps1 / external monitors)
+	a.health = newHealthServer()
+	a.health.start()
+
+	// Start auto-updater (checks for updates every hour)
+	manifestURL := getEnv("PAT_UPDATE_MANIFEST_URL", "https://downloads.predictatrade.com/windows-agent/update-manifest.json")
+	installDir := getEnv("PAT_INSTALL_DIR", "C:\\Program Files\\PredictATrade\\XAUUSD")
+	a.updater = NewUpdater(manifestURL, AgentVersion, a.config.AgentDataDir, installDir, a.config.UpdateChannel)
+	go a.updateLoop()
+
 	return nil
 }
 
 // activateDevice calls the backend activation API with the hardware fingerprint.
+// This registers the device and binds the license to this hardware.
 func (a *Agent) activateDevice(fp *HardwareFingerprint) error {
 	activationReq := map[string]interface{}{
 		"license_key": a.config.LicenseKey,
-		"client_type": "MT5",
+		"client_type": "MT5", // Initial activation as MT5; individual terminals register separately
 		"fingerprint": fp,
 		"terminal": map[string]string{
 			"name":       "PredictATrade Agent",
-			"ea_version": "1.02",
+			"ea_version": "1.07",
+		},
+		"mt_account": map[string]string{
+			"broker": a.config.BrokerName,
+			"server": "",
+			"login":  "",
 		},
 	}
 
@@ -151,6 +179,52 @@ func (a *Agent) activateDevice(fp *HardwareFingerprint) error {
 	}
 
 	a.saveDeviceCredentials()
+	return nil
+}
+
+// registerTerminalWithBackend registers an individual MT4/MT5 terminal with the NestJS control plane.
+// This captures the broker name, account login, terminal build, and EA version for each connected terminal.
+// Called when a new terminal sends a LICENSE_CHECK via the pipe.
+func (a *Agent) registerTerminalWithBackend(term TerminalInfo) error {
+	if a.config.LicenseKey == "" {
+		log.Printf("Skipping terminal registration: no license key")
+		return nil
+	}
+
+	fp := CollectFingerprint(a.config.AgentDataDir)
+
+	activationReq := map[string]interface{}{
+		"license_key": a.config.LicenseKey,
+		"client_type": term.ClientType,
+		"fingerprint": fp,
+		"terminal": map[string]string{
+			"name":       "PredictATrade Agent",
+			"ea_version": "1.07",
+			"build":      "",
+		},
+		"mt_account": map[string]string{
+			"broker":  term.Broker,
+			"server":  "",
+			"login":   term.Account,
+			"symbol":  term.Symbol,
+		},
+	}
+
+	body, _ := json.Marshal(activationReq)
+	resp, err := http.Post(a.config.APIURL+"/devices/activate", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("terminal registration failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		respBody, _ := io.ReadAll(resp.Body)
+		log.Printf("Terminal registration for %s/%s returned HTTP %d: %s", term.ClientType, term.Account, resp.StatusCode, string(respBody))
+		// Don't return error — non-fatal, the agent continues operating
+		return nil
+	}
+
+	log.Printf("Terminal registered: %s broker=%s account=%s", term.ClientType, term.Broker, term.Account)
 	return nil
 }
 
@@ -208,17 +282,56 @@ func (a *Agent) sendHeartbeatToBackend() error {
 	if a.config.DeviceID == "" {
 		return nil // Not activated yet
 	}
+
+	// Collect terminal info for heartbeat (including account data)
+	var terminals []map[string]interface{}
+	if a.pipeManager != nil {
+		for _, t := range a.pipeManager.GetTerminals() {
+			terminals = append(terminals, map[string]interface{}{
+				"client_type":    t.ClientType,
+				"broker":         t.Broker,
+				"account":        t.Account,
+				"symbol":         t.Symbol,
+				"balance":        t.Balance,
+				"equity":         t.Equity,
+				"profit":         t.Profit,
+				"currency":       t.Currency,
+				"open_positions": t.OpenPositions,
+				"buy_positions":  t.BuyPositions,
+				"sell_positions": t.SellPositions,
+				"total_lots":     t.TotalLots,
+				"floating_pnl":   t.FloatingPnL,
+			})
+		}
+	}
+
 	reqBody, _ := json.Marshal(map[string]interface{}{
-		"device_id":   a.config.DeviceID,
-		"session_id":  a.config.SessionID,
+		"device_id":    a.config.DeviceID,
+		"session_id":   a.config.SessionID,
 		"mt_connected": a.pipeManager != nil,
+		"terminals":    terminals,
+		"hostname":     hostname(),
 	})
-	resp, err := http.Post(a.config.APIURL+"/devices/heartbeat", "application/json", bytes.NewReader(reqBody))
+
+	req, err := http.NewRequest("POST", a.config.APIURL+"/devices/heartbeat", bytes.NewReader(reqBody))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Use access token if available
+	if a.config.AccessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+a.config.AccessToken)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		log.Printf("Backend heartbeat HTTP %d: %s", resp.StatusCode, string(respBody))
 		return fmt.Errorf("heartbeat failed (HTTP %d)", resp.StatusCode)
 	}
 	return nil
@@ -227,6 +340,9 @@ func (a *Agent) sendHeartbeatToBackend() error {
 func (a *Agent) Stop() {
 	a.running = false
 	close(a.stopChan)
+	if a.health != nil {
+		a.health.stop()
+	}
 	if a.pipeManager != nil {
 		a.pipeManager.Stop()
 	}
@@ -303,7 +419,7 @@ func (a *Agent) connectLoop() {
 }
 
 func (a *Agent) connect() error {
-	url := a.config.LiveWSURL + "?agentId=" + a.deviceID + "&agentVersion=1.0.0"
+	url := a.config.LiveWSURL + "?agentId=" + a.deviceID + "&agentVersion=" + AgentVersion
 	log.Printf("Connecting to %s", url)
 
 	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
@@ -432,6 +548,76 @@ func (a *Agent) onLicenseCheck(msg LicenseCheckMsg) {
 	}
 }
 
+// updateLoop periodically checks the download server for a new agent version.
+// If an update is available, it downloads, verifies the checksum, and applies
+// the update via a helper batch script that stops the service, swaps the binary,
+// and restarts. The check runs every 1 hour (configurable via PAT_UPDATE_INTERVAL_MIN).
+func (a *Agent) updateLoop() {
+	intervalMin := 60
+	if envInterval := getEnv("PAT_UPDATE_INTERVAL_MIN", ""); envInterval != "" {
+		if v, err := strconv.Atoi(envInterval); err == nil && v > 0 {
+			intervalMin = v
+		}
+	}
+
+	ticker := time.NewTicker(time.Duration(intervalMin) * time.Minute)
+	defer ticker.Stop()
+
+	// Initial check after 30 seconds (not immediately on startup)
+	select {
+	case <-a.stopChan:
+		return
+	case <-time.After(30 * time.Second):
+	}
+
+	for {
+		select {
+		case <-a.stopChan:
+			return
+		case <-ticker.C:
+			a.checkAndUpdate()
+		}
+	}
+}
+
+// checkAndUpdate performs a single update check and applies if available.
+func (a *Agent) checkAndUpdate() {
+	if a.updater == nil {
+		return
+	}
+
+	manifest, err := a.updater.CheckForUpdate()
+	if err != nil {
+		logf("[updater] Update check failed: %v", err)
+		return
+	}
+	if manifest == nil {
+		logf("[updater] Already up to date (v%s)", AgentVersion)
+		return
+	}
+
+	logf("[updater] Update available: v%s -> v%s (%s)", AgentVersion, manifest.Version, manifest.ReleaseNotes)
+
+	// Download and verify
+	stagedPath, err := a.updater.DownloadAndVerify(manifest)
+	if err != nil {
+		logf("[updater] Download/verify failed: %v", err)
+		return
+	}
+
+	logf("[updater] Update verified (checksum OK), staged at %s", stagedPath)
+
+	// Apply the update (Windows: helper batch script stops service, swaps, restarts)
+	currentPath := filepath.Join(getEnv("PAT_INSTALL_DIR", "C:\\Program Files\\PredictATrade\\XAUUSD"), "agent.exe")
+	if err := a.updater.ApplyUpdateOnWindows(stagedPath, currentPath, manifest); err != nil {
+		logf("[updater] Apply failed: %v", err)
+		return
+	}
+
+	logf("[updater] Update helper launched — service will restart shortly with v%s", manifest.Version)
+	// The helper script will stop this process; no need to exit manually
+}
+
 func (a *Agent) heartbeatLoop() {
 	ticker := time.NewTicker(a.heartbeat)
 	defer ticker.Stop()
@@ -448,7 +634,7 @@ func (a *Agent) heartbeatLoop() {
 
 			hb := HeartbeatData{
 				DeviceID:        a.deviceID,
-				Version:         "1.0.0",
+				Version:         AgentVersion,
 				Hostname:        hostname(),
 				WindowsVersion:  "windows",
 				Status:          "ONLINE",
@@ -458,7 +644,7 @@ func (a *Agent) heartbeatLoop() {
 				MT5Connected:    a.pipeManager != nil && a.pipeManager.MT5Connected(),
 				Broker:          a.config.BrokerName,
 				CanonicalSymbol: "XAUUSD",
-				AgentVersion:    "1.0.0",
+				AgentVersion:    AgentVersion,
 				MTConnected:     a.pipeManager != nil,
 				LatencyMs:       time.Since(time.Now().Add(-a.heartbeat)).Milliseconds(),
 			}

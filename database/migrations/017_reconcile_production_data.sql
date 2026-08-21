@@ -31,7 +31,8 @@ SELECT 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d',
        true,
        '2026-08-17 17:54:40.194584+00',
        now()
-WHERE NOT EXISTS (SELECT 1 FROM billing.subscriptions WHERE user_id = 'fbae762d-6fbc-4e37-9856-222036cdc783');
+WHERE NOT EXISTS (SELECT 1 FROM billing.subscriptions WHERE user_id = 'fbae762d-6fbc-4e37-9856-222036cdc783')
+  AND EXISTS (SELECT 1 FROM iam.users WHERE id = 'fbae762d-6fbc-4e37-9856-222036cdc783');
 
 -- ============================================================
 -- Section 2: Create license ee710bf6 for user@simhaonline.com

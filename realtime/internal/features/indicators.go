@@ -22,9 +22,13 @@ type IndicatorEngine struct {
 	lookback   int
 	prevEMA9   decimal.Decimal
 	prevEMA21  decimal.Decimal
-	prevMACD   decimal.Decimal
-	prevRSI    decimal.Decimal
-	macdHist   []decimal.Decimal
+	prevMACD       decimal.Decimal
+	prevMACDSignal decimal.Decimal
+	prevRSI        decimal.Decimal
+	prevClose      decimal.Decimal
+	prevBollLower  decimal.Decimal
+	prevBollUpper  decimal.Decimal
+	macdHist       []decimal.Decimal
 	stochHist  []decimal.Decimal // %K history for Stochastic signal line (3-period SMA)
 }
 
@@ -123,21 +127,13 @@ func (e *IndicatorEngine) Process(candle *types.Candle) IndicatorFeatures {
 		}
 	}
 
-	// ADX 14 with +DI / -DI (Wilder's method)
+	// ADX 14 with +DI / -DI using full Wilder's method (prompt.md Section 1.5)
+	// ADXWilder returns all three values with consistent Wilder smoothing
 	if len(e.highs) >= 28 {
-		feat.ADX = patmath.ADX(e.highs, e.lows, e.closes, 14)
-		// +DI / -DI calculation
-		if len(e.highs) >= 14 && len(e.lows) >= 14 {
-			plusDM, minusDM := calcDirectionalMovement(
-				e.highs[len(e.highs)-14:],
-				e.lows[len(e.lows)-14:],
-			)
-			atr14 := feat.ATR
-			if atr14.GreaterThan(decimal.Zero) {
-				feat.ADXPlusDI = plusDM.Div(atr14).Mul(decimal.NewFromInt(100))
-				feat.ADXMinusDI = minusDM.Div(atr14).Mul(decimal.NewFromInt(100))
-			}
-		}
+		adx, plusDI, minusDI := patmath.ADXWilder(e.highs, e.lows, e.closes, 14)
+		feat.ADX = adx
+		feat.ADXPlusDI = plusDI
+		feat.ADXMinusDI = minusDI
 	}
 
 	// Parabolic SAR — UNAVAILABLE
@@ -239,7 +235,11 @@ func (e *IndicatorEngine) Process(candle *types.Candle) IndicatorFeatures {
 	e.prevEMA9 = feat.EMA9
 	e.prevEMA21 = feat.EMA21
 	e.prevMACD = feat.MACDMain
+	e.prevMACDSignal = feat.MACDSignal
 	e.prevRSI = feat.RSI
+	e.prevClose = candle.Close
+	e.prevBollLower = feat.BollLower
+	e.prevBollUpper = feat.BollUpper
 
 	return feat
 }

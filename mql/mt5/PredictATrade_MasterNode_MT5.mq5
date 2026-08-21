@@ -35,6 +35,14 @@ input bool    SendAccountInfo   = true;   // Include account info in snapshots
 input bool    SendSymbolInfo    = true;    // Include symbol/broker spec in snapshots
 input bool    DebugMode         = false;  // Print debug messages to Experts log
 
+// ─── Agent Status Notifications ───
+input bool    EnableNotifications  = true;   // Send notifications when agent connects/disconnects
+input string  TelegramBotToken     = "";     // Telegram bot token (e.g. 123456:ABC-DEF)
+input string  TelegramChatID       = "";     // Telegram chat ID (e.g. 123456789)
+input string  DiscordWebhookURL    = "";     // Discord webhook URL
+input string  EmailNotifyAddress   = "";     // Email address for notifications (uses MT5 built-in mail)
+input int     NotifyCooldownSec    = 300;    // Min seconds between repeated notifications (5 min)
+
 //=== IPC Files (in FILE_COMMON folder — shared with Windows Agent) ===
 #define PAT_MASTER_FILE  "PAT_master_data.txt"
 #define PAT_HEARTBEAT    "PAT_heartbeat.txt"
@@ -66,6 +74,8 @@ string  g_accountID     = "—";
 string  g_broker        = "";
 uint    g_lastTickSend   = 0;
 uint    g_lastSnapshot   = 0;
+uint    g_lastNotifyTime  = 0;
+bool    g_lastAgentState  = false; // false=offline, true=online (for change detection)
 ulong   g_tickCount     = 0;
 ulong   g_snapshotCount  = 0;
 
@@ -165,20 +175,96 @@ void OnTick()
 }
 
 //+------------------------------------------------------------------+
+// ─── Send notification via Telegram, Discord, or Email ───
+void SendAgentNotification(string status, string message)
+{
+    if(!EnableNotifications) return;
+    
+    // Cooldown: don't spam repeated notifications
+    if(GetTickCount() - g_lastNotifyTime < (uint)(NotifyCooldownSec * 1000)) return;
+    g_lastNotifyTime = GetTickCount();
+    
+    string fullMsg = "[Predict-A-Trade Master Node] " + message;
+    fullMsg += "\nHost: " + AccountInfoString(ACCOUNT_COMPANY);
+    fullMsg += "\nBroker: " + g_broker;
+    fullMsg += "\nSymbol: " + g_symbol;
+    fullMsg += "\nTime: " + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS);
+    fullMsg += "\nAgent Status: " + status;
+    
+    Print("[NOTIFY] ", fullMsg);
+    
+    // 1. Telegram notification (via WebRequest HTTP POST)
+    if(TelegramBotToken != "" && TelegramChatID != "")
+    {
+        string url = "https://api.telegram.org/bot" + TelegramBotToken + "/sendMessage";
+        string body = "{\"chat_id\":\"" + TelegramChatID + "\",\"text\":\"" + fullMsg + "\"}";
+        char post[];
+        StringToCharArray(body, post);
+        string headers = "Content-Type: application/json\r\n";
+        char res[];
+        string resultHeaders;
+        if(WebRequest("POST", url, headers, 5000, post, res, resultHeaders))
+            Print("[NOTIFY] Telegram notification sent");
+        else
+            Print("[NOTIFY] Telegram failed: ", GetLastError());
+    }
+    
+    // 2. Discord notification (via WebRequest HTTP POST)
+    if(DiscordWebhookURL != "")
+    {
+        string body = "{\"content\":\"" + fullMsg + "\"}";
+        char post[];
+        StringToCharArray(body, post);
+        string headers = "Content-Type: application/json\r\n";
+        char res[];
+        string resultHeaders;
+        if(WebRequest("POST", DiscordWebhookURL, headers, 5000, post, res, resultHeaders))
+            Print("[NOTIFY] Discord notification sent");
+        else
+            Print("[NOTIFY] Discord failed: ", GetLastError());
+    }
+    
+    // 3. Email notification (via MT5 built-in SendMail)
+    if(EmailNotifyAddress != "")
+    {
+        string subject = "[Predict-A-Trade] Agent " + status;
+        if(SendMail(subject, fullMsg))
+            Print("[NOTIFY] Email sent to ", EmailNotifyAddress);
+        else
+            Print("[NOTIFY] Email failed: ", GetLastError());
+    }
+}
+
 void CheckAgentConnection()
 {
     static uint lastCheck = 0;
     if(GetTickCount() - lastCheck < 2000) return;
     lastCheck = GetTickCount();
 
-    if(FileIsExist(PAT_HEARTBEAT, FILE_COMMON))
+    bool agentOnline = FileIsExist(PAT_HEARTBEAT, FILE_COMMON);
+    
+    if(agentOnline)
+    {
         g_connection = "CONNECTED";
+        if(!g_lastAgentState)
+        {
+            g_lastAgentState = true;
+            Print("[AGENT] Windows Agent is now ACTIVE (heartbeat detected)");
+            SendAgentNotification("ACTIVE", "Windows Agent is now ACTIVE and connected to the Master Node.");
+        }
+    }
     else
     {
         if(g_connection == "CONNECTED")
         {
-            Print("Windows Agent heartbeat lost");
             g_connection = "OFFLINE";
+            Print("[AGENT] Windows Agent heartbeat lost");
+        }
+        if(g_lastAgentState)
+        {
+            g_lastAgentState = false;
+            Print("[AGENT] Windows Agent is now OFFLINE (heartbeat lost)");
+            SendAgentNotification("OFFLINE", "WARNING: Windows Agent is OFFLINE! No heartbeat detected. Live data feed may be interrupted.");
         }
     }
 }

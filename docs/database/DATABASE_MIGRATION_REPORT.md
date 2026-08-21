@@ -1,6 +1,6 @@
 # Database Migration Report
 
-## Version: v1.0.0 — Stage 4 PTB
+## Version: v1.4.0 — Color Palette + Signal Delivery + TP/SL Geometry Fix
 
 ## Migration History
 

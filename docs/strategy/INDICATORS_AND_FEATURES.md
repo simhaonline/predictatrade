@@ -1,6 +1,6 @@
 # Indicators and Features
 
-**Version:** v1.2.0 — Advanced Risk + Backtesting  
+**Version:** v1.8.0 — Trade Management Audit + Broker Stop Validation + Cost-Aware Break-Even  
 **Date:** 18 August 2026
 
 ---
@@ -191,6 +191,41 @@ Determines what is driving XAUUSD: CURRENCY, SAFE_HAVEN, MONETARY_ASSET, COMMODI
 - `reporting/report.py` — Report generator and run manifest
 - `config/__init__.py` — Environment configuration
 - `cli.py` — Command-line interface
+
+---
+
+## Python Vectorized Indicator Engine (v1.5.0)
+
+A fully vectorized pandas/numpy indicator and signal engine is available in the
+Python research plane:
+
+**Module:** `research/src/patresearch/quantitative_strategy_engine.py`
+**Class:** `QuantitativeStrategyEngine`
+
+| Method | Indicator | Formula |
+|--------|-----------|---------|
+| `compute_sma` | Simple Moving Average | SMA_t = (1/n) × Σ P_{t-i} |
+| `compute_ema` | Exponential Moving Average | EMA_t = P_t × α + EMA_{t-1} × (1-α), α = 2/(n+1) |
+| `compute_rsi` | RSI (Wilder) | RS = avg_gain/avg_loss; RSI = 100 - 100/(1+RS) |
+| `compute_adx` | ADX + DI+/DI- | Wilder smoothing of TR, DM+/DM- → DI → DX → ADX |
+| `compute_macd` | MACD | EMA₁₂ - EMA₂₆; Signal = EMA₉(MACD); Hist = MACD - Signal |
+| `compute_bollinger_bands` | Bollinger Bands | Mid = SMA₂₀; Upper/Lower = Mid ± 2×StdDev |
+| `compute_atr` | ATR (Wilder) | ATR_t = (ATR_{t-1}×(n-1) + TR_t) / n |
+| `ema_crossover_signal` | Golden/Death Cross | +1 golden, -1 death cross (EMA fast/slow) |
+| `compute_adx_signal` | ADX Directional | +1 when ADX>25 & +DI>-DI, -1 when ADX>25 & +DI<-DI |
+| `compute_rsi_signal` | RSI Mean-Reversion | +1 cross above 30, -1 cross below 70 |
+| `compute_macd_signal` | MACD Crossover | +1 MACD above signal, -1 below |
+| `compute_bollinger_signal` | BB Reversal | +1 close ≤ lower band, -1 close ≥ upper band |
+| `compute_atr_channel_signal` | ATR Breakout | +1 close > prev + 1.5×ATR, -1 close < prev - 1.5×ATR |
+| `generate_composite_signals` | Composite Pipeline | EMA(50/200) trend filter + RSI/BB triggers + ATR stops |
+
+**Key properties:**
+- Fully vectorized — no Python loops over the time index
+- Edge-case safe: division-by-zero, NaN, insufficient lookback all handled
+- Input DataFrame never mutated (defensive copy)
+- LaTeX-style docstrings with explicit formulas
+- Parity verified against scalar `reference_math.py` (SOW Section 137)
+- `NO-TRADE` (0) is a first-class valid result
 
 ---
 

@@ -16,6 +16,8 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.ruff_cache/
+.pytest_cache/
 
 # Environment and secrets
 .env
@@ -26,6 +28,8 @@ infra/env/*.env
 *.key
 secrets/
 mcp.env
+jwt_secret.txt
+database_url.txt
 
 # IDE
 .idea/
@@ -44,25 +48,36 @@ Thumbs.db
 htmlcov/
 .nyc_output/
 junit.xml
+test-results/
 
 # Docker
 .docker/
 
-# Temporary
-tmp/
-*.tmp
+# Runtime logs and audit artifacts
+logs/
 *.log
+audit/*.json
 
-# Go
+# Go binaries
 realtime/bin/
 windows-agent/bin/
 
 # NestJS
 control/dist/
 
-# Keep .codex and .agents (project controls)
+# Data (historical CSVs — too large for git)
+data/xauusd_historical/
+
+# Keep project controls
 !.codex/
 !.agents/
+
+# Backup files
 *.bak
-jwt_secret.txt
-database_url.txt
+
+# Temporary/working files
+error.txt
+prompt.md
+predictatrade-live-patched.html
+summary-v1.md
+PROJECT_MEMORY.txt

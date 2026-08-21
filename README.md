@@ -4,6 +4,37 @@
 
 Production XAUUSD signal generation system with four independent strategy engines, deterministic mathematical scoring, hard risk gates, MT4/MT5 integration, SaaS control plane, and a Professional Trader Brain (PTB) shared intelligence layer with 20 advanced market analysis modules.
 
+## Current Production Status (v1.10.1 — 21 August 2026)
+
+**Audit Result:** ✅ PASS — 0 Failed, 0 Warned
+
+**Cross-Check (v1.10.1):** All newly applied v1.10.0 changes verified, bugs fixed, services restarted, all tests pass.
+
+| Component | Status | Details |
+|-----------|--------|---------|
+| Go Real-Time Engine | ✅ Active | Port 13081, 29/29 test packages pass (RiskEngine wired) |
+| NestJS Control Plane | ✅ Active | Port 13080, 107/107 tests pass (Valkey fix) |
+| Next.js Frontend | ✅ Active | Port 13082, 70 tests pass |
+| PostgreSQL + TimescaleDB | ✅ Active | Port 5432, 25 migrations, migration 022 applied |
+| Valkey | ✅ Active | Port 6379 |
+| Ollama (local LLM) | ✅ Active | Port 11434 |
+| ML Pipeline | ✅ Active | 42 features, XGBoost + LSTM ONNX models |
+| COT Data | ✅ Available | FMP API, net_position=141636 |
+| DXY Data | ✅ Available | Twelve Data, value=98.7451 |
+| pprof Diagnostics | ✅ Enabled | Localhost-only `/debug/pprof/` endpoints |
+| Signal Engine | ✅ Active | 50 directional signals, 49/50 geometry valid |
+| API Latency | ✅ 2.3ms | (< 50ms threshold) |
+
+**Known Issues (non-blocking):**
+- ~~NestJS admin/audit service tests: 13 pre-existing failures~~ → **FIXED in v1.10.1** (brace bug + mock fix)
+- Status page service: inactive (can be started on demand)
+- News/breakout/OCO/notifications: software complete, disabled by default — credentials pending (external)
+- Live MT4/MT5 terminal validation: software verified, runtime pending (external)
+
+See `docs/reports/PRODUCTION_STATUS_REPORT.md` for full details.
+
+---
+
 ## Four Signal Strategies
 
 | Strategy | Timeframes | Threshold | Min RR | Cooldown |
@@ -191,7 +222,7 @@ cd realtime && go build ./... && go vet ./... && go test ./...
 # NestJS control plane (75 tests)
 cd control && npm test
 
-# Python research (98 tests)
+# Python research (127 tests)
 cd research && pytest
 ```
 
@@ -312,7 +343,7 @@ well within the rate limit.
 
 **Production Readiness:** CONDITIONAL GO
 
-See [PRODUCTION_FULL_AUDIT_REPORT.md](PRODUCTION_FULL_AUDIT_REPORT.md) for the full forensic audit.
+See [docs/reports/PRODUCTION_FULL_AUDIT_REPORT.md](docs/reports/PRODUCTION_FULL_AUDIT_REPORT.md) for the full forensic audit.
 
 ```
 CONDITIONAL GO
@@ -405,7 +436,7 @@ cd realtime && go build ./... && go vet ./... && go test ./...
 # NestJS control plane (75 tests)
 cd control && npm test
 
-# Python research (26 tests)
+# Python research (127 tests)
 cd research && pytest
 
 # Next.js frontend (39 tests)
@@ -446,13 +477,32 @@ cd research && python3 -m patresearch.backtesting.cli monte-carlo --runs 1000
 
 See: [Backtesting Guide](docs/BACKTESTING.md)
 
+## Vectorized Indicator Engine (v1.5.0)
+
+A fully vectorized pandas/numpy indicator and signal engine (`QuantitativeStrategyEngine`)
+provides fast batch computation across large historical datasets:
+
+```python
+from patresearch import QuantitativeStrategyEngine
+
+engine = QuantitativeStrategyEngine()
+result = engine.generate_composite_signals(df)
+# Returns: OHLCV + all indicators + 'signal' (-1/0/1) + stop_loss/take_profit
+```
+
+- 7 vectorized indicators: SMA, EMA, ADX, RSI, MACD, Bollinger Bands, ATR
+- 6 signal methods + composite pipeline (EMA trend filter → RSI/BB triggers → ATR stops)
+- No Python loops over time index — fully vectorized via pandas/numpy
+- Module: `research/src/patresearch/quantitative_strategy_engine.py`
+
+
 ### Testing (Updated)
 
 ```bash
 # Go realtime engine (243 tests)
 cd realtime && go build ./... && go vet ./... && go test ./...
 
-# Python research (98 tests — includes backtesting)
+# Python research (127 tests — includes backtesting + vectorized engine)
 cd research && python3 -m pytest tests/
 
 # NestJS control plane (75 tests)
@@ -463,3 +513,84 @@ cd frontend && npm test
 ```
 
 **Total: 490 tests, 0 failures**
+
+## v1.8.0 Updates (20 August 2026)
+
+- **Trade Management Forensic Audit**: Full audit of break-even, trailing, partial close, profit lock — all already implemented and wired in MT4/MT5 EAs
+- **Broker Stop Level Validation**: EAs now check `MODE_STOPLEVEL`/`MODE_FREEZELEVEL` (MT4) and `SYMBOL_TRADE_STOPS_LEVEL`/`SYMBOL_TRADE_FREEZE_LEVEL` (MT5) before SL modification
+- **Cost-Aware Break-Even**: Break-even SL now adds spread buffer (`entry + spread`) to prevent small realized losses
+- **SL Modification Audit Trail**: New `sl_modification_history` table + 12 new columns on `positions` for confirmed/requested/previous SL tracking
+- **Central SL Validation**: 27 new tests proving monotonic SL invariant, R calculation, management state machine
+- **Strategy-Specific Profiles**: 4 distinct trade management configs (Standard Scalping, Ultra Scalping, Standard Swing, Trend Swing)
+
+## v1.7.0 Updates (20 August 2026)
+
+- **DXY Live**: US Dollar Index now fetched from Twelve Data API (value=98.72, status=AVAILABLE) — no longer blocks signal generation
+- **COT Configured**: FMP API key set — free tier restricted (HTTP 403), non-blocking, will activate on subscription upgrade
+- **Projected Performance**: Performance Matrix now shows projected hit rate and avg R from signal geometry (was null when no closed trades)
+- **Dashboard Auto-Refresh**: Live Signal Pipeline auto-refreshes from REST every 10s — no manual page refresh needed
+- **Real-Time Charts**: Value Timeline uses TradingView's lightweight-charts engine with crosshair, zoom, pan
+
+## v1.6.0 Updates (20 August 2026)
+
+- **Microprofit Candidate Geometry**: BUY_CANDIDATE/SELL_CANDIDATE now have per-strategy tighter SL/TP (1.0-1.5×ATR stops, 1.0-1.5×ATR TP1) to capture microprofit immediately
+- **Indicator Historical Bootstrap**: Engine loads 250 real candles per timeframe from PostgreSQL/TimescaleDB on startup — all 42 indicators warm immediately (was 8-16h wait)
+- **Valkey Candle Cache**: Bootstrap candles cached in Valkey (sub-ms reads), chart candles cached with 60s TTL
+- **Indicator Monitor Page**: New `/admin/indicator-monitor` with liveness, active/reactive, performance matrix, and interactive charts
+- **Wilder Smoothing**: RSI, ATR, ADX corrected to Wilder's method (was simple average)
+- **Capital Protection**: 5% daily loss limit, 1% per-trade risk, partial TP (50/30/20), swap and slippage protection
+- **HIGH_VOLATILITY Fix**: All 4 strategies now accept HIGH_VOLATILITY regime (was missing → all NO-TRADE)
+- **DB Save Fix**: Fixed ON CONFLICT constraint for signal persistence
+
+## v1.5.0 Updates (20 August 2026)
+
+- **Vectorized Strategy Engine**: `QuantitativeStrategyEngine` — fully vectorized pandas/numpy indicator & signal engine (SMA, EMA, ADX, RSI, MACD, Bollinger, ATR + composite pipeline)
+- **29 new tests**: indicator parity verified against scalar reference, composite risk geometry verified, 127/127 Python suite pass
+- **Documentation cleanup**: 25 obsolete/duplicate documents removed, 12 canonical docs updated
+
+## v1.4.0 Updates (19 August 2026)
+
+### Color Palette
+
+The frontend uses the approved Predict-A-Trade color palette via CSS variables (`globals.css`) and semantic Tailwind tokens (`tailwind.config.ts`):
+
+| Token | Light | Dark | Usage |
+|-------|-------|------|-------|
+| `pat-success` | #10B981 | #10B981 | BUY, TP, BID |
+| `pat-danger` | #EF4444 | #EF4444 | SELL, SL, ASK |
+| `pat-warning` | #EAB308 | #EAB308 | SESSION |
+| `pat-info` | #3B82F6 | #3B82F6 | INFO |
+| `pat-candidate-buy` | #F59E0B | #F59E0B | BUY_CANDIDATE |
+| `pat-candidate-sell` | #FB923C | #FB923C | SELL_CANDIDATE |
+
+All 80+ hardcoded Tailwind color classes replaced with semantic tokens. Critical HSL `%` sign bug fixed.
+
+### Signal Delivery to MT4/MT5 Agents
+
+The Go engine now broadcasts directional signals (BUY, SELL, BUY_CANDIDATE, SELL_CANDIDATE) to both the frontend dashboard (WebSocketHub) and the Windows Agent (AgentHub) simultaneously. NO-TRADE signals are not forwarded to reduce noise.
+
+```
+Go Engine → WebSocket → Windows Agent → PAT_signals.txt → MT4/MT5 EA
+```
+
+### TP/SL Geometry Fix
+
+Entry, Stop Loss, and Take Profit levels are now computed using ATR-based multipliers (same volatility measure for both SL and TP):
+
+| Strategy | SL (×ATR) | TP1 (×ATR) | TP2 (×ATR) | TP3 (×ATR) | MinRR |
+|----------|----------|-----------|-----------|-----------|-------|
+| STANDARD_SCALPING | 1.0 | 1.0 | 1.5 | 2.0 | 1.2 |
+| ULTRA_SCALPING | 0.5 | 0.5 | 0.75 | 1.0 | 1.0 |
+| STANDARD_SWING | 1.5 | 1.5 | 2.5 | 3.5 | 1.8 |
+| TREND_SWING | 2.0 | 2.0 | 4.0 | 6.0 | 2.5 |
+
+**Before (broken):** TP1 = MinRR × SL_distance → TP1 was 2.5x further than SL, trades hit SL before reaching TP1.
+**After (fixed):** TP1 = ATRMultiplierTP1 × ATR → balanced R:R ≈ 1:1, MinRR gate validates and rejects insufficient signals.
+
+### MQL EA v1.05
+
+Both MT4 and MT5 EAs updated to v1.05 with strategy selection and direction filter inputs:
+- 4 strategy toggles (all enabled by default)
+- 4 direction filters (BUY, SELL, BUY_CANDIDATE, SELL_CANDIDATE — all enabled by default)
+- Signal counters on chart panel (received, displayed, filtered)
+- Fixed `ExtractJSONDouble()` to skip leading quotes in JSON values

@@ -13,8 +13,14 @@ describe('AuditService', () => {
       const { Pool } = require('pg');
       pool = new Pool({ connectionString: DB_URL, max: 5 });
     } else {
+      // Query-aware mock: COUNT queries return a total row for pagination math.
       pool = {
-        query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
+        query: jest.fn((text: string) => {
+          if (typeof text === 'string' && /count\(\*\)\s+as\s+total/i.test(text)) {
+            return Promise.resolve({ rows: [{ total: '0' }], rowCount: 0 });
+          }
+          return Promise.resolve({ rows: [], rowCount: 0 });
+        }),
       };
     }
   });

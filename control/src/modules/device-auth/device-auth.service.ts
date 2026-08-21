@@ -309,6 +309,25 @@ export class DeviceAuthService {
 
       const lease = leaseResult.rows[0];
 
+      // Update terminal account data from heartbeat (balance, equity, P&L, positions)
+      if (body.terminals && Array.isArray(body.terminals)) {
+        for (const term of body.terminals) {
+          if (term.account && term.balance !== undefined) {
+            await client.query(
+              `UPDATE licensing.device_activations SET
+                account_balance = $1, account_equity = $2, account_profit = $3,
+                open_positions = $4, buy_positions = $5, sell_positions = $6,
+                total_lots = $7, floating_pnl = $8, last_account_update = now()
+               WHERE device_id = $9 AND mt_account_login = $10`,
+              [term.balance || 0, term.equity || 0, term.profit || 0,
+               term.open_positions || 0, term.buy_positions || 0, term.sell_positions || 0,
+               term.total_lots || 0, term.floating_pnl || 0,
+               deviceId, term.account],
+            );
+          }
+        }
+      }
+
       if (lease.status === 'REVOKED') {
         await client.query('ROLLBACK');
         throw new UnauthorizedException('Session revoked');

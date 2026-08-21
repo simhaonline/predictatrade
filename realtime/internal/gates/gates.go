@@ -52,6 +52,9 @@ type GateInput struct {
 	EntitlementOK  bool
 	LicenseActive  bool
 	ExecutionPermitted bool
+	// Structural levels for StopHuntFilterGate
+	StructuralLow  float64 // nearest swing low (0 = not available)
+	StructuralHigh float64 // nearest swing high (0 = not available)
 }
 
 // GateEvaluation records the result of a single gate check.

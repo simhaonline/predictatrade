@@ -1,6 +1,6 @@
 # Installation Guide
 
-**Version:** v1.2.0 — Advanced Risk + Backtesting  
+**Version:** v1.4.0 — Color Palette + Signal Delivery + TP/SL Geometry Fix  
 **Date:** 18 August 2026
 
 ---
@@ -321,3 +321,25 @@ Copy templates from `infra/env/` and fill in real values:
 - `canonical.env` — Domain routing
 
 All secret files are gitignored.
+
+## v1.4.0 Updates (19 August 2026)
+
+### Frontend Color Palette
+
+The frontend now uses the approved Predict-A-Trade color palette. No installation changes needed — colors are defined in CSS variables and Tailwind tokens. If colors appear invisible, ensure HSL values in `globals.css` include `%` signs (e.g., `210 40% 98%`).
+
+### Signal Delivery to MT4/MT5
+
+The Go engine now broadcasts signals to Windows Agents automatically. No configuration change needed — `BroadcastSignalToAgents()` is called for every directional signal. Verify by checking logs for "Signal broadcast to Windows Agents for MT4/MT5 delivery".
+
+### TP/SL Geometry
+
+TP/SL levels are now ATR-based. No configuration change needed — ATR multipliers are defined per-strategy in `strategies.go`. The MinRR gate still validates R:R and rejects insufficient signals.
+
+### MQL EA v1.05
+
+Update both MT4 and MT5 EAs to v1.05. New input parameters:
+- Strategy toggles: `ReceiveStandardScalping`, `ReceiveUltraScalping`, `ReceiveStandardSwing`, `ReceiveTrendSwing` (all `true` by default)
+- Direction filters: `ReceiveBuy`, `ReceiveSell`, `ReceiveBuyCandidate`, `ReceiveSellCandidate` (all `true` by default)
+
+Attach the EA to a chart and configure inputs in the EA properties dialog.

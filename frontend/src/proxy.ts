@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 const AUTH_ROUTES = ['/login', '/register', '/forgot-password', '/reset-password'];
-const PUBLIC_ROUTES = ['/terms', '/privacy', '/complaints', '/sitemap', '/cookies', '/forbidden'];
+const PUBLIC_ROUTES = ['/terms', '/privacy', '/complaints', '/sitemap', '/cookies', '/forbidden', '/preview', '/unsubscribe'];
 
 function getRoleFromToken(token: string | undefined): string | null {
   if (!token) return null;
@@ -33,7 +33,8 @@ export function proxy(request: NextRequest) {
 
   if (pathname === '/') {
     if (isAuthenticated) return NextResponse.redirect(new URL(homeRouteForRole(role), request.url));
-    return NextResponse.redirect(new URL('/login', request.url));
+    // Unauthenticated visitors get the free preview dashboard (server-enforced gate).
+    return NextResponse.redirect(new URL('/preview', request.url));
   }
 
   // Public routes — no auth required
@@ -68,6 +69,11 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL(homeRouteForRole(role), request.url));
   }
 
+  // Authenticated users never need the guest preview — skip straight to dashboard.
+  if (pathname === '/preview' && isAuthenticated) {
+    return NextResponse.redirect(new URL(homeRouteForRole(role), request.url));
+  }
+
   return NextResponse.next();
 }
 
@@ -75,6 +81,6 @@ export const config = {
   matcher: [
     '/', '/dashboard/:path*', '/dashboard', '/admin/:path*', '/admin',
     '/login', '/register', '/forgot-password', '/reset-password',
-    '/terms', '/privacy', '/complaints', '/sitemap', '/cookies',
+    '/terms', '/privacy', '/complaints', '/sitemap', '/cookies', '/preview', '/unsubscribe',
   ],
 };

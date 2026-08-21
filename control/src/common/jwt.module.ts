@@ -52,7 +52,7 @@ const INSECURE_SECRETS = new Set<string>([
 
         return {
           secret,
-          signOptions: { expiresIn: '15m' },
+          signOptions: { expiresIn: '1h' },
         };
       },
     }),

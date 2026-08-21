@@ -1,6 +1,6 @@
 # Predict-A-Trade — Strategy Playbooks
 
-**Version:** v1.3.1 — Advanced Risk + Backtesting  
+**Version:** v1.8.0 — Trade Management Audit + Broker Stop Validation + Cost-Aware Break-Even  
 **Date:** 19 August 2026
 
 ---
@@ -83,6 +83,30 @@ BUY_CANDIDATE and SELL_CANDIDATE are **advisory signals** that show a directiona
 ### Regime-Aware Thresholds
 
 Thresholds are adjusted based on market regime. In RANGE regime, thresholds may be lower because the evidence budget is smaller (fewer trend-confirmation indicators fire). See `strategy/regime_thresholds.go` for the full regime-to-threshold mapping.
+
+### TP/SL Geometry (v1.4.0)
+
+Entry, Stop Loss, and Take Profit levels are computed using ATR-based multipliers:
+
+| Strategy | SL (×ATR) | TP1 (×ATR) | TP2 (×ATR) | TP3 (×ATR) | MinRR |
+|----------|----------|-----------|-----------|-----------|-------|
+| STANDARD_SCALPING | 1.0 | 1.0 | 1.5 | 2.0 | 1.2 |
+| ULTRA_SCALPING | 0.5 | 0.5 | 0.75 | 1.0 | 1.0 |
+| STANDARD_SWING | 1.5 | 1.5 | 2.5 | 3.5 | 1.8 |
+| TREND_SWING | 2.0 | 2.0 | 4.0 | 6.0 | 2.5 |
+
+**v1.4.0 Fix**: TP levels are now ATR-based (same basis as SL), not MinRR-inflated. This prevents the issue where TP1 was 2.5x further than SL, causing trades to hit SL before reaching TP1. The MinRR gate validates R:R and rejects insufficient signals — TP is not artificially inflated.
+
+### MQL EA Strategy Selection (v1.05)
+
+Both MT4 and MT5 EAs include input parameters to select which strategies and directions to receive:
+- 4 strategy toggles (all enabled by default)
+- 4 direction filters (BUY, SELL, BUY_CANDIDATE, SELL_CANDIDATE — all enabled by default)
+- Signal counters on chart panel (received, displayed, filtered)
+
+### Signal Delivery to MT4/MT5
+
+Signals are delivered via: Go Engine → WebSocket → Windows Agent → PAT_signals.txt → MT4/MT5 EA. The Go engine broadcasts directional signals to both the frontend dashboard and the Windows Agent simultaneously.
 
 ### Calibration Probability
 

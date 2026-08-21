@@ -100,6 +100,11 @@ export class AdminController {
     return this.adminService.assignLicense(id, body.planId, actorId, body.licenseKey);
   }
 
+  @Get('trading-reports')
+  async tradingReports() {
+    return this.adminService.getTradingReport();
+  }
+
   @Get('health')
   async systemHealth() {
     return this.adminService.systemHealth();

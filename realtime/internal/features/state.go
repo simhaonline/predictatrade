@@ -151,8 +151,11 @@ type IndicatorFeatures struct {
 	SMA50       decimal.Decimal // NEW: computed locally
 	SMA100      decimal.Decimal // NEW: computed locally
 	SMA200      decimal.Decimal
-	MACDMain    decimal.Decimal
-	MACDSignal  decimal.Decimal
+	MACDMain      decimal.Decimal
+	MACDSignal    decimal.Decimal
+	MACDHistogram decimal.Decimal
+	MACDBullCross bool // MACD crossed above Signal (prompt.md Section 1.6)
+	MACDBearCross bool // MACD crossed below Signal (prompt.md Section 1.6)
 	ADX         decimal.Decimal
 	ADXPlusDI   decimal.Decimal
 	ADXMinusDI  decimal.Decimal
@@ -189,8 +192,10 @@ type IndicatorFeatures struct {
 	ATR         decimal.Decimal
 	BollUpper   decimal.Decimal
 	BollLower   decimal.Decimal
-	BollMiddle  decimal.Decimal
-	BollWidth   decimal.Decimal // (Upper - Lower) / Middle
+	BollMiddle       decimal.Decimal
+	BollWidth        decimal.Decimal // (Upper - Lower) / Middle
+	BollBullRev      bool // Close crossed back above lower band (prompt.md Section 1.7)
+	BollBearRev      bool // Close crossed back below upper band (prompt.md Section 1.7)
 
 	// Volume
 	OBV             decimal.Decimal // computed locally from tick volume

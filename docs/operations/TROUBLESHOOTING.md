@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Version:** v1.2.0 — Advanced Risk + Backtesting  
+**Version:** v1.4.0 — Color Palette + Signal Delivery + TP/SL Geometry Fix  
 **Date:** 18 August 2026
 
 ---
@@ -199,3 +199,31 @@ cd frontend && npm test
 - FMP free tier does not include COT endpoints
 - Upgrade FMP subscription or use alternative COT data source
 - COT is optional (weight=0 by default) - does not block signals
+
+## v1.4.0 Troubleshooting
+
+### Colors Not Displaying (Invisible Elements)
+**Symptom:** UI elements appear invisible or have wrong colors after v1.4.0.
+**Cause:** HSL CSS variables missing `%` signs on saturation/lightness components.
+**Fix:** Ensure all HSL values in `globals.css` use format `H S% L%` (e.g., `210 40% 98%` not `210 40 98`).
+**File:** `frontend/src/styles/globals.css`
+
+### Signals Not Reaching MT4/MT5 EA
+**Symptom:** Signals appear on frontend dashboard but not in MT4/MT5 EA.
+**Cause:** Go engine was only broadcasting to WebSocketHub (frontend), not AgentHub (Windows Agent).
+**Fix (v1.4.0):** `broadcastSignalToAll()` now sends to both. Verify:
+1. Windows Agent is connected (check `agents_connected` in logs)
+2. Only directional signals are sent (NO-TRADE is skipped)
+3. `PAT_signals.txt` is being written to FILE_COMMON folder
+**Files:** `realtime/internal/gateway/agent_ws.go`, `realtime/cmd/realtime-engine/main.go`
+
+### TP1 Too Far — Trades Hit SL Before TP
+**Symptom:** Trades show profit then close at a loss (SL hit before TP1).
+**Cause:** TP1 was computed as `MinRR × SL_distance`, making TP1 2.5x further than SL.
+**Fix (v1.4.0):** TP1 now uses `ATRMultiplierTP1 × ATR` (same basis as SL). MinRR gate validates R:R and rejects insufficient signals rather than inflating TP.
+**File:** `realtime/internal/strategy/strategies.go`
+
+### MQL EA Not Receiving Specific Strategies
+**Symptom:** EA receives some signals but not others.
+**Fix (v1.05):** Check EA input parameters — `ReceiveStandardScalping`, `ReceiveUltraScalping`, `ReceiveStandardSwing`, `ReceiveTrendSwing` (all default `true`). Also check direction filters: `ReceiveBuy`, `ReceiveSell`, `ReceiveBuyCandidate`, `ReceiveSellCandidate`.
+**Files:** `mql/mt4/PredictATrade_MT4.mq4`, `mql/mt5/PredictATrade_MT5.mq5`

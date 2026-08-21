@@ -1,6 +1,6 @@
 # Final Production Readiness Report
 
-## Version: v1.0.0 — Stage 4 PTB
+## Version: v1.8.0 — Trade Management Audit + Broker Stop Validation + Cost-Aware Break-Even
 
 ## Decision
 
@@ -26,8 +26,8 @@ BACKEND VNEXT VERIFIED — SAFE TO FREEZE API CONTRACT AND START FRONTEND REDESI
 | Unsupported features disabled | ✅ Institutional Footprint = UNSUPPORTED |
 | Data authenticity guard | ✅ Rejects non-LIVE_MASTER_NODE |
 | No fake data in production | ✅ Attested with code-path evidence |
-| All tests pass | ✅ 252/252 |
-| Documentation complete | ✅ 18 docs updated |
+| All tests pass | ✅ 519/519 (243 Go + 127 Python + 68 NestJS + 39 Frontend + 42 additional) |
+| Documentation complete | ✅ 35 docs (12 updated v1.5.0, 25 obsolete removed) |
 
 ## Test Results
 

@@ -49,8 +49,13 @@ func BuildTradeGeometry(state *features.MarketState, direction types.Direction, 
 		return geo
 	}
 
-	// ATR must be ready for geometry
-	if state.Indicators.ATR.IsZero() {
+	// ATR must be ready for geometry — use strategy-specific timeframe ATR
+	atr := getStrategyATR(state, cfg.StrategyID)
+	if atr.IsZero() {
+		// Fallback to indicator ATR
+		atr = state.Indicators.ATR
+	}
+	if atr.IsZero() {
 		geo.ReasonCode = "ATR_NOT_READY"
 		return geo
 	}
@@ -80,13 +85,18 @@ func BuildTradeGeometry(state *features.MarketState, direction types.Direction, 
 	structHigh := getStructuralHigh(state)
 
 	// Compute SL/TP using the canonical strategy function
+	// Override ATR with strategy-specific timeframe ATR for correct SL/TP distances
+	originalATR := state.Indicators.ATR
+	state.Indicators.ATR = atr
 	// We use our Ask/Bid entry, and take only SL/TP from computeStructuralSLTP
 	_, sl, tp1, tp2, tp3 := computeStructuralSLTP(state, direction, cfg, structLow, structHigh)
+	// Restore original ATR
+	state.Indicators.ATR = originalATR
 
 	// If structural SL failed, fall back to ATR-based SL using our entry
 	if sl.IsZero() {
-		atr := state.Indicators.ATR
 		if direction == types.DirectionBuy {
+
 			sl = geo.Entry.Sub(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL)))
 			tp1 = geo.Entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP1)))
 			tp2 = geo.Entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2)))
@@ -186,4 +196,52 @@ func CheckDirectionDominance(longScore, shortScore decimal.Decimal) (types.Direc
 		return types.DirectionBuy, true
 	}
 	return types.DirectionSell, true
+}
+
+// getStrategyATR returns the ATR from the timeframe appropriate for each strategy.
+// Scalping strategies use M5 ATR (tight), swing strategies use M15/H1 ATR (medium),
+// trend strategies use H1/H4 ATR (wide).
+//
+// This prevents the problem where H1 ATR ($24) is used for scalping strategies,
+// resulting in SL/TP distances 10-20x too far.
+func getStrategyATR(state *features.MarketState, strategyID types.StrategyID) decimal.Decimal {
+	// Determine which timeframe ATR to use based on strategy
+	var preferredTFs []types.Timeframe
+	switch strategyID {
+	case types.StrategyUltraScalping:
+		// Ultra scalping: tightest — M1 first, M5 fallback
+		preferredTFs = []types.Timeframe{types.TFM1, types.TFM5}
+	case types.StrategyStandardScalping:
+		// Standard scalping: M5
+		preferredTFs = []types.Timeframe{types.TFM5, types.TFM1}
+	case types.StrategyStandardSwing:
+		// Standard swing: M15 or H1
+		preferredTFs = []types.Timeframe{types.TFM15, types.TFH1}
+	case types.StrategyTrendSwing:
+		// Trend swing: H1 or H4
+		preferredTFs = []types.Timeframe{types.TFH1, types.TFH4}
+	default:
+		preferredTFs = []types.Timeframe{types.TFM5}
+	}
+
+	// Try to get ATR from the preferred timeframe's candle
+	for _, tf := range preferredTFs {
+		if candle, ok := state.Candles[tf]; ok && candle != nil {
+			// We need to compute ATR from this candle's range
+			// The IndicatorEngine computes ATR from the primary candle,
+			// but we need it from the strategy's preferred timeframe.
+			// For now, use the candle's range as an ATR proxy if the
+			// indicator ATR doesn't match this timeframe.
+			candleRange := candle.High.Sub(candle.Low)
+			if candleRange.IsPositive() {
+				// ATR(14) ≈ average of last 14 candle ranges
+				// As a quick approximation, use the candle range directly
+				// (conservative — actual ATR is usually similar but smoother)
+				return candleRange
+			}
+		}
+	}
+
+	// Fallback: use the state's indicator ATR (whatever timeframe it was computed on)
+	return state.Indicators.ATR
 }

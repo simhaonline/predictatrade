@@ -36,6 +36,12 @@ type Registry struct {
 	bbWidthZScore    *RollingStats
 }
 
+// SetNewsRiskProvider injects an economic-calendar risk provider into the
+// session engine. Pass nil to use the "NONE" fallback.
+func (r *Registry) SetNewsRiskProvider(p NewsRiskProvider) {
+	r.sessionEngine.SetNewsRiskProvider(p)
+}
+
 func NewRegistry() *Registry {
 	return &Registry{
 		structureEngine:  NewStructureEngine(50),

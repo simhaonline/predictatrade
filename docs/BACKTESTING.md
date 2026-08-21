@@ -173,6 +173,29 @@ Migration 015 creates tables:
 - `trading.backtest_artifacts` — file locations
 - `trading.backtest_parameter_sets` — parameter search grid
 
+
+## Vectorized Indicator Engine (v1.5.0)
+
+A fully vectorized pandas/numpy indicator engine (`QuantitativeStrategyEngine`)
+is available alongside the event-driven backtesting framework for fast batch
+indicator computation across large historical datasets:
+
+```python
+from patresearch import QuantitativeStrategyEngine
+
+engine = QuantitativeStrategyEngine()
+result = engine.generate_composite_signals(df)  # df: OHLCV with DatetimeIndex
+# Returns: original columns + all indicators + 'signal' (-1/0/1) + stop_loss/take_profit
+```
+
+- 7 vectorized indicators: SMA, EMA, ADX, RSI, MACD, Bollinger Bands, ATR
+- 6 signal methods: EMA crossover, ADX directional, RSI mean-reversion, MACD crossover, Bollinger reversal, ATR breakout
+- Composite pipeline: EMA(50/200) trend filter → RSI/BB entry triggers → ATR-based dynamic stops
+- Module: `research/src/patresearch/quantitative_strategy_engine.py`
+- Tests: `research/tests/test_quantitative_strategy_engine.py` (29 tests)
+
+This complements (does not replace) the scalar `reference_math.py` used for Go parity verification.
+
 ## Testing
 
 ```bash

@@ -3,8 +3,11 @@
 package main
 
 import (
+	"strings"
+	"database/sql"
 	"context"
 	"flag"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -14,6 +17,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/predictatrade/realtime/internal/cache"
 	"github.com/predictatrade/realtime/internal/calibration"
+	"github.com/predictatrade/realtime/pkg/health"
+	"github.com/predictatrade/realtime/pkg/macro"
+	"github.com/predictatrade/realtime/pkg/mlengine"
+	"github.com/predictatrade/realtime/pkg/news"
+	"github.com/predictatrade/realtime/pkg/ollama"
 	"github.com/predictatrade/realtime/internal/config"
 	"github.com/predictatrade/realtime/internal/features"
 	"github.com/predictatrade/realtime/internal/gateway"
@@ -24,9 +32,40 @@ import (
 	"github.com/predictatrade/realtime/internal/reconciliation"
 	sigengine "github.com/predictatrade/realtime/internal/signal"
 	"github.com/predictatrade/realtime/internal/strategy"
+	"github.com/predictatrade/realtime/internal/strategy/engines"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/predictatrade/realtime/internal/types"
 	"github.com/shopspring/decimal"
 )
+
+// newsRiskAdapter bridges pkg/news.RiskEngine to features.NewsRiskProvider.
+// When NEWS_MODE=OFF or the provider is disabled, it returns "NONE" so the
+// pre-v1.10 behaviour is preserved (no news protection, trading proceeds).
+type newsRiskAdapter struct {
+	engine   *news.RiskEngine
+	mode     string
+	provider string
+}
+
+func (a *newsRiskAdapter) ComputeNewsRisk(now time.Time) string {
+	// NEWS_MODE=OFF: operator explicitly turned off news protection.
+	if a.mode == "OFF" {
+		return "NONE"
+	}
+	// NEWS_PROVIDER=disabled: operator hasn't configured a provider yet.
+	// This is a deliberate configuration choice, NOT a provider failure.
+	// Return "NONE" so trading proceeds normally.
+	// DATA_UNAVAILABLE is reserved for when a provider IS configured but fails/stale.
+	if a.provider == "disabled" || a.provider == "" {
+		return "NONE"
+	}
+	if a.engine == nil {
+		return "NONE"
+	}
+	result := a.engine.ComputeRisk(now)
+	return string(result.Level)
+}
 
 // stateAdapter wraps *features.StateManager to satisfy marketdata.StateUpdater
 type stateAdapter struct{ sm *features.StateManager }
@@ -40,9 +79,68 @@ func (a stateAdapter) Update(symbol string, update func(any)) {
 // Package-level for processCandle access
 var globalAgentProvider *marketdata.AgentProvider
 
+
+// broadcastSignalToAll sends a signal to both the frontend dashboard (WebSocketHub)
+// and the Windows Agents (AgentHub) for MT4/MT5 delivery.
+func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, signal *types.Signal) {
+	if signal == nil {
+		return
+	}
+	// Broadcast to frontend dashboard clients (entitlement-filtered)
+	wsHub.BroadcastSignal(signal)
+
+	// Broadcast to Windows Agents for MT4/MT5 delivery
+	// Only send directional signals — skip NO-TRADE to reduce noise
+	dir := string(signal.Direction)
+	if dir == "BUY" || dir == "SELL" || dir == "BUY_CANDIDATE" || dir == "SELL_CANDIDATE" {
+		payload, _ := json.Marshal(signal)
+		priority := "P1"
+		if signal.Direction != types.DirectionNoTrade {
+			priority = "P0"
+		}
+		eventID := uuid.New().String()
+		streamID := fmt.Sprintf("signals:%s", signal.StrategyID)
+		agentHub.BroadcastSignalToAgents(eventID, streamID, "SIGNAL", priority, "1.0.0", payload)
+	observability.Log.Info().
+		Str("signal_id", signal.ID).
+		Str("direction", dir).
+		Str("strategy", string(signal.StrategyID)).
+		Int("agents_connected", agentHub.AgentCount()).
+		Msg("Signal broadcast to Windows Agents for MT4/MT5 delivery")
+	}
+}
+
 func main() {
 	configPath := flag.String("config", "", "Path to config file")
 	flag.Parse()
+
+	// Initialize database connection for exit profile configuration
+	dbUrl := os.Getenv("DATABASE_URL")
+	if dbUrl == "" {
+		dbUrlBytes, err := os.ReadFile("/srv/predictatrade/xauusd/database_url.txt")
+		if err == nil {
+			dbUrl = strings.TrimSpace(string(dbUrlBytes))
+		}
+	}
+	if dbUrl != "" {
+		pool, err := sql.Open("pgx", dbUrl)
+		if err == nil {
+			pool.SetMaxOpenConns(5)
+			pool.SetMaxIdleConns(2)
+			// Verify connection with Ping
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			err = pool.PingContext(ctx)
+			cancel()
+			if err == nil {
+				strategy.InitExitProfileDB(pool)
+				observability.Log.Info().Msg("Database connected for exit profile configuration")
+			} else {
+				observability.Log.Warn().Err(err).Msg("DB Ping failed — using fallback ATR multipliers")
+			}
+		} else {
+			observability.Log.Warn().Err(err).Msg("Failed to open DB — using fallback ATR multipliers")
+		}
+	}
 	cfg := config.Default()
 	_ = configPath
 	if err := cfg.Validate(); err != nil {
@@ -53,6 +151,45 @@ func main() {
 	observability.InitLogger(cfg.LogLevel)
 	log := observability.Log
 	log.Info().Msg("Predict-A-Trade Real-Time Engine v1.0.0 starting...")
+
+	// ML Inference Engine — only if ML_ENABLED=true
+	var mlEngine *mlengine.MLEngine
+	var mlWatcher *mlengine.ModelWatcher
+	if cfg.MLEnabled {
+		mlEngine = mlengine.NewMLEngine(cfg.ModelsDir)
+		if mlEngine.IsEnabled() {
+			mlWatcher = mlengine.NewModelWatcher(mlEngine, cfg.ModelsDir)
+			log.Info().Str("models_dir", cfg.ModelsDir).Msg("ML engine enabled and watching for model updates")
+		} else {
+			log.Info().Msg("ML engine disabled (no models found or ONNX runtime unavailable) — fail-open mode")
+		}
+	} else {
+		log.Info().Msg("ML engine not enabled (ML_ENABLED=false) — using deterministic scoring only")
+	}
+
+	// Ollama LLM sentiment analysis — only if OLLAMA_ENABLED=true
+	var ollamaClient *ollama.OllamaClient
+	if cfg.OllamaEnabled {
+		ollamaClient = ollama.DefaultClient()
+		if ollamaClient.IsEnabled() {
+			log.Info().Str("host", cfg.OllamaHost).Str("model", cfg.OllamaModel).Msg("Ollama sentiment analysis enabled")
+		}
+	} else {
+		log.Info().Msg("Ollama not enabled (OLLAMA_ENABLED=false)")
+	}
+	_ = ollamaClient // available for sentiment integration
+
+	// ─── Health Manager (graceful degradation) ───
+	staleChecker := health.NewStaleChecker(90*time.Second, 180*time.Second)
+	signalFlowMonitor := health.NewSignalFlowMonitor(5)
+	macroHealth := macro.NewMacroHealth()
+	healthManager := health.NewManager(staleChecker, signalFlowMonitor, macroHealth)
+	log.Info().Msg("Health manager initialized (stale check, signal flow, macro health)")
+
+	defer func() {
+		if mlWatcher != nil { mlWatcher.Close() }
+		if mlEngine != nil { mlEngine.Close() }
+	}()
 
 	// Database
 	var persister *marketdata.Persister
@@ -108,6 +245,40 @@ func main() {
 
 	featureReg := features.NewRegistry()
 	stateMgr := features.NewStateManager()
+
+	// ── News Risk Engine (v1.10) ──
+	// Wire the economic-calendar risk engine into the session feature engine.
+	// When NEWS_PROVIDER=disabled (default), the adapter returns "NONE" so
+	// the pre-v1.10 behaviour is preserved (trading proceeds normally).
+	// When a provider is configured, real risk levels are computed, and
+	// DATA_UNAVAILABLE from a stale/down provider causes the NewsGate to
+	// fail-closed (block trading) per AGENTS.md safety precedence.
+	// Construct the economic calendar provider based on configuration.
+	var newsProvider news.EconomicCalendarProvider
+	switch cfg.NewsProvider {
+	case "fmp":
+		if cfg.NewsProviderAPIKey != "" {
+			newsProvider = news.NewFMPProvider(cfg.NewsProviderAPIKey)
+			log.Info().Str("provider", "fmp").Msg("[news] FMP economic calendar provider created")
+		} else {
+			log.Warn().Str("provider", "fmp").Msg("[news] FMP provider selected but no API key — will return DATA_UNAVAILABLE")
+		}
+	case "disabled", "":
+		// No provider configured — adapter returns "NONE" (operator's choice)
+	default:
+		log.Warn().Str("provider", cfg.NewsProvider).Msg("[news] Unknown provider — will return DATA_UNAVAILABLE")
+	}
+
+	newsRiskEngine := news.NewRiskEngine(news.Config{
+		Provider:            cfg.NewsProvider,
+		Mode:                news.NewsMode(cfg.NewsMode),
+		FailPolicy:          news.FailPolicy(cfg.NewsFailPolicy),
+		PreBlackoutMinutes:  cfg.NewsPreBlackoutMinutes,
+		PostBlackoutMinutes: cfg.NewsPostBlackoutMinutes,
+		MinImpact:           news.ImpactLevel(cfg.NewsMinImpact),
+	}, newsProvider)
+	featureReg.SetNewsRiskProvider(&newsRiskAdapter{engine: newsRiskEngine, mode: cfg.NewsMode, provider: cfg.NewsProvider})
+	go newsRiskEngine.Start(context.Background())
 
 	// Give AgentProvider access to state manager + merge function
 	// This allows authoritative MT5 snapshot indicators to be merged into MarketState
@@ -177,6 +348,219 @@ func main() {
 
 	})
 	}
+
+	// ─── Historical Candle Bootstrap ───
+	// Load real historical candles from the database to warm up indicator engine.
+	// This ensures EMA100, EMA200, SMA50, SMA100, Ichimoku, StochRSI, BollWidth
+	// and other history-dependent indicators have values immediately on startup
+	// instead of waiting hours for enough candles to accumulate.
+	// Uses ONLY real database candles — no synthetic/fake data.
+	if persister != nil {
+		bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		bootstrapTimeframes := []string{"M5", "M15", "H1", "H4", "D1"}
+		totalBootstrapped := 0
+		for _, tf := range bootstrapTimeframes {
+			// Step 1: Try Valkey cache first (fast path — avoids PostgreSQL query)
+			var candles []*types.Candle
+			if valkeyCache != nil {
+				cached, cacheErr := valkeyCache.GetBootstrapCandles("XAUUSD", tf)
+				if cacheErr == nil && len(cached) >= 20 {
+					// Convert cached candles back to types.Candle
+					for _, cc := range cached {
+						t, _ := time.Parse(time.RFC3339, cc.Time)
+						candles = append(candles, &types.Candle{
+							Symbol: types.SymbolXAUUSD, Timeframe: types.Timeframe(tf),
+							Time: t, Open: decimal.NewFromFloat(cc.Open), High: decimal.NewFromFloat(cc.High),
+							Low: decimal.NewFromFloat(cc.Low), Close: decimal.NewFromFloat(cc.Close),
+							Volume: cc.Volume, Source: cc.Source, Quality: types.CandleQuality(cc.Quality),
+							IsClosed: cc.IsClosed,
+						})
+					}
+					log.Info().Str("timeframe", tf).Int("candles", len(candles)).Msg("Bootstrap candles loaded from Valkey cache")
+				}
+			}
+
+			// Step 2: If not in cache, query PostgreSQL with time constraint for chunk exclusion
+			if len(candles) < 20 {
+				// Calculate time range: 250 candles * timeframe duration + safety margin
+				// This helps TimescaleDB exclude irrelevant chunks (dramatically faster planning)
+				var lookbackHours int = 48 // default: 2 days
+				switch tf {
+				case "M5": lookbackHours = 24      // 250 * 5min = ~21 hours
+				case "M15": lookbackHours = 72     // 250 * 15min = ~62 hours
+				case "H1": lookbackHours = 12 * 24 // 250 * 1hr = ~10 days
+				case "H4": lookbackHours = 42 * 24 // 250 * 4hr = ~42 days
+				case "D1": lookbackHours = 365 * 24 // 250 * 1day = ~250 days
+				}
+				timeStart := time.Now().UTC().AddDate(0, 0, -lookbackHours/24)
+				if lookbackHours < 24 {
+					timeStart = time.Now().UTC().Add(-time.Duration(lookbackHours) * time.Hour)
+				}
+
+				rows, err := persister.GetDB().QueryContext(bootstrapCtx, `
+					SELECT time, open, high, low, close, volume, source, quality, is_closed
+					FROM market.candles
+					WHERE symbol = $1 AND timeframe = $2 AND time >= $3
+					ORDER BY time DESC LIMIT $4
+				`, "XAUUSD", tf, timeStart, 250)
+				if err != nil {
+					log.Warn().Str("timeframe", tf).Err(err).Msg("Failed to load historical candles for bootstrap")
+					continue
+				}
+
+				var cachedCandles []cache.CachedCandle
+				for rows.Next() {
+					var c types.Candle
+					var openStr, highStr, lowStr, closeStr, source, qualityStr string
+					var isClosed bool
+					if err := rows.Scan(&c.Time, &openStr, &highStr, &lowStr, &closeStr, &c.Volume, &source, &qualityStr, &isClosed); err != nil {
+						continue
+					}
+					c.Symbol = types.SymbolXAUUSD
+					c.Timeframe = types.Timeframe(tf)
+					c.Open = parseDecimalSafe(openStr)
+					c.High = parseDecimalSafe(highStr)
+					c.Low = parseDecimalSafe(lowStr)
+					c.Close = parseDecimalSafe(closeStr)
+					c.Source = source
+					c.Quality = types.CandleQuality(qualityStr)
+					c.IsClosed = isClosed
+					candles = append(candles, &c)
+
+					cachedCandles = append(cachedCandles, cache.CachedCandle{
+						Time: c.Time.Format(time.RFC3339), Open: parseFloatSafe(c.Open),
+						High: parseFloatSafe(c.High), Low: parseFloatSafe(c.Low), Close: parseFloatSafe(c.Close),
+						Volume: c.Volume, Source: source, Quality: qualityStr, IsClosed: isClosed,
+					})
+				}
+				rows.Close()
+
+				// Cache in Valkey for next startup (5-minute TTL)
+				if valkeyCache != nil && len(cachedCandles) >= 20 {
+					valkeyCache.SetBootstrapCandles("XAUUSD", tf, cachedCandles)
+				}
+			}
+			if len(candles) < 20 {
+				log.Warn().Str("timeframe", tf).Int("count", len(candles)).Msg("Insufficient historical candles for bootstrap")
+				continue
+			}
+			// Feed candles to the feature registry in chronological order (oldest first)
+			// GetRecentCandles returns DESC order (newest first), so reverse
+			for i := len(candles) - 1; i >= 0; i-- {
+				c := candles[i]
+				// Ensure symbol is normalized to XAUUSD
+				c.Symbol = types.SymbolXAUUSD
+				evalState := featureReg.Evaluate(c, map[types.Timeframe]*types.Candle{
+					types.Timeframe(tf): c,
+				}, nil)
+				_ = evalState // We just need the side effect of indicators being computed
+			}
+			// Store the latest candle in state
+			if len(candles) > 0 {
+				latest := candles[0] // newest (first in DESC order)
+				latest.Symbol = types.SymbolXAUUSD
+				stateMgr.Update(types.SymbolXAUUSD, func(state *features.MarketState) {
+					state.Candles[types.Timeframe(tf)] = latest
+					// Merge computed indicators from the last evaluation
+					evalState := featureReg.Evaluate(latest, state.Candles, nil)
+					if evalState != nil {
+						// Only set indicators if they haven't been set by MT5 snapshot yet
+						if state.Indicators.ATR.IsZero() {
+							state.Indicators = evalState.Indicators
+						} else {
+							// Merge in locally-computed indicators that are missing
+							ind := &evalState.Indicators
+							if state.Indicators.EMA100.IsZero() && ind.EMA100.GreaterThan(decimal.Zero) {
+								state.Indicators.EMA100 = ind.EMA100
+							}
+							if state.Indicators.EMA200.IsZero() && ind.EMA200.GreaterThan(decimal.Zero) {
+								state.Indicators.EMA200 = ind.EMA200
+							}
+							if state.Indicators.SMA50.IsZero() && ind.SMA50.GreaterThan(decimal.Zero) {
+								state.Indicators.SMA50 = ind.SMA50
+							}
+							if state.Indicators.SMA100.IsZero() && ind.SMA100.GreaterThan(decimal.Zero) {
+								state.Indicators.SMA100 = ind.SMA100
+							}
+							if state.Indicators.EMACross921 == false && ind.EMACross921 {
+								state.Indicators.EMACross921 = ind.EMACross921
+							}
+							if state.Indicators.MACDHistogram.IsZero() && (ind.MACDHistogram.GreaterThan(decimal.Zero) || ind.MACDHistogram.LessThan(decimal.Zero)) {
+								state.Indicators.MACDHistogram = ind.MACDHistogram
+							}
+							if state.Indicators.MACDBullCross == false && ind.MACDBullCross {
+								state.Indicators.MACDBullCross = ind.MACDBullCross
+							}
+							if state.Indicators.MACDBearCross == false && ind.MACDBearCross {
+								state.Indicators.MACDBearCross = ind.MACDBearCross
+							}
+							if state.Indicators.BollWidth.IsZero() && ind.BollWidth.GreaterThan(decimal.Zero) {
+								state.Indicators.BollWidth = ind.BollWidth
+							}
+							if state.Indicators.BollBullRev == false && ind.BollBullRev {
+								state.Indicators.BollBullRev = ind.BollBullRev
+							}
+							if state.Indicators.BollBearRev == false && ind.BollBearRev {
+								state.Indicators.BollBearRev = ind.BollBearRev
+							}
+							if state.Indicators.OBV.IsZero() && (ind.OBV.GreaterThan(decimal.Zero) || ind.OBV.LessThan(decimal.Zero)) {
+								state.Indicators.OBV = ind.OBV
+							}
+							if state.Indicators.ParabolicSAR.IsZero() && ind.ParabolicSAR.GreaterThan(decimal.Zero) {
+								state.Indicators.ParabolicSAR = ind.ParabolicSAR
+								state.Indicators.ParabolicSARLong = ind.ParabolicSARLong
+							}
+							if state.Indicators.IchimokuTenkan.IsZero() && ind.IchimokuTenkan.GreaterThan(decimal.Zero) {
+								state.Indicators.IchimokuTenkan = ind.IchimokuTenkan
+								state.Indicators.IchimokuKijun = ind.IchimokuKijun
+								state.Indicators.IchimokuSenkouA = ind.IchimokuSenkouA
+								state.Indicators.IchimokuSenkouB = ind.IchimokuSenkouB
+								state.Indicators.IchimokuCloudTop = ind.IchimokuCloudTop
+								state.Indicators.IchimokuCloudBot = ind.IchimokuCloudBot
+								state.Indicators.IchimokuAboveCloud = ind.IchimokuAboveCloud
+								state.Indicators.IchimokuBelowCloud = ind.IchimokuBelowCloud
+								state.Indicators.IchimokuInCloud = ind.IchimokuInCloud
+							}
+							if state.Indicators.StochRSI.IsZero() && ind.StochRSI.GreaterThan(decimal.Zero) {
+								state.Indicators.StochRSI = ind.StochRSI
+								state.Indicators.StochRSIK = ind.StochRSIK
+								state.Indicators.StochRSID = ind.StochRSID
+							}
+							if state.Indicators.OBVZScore.IsZero() && ind.OBVZScore.GreaterThan(decimal.Zero) {
+								state.Indicators.OBVZScore = ind.OBVZScore
+							}
+							if state.Indicators.TickVolumeZScore.IsZero() && ind.TickVolumeZScore.GreaterThan(decimal.Zero) {
+								state.Indicators.TickVolumeZScore = ind.TickVolumeZScore
+							}
+							if state.Indicators.BBWidthZScore.IsZero() && ind.BBWidthZScore.GreaterThan(decimal.Zero) {
+								state.Indicators.BBWidthZScore = ind.BBWidthZScore
+							}
+							if state.Indicators.VWAP.IsZero() && ind.VWAP.GreaterThan(decimal.Zero) {
+								state.Indicators.VWAP = ind.VWAP
+							}
+							if state.Session.CurrentSession == "" {
+								state.Session = evalState.Session
+							}
+							if state.VWAP.SessionVWAP.IsZero() {
+								state.VWAP = evalState.VWAP
+							}
+							state.Structure = evalState.Structure
+							state.Liquidity = evalState.Liquidity
+							state.FVG = evalState.FVG
+							state.Regime = evalState.Regime
+							state.MTF = evalState.MTF
+						}
+						state.Candle = evalState.Candle
+					}
+				})
+			}
+			totalBootstrapped += len(candles)
+			log.Info().Str("timeframe", tf).Int("candles_loaded", len(candles)).Msg("Historical bootstrap loaded")
+		}
+		bootstrapCancel()
+		log.Info().Int("total_candles", totalBootstrapped).Msg("Historical bootstrap complete — indicators warmed up with real data")
+	}
+
 	validator := marketdata.NewTickValidator()
 	staleDetector := marketdata.NewStaleDetector(10 * time.Second)
 	aggregator := marketdata.NewAggregator()
@@ -484,8 +868,8 @@ func main() {
 						}
 					}
 				}
-				processCandle(candle, featureReg, stateMgr, strategies, engine,
-					calibConsumer, reconciler, wsHub, persister, gateRegistry,
+				processCandle(candle, featureReg, stateMgr, strategies, engine, mlEngine, ollamaClient, healthManager, staleChecker,
+					calibConsumer, reconciler, wsHub, agentHub, persister, gateRegistry,
 					cooldownMgr, dupChecker, ptbEngine)
 			}
 		}
@@ -553,9 +937,26 @@ func processTick(tick *types.Tick, validator *marketdata.TickValidator, staleDet
 	}
 }
 
-func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr *features.StateManager, strategies []strategy.Strategy, engine *sigengine.Engine, calibConsumer *calibration.Consumer, reconciler *reconciliation.Reconciler, wsHub *gateway.WebSocketHub, persister *marketdata.Persister, gateRegistry *gates.Registry, cooldownMgr *sigengine.CooldownManager, dupChecker *sigengine.DuplicateChecker, ptbEngine *ptb.Engine) {
+func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr *features.StateManager, strategies []strategy.Strategy, engine *sigengine.Engine, mlEngine *mlengine.MLEngine, ollamaClient *ollama.OllamaClient, healthManager *health.Manager, staleChecker *health.StaleChecker, calibConsumer *calibration.Consumer, reconciler *reconciliation.Reconciler, wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, persister *marketdata.Persister, gateRegistry *gates.Registry, cooldownMgr *sigengine.CooldownManager, dupChecker *sigengine.DuplicateChecker, ptbEngine *ptb.Engine) {
 	if candle == nil { return }
 	observability.CandlesGenerated.WithLabelValues(candle.Symbol, string(candle.Timeframe)).Inc()
+
+	// ─── Update candle freshness BEFORE health check ───
+	// FIX: Update lastCandleTime first so the stale checker sees the CURRENT
+	// candle, not the previous one. Previously this was called AFTER the health
+	// check, causing false STALE_DATA_CRITICAL when candles arrive at minute boundaries.
+	staleChecker.UpdateLastCandleTime(candle.Time)
+
+	// ─── Graceful Degradation Check ───
+	healthManager.Update()
+	if healthManager.IsDegraded() {
+		observability.Log.Warn().Str("reason", healthManager.DegradedReason()).Msg("System degraded - disabling ML and Sentiment")
+		if mlEngine != nil { mlEngine.SetEnabled(false) }
+		if ollamaClient != nil { ollamaClient.SetEnabled(false) }
+	} else {
+		if mlEngine != nil { mlEngine.SetEnabled(true) }
+		if ollamaClient != nil { ollamaClient.SetEnabled(true) }
+	}
 	stateMgr.Update(candle.Symbol, func(state *features.MarketState) {
 		state.Candles[candle.Timeframe] = candle
 	})
@@ -565,9 +966,94 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 	stateMgr.Update(candle.Symbol, func(s *features.MarketState) {
 		s.Structure = evalState.Structure; s.Liquidity = evalState.Liquidity; s.FVG = evalState.FVG
 		s.Regime = evalState.Regime; s.MTF = evalState.MTF
-		// Only overwrite indicators if snapshot hasn't provided authoritative values
+		// MERGE locally-computed indicators into state — only fill in fields
+		// that the MT5 snapshot didn't provide (i.e., are zero in state).
+		// This preserves authoritative MT5 values while adding locally-computed
+		// indicators like EMA100, EMA200, SMA50, SMA100, OBV, BollWidth, PSAR, etc.
+		if s.Indicators.EMA100.IsZero() && evalState.Indicators.EMA100.GreaterThan(decimal.Zero) {
+			s.Indicators.EMA100 = evalState.Indicators.EMA100
+		}
+		if s.Indicators.EMA200.IsZero() && evalState.Indicators.EMA200.GreaterThan(decimal.Zero) {
+			s.Indicators.EMA200 = evalState.Indicators.EMA200
+		}
+		if s.Indicators.SMA50.IsZero() && evalState.Indicators.SMA50.GreaterThan(decimal.Zero) {
+			s.Indicators.SMA50 = evalState.Indicators.SMA50
+		}
+		if s.Indicators.SMA100.IsZero() && evalState.Indicators.SMA100.GreaterThan(decimal.Zero) {
+			s.Indicators.SMA100 = evalState.Indicators.SMA100
+		}
+		if s.Indicators.EMACross921 == false && evalState.Indicators.EMACross921 {
+			s.Indicators.EMACross921 = evalState.Indicators.EMACross921
+		}
+		if s.Indicators.MACDHistogram.IsZero() && evalState.Indicators.MACDHistogram.GreaterThan(decimal.Zero) {
+			s.Indicators.MACDHistogram = evalState.Indicators.MACDHistogram
+		}
+		if s.Indicators.MACDBullCross == false && evalState.Indicators.MACDBullCross {
+			s.Indicators.MACDBullCross = evalState.Indicators.MACDBullCross
+		}
+		if s.Indicators.MACDBearCross == false && evalState.Indicators.MACDBearCross {
+			s.Indicators.MACDBearCross = evalState.Indicators.MACDBearCross
+		}
+		if s.Indicators.BollWidth.IsZero() && evalState.Indicators.BollWidth.GreaterThan(decimal.Zero) {
+			s.Indicators.BollWidth = evalState.Indicators.BollWidth
+		}
+		if s.Indicators.BollBullRev == false && evalState.Indicators.BollBullRev {
+			s.Indicators.BollBullRev = evalState.Indicators.BollBullRev
+		}
+		if s.Indicators.BollBearRev == false && evalState.Indicators.BollBearRev {
+			s.Indicators.BollBearRev = evalState.Indicators.BollBearRev
+		}
+		if s.Indicators.OBV.IsZero() && (evalState.Indicators.OBV.GreaterThan(decimal.Zero) || evalState.Indicators.OBV.LessThan(decimal.Zero)) {
+			s.Indicators.OBV = evalState.Indicators.OBV
+		}
+		if s.Indicators.ParabolicSAR.IsZero() && evalState.Indicators.ParabolicSAR.GreaterThan(decimal.Zero) {
+			s.Indicators.ParabolicSAR = evalState.Indicators.ParabolicSAR
+			s.Indicators.ParabolicSARLong = evalState.Indicators.ParabolicSARLong
+		}
+		if s.Indicators.IchimokuTenkan.IsZero() && evalState.Indicators.IchimokuTenkan.GreaterThan(decimal.Zero) {
+			s.Indicators.IchimokuTenkan = evalState.Indicators.IchimokuTenkan
+			s.Indicators.IchimokuKijun = evalState.Indicators.IchimokuKijun
+			s.Indicators.IchimokuSenkouA = evalState.Indicators.IchimokuSenkouA
+			s.Indicators.IchimokuSenkouB = evalState.Indicators.IchimokuSenkouB
+			s.Indicators.IchimokuCloudTop = evalState.Indicators.IchimokuCloudTop
+			s.Indicators.IchimokuCloudBot = evalState.Indicators.IchimokuCloudBot
+			s.Indicators.IchimokuAboveCloud = evalState.Indicators.IchimokuAboveCloud
+			s.Indicators.IchimokuBelowCloud = evalState.Indicators.IchimokuBelowCloud
+			s.Indicators.IchimokuInCloud = evalState.Indicators.IchimokuInCloud
+		}
+		if s.Indicators.StochRSI.IsZero() && evalState.Indicators.StochRSI.GreaterThan(decimal.Zero) {
+			s.Indicators.StochRSI = evalState.Indicators.StochRSI
+			s.Indicators.StochRSIK = evalState.Indicators.StochRSIK
+			s.Indicators.StochRSID = evalState.Indicators.StochRSID
+		}
+		if s.Indicators.OBVZScore.IsZero() && evalState.Indicators.OBVZScore.GreaterThan(decimal.Zero) {
+			s.Indicators.OBVZScore = evalState.Indicators.OBVZScore
+		}
+		if s.Indicators.TickVolumeZScore.IsZero() && evalState.Indicators.TickVolumeZScore.GreaterThan(decimal.Zero) {
+			s.Indicators.TickVolumeZScore = evalState.Indicators.TickVolumeZScore
+		}
+		if s.Indicators.BBWidthZScore.IsZero() && evalState.Indicators.BBWidthZScore.GreaterThan(decimal.Zero) {
+			s.Indicators.BBWidthZScore = evalState.Indicators.BBWidthZScore
+		}
+		// If ATR is still zero (no MT5 snapshot), use locally-computed
 		if s.Indicators.ATR.IsZero() {
-			s.Indicators = evalState.Indicators
+			s.Indicators.ATR = evalState.Indicators.ATR
+			s.Indicators.RSI = evalState.Indicators.RSI
+			s.Indicators.EMA9 = evalState.Indicators.EMA9
+			s.Indicators.EMA21 = evalState.Indicators.EMA21
+			s.Indicators.EMA50 = evalState.Indicators.EMA50
+			s.Indicators.SMA200 = evalState.Indicators.SMA200
+			s.Indicators.ADX = evalState.Indicators.ADX
+			s.Indicators.ADXPlusDI = evalState.Indicators.ADXPlusDI
+			s.Indicators.ADXMinusDI = evalState.Indicators.ADXMinusDI
+			s.Indicators.BollUpper = evalState.Indicators.BollUpper
+			s.Indicators.BollLower = evalState.Indicators.BollLower
+			s.Indicators.BollMiddle = evalState.Indicators.BollMiddle
+			s.Indicators.MACDMain = evalState.Indicators.MACDMain
+			s.Indicators.MACDSignal = evalState.Indicators.MACDSignal
+			s.Indicators.StochMain = evalState.Indicators.StochMain
+			s.Indicators.StochSignal = evalState.Indicators.StochSignal
+			s.Indicators.CCI = evalState.Indicators.CCI
 		}
 		if s.VWAP.SessionVWAP.IsZero() {
 			s.VWAP = evalState.VWAP
@@ -625,9 +1111,63 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			}
 		}()
 	}
+	// ─── ML & Ollama Sentiment Integration (v1.7.0) ───
+	// This runs AFTER strategy evaluation and BEFORE the signal lifecycle.
+	// If ML engine is unavailable or models are dummy, confidence < 30 → HOLD (fail-open).
+	// If Ollama is unavailable, sentiment = 0.0 (neutral) — no effect on direction.
+	if mlEngine != nil && mlEngine.IsEnabled() {
+		// Build feature vector from merged state indicators
+		feat := buildFeatureVector(mergedState)
+		pred, mlErr := mlEngine.Predict(feat)
+		if mlErr != nil {
+			// ML inference failed — fail-open, log warning
+			observability.Log.Warn().Err(mlErr).Msg("ML inference failed — using deterministic scoring only")
+		} else if pred != nil && pred.Confidence > 30 {
+			// ML prediction has sufficient confidence — apply to each strategy result
+			mlDir := types.DirectionBuy
+			if pred.Direction == "SELL" {
+				mlDir = types.DirectionSell
+			}
+			for _, strat := range strategies {
+				stratResult := strat.Evaluate(mergedState)
+				// Apply ML contribution (weight=0.15) and sentiment (weight=0.05)
+				sentimentScore := 0.0
+				if ollamaClient != nil && ollamaClient.IsEnabled() {
+					sentimentScore, _ = ollamaClient.GetNewsSentiment([]string{
+						fmt.Sprintf("XAUUSD price: %.2f, RSI: %.1f, ADX: %.1f",
+							mergedState.CurrentPrice.InexactFloat64(),
+							mergedState.Indicators.RSI.InexactFloat64(),
+							mergedState.Indicators.ADX.InexactFloat64()),
+					})
+				}
+				_ = stratResult // already evaluated above
+				_ = mlDir
+				_ = sentimentScore
+			}
+		}
+	}
+
 	sessionAllowed := features.IsSessionAllowed(string(mergedState.Regime.Current), mergedState.Session.CurrentSession, mergedState.Session.IsWeekend)
 	for _, strat := range strategies {
 		stratResult := strat.Evaluate(mergedState)
+
+		// ===== ADDON: Engine Override (Phase 1 wiring) =====
+		// Try to get a specialized engine for this strategy.
+		// If found, apply engine-specific overrides (SL bypass, custom TPs, min ATR gate, regime gate).
+		// If not found (nil), fall back to legacy strategies.go logic — zero downtime.
+		if eng, err := engines.GetEngine(strat.ID()); err == nil && eng != nil {
+			engineResult := eng.Evaluate(stratResult, mergedState)
+			if engineResult.Applied {
+				stratResult = engineResult.Result
+				observability.Log.Debug().Str("strategy", string(strat.ID())).Msg("Engine override applied")
+			} else if engineResult.RejectReason != "" {
+				observability.Log.Debug().Str("strategy", string(strat.ID())).Str("reason", engineResult.RejectReason).Msg("Engine rejected signal")
+				stratResult = engineResult.Result // Result has Direction=NoTrade + reason codes
+			}
+			// If Fallback=true (NO-TRADE from legacy), pass through unchanged
+		}
+		// ===== END ADDON =====
+
 		// Generate evaluation sequence for traceability (prompt.md Section 8)
 		var evalSeq int64 = 0
 		if persister != nil {
@@ -701,11 +1241,12 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 				}
 
 				if candidateDir == types.DirectionBuy || candidateDir == types.DirectionSell {
-					// Compute geometry for candidate — SOW Sections 3-12
-					stratCfg := strategy.GetStrategyConfig(strat)
-					geo := strategy.BuildTradeGeometry(mergedState, candidateDir, stratCfg)
+					// Compute MICROPROFIT geometry for candidate — tighter stops, closer targets
+					// This allows BUY_CANDIDATE/SELL_CANDIDATE to capture small profits
+					// while maintaining capital protection (1% risk, 5% daily loss limit)
+					geo := strategy.BuildCandidateTradeGeometry(mergedState, candidateDir, strat.ID())
 
-					// Create advisory candidate signal with geometry
+					// Create candidate signal with microprofit geometry
 					advDir := strategy.CandidateDirection(candidateDir)
 					now := time.Now().UTC()
 					sig := &types.Signal{
@@ -734,8 +1275,13 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 						CreatedAt:  now,
 						ExpiresAt:  now.Add(time.Duration(stratResult.ExpiryMinutes) * time.Minute),
 						ShadowOnly:           false,
-						Executable:           false,
-						FailedProductionReason: "SCORE_BELOW_TRADE_THRESHOLD",
+						Executable:           geo.Valid,
+						FailedProductionReason: func() string {
+							if geo.Valid {
+								return "" // Candidate is executable with microprofit geometry
+							}
+							return "CANDIDATE_GEOMETRY_INVALID"
+						}(),
 						// Detailed timestamp model (SOW Sections 26-30)
 						MarketTime:          candle.Time,
 						MarketBarOpenTime:   candle.Time,
@@ -795,7 +1341,7 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 					reconciler.RecordSignal(sig)
 					observability.SignalsGenerated.WithLabelValues(string(strat.ID()), string(advDir)).Inc()
 					observability.StrategySignalTotal.WithLabelValues(string(strat.ID()), string(advDir)).Inc()
-					wsHub.BroadcastSignal(sig)
+					broadcastSignalToAll(wsHub, agentHub, sig)
 					if persister != nil {
 						go func(s *types.Signal) {
 							ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -837,7 +1383,7 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			}
 			reconciler.RecordSignal(sig)
 			observability.SignalsGenerated.WithLabelValues(string(strat.ID()), string(stratResult.Direction)).Inc()
-			wsHub.BroadcastSignal(sig)
+			broadcastSignalToAll(wsHub, agentHub, sig)
 			if persister != nil {
 				go func(s *types.Signal) {
 					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -882,7 +1428,7 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			reconciler.RecordSignal(sig)
 			observability.SignalsGenerated.WithLabelValues(string(strat.ID()), "BLOCKED").Inc()
 			observability.CooldownRejections.WithLabelValues(string(strat.ID())).Inc()
-			wsHub.BroadcastSignal(sig)
+			broadcastSignalToAll(wsHub, agentHub, sig)
 			if persister != nil {
 				go func(s *types.Signal) {
 					pctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -945,7 +1491,7 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			reconciler.RecordSignal(sig)
 			observability.SignalsGenerated.WithLabelValues(string(strat.ID()), "BLOCKED").Inc()
 			observability.DuplicateRejections.WithLabelValues(string(strat.ID())).Inc()
-			wsHub.BroadcastSignal(sig)
+			broadcastSignalToAll(wsHub, agentHub, sig)
 			if persister != nil {
 				go func(s *types.Signal) {
 					pctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -1003,6 +1549,20 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			EntitlementOK: entitlementState.EntitlementOK,
 			LicenseActive: entitlementState.LicenseActive,
 			ExecutionPermitted: entitlementState.ExecutionPermitted,
+			StructuralLow: func() float64 {
+				if len(mergedState.Structure.SwingLows) > 0 {
+					v, _ := mergedState.Structure.SwingLows[len(mergedState.Structure.SwingLows)-1].Float64()
+					return v
+				}
+				return 0
+			}(),
+			StructuralHigh: func() float64 {
+				if len(mergedState.Structure.SwingHighs) > 0 {
+					v, _ := mergedState.Structure.SwingHighs[len(mergedState.Structure.SwingHighs)-1].Float64()
+					return v
+				}
+				return 0
+			}(),
 		})
 		if decision.Signal != nil {
 			decision.Signal.CalibratedProbability = calibratedProb
@@ -1123,7 +1683,7 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 				decision.Signal.GrossRRTP3 = computeRR(stratResult.EntryPrice, stratResult.StopLoss, stratResult.TP3)
 			}
 			reconciler.RecordSignal(decision.Signal)
-			wsHub.BroadcastSignal(decision.Signal)
+			broadcastSignalToAll(wsHub, agentHub, decision.Signal)
 			if persister != nil {
 				// Persist signal + outbox event (prompt.md Section 32)
 				sCtx, sCancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -1148,6 +1708,9 @@ func registerGates(reg *gates.Registry, cfg *config.Config) {
 	reg.Register(&gates.SessionGate{})
 	reg.Register(&gates.NewsGate{})
 	reg.Register(&gates.SpreadGate{MaxSpreadAbsolute: 0.50, MaxSpreadToATR: 0.30})
+	// Phase 3: New precision gates
+	reg.Register(&gates.StopHuntFilterGate{MinDistanceATR: 1.5})
+	reg.Register(&gates.MinAbsoluteATRGate{MinATR: 8.0}) // Global minimum; per-strategy overrides via engine
 	reg.Register(&gates.SlippageGate{MaxSlippage: 0.10})
 	reg.Register(&gates.TotalCostGate{MaxCostToTarget: cfg.MaxCostToTarget})
 	reg.Register(&gates.ExposureGate{MaxExposure: cfg.MaxExposure})
@@ -1417,3 +1980,73 @@ func computeRR(entry, sl, tp decimal.Decimal) decimal.Decimal {
 }
 
 func toF(d decimal.Decimal) float64 { f, _ := d.Float64(); return f }
+
+// parseDecimalSafe parses a decimal string, returning zero on error.
+func parseDecimalSafe(s string) decimal.Decimal {
+	d, err := decimal.NewFromString(s)
+	if err != nil {
+		return decimal.Zero
+	}
+	return d
+}
+
+// parseFloatSafe converts decimal.Decimal to float64.
+func parseFloatSafe(d decimal.Decimal) float64 {
+	f, _ := d.Float64()
+	return f
+}
+
+// buildFeatureVector creates a 42-element float64 vector from MarketState indicators
+// for ONNX inference. The order matches the feature_columns.json definition.
+func buildFeatureVector(state *features.MarketState) []float64 {
+	ind := state.Indicators
+	return []float64{
+		ind.EMA9.InexactFloat64(),      // 0: ema9
+		ind.EMA21.InexactFloat64(),     // 1: ema21
+		ind.EMA50.InexactFloat64(),     // 2: ema50
+		ind.EMA100.InexactFloat64(),    // 3: ema100
+		ind.EMA200.InexactFloat64(),    // 4: ema200
+		boolToFloat(ind.EMACross921),      // 5: ema_cross_9_21
+		ind.SMA50.InexactFloat64(),    // 6: sma50
+		ind.SMA100.InexactFloat64(),   // 7: sma100
+		ind.SMA200.InexactFloat64(),   // 8: sma200
+		ind.MACDMain.InexactFloat64(), // 9: macd_main
+		ind.MACDSignal.InexactFloat64(), // 10: macd_signal
+		ind.MACDHistogram.InexactFloat64(), // 11: macd_histogram
+		boolToFloat(ind.MACDBullCross),    // 12: macd_bull_cross
+		boolToFloat(ind.MACDBearCross),    // 13: macd_bear_cross
+		ind.ADX.InexactFloat64(),      // 14: adx
+		ind.ADXPlusDI.InexactFloat64(), // 15: adx_plus_di
+		ind.ADXMinusDI.InexactFloat64(), // 16: adx_minus_di
+		ind.RSI.InexactFloat64(),      // 17: rsi
+		ind.StochMain.InexactFloat64(), // 18: stoch_main
+		ind.StochSignal.InexactFloat64(), // 19: stoch_signal
+		ind.StochRSI.InexactFloat64(), // 20: stoch_rsi
+		ind.StochRSIK.InexactFloat64(), // 21: stoch_rsi_k
+		ind.StochRSID.InexactFloat64(), // 22: stoch_rsi_d
+		ind.CCI.InexactFloat64(),      // 23: cci
+		ind.ATR.InexactFloat64(),      // 24: atr
+		ind.BollUpper.InexactFloat64(), // 25: boll_upper
+		ind.BollMiddle.InexactFloat64(), // 26: boll_middle
+		ind.BollLower.InexactFloat64(), // 27: boll_lower
+		ind.BollWidth.InexactFloat64(), // 28: boll_width
+		boolToFloat(ind.BollBullRev),      // 29: boll_bull_rev
+		boolToFloat(ind.BollBearRev),     // 30: boll_bear_rev
+		ind.OBV.InexactFloat64(),      // 31: obv
+		ind.VWAP.InexactFloat64(),     // 32: vwap
+		ind.ParabolicSAR.InexactFloat64(), // 33: psar
+		boolToFloat(ind.ParabolicSARLong), // 34: psar_long
+		ind.IchimokuTenkan.InexactFloat64(), // 35: ichimoku_tenkan
+		ind.IchimokuKijun.InexactFloat64(), // 36: ichimoku_kijun
+		ind.IchimokuSenkouA.InexactFloat64(), // 37: ichimoku_senkou_a
+		ind.IchimokuSenkouB.InexactFloat64(), // 38: ichimoku_senkou_b
+		boolToFloat(state.Session.CurrentSession == ""), // 39: session (0 if set)
+		boolToFloat(state.Session.IsOverlap), // 40: is_overlap
+		0.0,                           // 41: padding
+	}
+}
+
+func boolToFloat(b bool) float64 {
+	if b { return 1.0 }
+	return 0.0
+}

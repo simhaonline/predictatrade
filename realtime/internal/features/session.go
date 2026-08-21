@@ -13,13 +13,31 @@ import (
 // New York: 13:00-22:00 UTC (DST shifts by ~1hr)
 // Overlap: 13:00-17:00 UTC (London+NY)
 // Sydney: 22:00-07:00 UTC
+// NewsRiskProvider abstracts the economic-calendar risk engine so the features
+// package does not depend on pkg/news directly. When nil (or when the provider
+// reports the news provider as disabled), the session engine falls back to
+// NewsRisk="NONE" — preserving the pre-v1.10 behaviour for operators who have
+// not yet configured an economic-calendar provider.
+type NewsRiskProvider interface {
+	// ComputeNewsRisk returns the current news risk level string
+	// (NONE/LOW/MEDIUM/HIGH/EXTREME/DATA_UNAVAILABLE).
+	ComputeNewsRisk(now time.Time) string
+}
+
 type SessionEngine struct {
-	location *time.Location
+	location         *time.Location
+	newsRiskProvider NewsRiskProvider
 }
 
 func NewSessionEngine() *SessionEngine {
 	loc, _ := time.LoadLocation("UTC")
 	return &SessionEngine{location: loc}
+}
+
+// SetNewsRiskProvider injects an economic-calendar risk provider.
+// Pass nil to disable news-risk computation (falls back to "NONE").
+func (e *SessionEngine) SetNewsRiskProvider(p NewsRiskProvider) {
+	e.newsRiskProvider = p
 }
 
 func (e *SessionEngine) Process(now time.Time) SessionFeatures {
@@ -54,8 +72,16 @@ func (e *SessionEngine) Process(now time.Time) SessionFeatures {
 		feat.CurrentSession = "OFF_HOURS"
 	}
 
-	// News risk: simplified (in production, query economic calendar)
-	feat.NewsRisk = "NONE"
+	// News risk: use the economic-calendar risk engine when configured.
+	// When no provider is wired (nil) the fallback is "NONE" — this preserves
+	// the pre-v1.10 behaviour for operators who have not yet configured a
+	// news provider. Once a provider is configured, the RiskEngine returns
+	// the real computed level (including DATA_UNAVAILABLE when it fails).
+	if e.newsRiskProvider != nil {
+		feat.NewsRisk = e.newsRiskProvider.ComputeNewsRisk(utc)
+	} else {
+		feat.NewsRisk = "NONE"
+	}
 
 	return feat
 }

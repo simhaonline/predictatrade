@@ -99,7 +99,7 @@ export function setAccessToken(token: string): void {
   if (typeof window !== 'undefined') {
     (window as unknown as CustomWindow).__ACCESS_TOKEN__ = token;
   }
-  setCookie(ACCESS_TOKEN_COOKIE, token, 900);
+  setCookie(ACCESS_TOKEN_COOKIE, token, 3600);
 }
 
 export function clearAccessToken(): void {

@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"log"
+
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -14,19 +16,24 @@ import (
 // HardwareFingerprint collects privacy-aware composite device identity.
 // Individual components are HMAC-hashed with a server pepper (never raw identifiers stored).
 type HardwareFingerprint struct {
-	MachineGUID    string `json:"machine_guid"`
-	SystemUUID    string `json:"system_uuid"`
-	Motherboard   string `json:"motherboard"`
-	Disk          string `json:"disk"`
-	InstallationID string `json:"installation_id"`
-	OS            string `json:"os"`
+	MachineGUID     string `json:"machine_guid"`
+	SystemUUID      string `json:"system_uuid"`
+	Motherboard     string `json:"motherboard"`
+	Disk            string `json:"disk"`
+	InstallationID  string `json:"installation_id"`
+	OS              string `json:"os"`
+	Hostname        string `json:"hostname"`
 }
 
 // CollectFingerprint gathers hardware identifiers from the OS.
 // On non-Windows (dev), generates synthetic values.
+// On Windows, reads from registry/WMI. If hardware IDs are unavailable,
+// falls back to installation_id + hostname for a stable fingerprint.
 func CollectFingerprint(dataDir string) *HardwareFingerprint {
+	hostname, _ := os.Hostname()
 	fp := &HardwareFingerprint{
-		OS: runtime.GOOS,
+		OS:       runtime.GOOS,
+		Hostname: hostname,
 	}
 
 	if runtime.GOOS == "windows" {
@@ -37,7 +44,6 @@ func CollectFingerprint(dataDir string) *HardwareFingerprint {
 		fp.Disk = getDiskID()
 	} else {
 		// Dev: generate stable synthetic values based on hostname
-		hostname, _ := os.Hostname()
 		fp.MachineGUID = hashStr("dev-machine-guid-" + hostname)
 		fp.SystemUUID = hashStr("dev-uuid-" + hostname)
 		fp.Motherboard = hashStr("dev-mb-" + hostname)
@@ -47,7 +53,22 @@ func CollectFingerprint(dataDir string) *HardwareFingerprint {
 	// Load or create installation ID (persists across restarts)
 	fp.InstallationID = loadOrCreateInstallationID(dataDir)
 
+	// Fallback: if hardware IDs are empty, use hostname + installation_id
+	// This ensures a non-empty fingerprint hash even when WMI/registry fails
+	if fp.MachineGUID == "" && fp.SystemUUID == "" && fp.Motherboard == "" && fp.Disk == "" {
+		fp.MachineGUID = hashStr("hw-fallback-" + hostname + "-" + fp.InstallationID)
+		log.Printf("WARNING: Hardware IDs unavailable, using fallback fingerprint (hostname + installation_id)")
+	}
+
 	return fp
+}
+
+// ComputeHash returns a SHA256 hash of the fingerprint components.
+// This is the stable hardware identity that binds a license to a machine.
+func (fp *HardwareFingerprint) ComputeHash() string {
+	combined := fp.MachineGUID + "|" + fp.SystemUUID + "|" + fp.Motherboard + "|" + fp.Disk + "|" + fp.InstallationID
+	h := sha256.Sum256([]byte(combined))
+	return hex.EncodeToString(h[:])
 }
 
 // loadOrCreateInstallationID reads or generates a per-installation UUID.

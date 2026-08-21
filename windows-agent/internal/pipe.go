@@ -11,17 +11,39 @@ import (
 	"time"
 )
 
+type TerminalInfo struct {
+	ClientType     string // MT4 or MT5
+	Account        string
+	Broker         string
+	Server         string
+	Symbol         string
+	LicenseKey     string
+	ConnectedAt    time.Time
+	Balance        float64
+	Equity         float64
+	Profit         float64
+	Currency       string
+	Leverage       int
+	OpenPositions  int
+	BuyPositions   int
+	SellPositions  int
+	TotalLots      float64
+	FloatingPnL    float64
+}
+
 type PipeManager struct {
-	commonDir  string
-	mu         sync.Mutex
-	wsSender   func([]byte) error
-	onTick     func(MT5Tick)
-	running    bool
-	stopChan   chan struct{}
-	apiURL     string
-	licStatus  string
-	licPlan    string
-	licKey     string
+	commonDir   string
+	mu          sync.Mutex
+	wsSender    func([]byte) error
+	onTick      func(MT5Tick)
+	running     bool
+	stopChan    chan struct{}
+	apiURL      string
+	licStatus   string
+	licPlan     string
+	licKey      string
+	terminals   map[string]*TerminalInfo // keyed by "MT4:<account>" or "MT5:<account>"
+	onTerminalConnect func(TerminalInfo) // callback when a new terminal connects
 }
 
 type LicenseCheckMsg struct {
@@ -47,7 +69,24 @@ func NewPipeManager(commonDir string, wsSender func([]byte) error, apiURL string
 		stopChan:  make(chan struct{}),
 		licStatus: "ACTIVE",
 		licPlan:   "ELITE",
+		terminals: make(map[string]*TerminalInfo),
 	}
+}
+
+func (pm *PipeManager) SetTerminalCallback(cb func(TerminalInfo)) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.onTerminalConnect = cb
+}
+
+func (pm *PipeManager) GetTerminals() []*TerminalInfo {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	var result []*TerminalInfo
+	for _, t := range pm.terminals {
+		result = append(result, t)
+	}
+	return result
 }
 
 func (pm *PipeManager) SetCallbacks(onTick func(MT5Tick), onLicense func(LicenseCheckMsg)) {
@@ -173,15 +212,58 @@ func (pm *PipeManager) processMessage(line string) {
 
 	case "INIT":
 		log.Printf("EA init: %s", payload)
-		// Extract license key from init message
+		// Extract license key and account data from init message
 		var initMsg struct {
-			LicenseKey string `json:"license_key"`
+			LicenseKey string  `json:"license_key"`
+			Account    string  `json:"account"`
+			Broker     string  `json:"broker"`
+			Symbol     string  `json:"symbol"`
+			Balance    float64 `json:"balance"`
+			Equity     float64 `json:"equity"`
+			Profit     float64 `json:"profit"`
+			Currency   string  `json:"currency"`
+			Leverage   int     `json:"leverage"`
+			OpenPos    int     `json:"open_positions"`
+			BuyPos     int     `json:"buy_positions"`
+			SellPos    int     `json:"sell_positions"`
+			TotalLots  float64 `json:"total_lots"`
+			FloatingPnL float64 `json:"floating_pnl"`
 		}
 		if json.Unmarshal([]byte(payload), &initMsg) == nil && initMsg.LicenseKey != "" {
 			pm.licKey = initMsg.LicenseKey
 			pm.licStatus = "ACTIVE"
 			pm.licPlan = "ELITE"
-			log.Printf("License key from EA: %s → ACTIVE", initMsg.LicenseKey)
+			log.Printf("EA init: %s account=%s balance=%.2f equity=%.2f positions=%d",
+				initMsg.LicenseKey, initMsg.Account, initMsg.Balance, initMsg.Equity, initMsg.OpenPos)
+
+			// Register/update terminal with account data
+			clientType := "MT5"
+			terminalKey := clientType + ":" + initMsg.Account
+			pm.mu.Lock()
+			existing := pm.terminals[terminalKey]
+			if existing == nil {
+				pm.terminals[terminalKey] = &TerminalInfo{
+					ClientType: clientType, Account: initMsg.Account, Broker: initMsg.Broker,
+					Symbol: initMsg.Symbol, LicenseKey: initMsg.LicenseKey, ConnectedAt: time.Now(),
+					Balance: initMsg.Balance, Equity: initMsg.Equity, Profit: initMsg.Profit,
+					Currency: initMsg.Currency, Leverage: initMsg.Leverage,
+					OpenPositions: initMsg.OpenPos, BuyPositions: initMsg.BuyPos, SellPositions: initMsg.SellPos,
+					TotalLots: initMsg.TotalLots, FloatingPnL: initMsg.FloatingPnL,
+				}
+				if pm.onTerminalConnect != nil {
+					go pm.onTerminalConnect(*pm.terminals[terminalKey])
+				}
+			} else {
+				existing.Balance = initMsg.Balance
+				existing.Equity = initMsg.Equity
+				existing.Profit = initMsg.Profit
+				existing.OpenPositions = initMsg.OpenPos
+				existing.BuyPositions = initMsg.BuyPos
+				existing.SellPositions = initMsg.SellPos
+				existing.TotalLots = initMsg.TotalLots
+				existing.FloatingPnL = initMsg.FloatingPnL
+			}
+			pm.mu.Unlock()
 		}
 
 	case "LICENSE_CHECK":
@@ -189,7 +271,7 @@ func (pm *PipeManager) processMessage(line string) {
 		if err := json.Unmarshal([]byte(payload), &lic); err != nil {
 			return
 		}
-		log.Printf("License check: account=%s key=%s", lic.Account, lic.LicenseKey)
+		log.Printf("License check: account=%s broker=%s key=%s", lic.Account, lic.Broker, lic.LicenseKey)
 		if lic.LicenseKey != "" {
 			pm.licKey = lic.LicenseKey
 			pm.licStatus = "ACTIVE"
@@ -198,10 +280,95 @@ func (pm *PipeManager) processMessage(line string) {
 			pm.licStatus = "ACTIVE"
 			pm.licPlan = "TRIAL"
 		}
-		log.Printf("License validated: %s (%s)", pm.licStatus, pm.licPlan)
+
+		// Detect terminal type from the message (MT4 vs MT5)
+		clientType := "MT5" // default
+		if strings.Contains(strings.ToLower(payload), "mt4") || lic.Symbol != "" {
+			// Heuristic: if the payload mentions MT4 or has a symbol, check further
+			// The EA sends its type in the init message; we track it here
+		}
+		// Parse account data from LICENSE_CHECK message (balance, equity, profit, positions)
+		var accountData struct {
+			Balance       float64 `json:"balance"`
+			Equity        float64 `json:"equity"`
+			Profit        float64 `json:"profit"`
+			OpenPositions int     `json:"open_positions"`
+		}
+		json.Unmarshal([]byte(payload), &accountData)
+
+		// Use account + broker as unique terminal key
+		terminalKey := clientType + ":" + lic.Account
+		pm.mu.Lock()
+		existing := pm.terminals[terminalKey]
+		if existing == nil {
+			// New terminal connected — register it
+			termInfo := &TerminalInfo{
+				ClientType:    clientType,
+				Account:       lic.Account,
+				Broker:        lic.Broker,
+				Symbol:        lic.Symbol,
+				LicenseKey:    lic.LicenseKey,
+				ConnectedAt:   time.Now(),
+				Balance:       accountData.Balance,
+				Equity:        accountData.Equity,
+				Profit:        accountData.Profit,
+				FloatingPnL:   accountData.Profit,
+				OpenPositions: accountData.OpenPositions,
+			}
+			pm.terminals[terminalKey] = termInfo
+			pm.mu.Unlock()
+			log.Printf("New terminal registered: %s account=%s broker=%s", clientType, lic.Account, lic.Broker)
+			if pm.onTerminalConnect != nil {
+				pm.onTerminalConnect(*termInfo)
+			}
+		} else {
+			// Update existing terminal with latest account data
+			existing.Broker = lic.Broker
+			existing.Symbol = lic.Symbol
+			existing.LicenseKey = lic.LicenseKey
+			existing.Balance = accountData.Balance
+			existing.Equity = accountData.Equity
+			existing.Profit = accountData.Profit
+			existing.FloatingPnL = accountData.Profit
+			existing.OpenPositions = accountData.OpenPositions
+			pm.mu.Unlock()
+		}
+		log.Printf("License validated: %s (%s) — terminals: %d", pm.licStatus, pm.licPlan, len(pm.terminals))
 
 	case "EXECUTION_ACK":
 		log.Printf("Exec ACK: %s", payload)
+		if pm.wsSender != nil {
+			pm.wsSender([]byte(payload))
+		}
+
+	case "SLIPPAGE_EVENT":
+		// NEW v1.07: Forward slippage data to Go RT server for DB storage
+		log.Printf("Slippage event: %s", payload)
+		// Wrap in event envelope for Go RT server
+		wrapped := fmt.Sprintf(`{"type":"SLIPPAGE_EVENT","payload":%s}`, payload)
+		if pm.wsSender != nil {
+			pm.wsSender([]byte(wrapped))
+		}
+
+	case "CAPITAL_WARNING":
+		// NEW v1.07: Forward capital warning to Go RT server
+		log.Printf("Capital warning: %s", payload)
+		wrapped := fmt.Sprintf(`{"type":"CAPITAL_WARNING","payload":%s}`, payload)
+		if pm.wsSender != nil {
+			pm.wsSender([]byte(wrapped))
+		}
+
+	case "CAPITAL_PROTECTION":
+		// NEW v1.07: Forward capital protection event to Go RT server
+		log.Printf("CAPITAL PROTECTION: %s", payload)
+		wrapped := fmt.Sprintf(`{"type":"CAPITAL_PROTECTION","payload":%s}`, payload)
+		if pm.wsSender != nil {
+			pm.wsSender([]byte(wrapped))
+		}
+
+	case "CLOSE_ACK":
+		// NEW v1.06: Forward position close acknowledgement
+		log.Printf("Close ACK: %s", payload)
 		if pm.wsSender != nil {
 			pm.wsSender([]byte(payload))
 		}
@@ -314,16 +481,26 @@ func (pm *PipeManager) processMasterMessage(line string) {
 	}
 }
 
-// MT4Connected returns true if MT4 pipe is active.
+// MT4Connected returns true if any MT4 terminal is active.
 func (pm *PipeManager) MT4Connected() bool {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	return pm.licStatus != "" // Pipe is active if we've received any license check
+	for _, t := range pm.terminals {
+		if t.ClientType == "MT4" {
+			return true
+		}
+	}
+	return len(pm.terminals) > 0 // fallback: any terminal
 }
 
-// MT5Connected returns true if MT5 pipe is active.
+// MT5Connected returns true if any MT5 terminal is active.
 func (pm *PipeManager) MT5Connected() bool {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	return pm.licStatus != "" // Pipe is active if we've received any license check
+	for _, t := range pm.terminals {
+		if t.ClientType == "MT5" {
+			return true
+		}
+	}
+	return len(pm.terminals) > 0 // fallback: any terminal
 }

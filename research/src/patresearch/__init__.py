@@ -11,3 +11,4 @@ from .calibration import (
     fit_sigmoid_calibration, apply_calibration,
 )
 from .dataset import DataProvenance, import_csv_candles, generate_synthetic_candles
+from .quantitative_strategy_engine import QuantitativeStrategyEngine as QuantitativeStrategyEngine

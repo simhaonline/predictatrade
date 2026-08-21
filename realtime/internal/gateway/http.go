@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/pprof" // pprof endpoints for diagnostics (localhost-only)
 	"strconv"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/predictatrade/realtime/internal/features"
 	"github.com/predictatrade/realtime/internal/marketdata"
 	"github.com/predictatrade/realtime/internal/types"
+	"github.com/shopspring/decimal"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -46,6 +48,16 @@ func (h *HTTPServer) registerRoutes() {
 	h.mux.HandleFunc("/health", h.handleHealth)
 	h.mux.HandleFunc("/ready", h.handleReady)
 	h.mux.HandleFunc("/metrics", promhttp.Handler().ServeHTTP)
+	// pprof diagnostic endpoints — localhost-only, behind Nginx is not exposed publicly
+	h.mux.HandleFunc("/debug/pprof/", pprof.Index)
+	h.mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	h.mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	h.mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	h.mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	h.mux.HandleFunc("/debug/pprof/goroutine", pprof.Handler("goroutine").ServeHTTP)
+	h.mux.HandleFunc("/debug/pprof/heap", pprof.Handler("heap").ServeHTTP)
+	h.mux.HandleFunc("/debug/pprof/threadcreate", pprof.Handler("threadcreate").ServeHTTP)
+	h.mux.HandleFunc("/debug/pprof/block", pprof.Handler("block").ServeHTTP)
 	// WebSocket at /ws and /ws/v1 (canonical production path)
 	h.mux.HandleFunc("/ws", h.hub.HandleWebSocket)
 	h.mux.HandleFunc("/ws/v1", h.hub.HandleWebSocket)
@@ -116,6 +128,16 @@ func (h *HTTPServer) handleReady(w http.ResponseWriter, r *http.Request) {
 
 func (h *HTTPServer) handleSignals(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	
+	// Try Valkey cache first (sub-ms, no DB load)
+	if h.valkeyCache != nil {
+		if data, err := h.valkeyCache.GetLatestSignals(); err == nil && len(data) > 0 {
+			w.Write(data)
+			return
+		}
+	}
+	
+	// Fallback to database query
 	if h.persister == nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"signals": []interface{}{}, "note": "no_database"})
 		return
@@ -173,21 +195,81 @@ func (h *HTTPServer) handleCandles(w http.ResponseWriter, r *http.Request) {
 	if timeframe == "" {
 		timeframe = "M5"
 	}
+	limit := 200
+
+	// Step 1: Try Valkey cache first (fast path — sub-millisecond)
+	if h.valkeyCache != nil {
+		if cached, err := h.valkeyCache.GetChartCandles(symbol, timeframe, limit); err == nil && len(cached) > 0 {
+			json.NewEncoder(w).Encode(map[string]interface{}{"candles": cached, "source": "valkey_cache"})
+			return
+		}
+	}
+
 	if h.persister == nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"candles": []interface{}{}, "note": "no_database"})
 		return
 	}
+
+	// Step 2: Query PostgreSQL with time constraint for TimescaleDB chunk exclusion
+	// Calculate lookback period based on timeframe
+	var lookbackHours int = 48
+	switch timeframe {
+	case "M5": lookbackHours = 24
+	case "M15": lookbackHours = 72
+	case "H1": lookbackHours = 240
+	case "H4": lookbackHours = 1000
+	case "D1": lookbackHours = 8760
+	}
+	timeStart := time.Now().UTC().Add(-time.Duration(lookbackHours) * time.Hour)
+
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	candles, err := h.persister.GetRecentCandles(ctx, symbol, timeframe, 200)
+
+	rows, err := h.persister.GetDB().QueryContext(ctx, `
+		SELECT time, open, high, low, close, volume, source, quality, is_closed
+		FROM market.candles
+		WHERE symbol = $1 AND timeframe = $2 AND time >= $3
+		ORDER BY time DESC LIMIT $4
+	`, symbol, timeframe, timeStart, limit)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"candles": []interface{}{}, "error": err.Error()})
 		return
 	}
-	if candles == nil {
-		candles = []*types.Candle{}
+	defer rows.Close()
+
+	var cachedCandles []cache.CachedCandle
+	for rows.Next() {
+		var t time.Time
+		var openStr, highStr, lowStr, closeStr, source, qualityStr string
+		var volume int64
+		var isClosed bool
+		if err := rows.Scan(&t, &openStr, &highStr, &lowStr, &closeStr, &volume, &source, &qualityStr, &isClosed); err != nil {
+			continue
+		}
+		cachedCandles = append(cachedCandles, cache.CachedCandle{
+			Time: t.Format(time.RFC3339),
+			Open: parseFloatStr(openStr), High: parseFloatStr(highStr),
+			Low: parseFloatStr(lowStr), Close: parseFloatStr(closeStr),
+			Volume: volume, Source: source, Quality: qualityStr, IsClosed: isClosed,
+		})
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{"candles": candles})
+
+	// Cache in Valkey for subsequent requests (60-second TTL)
+	if h.valkeyCache != nil && len(cachedCandles) > 0 {
+		h.valkeyCache.SetChartCandles(symbol, timeframe, limit, cachedCandles)
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"candles": cachedCandles, "source": "timescaledb"})
+}
+
+// parseFloatStr parses a decimal string to float64.
+func parseFloatStr(s string) float64 {
+	d, err := decimal.NewFromString(s)
+	if err != nil {
+		return 0
+	}
+	f, _ := d.Float64()
+	return f
 }
 
 func (h *HTTPServer) handleStrategies(w http.ResponseWriter, r *http.Request) {
@@ -199,30 +281,248 @@ func (h *HTTPServer) handleStrategies(w http.ResponseWriter, r *http.Request) {
 
 func (h *HTTPServer) handleMarketSnapshot(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	// Read from Valkey hot cache first
-	if h.valkeyCache != nil {
-		if data, err := h.valkeyCache.GetSnapshot(); err == nil && len(data) > 0 {
-			w.Write(data)
-			return
-		}
-	}
-	// Fallback to agent provider
+
+	// Step 1: Get the raw MT5 snapshot from Valkey cache or agent provider
+	var mt5Snapshot *marketdata.MarketSnapshot
 	if h.agentProvider != nil {
-		snapshot := h.agentProvider.GetLastSnapshot()
-		if snapshot != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"snapshot": snapshot,
-				"count":    h.agentProvider.GetSnapshotCount(),
-			})
-			return
+		if snap := h.agentProvider.GetLastSnapshot(); snap != nil {
+			if ms, ok := snap.(*marketdata.MarketSnapshot); ok {
+				mt5Snapshot = ms
+			}
 		}
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"snapshot": nil,
-		"status":   "waiting",
-		"message":  "No Master Node snapshot received yet. Ensure Master Node EA is running and connected to Windows Agent.",
-		"timestamp": time.Now().UTC(),
-	})
+
+	// Step 2: Get the engine's locally-computed indicators
+	var engineState *features.MarketState
+	if h.states != nil {
+		engineState = h.states.Get(types.SymbolXAUUSD)
+	}
+
+	// Step 3: Build the merged response
+	// Start with MT5 snapshot fields, then enrich with locally-computed indicators
+	response := map[string]interface{}{}
+
+	if mt5Snapshot != nil {
+		// Copy all MT5 snapshot fields
+		response["type"] = mt5Snapshot.Type
+		response["symbol"] = mt5Snapshot.Symbol
+		response["timestamp"] = mt5Snapshot.Timestamp
+		response["source"] = mt5Snapshot.Source
+		response["broker"] = mt5Snapshot.Broker
+		response["node"] = mt5Snapshot.Node
+		response["tick"] = mt5Snapshot.Tick
+		response["bars"] = mt5Snapshot.Bars
+		response["vwap"] = mt5Snapshot.VWAP
+		response["account_info"] = mt5Snapshot.AccountInfo
+		response["symbol_info"] = mt5Snapshot.SymbolInfo
+		response["session"] = mt5Snapshot.Session
+		response["positions"] = mt5Snapshot.Positions
+
+		// Build indicators map: start with MT5 values, then add locally-computed
+		indMap := map[string]interface{}{}
+		// MT5-provided indicators (19 fields)
+		indMap["atr"] = mt5Snapshot.Indicators.ATR
+		indMap["rsi"] = mt5Snapshot.Indicators.RSI
+		indMap["ema9"] = mt5Snapshot.Indicators.EMA9
+		indMap["ema21"] = mt5Snapshot.Indicators.EMA21
+		indMap["ema50"] = mt5Snapshot.Indicators.EMA50
+		indMap["sma200"] = mt5Snapshot.Indicators.SMA200
+		indMap["adx"] = mt5Snapshot.Indicators.ADX
+		indMap["adx_plus_di"] = mt5Snapshot.Indicators.ADXPlusDI
+		indMap["adx_minus_di"] = mt5Snapshot.Indicators.ADXMinusDI
+		indMap["boll_upper"] = mt5Snapshot.Indicators.BollUpper
+		indMap["boll_lower"] = mt5Snapshot.Indicators.BollLower
+		indMap["boll_middle"] = mt5Snapshot.Indicators.BollMiddle
+		indMap["macd_main"] = mt5Snapshot.Indicators.MACDMain
+		indMap["macd_signal"] = mt5Snapshot.Indicators.MACDSignal
+		indMap["stoch_main"] = mt5Snapshot.Indicators.StochMain
+		indMap["stoch_signal"] = mt5Snapshot.Indicators.StochSignal
+		indMap["cci"] = mt5Snapshot.Indicators.CCI
+
+		// Add session info as indicators
+		response["session"] = mt5Snapshot.Session
+
+		// Step 4: Enrich with locally-computed indicators from the Go engine
+		if engineState != nil && engineState.Indicators.ATR.GreaterThan(decimal.Zero) {
+			ind := &engineState.Indicators
+			// Add locally-computed fields that MT5 doesn't provide
+			indMap["ema100"] = toF(ind.EMA100)
+			indMap["ema200"] = toF(ind.EMA200)
+			indMap["ema_cross_9_21"] = ind.EMACross921
+			indMap["sma50"] = toF(ind.SMA50)
+			indMap["sma100"] = toF(ind.SMA100)
+			indMap["macd_histogram"] = toF(ind.MACDHistogram)
+			indMap["macd_bull_cross"] = ind.MACDBullCross
+			indMap["macd_bear_cross"] = ind.MACDBearCross
+			indMap["boll_width"] = toF(ind.BollWidth)
+			indMap["boll_bull_rev"] = ind.BollBullRev
+			indMap["boll_bear_rev"] = ind.BollBearRev
+			indMap["obv"] = toF(ind.OBV)
+			indMap["psar"] = toF(ind.ParabolicSAR)
+			indMap["psar_long"] = ind.ParabolicSARLong
+			indMap["stoch_rsi"] = toF(ind.StochRSI)
+			indMap["stoch_rsi_k"] = toF(ind.StochRSIK)
+			indMap["stoch_rsi_d"] = toF(ind.StochRSID)
+			indMap["ichimoku_tenkan"] = toF(ind.IchimokuTenkan)
+			indMap["ichimoku_kijun"] = toF(ind.IchimokuKijun)
+			indMap["ichimoku_senkou_a"] = toF(ind.IchimokuSenkouA)
+			indMap["ichimoku_senkou_b"] = toF(ind.IchimokuSenkouB)
+			// Also add VWAP if locally computed
+			if ind.VWAP.GreaterThan(decimal.Zero) {
+				indMap["vwap"] = toF(ind.VWAP)
+			} else if mt5Snapshot.VWAP.SessionVWAP > 0 {
+				indMap["vwap"] = mt5Snapshot.VWAP.SessionVWAP
+			}
+			response["source"] = mt5Snapshot.Source + "+LOCAL_COMPUTE"
+		} else {
+			// No local indicators — add VWAP from MT5 if available
+			if mt5Snapshot.VWAP.SessionVWAP > 0 {
+				indMap["vwap"] = mt5Snapshot.VWAP.SessionVWAP
+			}
+			response["source"] = mt5Snapshot.Source
+		}
+
+		// Add session/MTF/structure info into indicators map so frontend liveness works
+		indMap["session"] = mt5Snapshot.Session.Name
+		indMap["is_overlap"] = mt5Snapshot.Session.IsOverlap
+		indMap["is_weekend"] = mt5Snapshot.Session.IsWeekend
+
+		// Derive MACD histogram from main - signal if not already set
+		if indMap["macd_histogram"] == 0 || indMap["macd_histogram"] == 0.0 {
+			macdMain, _ := indMap["macd_main"].(float64)
+			macdSignal, _ := indMap["macd_signal"].(float64)
+			if macdMain != 0 || macdSignal != 0 {
+				indMap["macd_histogram"] = macdMain - macdSignal
+			}
+		}
+
+		response["indicators"] = indMap
+	} else if engineState != nil && engineState.Indicators.ATR.GreaterThan(decimal.Zero) {
+		// No MT5 snapshot — return locally-computed indicators only
+		localMap := h.buildIndicatorMap(&engineState.Indicators)
+		if engineState.Session.CurrentSession != "" {
+			localMap["session"] = engineState.Session.CurrentSession
+			localMap["is_overlap"] = engineState.Session.IsOverlap
+			localMap["is_weekend"] = engineState.Session.IsWeekend
+		}
+		// Derive MACD histogram from main - signal if both available
+		if localMap["macd_histogram"] == 0 || localMap["macd_histogram"] == 0.0 {
+			macdMain, _ := localMap["macd_main"].(float64)
+			macdSignal, _ := localMap["macd_signal"].(float64)
+			if macdMain != 0 || macdSignal != 0 {
+				localMap["macd_histogram"] = macdMain - macdSignal
+			}
+		}
+		// Derive ADX +DI/-DI from engine state if zero in indicators
+		if localMap["adx_plus_di"] == 0 || localMap["adx_plus_di"] == 0.0 {
+			if engineState.Indicators.ADXPlusDI.GreaterThan(decimal.Zero) {
+				localMap["adx_plus_di"] = toF(engineState.Indicators.ADXPlusDI)
+			}
+		}
+		if localMap["adx_minus_di"] == 0 || localMap["adx_minus_di"] == 0.0 {
+			if engineState.Indicators.ADXMinusDI.GreaterThan(decimal.Zero) {
+				localMap["adx_minus_di"] = toF(engineState.Indicators.ADXMinusDI)
+			}
+		}
+		response["indicators"] = localMap
+		response["source"] = "LOCAL_COMPUTE_ONLY"
+		response["timestamp"] = time.Now().UTC()
+		response["message"] = "No MT5 Master Node snapshot. Showing locally-computed indicators only."
+	} else {
+		// No data at all
+		response["snapshot"] = nil
+		response["status"] = "waiting"
+		response["message"] = "No Master Node snapshot received yet. Ensure Master Node EA is running and connected to Windows Agent."
+		response["timestamp"] = time.Now().UTC()
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// buildIndicatorMap creates a JSON-serializable map of ALL indicator values
+// from the Go engine's IndicatorFeatures. Always includes every field so the
+// frontend can distinguish "computed but zero/not enough data" from "not in response".
+func (h *HTTPServer) buildIndicatorMap(ind *features.IndicatorFeatures) map[string]interface{} {
+	m := map[string]interface{}{}
+	// Trend
+	m["ema9"] = toF(ind.EMA9)
+	m["ema21"] = toF(ind.EMA21)
+	m["ema50"] = toF(ind.EMA50)
+	m["ema100"] = toF(ind.EMA100)
+	m["ema200"] = toF(ind.EMA200)
+	m["ema_cross_9_21"] = ind.EMACross921
+	m["sma50"] = toF(ind.SMA50)
+	m["sma100"] = toF(ind.SMA100)
+	m["sma200"] = toF(ind.SMA200)
+	m["macd_main"] = toF(ind.MACDMain)
+	m["macd_signal"] = toF(ind.MACDSignal)
+	m["macd_histogram"] = toF(ind.MACDHistogram)
+	m["macd_bull_cross"] = ind.MACDBullCross
+	m["macd_bear_cross"] = ind.MACDBearCross
+	m["adx"] = toF(ind.ADX)
+	m["adx_plus_di"] = toF(ind.ADXPlusDI)
+	m["adx_minus_di"] = toF(ind.ADXMinusDI)
+	m["psar"] = toF(ind.ParabolicSAR)
+	m["psar_long"] = ind.ParabolicSARLong
+	m["ichimoku_tenkan"] = toF(ind.IchimokuTenkan)
+	m["ichimoku_kijun"] = toF(ind.IchimokuKijun)
+	m["ichimoku_senkou_a"] = toF(ind.IchimokuSenkouA)
+	m["ichimoku_senkou_b"] = toF(ind.IchimokuSenkouB)
+	// Momentum
+	m["rsi"] = toF(ind.RSI)
+	m["stoch_main"] = toF(ind.StochMain)
+	m["stoch_signal"] = toF(ind.StochSignal)
+	m["stoch_rsi"] = toF(ind.StochRSI)
+	m["stoch_rsi_k"] = toF(ind.StochRSIK)
+	m["stoch_rsi_d"] = toF(ind.StochRSID)
+	m["cci"] = toF(ind.CCI)
+	// Volatility
+	m["atr"] = toF(ind.ATR)
+	m["boll_upper"] = toF(ind.BollUpper)
+	m["boll_lower"] = toF(ind.BollLower)
+	m["boll_middle"] = toF(ind.BollMiddle)
+	m["boll_width"] = toF(ind.BollWidth)
+	m["boll_bull_rev"] = ind.BollBullRev
+	m["boll_bear_rev"] = ind.BollBearRev
+	// Volume
+	m["obv"] = toF(ind.OBV)
+	m["vwap"] = toF(ind.VWAP)
+	return m
+}
+
+// enrichSnapshot merges locally-computed indicators into a cached snapshot JSON.
+func (h *HTTPServer) enrichSnapshot(cachedData []byte, ind *features.IndicatorFeatures) []byte {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(cachedData, &raw); err != nil {
+		return nil
+	}
+	// Merge in locally-computed indicators
+	indMap := h.buildIndicatorMap(ind)
+	if existing, ok := raw["indicators"].(map[string]interface{}); ok {
+		for k, v := range indMap {
+			if _, exists := existing[k]; !exists {
+				existing[k] = v
+			}
+		}
+	} else {
+		raw["indicators"] = indMap
+	}
+	if source, ok := raw["source"].(string); ok {
+		raw["source"] = source + "+LOCAL_COMPUTE"
+	} else {
+		raw["source"] = "MT5_MASTER+LOCAL_COMPUTE"
+	}
+	enriched, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	return enriched
+}
+
+// toF converts decimal.Decimal to float64 for JSON serialization.
+func toF(d decimal.Decimal) float64 {
+	f, _ := d.Float64()
+	return f
 }
 
 func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) {

@@ -4,6 +4,7 @@
 package marketdata
 
 import (
+	"log"
 	"encoding/json"
 	"context"
 	"sync"
@@ -73,6 +74,7 @@ type SnapshotBar struct {
 }
 
 type SnapshotIndicators struct {
+	// Original MT5 EA fields
 	ATR         float64 `json:"atr"`
 	RSI         float64 `json:"rsi"`
 	EMA9        float64 `json:"ema9"`
@@ -92,6 +94,31 @@ type SnapshotIndicators struct {
 	CCI         float64 `json:"cci"`
 	Mom         float64 `json:"mom"`
 	OsMA        float64 `json:"osma"`
+
+	// Locally-computed indicators (enriched by Go engine, prompt.md Section 1)
+	EMA100        float64 `json:"ema100,omitempty"`
+	EMA200        float64 `json:"ema200,omitempty"`
+	EMACross921   bool    `json:"ema_cross_9_21,omitempty"`
+	SMA50         float64 `json:"sma50,omitempty"`
+	SMA100        float64 `json:"sma100,omitempty"`
+	MACDHistogram float64 `json:"macd_histogram,omitempty"`
+	MACDBullCross bool    `json:"macd_bull_cross,omitempty"`
+	MACDBearCross bool    `json:"macd_bear_cross,omitempty"`
+	BollWidth     float64 `json:"boll_width,omitempty"`
+	BollBullRev   bool    `json:"boll_bull_rev,omitempty"`
+	BollBearRev   bool    `json:"boll_bear_rev,omitempty"`
+	OBV           float64 `json:"obv,omitempty"`
+	TickVolume    float64 `json:"tick_volume,omitempty"`
+	VWAP          float64 `json:"vwap,omitempty"`
+	ParabolicSAR  float64 `json:"psar,omitempty"`
+	PSARLong      bool    `json:"psar_long,omitempty"`
+	StochRSI      float64 `json:"stoch_rsi,omitempty"`
+	StochRSIK     float64 `json:"stoch_rsi_k,omitempty"`
+	StochRSID     float64 `json:"stoch_rsi_d,omitempty"`
+	IchimokuTenkan  float64 `json:"ichimoku_tenkan,omitempty"`
+	IchimokuKijun   float64 `json:"ichimoku_kijun,omitempty"`
+	IchimokuSenkouA float64 `json:"ichimoku_senkou_a,omitempty"`
+	IchimokuSenkouB float64 `json:"ichimoku_senkou_b,omitempty"`
 }
 
 type SnapshotVWAP struct {
@@ -457,6 +484,22 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 	case "MASTER_DEINIT":
 		// Master Node lifecycle events — logged but no tick processing needed
 		// These are informational messages from the data collection EA
+
+	case "SLIPPAGE_EVENT":
+		// NEW v1.07: Slippage monitoring from EA — log and forward
+		log.Printf("[AGENT] Slippage event from %s: type=%s", agentID, msgType)
+
+	case "CAPITAL_WARNING":
+		// NEW v1.07: Capital protection warning (3% loss)
+		log.Printf("[AGENT] CAPITAL WARNING from %s: type=%s", agentID, msgType)
+
+	case "CAPITAL_PROTECTION":
+		// NEW v1.07: Capital protection triggered (5% loss) — trading blocked
+		log.Printf("[AGENT] CAPITAL PROTECTION from %s: type=%s", agentID, msgType)
+
+	case "CLOSE_ACK":
+		// NEW v1.06: Position close acknowledgement from EA
+		log.Printf("[AGENT] Close ACK from %s: type=%s", agentID, msgType)
 
 	default:
 		// Unknown message type — try to parse as tick (backward compatibility)

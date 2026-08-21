@@ -18,6 +18,8 @@ import { HealthModule } from './modules/health/health.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { DeviceAuthModule } from './modules/device-auth/device-auth.module';
 import { OperationsModule } from './modules/operations/operations.module';
+import { BacktestModule } from './modules/backtest/backtest.module';
+import { GuestPreviewModule } from './modules/guest-preview/guest-preview.module';
 
 @Module({
   imports: [
@@ -43,6 +45,8 @@ import { OperationsModule } from './modules/operations/operations.module';
     AdminModule,
     DeviceAuthModule,
     OperationsModule,
+    BacktestModule,
+    GuestPreviewModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

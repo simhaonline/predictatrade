@@ -17,9 +17,15 @@ describe('AdminService', () => {
       const { Pool } = require('pg');
       pool = new Pool({ connectionString: DB_URL, max: 5 });
     } else {
-      // Mock pool for unit tests when no DB is available
+      // Mock pool for unit tests when no DB is available.
+      // Query-aware: COUNT queries return a total row so pagination math works.
       pool = {
-        query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
+        query: jest.fn((text: string) => {
+          if (typeof text === 'string' && /count\(\*\)\s+as\s+total/i.test(text)) {
+            return Promise.resolve({ rows: [{ total: '0' }], rowCount: 0 });
+          }
+          return Promise.resolve({ rows: [], rowCount: 0 });
+        }),
       };
     }
   });

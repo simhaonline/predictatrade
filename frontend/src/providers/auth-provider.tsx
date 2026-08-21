@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
+import axios from 'axios';
 import { customInstance } from '@/lib/axios-instance';
 import { setAccessToken, clearAccessToken, getAccessToken, getRoleFromToken, getRoleFromTokenUnchecked } from '@/lib/auth';
 import { homeRouteForRole, type Role } from '@/lib/roles';
@@ -95,10 +96,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const token = getAccessToken();
     if (!token) {
-      // Use queueMicrotask to avoid setState synchronously in effect
-      queueMicrotask(() => {
-        setSessionState('UNAUTHENTICATED');
-      });
+      // No access token in memory/cookie — but the refresh token cookie may still be valid.
+      // Try to refresh BEFORE declaring the user unauthenticated.
+      void (async () => {
+        try {
+          const res = await axios.post<{ accessToken?: string }>(
+            `${customInstance.defaults.baseURL}/auth/refresh`,
+            {},
+            { withCredentials: true }
+          );
+          const newToken = res.data?.accessToken;
+          if (newToken) {
+            setAccessToken(newToken);
+            await fetchMe();
+            return;
+          }
+        } catch {
+          // Refresh failed — user genuinely needs to log in again
+        }
+        queueMicrotask(() => {
+          setSessionState('UNAUTHENTICATED');
+        });
+      })();
       return;
     }
     void (async () => {
@@ -116,6 +135,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener('pat:logout', handler);
     return () => window.removeEventListener('pat:logout', handler);
   }, [router]);
+
+  // Proactive token refresh — refresh the access token every 45 minutes
+  // (before the 1h expiry) to prevent any interruption during active use.
+  useEffect(() => {
+    if (sessionState !== 'AUTHENTICATED') return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await axios.post<{ accessToken?: string }>(
+          `${customInstance.defaults.baseURL}/auth/refresh`,
+          {},
+          { withCredentials: true }
+        );
+        const newToken = res.data?.accessToken;
+        if (newToken) {
+          setAccessToken(newToken);
+        }
+      } catch {
+        // Silent fail — the axios interceptor will handle 401 on next request
+      }
+    }, 45 * 60 * 1000); // 45 minutes
+    return () => clearInterval(interval);
+  }, [sessionState]);
 
   const login = async (email: string, password: string, trustDevice = false) => {
     const res = await customInstance.post<{

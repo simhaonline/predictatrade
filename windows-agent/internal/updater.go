@@ -8,18 +8,24 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"runtime"
 	"time"
 )
 
 // Updater handles secure agent updates.
 // SOW Section 23: Secure agent updates with version discovery, HTTPS download,
-// checksum validation, signature verification, atomic replacement, rollback.
+// checksum validation, atomic replacement, rollback.
+//
+// The updater fetches a static update-manifest.json from the download server
+// (no NestJS API endpoint required). On Windows, the running binary is locked,
+// so updates are applied via a helper batch script that stops the service,
+// swaps the binary, and restarts.
 type Updater struct {
-	apiURL       string
-	currentVer   string
-	dataDir      string
+	manifestURL   string
+	currentVer    string
+	dataDir       string
+	installDir    string
 	updateChannel string
 }
 
@@ -35,23 +41,22 @@ type UpdateManifest struct {
 }
 
 // NewUpdater creates a new updater instance.
-func NewUpdater(apiURL, currentVer, dataDir, channel string) *Updater {
+// manifestURL is the full URL to update-manifest.json on the download server.
+func NewUpdater(manifestURL, currentVer, dataDir, installDir, channel string) *Updater {
 	return &Updater{
-		apiURL:        apiURL,
+		manifestURL:   manifestURL,
 		currentVer:    currentVer,
 		dataDir:       dataDir,
+		installDir:    installDir,
 		updateChannel: channel,
 	}
 }
 
-// CheckForUpdate queries the server for a new version.
+// CheckForUpdate fetches the manifest from the server and compares versions.
 // Returns the manifest if an update is available, nil if up-to-date.
 func (u *Updater) CheckForUpdate() (*UpdateManifest, error) {
-	url := fmt.Sprintf("%s/agent/update/check?channel=%s&version=%s&os=%s",
-		u.apiURL, u.updateChannel, u.currentVer, runtime.GOOS)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(url)
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(u.manifestURL)
 	if err != nil {
 		return nil, fmt.Errorf("update check failed: %w", err)
 	}
@@ -61,7 +66,7 @@ func (u *Updater) CheckForUpdate() (*UpdateManifest, error) {
 		return nil, nil // Up to date
 	}
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("update check returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("update check returned HTTP %d", resp.StatusCode)
 	}
 
 	var manifest UpdateManifest
@@ -84,7 +89,6 @@ func (u *Updater) CheckForUpdate() (*UpdateManifest, error) {
 // DownloadAndVerify downloads the update, verifies checksum, and stages it.
 // SOW Section 23: "Never execute an unverified downloaded binary."
 func (u *Updater) DownloadAndVerify(manifest *UpdateManifest) (string, error) {
-	// Create staging directory
 	stagingDir := filepath.Join(u.dataDir, "updates", "staging")
 	if err := os.MkdirAll(stagingDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create staging dir: %w", err)
@@ -92,7 +96,6 @@ func (u *Updater) DownloadAndVerify(manifest *UpdateManifest) (string, error) {
 
 	stagedPath := filepath.Join(stagingDir, fmt.Sprintf("agent_%s.exe", manifest.Version))
 
-	// Download
 	client := &http.Client{Timeout: 5 * time.Minute}
 	resp, err := client.Get(manifest.DownloadURL)
 	if err != nil {
@@ -101,10 +104,9 @@ func (u *Updater) DownloadAndVerify(manifest *UpdateManifest) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("download returned %d", resp.StatusCode)
+		return "", fmt.Errorf("download returned HTTP %d", resp.StatusCode)
 	}
 
-	// Download to temp file and compute hash simultaneously
 	tmpFile, err := os.Create(stagedPath + ".tmp")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
@@ -126,7 +128,6 @@ func (u *Updater) DownloadAndVerify(manifest *UpdateManifest) (string, error) {
 		return "", fmt.Errorf("checksum mismatch: expected %s, got %s", manifest.Checksum, actualChecksum)
 	}
 
-	// Rename to final staged path
 	if err := os.Rename(stagedPath+".tmp", stagedPath); err != nil {
 		os.Remove(stagedPath + ".tmp")
 		return "", fmt.Errorf("failed to stage update: %w", err)
@@ -135,31 +136,89 @@ func (u *Updater) DownloadAndVerify(manifest *UpdateManifest) (string, error) {
 	return stagedPath, nil
 }
 
-// ApplyUpdate performs atomic replacement of the current binary.
-// SOW Section 23: "atomic replacement, rollback, service restart"
-// On Windows, the running binary is locked, so the update is applied on next restart.
-// The old binary is preserved for rollback.
-func (u *Updater) ApplyUpdate(stagedPath, currentPath string) error {
-	// Backup current binary for rollback
+// ApplyUpdateOnWindows performs a safe binary swap on Windows where the
+// running executable is locked. It creates a helper batch script that:
+//  1. Waits 2 seconds (for the agent to exit)
+//  2. Stops the NSSM service
+//  3. Backs up the current binary
+//  4. Replaces it with the staged binary
+//  5. Updates version.txt
+//  6. Restarts the service
+//  7. Deletes itself and the backup
+//
+// The batch script runs outside the agent process, so it can replace the
+// locked binary after the service stops.
+func (u *Updater) ApplyUpdateOnWindows(stagedPath, currentPath string, manifest *UpdateManifest) error {
 	backupPath := currentPath + ".bak"
-	if _, err := os.Stat(currentPath); err == nil {
-		_ = os.Remove(backupPath)
-		if err := os.Rename(currentPath, backupPath); err != nil {
-			return fmt.Errorf("failed to backup current binary: %w", err)
-		}
+	versionFile := filepath.Join(u.installDir, "version.txt")
+	nssmPath := filepath.Join(u.installDir, "nssm.exe")
+	serviceName := "PredictATradeXAUUSD"
+
+	// Build the helper batch script
+	batchContent := fmt.Sprintf(`@echo off
+setlocal enabledelayedexpansion
+
+rem === Predict-A-Trade Auto-Update Helper ===
+rem This script is auto-generated by the agent updater.
+rem It runs outside the agent process to swap the locked binary.
+
+echo [update] Waiting for agent to exit...
+timeout /t 3 /nobreak > nul
+
+echo [update] Stopping service...
+if exist "%s" (
+  "%s" stop %s 2>nul
+) else (
+  sc stop %s 2>nul
+)
+timeout /t 2 /nobreak > nul
+
+echo [update] Backing up current binary...
+if exist "%s" move /Y "%s" "%s" 2>nul
+
+echo [update] Installing new binary...
+move /Y "%s" "%s" 2>nul
+
+echo [update] Updating version file...
+echo %s> "%s"
+
+echo [update] Starting service...
+if exist "%s" (
+  "%s" start %s 2>nul
+) else (
+  sc start %s 2>nul
+)
+
+echo [update] Cleaning up...
+if exist "%s" del /F /Q "%s" 2>nul
+del /F /Q "%%~f0" 2>nul
+
+echo [update] Done.
+`, nssmPath, nssmPath, serviceName,
+		serviceName,
+		currentPath, currentPath, backupPath,
+		stagedPath, currentPath,
+		manifest.Version, versionFile,
+		nssmPath, nssmPath, serviceName,
+		serviceName,
+		backupPath, backupPath)
+
+	// Write the batch script
+	batchPath := filepath.Join(u.installDir, "pat_update_helper.bat")
+	if err := os.WriteFile(batchPath, []byte(batchContent), 0755); err != nil {
+		return fmt.Errorf("failed to write update helper: %w", err)
 	}
 
-	// Move staged binary to current path
-	if err := os.Rename(stagedPath, currentPath); err != nil {
-		// Rollback: restore from backup
-		if _, err2 := os.Stat(backupPath); err2 == nil {
-			_ = os.Rename(backupPath, currentPath)
-		}
-		return fmt.Errorf("failed to apply update: %w", err)
-	}
+	// Log the update
+	logf("[updater] Update staged at %s, helper script at %s", stagedPath, batchPath)
+	logf("[updater] Helper script will stop service, swap binary, and restart")
 
-	// Clean up backup after successful update
-	_ = os.Remove(backupPath)
+	// Execute the helper batch script asynchronously (non-blocking)
+	// It runs in a separate cmd.exe process, so the agent can exit safely
+	cmd := exec.Command("cmd.exe", "/c", "start", "/min", "", batchPath)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to launch update helper: %w", err)
+	}
 
 	return nil
 }

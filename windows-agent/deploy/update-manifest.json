@@ -1,0 +1,8 @@
+{
+    "version": "1.1.0",
+    "download_url": "https://downloads.predictatrade.com/windows-agent/agent.exe",
+    "checksum": "c6ab0fbbe8dce5e3f9553f668a09ce3832035f9444ae72cb547f6ac51f4e7eba",
+    "min_version": "1.0.0",
+    "release_notes": "v1.1.0 \u2014 Strategy engine isolation, precision gates, pending limit orders, soft/hard halt",
+    "timestamp": "2026-08-21T14:13:00Z"
+}

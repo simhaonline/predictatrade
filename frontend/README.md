@@ -47,11 +47,22 @@ The frontend displays signals from the Go real-time engine with the following di
 
 | Direction | Color | Meaning |
 |-----------|-------|---------|
-| BUY | Green | Qualified long (executable) |
-| SELL | Red | Qualified short (executable) |
-| BUY_CANDIDATE | Amber | Advisory long (not executable) |
-| SELL_CANDIDATE | Orange | Advisory short (not executable) |
+| BUY | Green (#10B981) | Qualified long (executable) |
+| SELL | Red (#EF4444) | Qualified short (executable) |
+| BUY_CANDIDATE | Amber (#F59E0B) | Advisory long (not executable) |
+| SELL_CANDIDATE | Orange (#FB923C) | Advisory short (not executable) |
 | NO-TRADE | Gray | No valid trade opportunity |
 | BLOCKED | Gray | Gate veto or safety block (direction preserved) |
 
 The PROB (calibrated probability) column shows "Pending" until a calibration model is validated. See `docs/SIGNAL_TYPES_AND_PROBABILITY.md` for details.
+
+## Color Palette (v1.4.0)
+
+The frontend uses the approved Predict-A-Trade color palette via CSS variables in `src/styles/globals.css` and semantic Tailwind tokens in `tailwind.config.ts`:
+
+- **Light mode**: sidebar #0F172A, main bg #F8FAFC, cards #FFFFFF, borders #E2E8F0
+- **Dark mode**: sidebar #020617, main bg #0F172A, cards #1E293B, borders #334155
+- **Trading**: BUY/TP #10B981, SELL/SL #EF4444, SESSION #EAB308, INFO #3B82F6
+- **Candidate**: BUY_CANDIDATE #F59E0B, SELL_CANDIDATE #FB923C
+
+All colors are theme-aware via CSS variables with `%` signs on HSL S/L components.

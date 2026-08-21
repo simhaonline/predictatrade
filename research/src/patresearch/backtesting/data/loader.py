@@ -186,3 +186,86 @@ class DataLoader:
         )
         meta.compute_hash(candles)
         return candles, meta
+
+    @staticmethod
+
+    def from_database(db_url: str, symbol: str = "XAUUSD", timeframe: str = "M5",
+                      start_time: Optional[datetime] = None,
+                      end_time: Optional[datetime] = None,
+                      source: Optional[str] = None) -> tuple[list[HistoricalCandle], DatasetMetadata]:
+        """Load candles from PostgreSQL market.candles table.
+
+        Args:
+            db_url: PostgreSQL connection string
+            symbol: Trading symbol (e.g., XAUUSD)
+            timeframe: Candle timeframe (M5, M15, H1, H4, D1)
+            start_time: Optional start datetime (UTC)
+            end_time: Optional end datetime (UTC)
+            source: Optional data source filter (e.g., KAGGLE_NOVANDRAANUGRAH_2004_2026)
+
+        Returns:
+            Tuple of (candles, metadata) — same format as from_csv.
+        """
+        import psycopg2
+
+        conn = psycopg2.connect(db_url)
+
+        query = """
+            SELECT time, open, high, low, close, volume, source
+            FROM market.candles
+            WHERE symbol = %s AND timeframe = %s
+        """
+        params: list = [symbol, timeframe]
+
+        if start_time:
+            query += " AND time >= %s"
+            params.append(start_time)
+        if end_time:
+            query += " AND time <= %s"
+            params.append(end_time)
+        if source:
+            query += " AND source = %s"
+            params.append(source)
+
+        query += " ORDER BY time ASC"
+
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+
+        conn.close()
+
+        candles = []
+        for row in rows:
+            ts = row[0]
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+
+            candles.append(HistoricalCandle(
+                timestamp=ts,
+                open=float(row[1]),
+                high=float(row[2]),
+                low=float(row[3]),
+                close=float(row[4]),
+                volume=int(row[5]) if row[5] else 0,
+                timeframe=timeframe,
+                source=row[6] if len(row) > 6 else "DATABASE",
+            ))
+
+        if not candles:
+            meta = DatasetMetadata(
+                symbol=symbol, timeframe=timeframe, source="DATABASE",
+                start_time=datetime.min.replace(tzinfo=timezone.utc),
+                end_time=datetime.min.replace(tzinfo=timezone.utc),
+                record_count=0,
+            )
+            return candles, meta
+
+        meta = DatasetMetadata(
+            symbol=symbol, timeframe=timeframe, source=candles[0].source,
+            start_time=candles[0].timestamp,
+            end_time=candles[-1].timestamp,
+            record_count=len(candles),
+        )
+        meta.compute_hash(candles)
+        return candles, meta

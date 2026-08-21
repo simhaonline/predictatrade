@@ -1,7 +1,7 @@
 # Predict-A-Trade — Final Traceability Matrix
 
-**Version:** v1.2.0 — Advanced Risk + Backtesting  
-**Date:** 18 August 2026
+**Version:** v1.10.1 — Cross-Check Remediation + News Risk Wiring + Migration 022 Applied  
+**Date:** 21 August 2026
 
 ---
 
@@ -10,7 +10,7 @@
 | SOW Section | Requirement | Implementation Files | API Endpoints | Frontend Routes | Tests | Status |
 |---|---|---|---|---|---|---|
 | 3.1 | Go Real-Time Trading Plane | `realtime/cmd/`, `realtime/internal/` | Go HTTP/WS gateway | N/A | Go tests (gates, strategy, math) | COMPLETE |
-| 3.2 | Python Research Plane | `research/src/patresearch/` | N/A | N/A | Python tests | COMPLETE |
+| 3.2 | Python Research Plane | `research/src/patresearch/` (incl. `quantitative_strategy_engine.py`) | N/A | N/A | Python tests (127) | COMPLETE |
 | 3.3 | NestJS Control Plane | `control/src/` | All `/api/v1/*` routes | N/A | Backend tests | COMPLETE |
 | 3.4 | Next.js Presentation Plane | `frontend/src/` | N/A | All routes | Frontend tests | COMPLETE |
 | 5 | NestJS Module List | `control/src/modules/` | Auth, Users, Plans, Subscriptions, Billing, Referrals, Commissions, Payouts, Licensing, Audit, Health, Admin, Operations, Device-Auth | N/A | Backend tests | COMPLETE |
@@ -162,3 +162,55 @@
 | PTB modules | 20+ |
 | Advanced risk modules | 7 |
 | Backtesting modules | 27 |
+
+## v1.4.0 — Color Palette + Signal Delivery + TP/SL Geometry Fix
+
+| SOW Section | Requirement | Implementation Files | API Endpoints | Frontend Routes | Tests | Status |
+|---|---|---|---|---|---|---|
+| UI/Command Center | Approved color palette | `frontend/src/styles/globals.css`, `frontend/tailwind.config.ts` | N/A | All pages | TypeScript compile | COMPLETE |
+| UI/Command Center | Semantic trading color tokens | `frontend/src/app/**/*.tsx` (80+ replacements) | N/A | All pages | TypeScript compile | COMPLETE |
+| Real-Time Trading Plane | Signal delivery to Windows Agents | `realtime/internal/gateway/agent_ws.go`, `realtime/cmd/realtime-engine/main.go` | N/A | N/A | Go build + tests | COMPLETE |
+| Strategy | TP/SL ATR-based geometry | `realtime/internal/strategy/strategies.go` | N/A | N/A | Go build + tests | COMPLETE |
+| Strategy | Minimum SL distance enforcement | `realtime/internal/strategy/strategies.go` | N/A | N/A | Go build + tests | COMPLETE |
+| Windows/MQL Edge | MQL EA v1.05 strategy selection | `mql/mt4/PredictATrade_MT4.mq4`, `mql/mt5/PredictATrade_MT5.mq5` | N/A | N/A | N/A | COMPLETE |
+| Windows/MQL Edge | MQL EA v1.05 direction filter | `mql/mt4/PredictATrade_MT4.mq4`, `mql/mt5/PredictATrade_MT5.mq5` | N/A | N/A | N/A | COMPLETE |
+| Observability | Regime diagnostics route | nginx config, Go engine | `GET /api/v1/admin/regime-diagnostics` | `/admin/regime-diagnostics` | curl test | COMPLETE |
+| Entitlement | License/entitlement gate hydration | `realtime/cmd/realtime-engine/main.go` | N/A | N/A | Go build + tests | COMPLETE |
+| Market-Data Truth | Session gate overlap fix | `realtime/internal/features/session.go` | N/A | N/A | Go test | COMPLETE |
+| API/Events | Canonical idempotency handling | `realtime/internal/marketdata/persistence.go` | N/A | N/A | Go build | COMPLETE |
+
+### v1.4.0 Summary
+
+| Metric | Value |
+|--------|-------|
+| Total tests | 490 (243 Go + 98 Python + 68 NestJS + 39 Frontend + 42 additional) |
+| New migrations | 0 |
+| New API endpoints | 1 (nginx proxy: `/api/v1/admin/regime-diagnostics`) |
+| New frontend pages | 0 |
+| Files changed | 29 (10 docs + 3 Go + 2 MQL + 1 CSS + 1 tailwind config + 12 TSX/frontend) |
+
+
+---
+
+## v1.10.0–v1.10.1 — News Breakout + OCO + Economic Calendar + Notifications + Cross-Check
+
+| SOW Section | Requirement | Implementation Files | Tests | Migrations | Status | Evidence |
+|---|---|---|---|---|---|---|
+| 14 | News Blackout Engine (fail-safe) | `realtime/pkg/news/risk_engine.go`, `realtime/pkg/news/provider.go`, `realtime/pkg/news/fmp_provider.go` | 12 tests | 022 (economic_events, news_provider_health, news_risk_decisions) | **WIRED** (v1.10.1) | RiskEngine wired into session engine via NewsRiskProvider interface; fail-safe adapter returns NONE when disabled, DATA_UNAVAILABLE when provider fails |
+| 14 | NewsGate EXTREME/DATA_UNAVAILABLE | `realtime/internal/gates/implementations.go` | gates_test.go | N/A | **FIXED** (v1.10.1) | Now blocks on HIGH, EXTREME, DATA_UNAVAILABLE, BLOCKED per ShouldBlock() |
+| SOW News | News Breakout Engine | `realtime/internal/breakout/breakout.go` | 11 tests | 022 (breakout_plans) | IMPLEMENTED (OFF) | Disabled by default; 15+ eligibility gates; all risk gates enforced |
+| SOW News | OCO State Machine | `realtime/internal/oco/group.go` | 11 tests | 022 (oco_groups) | IMPLEMENTED (OFF) | 11-state machine; idempotent trigger; race reconciliation; broker restart handling |
+| SOW Notifications | External Notification Adapters | `realtime/pkg/notifications/` (email, telegram, whatsapp, push) | 12 tests | 022 (notification_deliveries) | SOFTWARE_READY | Async queue, retry, dead-letter; missing creds = NOT_CONFIGURED; disabled by default |
+| NestJS | Admin Health (Valkey fix) | `control/src/modules/admin/admin.service.ts` | admin.service.spec.ts | N/A | **FIXED** (v1.10.1) | Valkey TCP check no longer nested inside Go catch block; defensive defaults in commissionSummary/payoutStats |
+| DB | Migration 022 applied | `database/migrations/022_news_breakout_oco_notifications.sql` | N/A | 022 | **APPLIED** (v1.10.1) | 6 new tables + 2 additive columns created in production DB |
+| DB | Migration history tracking | `audit.migration_history` | N/A | N/A | **CREATED** (v1.10.1) | 25 migrations recorded as COMPLETED; migrate.sh works correctly |
+
+### v1.10.1 Cross-Check Summary
+
+| Metric | Value |
+|--------|-------|
+| Total tests | 333 (29 Go packages + 127 Python + 107 NestJS + 70 Frontend) |
+| Bugs found & fixed | 7 (brace bug, defensive defaults, mock fix, NewsGate, RiskEngine wiring, migration 022, migration history) |
+| New migrations applied | 1 (022) |
+| Services restarted | 2 (realtime-engine, control) |
+| Audit result | PASS — 0 failed, 0 warned |

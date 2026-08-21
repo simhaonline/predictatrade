@@ -2,7 +2,7 @@ import {
   IconDashboard, IconChartLine, IconCategory, IconBolt, IconChartBar,
   IconKey, IconShield, IconUsers, IconReceipt, IconCoin,
   IconDeviceDesktop, IconFileAnalytics, IconTestPipe, IconClipboardList,
-  IconTool, IconHeartbeat, IconSettings,
+  IconTool, IconHeartbeat, IconSettings, IconActivity,
 } from '@tabler/icons-react';
 
 export interface NavItem {
@@ -15,6 +15,7 @@ export const adminNavigation: NavItem[] = [
   { label: 'Live Dashboard', href: '/admin/dashboard', icon: IconDashboard },
   { label: 'Signal Panel', href: '/admin/signals', icon: IconChartLine },
   { label: 'Indicator Panel', href: '/admin/indicators', icon: IconCategory },
+  { label: 'Indicator Monitor', href: '/admin/indicator-monitor', icon: IconActivity },
   { label: 'Strategy Panel', href: '/admin/strategies', icon: IconBolt },
   { label: 'Regime Diagnostics', href: '/admin/regime-diagnostics', icon: IconChartBar },
   { label: 'Scoring Board', href: '/admin/scoring-board', icon: IconChartBar },

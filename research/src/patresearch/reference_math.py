@@ -4,7 +4,8 @@ Canonical quantitative math implementations for the Python research plane.
 These must match the Go production implementations (SOW Section 137 — parity).
 """
 import math
-from typing import Sequence
+from collections.abc import Sequence
+
 import numpy as np
 
 
@@ -98,17 +99,22 @@ def mtf_alignment_score(weights: Sequence[float], states: Sequence[int]) -> floa
 
 
 def atr(highs: Sequence[float], lows: Sequence[float], closes: Sequence[float], period: int) -> float:
-    """Average True Range — SOW Section 132."""
+    """Average True Range using Wilder smoothing - SOW Section 132, prompt.md Section 1.4.
+
+    First ATR = mean(TR, period)
+    Subsequent: ATR_t = (ATR_{t-1} * (period - 1) + TR_t) / period
+    """
     if len(highs) <= period or period <= 0:
         return 0.0
-    tr_sum = 0.0
-    for i in range(1, period + 1):
-        if i >= len(highs):
-            break
-        tr = true_range(highs[i], lows[i], closes[i - 1])
-        tr_sum += tr
-    return tr_sum / period
-
+    # Compute TR series
+    trs = [highs[0] - lows[0]]  # First TR = H-L (no prev close)
+    for i in range(1, len(highs)):
+        trs.append(true_range(highs[i], lows[i], closes[i - 1]))
+    # Wilder smoothing: seed with simple average, then recursive
+    atr_val = sum(trs[:period]) / period
+    for i in range(period, len(trs)):
+        atr_val = (atr_val * (period - 1) + trs[i]) / period
+    return atr_val
 
 def true_range(high: float, low: float, prev_close: float) -> float:
     """True Range for a single bar."""
@@ -130,22 +136,34 @@ def ema(values: Sequence[float], period: int) -> float:
 
 
 def rsi(closes: Sequence[float], period: int) -> float:
-    """Relative Strength Index."""
+    """Relative Strength Index using Wilder smoothing - prompt.md Section 1.3.
+
+    First avg_gain/avg_loss = simple mean of first `period` values.
+    Subsequent: avg_gain_t = (avg_gain_{t-1} * (period-1) + gain_t) / period
+    If avg_loss is zero -> RSI = 100. If both zero -> RSI = 50 (undefined).
+    """
     if len(closes) <= period or period <= 0:
         return 50.0
+    # Compute gains and losses for all bars
     gains = []
     losses = []
-    for i in range(1, period + 1):
+    for i in range(1, len(closes)):
         change = closes[i] - closes[i - 1]
         gains.append(max(change, 0))
         losses.append(max(-change, 0))
-    avg_gain = sum(gains) / period
-    avg_loss = sum(losses) / period
+    # Seed: simple average of first `period` gains/losses
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    # Wilder recursive smoothing for remaining values
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
     if avg_loss == 0:
+        if avg_gain == 0:
+            return 50.0  # Flat price - undefined
         return 100.0
     rs = avg_gain / avg_loss
-    return 100 - 100 / (1 + rs)
-
+    return 100 - (100 / (1 + rs))
 
 def monte_carlo_drawdown(returns: Sequence[float], n_paths: int = 10000, seed: int = 42) -> dict:
     """Monte Carlo drawdown simulation — SOW Section 134.9."""

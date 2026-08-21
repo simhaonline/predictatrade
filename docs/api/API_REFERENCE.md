@@ -1,6 +1,6 @@
 # API Reference
 
-**Version:** v1.3.1 — Advanced Risk + Backtesting  
+**Version:** v1.4.0 — Color Palette + Signal Delivery + TP/SL Geometry Fix  
 **Date:** 19 August 2026
 
 ---
@@ -229,6 +229,29 @@ Base URL: `https://live.predictatrade.com` or `https://api.predictatrade.com` (p
 ### Calibrated Probability
 
 The `calibrated_probability` field is NULL/zero until a calibration model is VALIDATED or PROMOTED (SOW §16, §36). The `calibration_status` field indicates the current state. Default seeded models have `UNVERIFIED` status. See `docs/SIGNAL_TYPES_AND_PROBABILITY.md` for details.
+
+### TP/SL Geometry (v1.4.0)
+
+Entry, SL, and TP levels are ATR-based:
+- `entry_price`: Ask (BUY) or Bid (SELL)
+- `stop_loss`: Entry ± (ATRMultiplierSL × ATR)
+- `tp1`: Entry ± (ATRMultiplierTP1 × ATR)
+- `tp2`: Entry ± (ATRMultiplierTP2 × ATR)
+- `tp3`: Entry ± (ATRMultiplierTP3 × ATR)
+
+Minimum SL distance enforced: SL must be ≥ ATRMultiplierSL × ATR from entry.
+
+### Signal Delivery to MT4/MT5
+
+Signals are broadcast to both frontend dashboard (WebSocketHub) and Windows Agent (AgentHub) simultaneously. Only directional signals (BUY, SELL, BUY_CANDIDATE, SELL_CANDIDATE) are sent to agents — NO-TRADE signals are skipped.
+
+Delivery chain: Go Engine → WebSocket → Windows Agent → PAT_signals.txt → MT4/MT5 EA
+
+### Regime Diagnostics
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/admin/regime-diagnostics` | Public | Real-time regime state machine diagnostics from Go engine |
 
 ---
 

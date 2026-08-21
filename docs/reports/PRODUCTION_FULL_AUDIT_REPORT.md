@@ -713,3 +713,89 @@ CONDITIONAL GO
 | `README.md` | Updated test counts, added production readiness status | Actual counts differ from documented | Verified test execution |
 | `docs/Predict-A-Trade_FINAL_SCOPE_OF_WORK.md` | Added implementation status markers | SOW lacked current status | Audit traceability |
 | `PRODUCTION_FULL_AUDIT_REPORT.md` | Created comprehensive audit report | Required by prompt | All audit evidence |
+
+---
+
+## v1.4.0 Audit Update (19 August 2026)
+
+### Changes Since v1.3.0
+
+| Area | Change | Impact | Verification |
+|------|--------|--------|-------------|
+| Frontend | Color palette replacement (80+ class replacements) | Visual only — no logic/layout change | TypeScript compile + build |
+| Frontend | HSL `%` sign fix | Critical bug fix — colors were invisible | Visual verification |
+| Go Engine | Signal delivery to Windows Agents | Signals now reach MT4/MT5 EA | Go build + tests, agent logs |
+| Go Engine | TP/SL geometry fix (ATR-based TP) | Balanced R:R, no more SL-before-TP1 | Go build + tests |
+| Go Engine | Minimum SL distance enforcement | Prevents too-tight SL | Go build + tests |
+| Go Engine | Entitlement/license gate hydration | Gates populated from DB | Go build + tests |
+| Go Engine | Session gate overlap fix | LONDON_NEWYORK_OVERLAP accepted | Go test |
+| Go Engine | Canonical idempotency handling | Duplicate key errors → nil | Go build |
+| MQL | EA v1.05 strategy selection + direction filter | Subscriber controls signal flow | Code review |
+| MQL | EA v1.05 ExtractJSONDouble fix | Skips leading quotes | Code review |
+| Infra | Regime diagnostics nginx route | Admin diagnostics endpoint | curl test |
+
+### Test Results: 490 total (unchanged)
+- Go: 278 PASS / 0 FAIL
+- NestJS: 75 PASS / 0 FAIL
+- Frontend: 39 PASS / 0 FAIL
+- Python: 98 PASS / 0 FAIL
+
+### New Migrations: 0
+### New API Endpoints: 1 (nginx proxy `/api/v1/admin/regime-diagnostics`)
+### Financial Ledger Changes: 0
+
+### Audit Decision: CONDITIONAL GO (v1.4.0)
+No new production-readiness blockers introduced. All v1.4.0 changes are code-level improvements and fixes. Existing conditions (PTB SHADOW mode, no live auto-trading, off-host backup config, Windows validation) remain in effect.
+---
+
+## v1.5.0 Audit Update (20 August 2026)
+
+### Changes Reviewed
+- **Vectorized Strategy Engine**: New `QuantitativeStrategyEngine` module (540 lines) — fully vectorized pandas/numpy indicator & signal engine. No Python loops over time index. Edge-case safe (division-by-zero, NaN, insufficient lookback). Input never mutated. Parity verified against scalar `reference_math.py`. 29 new tests, 127/127 Python suite pass.
+- **Documentation Cleanup**: 25 obsolete/duplicate documents removed. 12 canonical reference documents updated. No functional code changes.
+- **No production safety/risk/financial changes**: No modifications to Go trading hot path, risk gates, signal engine, NestJS control plane, or MQL EAs.
+
+### Audit Decision: CONDITIONAL GO (v1.5.0)
+No new production-readiness blockers introduced. v1.5.0 is a research-plane and documentation enhancement. Existing conditions (PTB SHADOW mode, no live auto-trading, off-host backup config, Windows validation) remain in effect.
+---
+
+## v1.6.0 Audit Update (20 August 2026)
+
+### Changes Reviewed
+- **Microprofit Candidate Geometry**: Per-strategy tighter SL/TP for BUY_CANDIDATE/SELL_CANDIDATE. R:R at TP1 ranges 1.0-1.5 (vs 1.0 for qualified signals). Capital protection (1% risk, 5% daily loss, partial close) still applies.
+- **Indicator Historical Bootstrap**: Loads 250 real candles per timeframe from PostgreSQL/TimescaleDB on startup. No synthetic data — all indicators computed from real market data. Valkey cache eliminates repeated DB queries on restart.
+- **Wilder Smoothing**: RSI, ATR, ADX corrected to Wilder's method. 7 new tests verify correctness. Python reference_math.py updated for parity.
+- **Indicator Monitor Page**: New `/admin/indicator-monitor` page — observability layer only, does not affect trading logic.
+- **HIGH_VOLATILITY Regime**: Added to all 4 strategies' AcceptedRegimes. Was missing, causing all signals to be NO-TRADE with Score=0.
+- **DB Save Fix**: Fixed ON CONFLICT constraint to match composite PK (id, created_at).
+- **No production safety/risk/financial changes**: No modifications to existing trading hot path logic, risk gates, or MQL EA core execution.
+
+### Audit Decision: CONDITIONAL GO (v1.8.0)
+No new production-readiness blockers introduced. v1.6.0 improves signal capture (microprofit candidates), indicator accuracy (Wilder smoothing + bootstrap), and observability (indicator monitor). Existing conditions remain in effect.
+---
+
+## v1.7.0 Audit Update (20 August 2026)
+
+### Changes Reviewed
+- **DXY Live**: US Dollar Index now available via Twelve Data API (value=98.72). Previously UNAVAILABLE → mandatory DXY pillars fail closed → NO-TRADE. Now AVAILABLE → DXY evidence participates in strategy evaluation.
+- **COT Configured**: FMP API key configured. Free tier restricts COT data endpoint (HTTP 403). COT remains UNAVAILABLE but non-blocking. Will activate on FMP subscription upgrade.
+- **Projected Performance Metrics**: Hit rate and avg R now computed from signal geometry (TP1/SL distance ratio) when no closed trades exist. When closed trades become available, automatically switches to real hit rate and realized R:R. This is honest — shows projected values, not fabricated results.
+- **Dashboard Auto-Refresh**: Signal pipeline auto-refreshes from REST API every 10 seconds. No manual page refresh needed. WebSocket still takes priority when connected.
+- **Real-Time Charting**: Value Timeline uses TradingView's lightweight-charts v5.2.1. Scatter plot shows 25 real data points from signal evidence.
+
+### Audit Decision: CONDITIONAL GO (v1.8.0)
+No new production-readiness blockers introduced. DXY is now live (improves signal quality). COT is configured but requires FMP subscription upgrade. Projected performance metrics are clearly labeled as projected (not actual results). Existing conditions remain in effect.
+---
+
+## v1.8.0 Audit Update (20 August 2026)
+
+### Changes Reviewed
+- **Trade Management Forensic Audit**: Full audit confirmed break-even, trailing, partial close already implemented and wired in MT4/MT5 EAs. No duplication found.
+- **Broker Stop Level Validation**: EAs now check stop/freeze levels before SL modification. Prevents broker rejection.
+- **Cost-Aware Break-Even**: EAs now add spread buffer to break-even SL. Prevents small realized losses from spread.
+- **SL Audit Trail**: New `sl_modification_history` table + 12 new columns on `positions`. Every SL transition is explainable.
+- **Central SL Validation**: 27 new tests in Go proving monotonic SL, R calculation, management state machine.
+- **No existing code damaged**: All 18 Go packages, 70 frontend tests, 127 Python tests pass.
+
+### Audit Decision: CONDITIONAL GO (v1.8.0)
+No new production-readiness blockers introduced. v1.8.0 strengthens trade management safety (broker validation, cost-aware BE, audit trail). EA compilation on Windows required for live deployment.

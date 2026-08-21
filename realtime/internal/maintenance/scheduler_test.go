@@ -16,7 +16,7 @@ func TestDailyResetWorks(t *testing.T) {
 		State:          recovery.StateDailyLimit,
 		DailyLossCount: 3,
 		DailyPnL:       decimal.NewFromInt(-200),
-		TradingDay:     time.Now().AddDate(0, 0, -1), // yesterday
+		TradingDay:     time.Now().UTC().AddDate(0, 0, -1), // yesterday UTC
 	})
 
 	sched := NewScheduler(DefaultConfig(), recMgr)

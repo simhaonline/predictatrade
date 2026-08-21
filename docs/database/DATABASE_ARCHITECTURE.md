@@ -1,6 +1,6 @@
 # Database Architecture
 
-## Version: v1.2.0 — Advanced Risk + Backtesting
+## Version: v1.4.0 — Color Palette + Signal Delivery + TP/SL Geometry Fix
 
 ## Overview
 

@@ -141,18 +141,11 @@ func MTFAlignmentScore(weights []float64, states []int) float64 {
 	return 100.0 * weightedState / weightSum
 }
 
-// ATR computes the Average True Range.
-// True Range = max(H-L, |H-Cprev|, |L-Cprev|)
+// ATR computes the Average True Range using Wilder's smoothing.
+// First ATR = mean(TR, period); subsequent: ATR_t = (ATR_{t-1}*(period-1) + TR_t) / period
+// This delegates to ATRWilder for the corrected Wilder's method (prompt.md Section 1.4).
 func ATR(highs, lows, closes []decimal.Decimal, period int) decimal.Decimal {
-	if len(highs) < period || period <= 0 {
-		return decimal.Zero
-	}
-	trSum := decimal.Zero
-	for i := 1; i <= period && i < len(highs); i++ {
-		tr := TrueRange(highs[i], lows[i], closes[i-1])
-		trSum = trSum.Add(tr)
-	}
-	return trSum.Div(decimal.NewFromInt(int64(period)))
+	return ATRWilder(highs, lows, closes, period)
 }
 
 // TrueRange computes the true range for a single bar.
@@ -183,69 +176,18 @@ func EMA(values []decimal.Decimal, period int) decimal.Decimal {
 	return ema
 }
 
-// RSI computes the Relative Strength Index.
+// RSI computes the Relative Strength Index using Wilder's smoothing.
+// First avg_gain/avg_loss = simple mean; subsequent uses Wilder recursion:
+// avg_gain_t = (avg_gain_{t-1} * (period-1) + gain_t) / period
+// This delegates to RSIWilder for the corrected Wilder's method (prompt.md Section 1.3).
 func RSI(closes []decimal.Decimal, period int) decimal.Decimal {
-	if len(closes) <= period || period <= 0 {
-		return decimal.NewFromInt(50)
-	}
-	avgGain := decimal.Zero
-	avgLoss := decimal.Zero
-	for i := 1; i <= period; i++ {
-		change := closes[i].Sub(closes[i-1])
-		if change.GreaterThan(decimal.Zero) {
-			avgGain = avgGain.Add(change)
-		} else {
-			avgLoss = avgLoss.Add(change.Abs())
-		}
-	}
-	avgGain = avgGain.Div(decimal.NewFromInt(int64(period)))
-	avgLoss = avgLoss.Div(decimal.NewFromInt(int64(period)))
-	if avgLoss.IsZero() {
-		return decimal.NewFromInt(100)
-	}
-	rs := avgGain.Div(avgLoss)
-	rsi := decimal.NewFromInt(100).Sub(decimal.NewFromInt(100).Div(decimal.NewFromInt(1).Add(rs)))
-	return rsi
+	return RSIWilder(closes, period)
 }
 
-// ADX computes the Average Directional Index (simplified).
+// ADX computes the Average Directional Index using full Wilder's smoothing
+// for TR, +DM, -DM, and DX (prompt.md Section 1.5).
+// ADX is a trend filter, never an entry signal alone.
 func ADX(highs, lows, closes []decimal.Decimal, period int) decimal.Decimal {
-	if len(highs) <= period*2 || period <= 0 {
-		return decimal.Zero
-	}
-	// Simplified ADX: average of |DX| values
-	dxSum := decimal.Zero
-	count := 0
-	for i := period; i < len(highs)-1; i++ {
-		plusDM := highs[i].Sub(highs[i-1])
-		minusDM := lows[i-1].Sub(lows[i])
-		if plusDM.LessThan(decimal.Zero) {
-			plusDM = decimal.Zero
-		}
-		if minusDM.LessThan(decimal.Zero) {
-			minusDM = decimal.Zero
-		}
-		if plusDM.GreaterThan(minusDM) {
-			minusDM = decimal.Zero
-		} else {
-			plusDM = decimal.Zero
-		}
-		tr := TrueRange(highs[i], lows[i], closes[i-1])
-		if tr.IsZero() {
-			continue
-		}
-		plusDI := plusDM.Div(tr).Mul(decimal.NewFromInt(100))
-		minusDI := minusDM.Div(tr).Mul(decimal.NewFromInt(100))
-		diSum := plusDI.Add(minusDI)
-		if diSum.IsZero() {
-			continue
-		}
-		dx := plusDI.Sub(minusDI).Abs().Div(diSum).Mul(decimal.NewFromInt(100))
-		dxSum = dxSum.Add(dx)
-		count++
-	}
-	if count == 0 {
-		return decimal.Zero
-	}
-	return dxSum.Div(decimal.NewFromInt(int64(count)))
+	adx, _, _ := ADXWilder(highs, lows, closes, period)
+	return adx
 }

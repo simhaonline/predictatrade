@@ -101,6 +101,39 @@ Default calibration models are seeded with `Status: "UNVERIFIED"`. This is inten
 | STANDARD_SWING | 2.0 | -0.3 | TP1_HIT |
 | TREND_SWING | 1.8 | -0.2 | TP1_HIT |
 
+## TP/SL Geometry (v1.4.0 Fix)
+
+### How TP/SL Are Computed
+
+Entry, Stop Loss, and Take Profit levels are computed using **ATR-based multipliers** — the same volatility measure for both SL and TP, ensuring balanced geometry:
+
+| Level | Formula (BUY) | Formula (SELL) |
+|-------|---------------|----------------|
+| **Entry** | Ask price | Bid price |
+| **SL** | Entry − (ATRMultiplierSL × ATR) | Entry + (ATRMultiplierSL × ATR) |
+| **TP1** | Entry + (ATRMultiplierTP1 × ATR) | Entry − (ATRMultiplierTP1 × ATR) |
+| **TP2** | Entry + (ATRMultiplierTP2 × ATR) | Entry − (ATRMultiplierTP2 × ATR) |
+| **TP3** | Entry + (ATRMultiplierTP3 × ATR) | Entry − (ATRMultiplierTP3 × ATR) |
+
+### Strategy ATR Multipliers
+
+| Strategy | SL × ATR | TP1 × ATR | TP2 × ATR | TP3 × ATR | MinRR (gate) |
+|----------|---------|-----------|-----------|-----------|-------------|
+| STANDARD_SCALPING | 1.0 | 1.0 | 1.5 | 2.0 | 1.2 |
+| ULTRA_SCALPING | 0.5 | 0.5 | 0.75 | 1.0 | 1.0 |
+| STANDARD_SWING | 1.5 | 1.5 | 2.5 | 3.5 | 1.8 |
+| TREND_SWING | 2.0 | 2.0 | 4.0 | 6.0 | 2.5 |
+
+### What Changed in v1.4.0
+
+**Before (broken):** TP1 was computed as `MinRR × SL_distance`, making TP1 2.5x further than SL. This caused trades to hit the tight SL before reaching the distant TP1 — "shows profit then closes with loss."
+
+**After (fixed):** TP1 is computed as `ATRMultiplierTP1 × ATR` — the same ATR basis as SL. This gives R:R ≈ 1:1 for TP1, with TP2/TP3 providing larger upside. The MinRR gate validates the resulting R:R and rejects signals where R:R is insufficient, rather than inflating TP to force an artificial R:R.
+
+### Minimum SL Distance
+
+SL distance is enforced to be at least `ATRMultiplierSL × ATR` from entry. When structural levels (swing lows/highs) are close to entry, the ATR-based minimum prevents SL from being too tight.
+
 ## Frontend Display
 
 ### Admin Signals Panel (`/admin/signals`)
@@ -121,6 +154,40 @@ Both pages subscribe to WebSocket signal events. The Go engine broadcasts:
 - Event envelope includes: event ID, stream ID, schema version, timestamp, sequence, priority
 - Entitlement filtering: clients only receive signals for strategies they are entitled to
 
+## MQL EA Strategy Selection (v1.05)
+
+Both MT4 and MT5 EAs (v1.05) include input parameters for strategy and direction filtering:
+
+### Strategy Selection Inputs
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `ReceiveStandardScalping` | `true` | STANDARD_SCALPING (M1/M5 scalping) |
+| `ReceiveUltraScalping` | `true` | ULTRA_SCALPING (M1 ultra-fast scalping) |
+| `ReceiveStandardSwing` | `true` | STANDARD_SWING (M15/H1 swing trading) |
+| `ReceiveTrendSwing` | `true` | TREND_SWING (H1/H4 trend following) |
+
+### Direction Filter Inputs
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `ReceiveBuy` | `true` | Receive BUY signals (qualified, executable) |
+| `ReceiveSell` | `true` | Receive SELL signals (qualified, executable) |
+| `ReceiveBuyCandidate` | `true` | Receive BUY_CANDIDATE (advisory only) |
+| `ReceiveSellCandidate` | `true` | Receive SELL_CANDIDATE (advisory only) |
+
+All 4 strategies and all 4 directions are enabled by default. Subscribers can disable specific strategies or directions via EA inputs — no server-side change needed.
+
+### Signal Delivery Chain
+
+```
+Go Engine → WebSocket → Windows Agent → Named Pipe (PAT_signals.txt) → MT4/MT5 EA
+```
+
+1. Go engine generates signal → `broadcastSignalToAll()` sends to both WebSocketHub (frontend) and AgentHub (Windows Agent)
+2. Windows Agent receives `SIGNAL` event → `processSignals()` → `SendSignalToEA()` writes to `PAT_signals.txt`
+3. MT4/MT5 EA reads `PAT_signals.txt` → `HandleSignal()` → filters by strategy/direction → displays or executes
+
 ## Related Files
 
 | Component | File |
@@ -135,3 +202,8 @@ Both pages subscribe to WebSocket signal events. The Go engine broadcasts:
 | User signals page | `frontend/src/app/(user)/dashboard/signals/page.tsx` |
 | WebSocket broadcast | `realtime/internal/gateway/websocket.go` |
 | Signal persistence | `realtime/internal/marketdata/persistence.go` |
+| TP/SL geometry builder | `realtime/internal/strategy/geometry.go` |
+| Strategy configs (ATR multipliers) | `realtime/internal/strategy/strategies.go` |
+| Agent hub (signal delivery) | `realtime/internal/gateway/agent_ws.go` |
+| MT4 EA (v1.05) | `mql/mt4/PredictATrade_MT4.mq4` |
+| MT5 EA (v1.05) | `mql/mt5/PredictATrade_MT5.mq5` |

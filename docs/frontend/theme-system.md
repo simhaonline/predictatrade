@@ -42,3 +42,31 @@ Login uses `predict-a-trade_primary-vertical_white.svg`.
 
 The sidebar is intentionally dark in both Light and Dark modes (Tabler permanent sidebar pattern).
 It uses `--pat-bg-sidebar`, `--pat-text-sidebar`, `--pat-border-sidebar` tokens.
+
+## v1.4.0 Color Palette Update (19 August 2026)
+
+The CSS tokens have been updated with the approved Predict-A-Trade color palette:
+
+| Token | Light Hex | Dark Hex | Usage |
+|-------|-----------|----------|-------|
+| --pat-bg-page | #F8FAFC | #0F172A | Main background |
+| --pat-bg-surface | #FFFFFF | #1E293B | Cards, panels |
+| --pat-bg-sidebar | #0F172A | #020617 | Sidebar (dark both modes) |
+| --pat-text-primary | #0F172A | #F8FAFC | Headings |
+| --pat-text-secondary | #334155 | #CBD5E1 | Body text |
+| --pat-text-muted | #64748B | #94A3B8 | Captions |
+| --pat-border | #E2E8F0 | #334155 | Borders |
+
+### Trading Semantic Tokens (Tailwind)
+
+| Token | Hex | Usage |
+|-------|-----|-------|
+| pat-success | #10B981 | BUY, TP, BID |
+| pat-danger | #EF4444 | SELL, SL, ASK |
+| pat-warning | #EAB308 | SESSION |
+| pat-info | #3B82F6 | INFO |
+| pat-candidate-buy | #F59E0B | BUY_CANDIDATE |
+| pat-candidate-sell | #FB923C | SELL_CANDIDATE |
+
+### Critical Fix
+HSL CSS variables required `%` signs on saturation/lightness components (e.g., `210 40% 98%` not `210 40 98`). Without `%`, colors were invisible.

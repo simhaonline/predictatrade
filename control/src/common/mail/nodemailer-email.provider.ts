@@ -7,11 +7,16 @@
  *
  * In development without SMTP configured, emails are logged to console
  * (never to production). This fallback is rejected in production mode.
+ *
+ * Transactional email providers (Resend, Postmark, AWS SES, SendGrid) can be
+ * added by implementing the EmailService interface and adding a case in the
+ * MailModule useFactory — all configured via environment variables, never
+ * hardcoded credentials.
  */
 
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EmailService, PasswordResetEmailInput } from './email.service';
+import { EmailService, PasswordResetEmailInput, OtpEmailInput, WelcomeEmailInput } from './email.service';
 import * as nodemailer from 'nodemailer';
 
 @Injectable()
@@ -152,6 +157,145 @@ export class NodemailerEmailProvider implements EmailService {
     } catch (err) {
       // Log sanitized error — never expose SMTP internals or reset token to the user
       this.logger.error(`SMTP send failure: ${err instanceof Error ? err.message : 'unknown error'}`);
+      throw err;
+    }
+  }
+
+  /* ─── OTP / verification email (passwordless registration) ─── */
+
+  async sendOtpEmail(input: OtpEmailInput): Promise<void> {
+    const subject = 'Your Predict-A-Trade verification code';
+    const expiresStr = input.expiresAt.toLocaleString('en-US', {
+      weekday: 'short', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+
+    const textBody = [
+      `Hello,`,
+      ``,
+      `Your Predict-A-Trade verification code is: ${input.code}`,
+      ``,
+      `This code expires at ${expiresStr}.`,
+      ``,
+      `If you did not create an account, you can safely ignore this email.`,
+      ``,
+      `Unsubscribe from marketing emails: ${input.unsubscribeUrl}`,
+      ``,
+      `— Predict-A-Trade`,
+    ].join('\n');
+
+    const htmlBody = `
+      <div style="font-family: Inter, -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <h2 style="color: #0F1114;">Verify your email</h2>
+        <p style="color: #5B616E; font-size: 14px; line-height: 1.6;">
+          Use the code below to complete your registration:
+        </p>
+        <p style="margin: 24px 0; text-align: center;">
+          <span style="display: inline-block; background: #F2F4F7; color: #0F1114; padding: 16px 40px;
+                       border-radius: 10px; font-family: monospace; font-size: 28px; letter-spacing: 8px; font-weight: 700;">
+            ${input.code}
+          </span>
+        </p>
+        <p style="color: #8A919E; font-size: 12px;">
+          This code expires at ${expiresStr}.
+          If you did not create an account, you can safely ignore this email.
+        </p>
+        <hr style="border: none; border-top: 1px solid #E4E7EC; margin: 24px 0;">
+        <p style="color: #8A919E; font-size: 11px;">
+          Don't want marketing emails?
+          <a href="${input.unsubscribeUrl}" style="color: #145CFA;">Unsubscribe</a>.
+        </p>
+        <p style="color: #8A919E; font-size: 12px;">© Predict-A-Trade</p>
+      </div>`;
+
+    if (this.isDevFallback) {
+      // In dev, log a truncated summary — never the full OTP code
+      this.logger.log(`[DEV EMAIL] To: ${input.to} | Subject: ${subject} | Expires: ${expiresStr}`);
+      return;
+    }
+
+    if (!this.transporter) {
+      throw new Error('Email transporter not initialized');
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: `"${this.fromName}" <${this.fromAddress}>`,
+        to: input.to,
+        subject,
+        text: textBody,
+        html: htmlBody,
+      });
+    } catch (err) {
+      this.logger.error(`SMTP send failure (otp): ${err instanceof Error ? err.message : 'unknown error'}`);
+      throw err;
+    }
+  }
+
+  /* ─── Welcome email (post-registration, with unsubscribe + soft review ask) ─── */
+
+  async sendWelcomeEmail(input: WelcomeEmailInput): Promise<void> {
+    const subject = 'Welcome to Predict-A-Trade';
+    const reviewLine = input.reviewUrl
+      ? `If you find the platform useful later, we'd appreciate a review on Google (no reward, no obligation): ${input.reviewUrl}`
+      : '';
+
+    const textBody = [
+      `Hello ${input.name},`,
+      ``,
+      `Welcome to Predict-A-Trade — your XAUUSD market monitoring dashboard is ready.`,
+      ``,
+      `You now have full access to live market data, signals, and the command center.`,
+      reviewLine,
+      ``,
+      `Unsubscribe from marketing emails: ${input.unsubscribeUrl}`,
+      ``,
+      `— Predict-A-Trade`,
+    ].filter(Boolean).join('\n');
+
+    const reviewHtml = input.reviewUrl
+      ? `<p style="color: #8A919E; font-size: 12px; margin-top: 16px;">
+           If you find the platform useful later, we'd appreciate a
+           <a href="${input.reviewUrl}" style="color: #145CFA;">review on Google</a>
+           (no reward, no obligation).
+         </p>`
+      : '';
+
+    const htmlBody = `
+      <div style="font-family: Inter, -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <h2 style="color: #0F1114;">Welcome, ${input.name}!</h2>
+        <p style="color: #5B616E; font-size: 14px; line-height: 1.6;">
+          Your Predict-A-Trade XAUUSD market monitoring dashboard is ready.
+          You now have full access to live market data, signals, and the command center.
+        </p>
+        ${reviewHtml}
+        <hr style="border: none; border-top: 1px solid #E4E7EC; margin: 24px 0;">
+        <p style="color: #8A919E; font-size: 11px;">
+          Don't want marketing emails?
+          <a href="${input.unsubscribeUrl}" style="color: #145CFA;">Unsubscribe</a>.
+        </p>
+        <p style="color: #8A919E; font-size: 12px;">© Predict-A-Trade</p>
+      </div>`;
+
+    if (this.isDevFallback) {
+      this.logger.log(`[DEV EMAIL] To: ${input.to} | Subject: ${subject}`);
+      return;
+    }
+
+    if (!this.transporter) {
+      throw new Error('Email transporter not initialized');
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: `"${this.fromName}" <${this.fromAddress}>`,
+        to: input.to,
+        subject,
+        text: textBody,
+        html: htmlBody,
+      });
+    } catch (err) {
+      this.logger.error(`SMTP send failure (welcome): ${err instanceof Error ? err.message : 'unknown error'}`);
       throw err;
     }
   }

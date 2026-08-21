@@ -5,6 +5,10 @@ import { customInstance } from "@/lib/axios-instance";
 import DataTable, { DataTableColumn } from "@/components/ui/data-table";
 import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
+import {
+  IconBrandWindows, IconBroadcast, IconServer,
+  IconActivity, IconInfoCircle,
+} from "@tabler/icons-react";
 
 interface DeviceActivation {
   client_type: string;
@@ -36,6 +40,25 @@ interface Device {
 
 export default function AdminDeviceAuthPage() {
   const [page, setPage] = useState(1);
+
+  // Live Go engine agents status
+  const { data: agentsStatus } = useQuery<{ agents_connected: number; master_node_connected: boolean; snapshot_count: number }>({
+    queryKey: ["admin-device-auth-agents"],
+    queryFn: async () => (await customInstance.get("/agents/status")).data,
+    refetchInterval: 10000,
+  });
+
+  // Live Go engine market snapshot for connected terminal details
+  const { data: liveSnapshot } = useQuery<{
+    broker?: string; account?: string; node?: string; source?: string; symbol?: string;
+    account_info?: { balance: number; equity: number; profit: number; currency: string; server: string; leverage: number };
+    positions?: { total_positions: number; buy_count: number; sell_count: number; total_lots: number; floating_profit: number };
+    symbol_info?: { digits: number; spread: number; contract_size: number; tick_value: number; tick_size: number };
+  }>({
+    queryKey: ["admin-device-auth-snapshot"],
+    queryFn: async () => (await customInstance.get("/market/snapshot")).data,
+    refetchInterval: 10000,
+  });
   const { data, isLoading, error, refetch } = useQuery<{ items: Device[]; total: number; page: number; limit: number }>({
     queryKey: ["admin-devices", page],
     queryFn: async () => {
@@ -76,7 +99,82 @@ export default function AdminDeviceAuthPage() {
         <h1 className="text-xl font-bold text-pat-text-primary">Device Auth</h1>
         <p className="text-sm text-pat-text-secondary mt-1">Manage registered devices, activations, and heartbeat state.</p>
       </div>
-      <DataTable data={data?.items || []} columns={columns} loading={isLoading} error={error as Error|null} onRetry={refetch} />
+      {/* Live Go Engine Connection Status */}
+      <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-pat-text-primary">Live Engine Connections</h2>
+          <div className="flex items-center gap-2">
+            <span className={`inline-block h-2 w-2 rounded-full ${(agentsStatus?.agents_connected ?? 0) > 0 ? "bg-pat-success animate-pulse" : "bg-pat-danger"}`} />
+            <span className="text-xs text-pat-text-secondary">{(agentsStatus?.agents_connected ?? 0) > 0 ? "Agents Connected" : "No Connections"}</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <div className="rounded-lg bg-pat-bg-surface-secondary/30 p-3">
+            <div className="flex items-center gap-2 mb-1"><IconBrandWindows size={14} className="text-pat-info" /><span className="text-[10px] text-pat-text-muted uppercase">Agents</span></div>
+            <div className="text-lg font-bold text-pat-text-primary tabular-nums">{agentsStatus?.agents_connected ?? 0}</div>
+            <div className="text-[10px] text-pat-text-muted">Windows Agent(s)</div>
+          </div>
+          <div className="rounded-lg bg-pat-bg-surface-secondary/30 p-3">
+            <div className="flex items-center gap-2 mb-1"><IconBroadcast size={14} className={agentsStatus?.master_node_connected ? "text-pat-success" : "text-pat-danger"} /><span className="text-[10px] text-pat-text-muted uppercase">Master Node</span></div>
+            <div className={`text-lg font-bold tabular-nums ${agentsStatus?.master_node_connected ? "text-pat-success" : "text-pat-danger"}`}>{agentsStatus?.master_node_connected ? "ONLINE" : "OFFLINE"}</div>
+            <div className="text-[10px] text-pat-text-muted">MT5 Data Feed</div>
+          </div>
+          <div className="rounded-lg bg-pat-bg-surface-secondary/30 p-3">
+            <div className="flex items-center gap-2 mb-1"><IconServer size={14} className="text-pat-info" /><span className="text-[10px] text-pat-text-muted uppercase">Snapshots</span></div>
+            <div className="text-lg font-bold text-pat-text-primary tabular-nums">{(agentsStatus?.snapshot_count ?? 0).toLocaleString()}</div>
+            <div className="text-[10px] text-pat-text-muted">Total received</div>
+          </div>
+          <div className="rounded-lg bg-pat-bg-surface-secondary/30 p-3">
+            <div className="flex items-center gap-2 mb-1"><IconActivity size={14} className="text-pat-success" /><span className="text-[10px] text-pat-text-muted uppercase">Positions</span></div>
+            <div className="text-lg font-bold text-pat-text-primary tabular-nums">{liveSnapshot?.positions?.total_positions ?? 0}</div>
+            <div className="text-[10px] text-pat-text-muted">{liveSnapshot?.positions?.buy_count ?? 0} BUY · {liveSnapshot?.positions?.sell_count ?? 0} SELL</div>
+          </div>
+        </div>
+
+        {/* Connected terminal details */}
+        {liveSnapshot?.broker && (
+          <div className="rounded-lg bg-pat-bg-surface-secondary/20 p-3 space-y-2">
+            <div className="text-xs font-medium text-pat-text-primary mb-2">Connected Master Node Terminal</div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+              <div><span className="text-pat-text-muted">Broker:</span> <span className="text-pat-text-secondary">{liveSnapshot.broker}</span></div>
+              <div><span className="text-pat-text-muted">Server:</span> <span className="text-pat-text-secondary">{liveSnapshot?.account_info?.server || "—"}</span></div>
+              <div><span className="text-pat-text-muted">Symbol:</span> <span className="text-pat-text-secondary">{liveSnapshot?.symbol || "—"}</span></div>
+              <div><span className="text-pat-text-muted">Leverage:</span> <span className="text-pat-text-secondary">1:{liveSnapshot?.account_info?.leverage || "—"}</span></div>
+              <div><span className="text-pat-text-muted">Balance:</span> <span className="text-pat-text-secondary">${(liveSnapshot?.account_info?.balance ?? 0).toFixed(2)}</span></div>
+              <div><span className="text-pat-text-muted">Equity:</span> <span className="text-pat-text-secondary">${(liveSnapshot?.account_info?.equity ?? 0).toFixed(2)}</span></div>
+              <div><span className="text-pat-text-muted">Floating P/L:</span> <span className={(liveSnapshot?.account_info?.profit ?? 0) >= 0 ? "text-pat-success" : "text-pat-danger"}>${(liveSnapshot?.account_info?.profit ?? 0).toFixed(2)}</span></div>
+              <div><span className="text-pat-text-muted">Source:</span> <span className="text-pat-text-secondary">{liveSnapshot?.source || "—"}</span></div>
+            </div>
+            {liveSnapshot?.symbol_info && (
+              <div className="text-[10px] text-pat-text-muted pt-2 border-t border-pat-border/30">
+                Contract: {liveSnapshot.symbol_info.contract_size} | Tick: ${liveSnapshot.symbol_info.tick_value}/{liveSnapshot.symbol_info.tick_size} | Spread: {liveSnapshot.symbol_info.spread} | Digits: {liveSnapshot.symbol_info.digits}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Info note */}
+        {(agentsStatus?.agents_connected ?? 0) > 0 && (data?.total ?? 0) === 0 && (
+          <div className="mt-3 rounded-lg border border-pat-info/20 bg-pat-info/5 p-3">
+            <div className="flex items-start gap-2">
+              <IconInfoCircle size={14} className="text-pat-info shrink-0 mt-0.5" />
+              <div className="text-[11px] text-pat-text-muted leading-relaxed">
+                {agentsStatus?.agents_connected} Windows Agent(s) are connected to the Go engine and sending live data,
+                but no devices are registered in the licensing database yet. This means the agents connected to the
+                real-time engine but have not completed device registration with the control plane. Device registration
+                occurs when the Windows Agent sends its first heartbeat with a valid license key to the NestJS API.
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Registered Devices Table */}
+      <div>
+        <h2 className="text-sm font-semibold text-pat-text-primary mb-3">Registered Devices (Licensing Database)</h2>
+        <DataTable data={data?.items || []} columns={columns} loading={isLoading} error={error as Error|null} onRetry={refetch} />
+      </div>
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2 pt-2">
           <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary rounded disabled:opacity-30">Previous</button>

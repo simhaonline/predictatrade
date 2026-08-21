@@ -67,27 +67,45 @@ export default function AdminDashboardPage() {
     return () => { unsubState(); unsubMsg(); };
   }, [ws]);
 
-  // Seed the Live Signal Pipeline from the REST API when no WebSocket signals have arrived yet.
-  // This ensures the pipeline isn't empty on page load when signals already exist.
+  // Auto-refresh the Live Signal Pipeline from the REST API.
+  // WebSocket signals take priority when they arrive, but REST polling (every 10s)
+  // ensures the pipeline stays fresh even when WebSocket is disconnected.
   useEffect(() => {
-    if (liveSignals.length > 0) return; // WebSocket signals take priority
-    const signals = (engineSignals as any)?.signals;
+    const signals = (engineSignals as { signals?: Record<string, unknown>[] })?.signals;
     if (!signals || !Array.isArray(signals) || signals.length === 0) return;
-    const seeded = signals.slice(0, 8).map((s: any) => ({
-      id: String(s.ID || s.id || ''),
-      direction: String(s.Direction || s.direction || 'NO_TRADE'),
-      strategy: String(s.StrategyID || s.strategy || s.Strategy || ''),
-      probability: Number(s.CalibratedProbability || s.calibratedProbability || s.Probability || 0),
-      timestamp: String(s.CreatedAt || s.created_at || s.Timestamp || ''),
-    }));
-    sigBuffer.current = seeded;
-    setLiveSignals(seeded);
-  }, [engineSignals, liveSignals.length]);
+    const directional = signals.filter((s: Record<string, unknown>) => String(s.Direction || s.direction || "") !== "NO-TRADE");
+    const refreshed = directional
+      .slice(0, 8)
+      .map((s: Record<string, unknown>) => ({
+        id: String(s.ID || s.id || ""),
+        direction: String(s.Direction || s.direction || "NO_TRADE"),
+        strategy: String(s.StrategyID || s.strategy || s.Strategy || ""),
+        probability: Number(s.CalibratedProbability || s.calibratedProbability || s.Probability || 0),
+        timestamp: String(s.CreatedAt || s.created_at || s.Timestamp || ""),
+      }));
+    if (refreshed.length > 0) {
+      sigBuffer.current = refreshed;
+      // Use microtask to avoid cascading renders in effect
+      queueMicrotask(() => setLiveSignals(refreshed));
+    } else if (liveSignals.length === 0) {
+      // If no directional signals, show the latest signals including NO-TRADE
+      const allLatest = signals.slice(0, 8).map((s: Record<string, unknown>) => ({
+        id: String(s.ID || s.id || ''),
+        direction: String(s.Direction || s.direction || 'NO_TRADE'),
+        strategy: String(s.StrategyID || s.strategy || s.Strategy || ''),
+        probability: Number(s.CalibratedProbability || s.calibratedProbability || s.Probability || 0),
+        timestamp: String(s.CreatedAt || s.created_at || s.Timestamp || ''),
+      }));
+      sigBuffer.current = allLatest;
+      queueMicrotask(() => setLiveSignals(allLatest));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engineSignals]);
 
   // --- Derived states ---
   const tradingHalted = opsState?.trading_halted ?? false;
   const signalsPaused = opsState?.signals_paused ?? false;
-  const engineAlive = !!engineSignals && ((engineSignals as any)?.signals?.length ?? 0) >= 0;
+  const engineAlive = !!engineSignals && (((engineSignals as { signals?: unknown[] })?.signals?.length) ?? 0) >= 0;
   const agentCount = Number(agentsStatus?.agents_connected ?? 0) || (Array.isArray(agentsStatus?.agents) ? agentsStatus.agents.length : 0);
   const hasAgents = agentCount > 0;
   const wsConnected = wsState === 'CONNECTED';
@@ -281,9 +299,15 @@ export default function AdminDashboardPage() {
       {/* Signal Pipeline + Active Strategies */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-pat-card-bg border border-pat-card-border rounded-lg p-4 shadow-sm">
-          <h2 className="text-sm font-medium text-pat-text-primary mb-3 flex items-center gap-2">
-            <IconActivity size={16} /> Live Signal Pipeline
-          </h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-medium text-pat-text-primary flex items-center gap-2">
+              <IconActivity size={16} /> Live Signal Pipeline
+            </h2>
+            <div className="flex items-center gap-1.5">
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${wsConnected ? "bg-pat-success animate-pulse" : "bg-pat-warning"}`} />
+              <span className="text-[10px] text-pat-text-muted">{wsConnected ? "WS Live" : "REST 10s"}</span>
+            </div>
+          </div>
           {liveSignals.length === 0 ? (
             <div className="text-sm text-pat-text-muted py-4 text-center">
               No signals detected yet. Loading from engine...

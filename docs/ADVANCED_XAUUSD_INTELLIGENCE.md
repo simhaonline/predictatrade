@@ -1,6 +1,6 @@
 # Advanced XAUUSD Intelligence Module Status
 
-## Version: v1.0.0 — Stage 4 PTB
+## Version: v1.8.0 — Trade Management Audit + Broker Stop Validation + Cost-Aware Break-Even
 
 ## PTB Architecture
 
