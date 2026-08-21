@@ -1111,7 +1111,7 @@ func NewTrendSwing() *TrendSwing {
 		StrategyID: types.StrategyTrendSwing,
 		MinConfluence: 50, MinMTFAlignment: 25,
 		ATRMultiplierSL: 2.5, ATRMultiplierTP1: 4.0, ATRMultiplierTP2: 6.5, ATRMultiplierTP3: 10.0,
-		MaxSpreadPips: 5.0, MaxSlippagePoints: 30, MinADX: 25, MinRR: 2.0,
+		MaxSpreadPips: 5.0, MaxSlippagePoints: 30, MinADX: 20, MinRR: 2.0,
 		ExpiryMinutes: 240, CooldownMinutes: 360,
 		DecisionTFs: []types.Timeframe{types.TFH1, types.TFH4},
 		ContextTFs: []types.Timeframe{types.TFD1, types.TFW1},
