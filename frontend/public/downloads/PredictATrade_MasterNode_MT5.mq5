@@ -105,10 +105,11 @@ string FormatISO8601Broker(datetime t)
     // Calculate broker offset: TimeCurrent() - TimeGMT()
     long offsetSec = (long)TimeCurrent() - (long)TimeGMT();
     int offsetH = (int)(offsetSec / 3600);
-    int offsetM = (int)((abs(offsetSec) % 3600) / 60);
+    long absOffsetSec = offsetSec >= 0 ? offsetSec : -offsetSec;
+    int offsetM = (int)((absOffsetSec % 3600) / 60);
     string sign = offsetSec >= 0 ? "+" : "-";
     return StringFormat("%04d-%02d-%02dT%02d:%02d:%02d%s%02d:%02d",
-        dt.year, dt.mon, dt.day, dt.hour, dt.min, dt.sec, sign, abs(offsetH), offsetM);
+        dt.year, dt.mon, dt.day, dt.hour, dt.min, dt.sec, sign, offsetH >= 0 ? offsetH : -offsetH, offsetM);
 }
 
 //+------------------------------------------------------------------+
