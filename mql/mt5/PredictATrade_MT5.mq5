@@ -254,6 +254,38 @@ void PAT_ProcessPartialClose(ulong ticket, ENUM_POSITION_TYPE posType, double op
     // TP3: remaining 20% trails by 1.5*ATR (handled by existing trailing stop logic)
 }
 
+
+//+------------------------------------------------------------------+
+//| FormatISO8601UTC — Convert datetime to ISO8601 UTC string        |
+//| Returns: "2026-08-21T16:25:11Z" (proper RFC3339/ISO8601 format)  |
+//| This replaces TimeToString which produces "2026.08.21 19:25:11"  |
+//| (dot separators, no timezone, broker time) — unparseable by JS   |
+//+------------------------------------------------------------------+
+string FormatISO8601UTC(datetime t)
+{
+    MqlDateTime dt;
+    TimeToStruct(t, dt);
+    return StringFormat("%04d-%02d-%02dT%02d:%02d:%02dZ",
+        dt.year, dt.mon, dt.day, dt.hour, dt.min, dt.sec);
+}
+
+//+------------------------------------------------------------------+
+//| FormatISO8601Broker — Broker time as ISO8601 (for reference)     |
+//| Returns: "2026-08-21T19:25:11+03:00" (with broker offset)        |
+//+------------------------------------------------------------------+
+string FormatISO8601Broker(datetime t)
+{
+    MqlDateTime dt;
+    TimeToStruct(t, dt);
+    // Calculate broker offset: TimeCurrent() - TimeGMT()
+    long offsetSec = (long)TimeCurrent() - (long)TimeGMT();
+    int offsetH = (int)(offsetSec / 3600);
+    int offsetM = (int)((abs(offsetSec) % 3600) / 60);
+    string sign = offsetSec >= 0 ? "+" : "-";
+    return StringFormat("%04d-%02d-%02dT%02d:%02d:%02d%s%02d:%02d",
+        dt.year, dt.mon, dt.day, dt.hour, dt.min, dt.sec, sign, abs(offsetH), offsetM);
+}
+
 int OnInit()
 {
     Print("Predict-A-Trade MT5 EA v1.06 initializing...");
@@ -712,7 +744,7 @@ void SendTickToAgent()
     msg += ",\"bid\":" + DoubleToString(bid, 5);
     msg += ",\"ask\":" + DoubleToString(ask, 5);
     msg += ",\"volume\":" + IntegerToString(SymbolInfoInteger(g_symbol, SYMBOL_VOLUME));
-    msg += ",\"timestamp\":\"" + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\"";
+    msg += ",\"timestamp\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
     msg += ",\"source\":\"MT5\"";
     msg += ",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";

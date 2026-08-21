@@ -79,6 +79,38 @@ bool    g_lastAgentState  = false; // false=offline, true=online (for change det
 ulong   g_tickCount     = 0;
 ulong   g_snapshotCount  = 0;
 
+
+//+------------------------------------------------------------------+
+//| FormatISO8601UTC — Convert datetime to ISO8601 UTC string        |
+//| Returns: "2026-08-21T16:25:11Z" (proper RFC3339/ISO8601 format)  |
+//| This replaces TimeToString which produces "2026.08.21 19:25:11"  |
+//| (dot separators, no timezone, broker time) — unparseable by JS   |
+//+------------------------------------------------------------------+
+string FormatISO8601UTC(datetime t)
+{
+    MqlDateTime dt;
+    TimeToStruct(t, dt);
+    return StringFormat("%04d-%02d-%02dT%02d:%02d:%02dZ",
+        dt.year, dt.mon, dt.day, dt.hour, dt.min, dt.sec);
+}
+
+//+------------------------------------------------------------------+
+//| FormatISO8601Broker — Broker time as ISO8601 (for reference)     |
+//| Returns: "2026-08-21T19:25:11+03:00" (with broker offset)        |
+//+------------------------------------------------------------------+
+string FormatISO8601Broker(datetime t)
+{
+    MqlDateTime dt;
+    TimeToStruct(t, dt);
+    // Calculate broker offset: TimeCurrent() - TimeGMT()
+    long offsetSec = (long)TimeCurrent() - (long)TimeGMT();
+    int offsetH = (int)(offsetSec / 3600);
+    int offsetM = (int)((abs(offsetSec) % 3600) / 60);
+    string sign = offsetSec >= 0 ? "+" : "-";
+    return StringFormat("%04d-%02d-%02dT%02d:%02d:%02d%s%02d:%02d",
+        dt.year, dt.mon, dt.day, dt.hour, dt.min, dt.sec, sign, abs(offsetH), offsetM);
+}
+
 //+------------------------------------------------------------------+
 int OnInit()
 {
@@ -188,7 +220,7 @@ void SendAgentNotification(string status, string message)
     fullMsg += "\nHost: " + AccountInfoString(ACCOUNT_COMPANY);
     fullMsg += "\nBroker: " + g_broker;
     fullMsg += "\nSymbol: " + g_symbol;
-    fullMsg += "\nTime: " + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS);
+    fullMsg += "\nTime: " + FormatISO8601UTC(TimeGMT()) + " (UTC)";
     fullMsg += "\nAgent Status: " + status;
     
     Print("[NOTIFY] ", fullMsg);
@@ -317,8 +349,8 @@ void SendTickToAgent()
     msg += ",\"ask\":" + DoubleToString(ask, 5);
     msg += ",\"spread\":" + DoubleToString(ask - bid, 5);
     msg += ",\"volume\":" + IntegerToString(vol);
-    msg += ",\"timestamp\":\"" + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\"";
-    msg += ",\"gmt\":\"" + TimeToString(TimeGMT(), TIME_DATE|TIME_SECONDS) + "\"";
+    msg += ",\"timestamp\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
+    msg += ",\"gmt\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
     msg += ",\"source\":\"MT5_MASTER\"";
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";
@@ -349,8 +381,8 @@ void SendMarketSnapshot()
     string msg = "MARKET_SNAPSHOT|{";
     msg += "\"type\":\"MARKET_SNAPSHOT\"";
     msg += ",\"symbol\":\"" + g_symbol + "\"";
-    msg += ",\"timestamp\":\"" + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\"";
-    msg += ",\"gmt\":\"" + TimeToString(TimeGMT(), TIME_DATE|TIME_SECONDS) + "\"";
+    msg += ",\"timestamp\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
+    msg += ",\"gmt\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
     msg += ",\"source\":\"MT5_MASTER\"";
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";
@@ -369,7 +401,7 @@ void SendMarketSnapshot()
     msg += ",\"spread\":" + DoubleToString(ask - bid, 5);
     msg += ",\"spread_points\":" + IntegerToString(spreadPts);
     msg += ",\"volume\":" + IntegerToString(vol);
-    msg += ",\"time\":\"" + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\"";
+    msg += ",\"time\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
     msg += "}";
 
     //--- Multi-timeframe bar data
@@ -465,7 +497,7 @@ string GetBarJSON(ENUM_TIMEFRAMES timeframe)
         s += ",\"low\":" + DoubleToString(rates[0].low, 5);
         s += ",\"close\":" + DoubleToString(rates[0].close, 5);
         s += ",\"volume\":" + IntegerToString((long)rates[0].tick_volume);
-        s += ",\"time\":\"" + TimeToString(rates[0].time, TIME_DATE|TIME_SECONDS) + "\"";
+        s += ",\"time\":\"" + FormatISO8601UTC(rates[0].time - (long)TimeCurrent() + (long)TimeGMT()) + "\"";
     }
 
     if(copied >= 2)
@@ -662,7 +694,7 @@ void SendMasterInit()
     msg += ",\"digits\":" + IntegerToString((long)SymbolInfoInteger(g_symbol, SYMBOL_DIGITS));
     msg += ",\"no_license\":true";
     msg += ",\"no_trading\":true";
-    msg += ",\"timestamp\":\"" + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\"";
+    msg += ",\"timestamp\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
     msg += "}\n";
 
     MasterWrite(msg);

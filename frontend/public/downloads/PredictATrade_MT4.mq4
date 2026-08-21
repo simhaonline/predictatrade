@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
-//| Predict-A-Trade MT4 EA v1.06                                      |
-//| Fixes: TP validation, position management, swap avoidance          |
+//| Predict-A-Trade MT4 EA v1.06                                     |
+//| Fixes: TP validation, position management, swap avoidance        |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
 #property version   "1.07"
@@ -46,9 +46,11 @@ input bool    RejectOnHighSlippage = true;  // Reject orders that exceed max sli
 input bool    AvoidRolloverSlippage = true; // Don't trade during rollover (spread widens)
 
 // ─── Capital Protection (NEW v1.07) ───
-input double  MaxDailyLossPct   = 5.0;      // Max daily loss as % of capital (5% = stop trading)
+input double  MaxDailyLossPct   = 6.0;      // Phase 4: hard halt threshold
 input double  WarningLossPct    = 3.0;      // Warning level (close at 3%, block at 5%)
 input bool    EmergencyCloseAll = true;     // Close all positions when daily loss hits limit
+input double  SoftHaltLossPct   = 4.0;      // Phase 4: soft halt (block new, keep existing)
+input double  HardHaltLossPct   = 6.0;      // Phase 4: hard halt (close all)
 
 
 // ─── Per-Strategy Spread/Slippage Limits (prompt.md Section 4.2) ───
@@ -100,6 +102,7 @@ double  g_dailyPnL       = 0;      // running daily P&L
 double  g_dayStartBalance = 0;     // balance at start of trading day
 datetime g_currentDay    = 0;     // current trading day
 bool    g_tradingBlocked = false; // capital protection flag
+bool    g_hardHaltTriggered = false; // Phase 4: hard halt flag
 int     g_slippageRejects = 0;    // count of slippage rejections
 double  g_entry  = 0;
 double  g_sl     = 0;
@@ -207,21 +210,26 @@ void PAT_ProcessPartialClose(int ticket, int orderType, double openPrice, double
     double tp1CloseLots = NormalizeDouble(originalLots * (TP1ClosePercent / 100.0), 2);
     double tp2CloseLots = NormalizeDouble(originalLots * (TP2ClosePercent / 100.0), 2);
 
-    // TP1: close 50%, move SL to breakeven
+    // TP1: close 50%, move SL to Entry + 0.5R (Phase 3C: guaranteed profit)
     if(orderType == OP_BUY && Bid >= tp1 && OrderLots() >= tp1CloseLots)
     {
         if(OrderClose(ticket, tp1CloseLots, Bid, PAT_GetMaxSlippage(""), clrGreen))
             Print("TP1 partial close: 50% closed at ", Bid);
-        // Move SL to breakeven
-        if(OrderModify(ticket, openPrice, openPrice, OrderTakeProfit(), 0, clrYellow))
-            Print("TP1: SL moved to breakeven (", openPrice, ")");
+        // ADDON Phase 3C: Move SL to Entry + 0.5R (not just breakeven)
+        double r_dist = MathAbs(openPrice - sl);
+        double newSL = openPrice + (0.5 * r_dist);
+        if(OrderModify(ticket, newSL, newSL, OrderTakeProfit(), 0, clrYellow))
+            Print("TP1: SL moved to Entry+0.5R (", newSL, ") — profit locked");
     }
     else if(orderType == OP_SELL && Ask <= tp1 && OrderLots() >= tp1CloseLots)
     {
         if(OrderClose(ticket, tp1CloseLots, Ask, PAT_GetMaxSlippage(""), clrRed))
             Print("TP1 partial close: 50% closed at ", Ask);
-        if(OrderModify(ticket, openPrice, openPrice, OrderTakeProfit(), 0, clrYellow))
-            Print("TP1: SL moved to breakeven (", openPrice, ")");
+        // ADDON Phase 3C: Move SL to Entry - 0.5R (not just breakeven)
+        double r_dist_s = MathAbs(sl - openPrice);
+        double newSL_s = openPrice - (0.5 * r_dist_s);
+        if(OrderModify(ticket, newSL_s, newSL_s, OrderTakeProfit(), 0, clrYellow))
+            Print("TP1: SL moved to Entry-0.5R (", newSL_s, ") — profit locked");
     }
 
     // TP2: close 30%, move SL to TP1
@@ -241,6 +249,26 @@ void PAT_ProcessPartialClose(int ticket, int orderType, double openPrice, double
     }
     // TP3: remaining 20% trails by 1.5*ATR (handled by existing trailing stop logic)
 }
+
+//+------------------------------------------------------------------+
+//| FormatISO8601UTC — Convert datetime to ISO8601 UTC string        |
+//| Returns: "2026-08-21T16:25:11Z" (proper RFC3339/ISO8601 format)  |
+//| This replaces TimeToStr which produces "2026.08.21 19:25:11"      |
+//| (dot separators, no timezone, broker time) — unparseable by JS   |
+//+------------------------------------------------------------------+
+string FormatISO8601UTC(datetime t)
+{
+    int year = TimeYear(t);
+    int mon = TimeMonth(t);
+    int day = TimeDay(t);
+    int hour = TimeHour(t);
+    int min = TimeMinute(t);
+    int sec = TimeSeconds(t);
+    return StringFormat("%04d-%02d-%02dT%02d:%02d:%02dZ",
+        year, mon, day, hour, min, sec);
+}
+
+
 
 int OnInit()
 {
@@ -592,6 +620,7 @@ void UpdateCapitalProtection()
         g_dayStartBalance = AccountBalance();
         g_dailyPnL = 0;
         g_tradingBlocked = false;
+        g_hardHaltTriggered = false;
         Print("NEW TRADING DAY: start balance=", g_dayStartBalance);
     }
 
@@ -613,8 +642,39 @@ void UpdateCapitalProtection()
     if(g_dayStartBalance > 0)
         lossPct = (g_dailyPnL / g_dayStartBalance) * 100;
 
-    // Warning at 3% loss
-    if(lossPct <= -WarningLossPct && !g_tradingBlocked)
+    // Dynamic thresholds for small accounts — prevents premature blocking on $50 accounts
+    // Tier 1 (< $100): 3.5x thresholds — $50 * 14% = $7 loss before soft halt (2-3 losing trades)
+    // Tier 2 ($100-$200): 2x thresholds — $150 * 8% = $12 loss before soft halt
+    // Tier 3 (>= $200): normal thresholds — 4% soft halt
+    double effSoftHalt = SoftHaltLossPct;
+    double effHardHalt = HardHaltLossPct;
+    double effWarning  = WarningLossPct;
+    double minAbsLoss   = 1.0;  // Minimum absolute loss ($) to trigger any protection
+    if(AccountBalance() < 100)
+    {
+        effSoftHalt = SoftHaltLossPct * 3.5;  // 4% -> 14% ($7 on $50)
+        effHardHalt = HardHaltLossPct * 3.5;  // 6% -> 21% ($10.50 on $50)
+        effWarning  = WarningLossPct * 3.5;   // 3% -> 10.5% ($5.25 on $50)
+        minAbsLoss   = 3.0;                    // Don't block unless loss > $3
+    }
+    else if(AccountBalance() < 200)
+    {
+        effSoftHalt = SoftHaltLossPct * 2.0;  // 4% -> 8%
+        effHardHalt = HardHaltLossPct * 2.0;  // 6% -> 12%
+        effWarning  = WarningLossPct * 2.0;   // 3% -> 6%
+        minAbsLoss   = 2.0;                    // Don't block unless loss > $2
+    }
+
+    // Minimum absolute loss floor — prevents blocking on tiny losses
+    // that are within normal trading range for micro accounts
+    if(g_dailyPnL > -minAbsLoss)
+    {
+        // Loss too small to trigger protection — allow trading
+        return;
+    }
+
+    // Warning
+    if(lossPct <= -effWarning && !g_tradingBlocked)
     {
         string warnMsg = "CAPITAL_WARNING|{";
         warnMsg += "\"daily_pnl\":" + DoubleToString(g_dailyPnL, 2);
@@ -627,12 +687,22 @@ void UpdateCapitalProtection()
         Print("CAPITAL WARNING: daily P&L=", g_dailyPnL, " (", lossPct, "%) — approaching limit");
     }
 
-    // Block at 5% loss
-    if(lossPct <= -MaxDailyLossPct && !g_tradingBlocked)
+    // ADDON Phase 4: Two-stage halt system
+    // Soft halt at -4%: block new entries, let existing trades run naturally
+    if(lossPct <= -effSoftHalt && !g_tradingBlocked)
     {
         g_tradingBlocked = true;
-        Print("*** CAPITAL PROTECTION: Daily loss ", lossPct, "% exceeds limit ", MaxDailyLossPct, "% — TRADING BLOCKED ***");
-
+        Print("*** CAPITAL PROTECTION (SOFT): Daily loss ", lossPct, "% — new entries blocked, existing trades continue ***");
+        string softMsg = "CAPITAL_PROTECTION|{\"event_type\":\"SOFT_HALT\",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + ",\"action\":\"BLOCKED_NEW_ENTRIES_ONLY\"}";
+        PAT_Append(PAT_TICK_FILE, softMsg + "\n");
+        // Do NOT close existing positions at soft halt
+    }
+    // Hard halt at -6%: emergency close all positions
+    if(lossPct <= -effHardHalt && !g_hardHaltTriggered)
+    {
+        g_hardHaltTriggered = true;
+        g_tradingBlocked = true;
+        Print("*** CAPITAL PROTECTION (HARD): Daily loss ", lossPct, "% — CLOSING ALL POSITIONS ***");
         string blockMsg = "CAPITAL_PROTECTION|{";
         blockMsg += "\"event_type\":\"DAILY_LOSS_LIMIT_HIT\"";
         blockMsg += ",\"daily_pnl\":" + DoubleToString(g_dailyPnL, 2);
@@ -700,7 +770,7 @@ void SendTickToAgent()
     msg += ",\"bid\":" + DoubleToString(bid, 5);
     msg += ",\"ask\":" + DoubleToString(ask, 5);
     msg += ",\"volume\":" + IntegerToString((long)Volume[0]);
-    msg += ",\"timestamp\":\"" + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\"";
+    msg += ",\"timestamp\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
     msg += ",\"source\":\"MT4\"";
     msg += ",\"broker\":\"" + AccountCompany() + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";
@@ -925,6 +995,11 @@ void ExecuteBuy()
     }
 
     double vol = CalculateLotSize();
+    if(vol <= 0)
+    {
+        Print("ExecuteBuy: lot size = 0 (equity too small for min lot) — using minimum lot");
+        vol = MarketInfo(g_symbol, MODE_MINLOT);
+    }
     Print("ExecuteBuy: vol=", vol, " entry=", g_entry, " sl=", g_sl, " tp1=", g_tp1, " tp2=", g_tp2);
     int ticket = OrderSend(g_symbol, OP_BUY, vol, Ask, MaxSlippagePoints, g_sl, g_tp1, "PAT:" + g_signalID, MagicNumber, 0, clrGreen);
     if(ticket > 0)
@@ -955,6 +1030,11 @@ void ExecuteSell()
     }
 
     double vol = CalculateLotSize();
+    if(vol <= 0)
+    {
+        Print("ExecuteSell: lot size = 0 (equity too small for min lot) — using minimum lot");
+        vol = MarketInfo(g_symbol, MODE_MINLOT);
+    }
     Print("ExecuteSell: vol=", vol, " entry=", g_entry, " sl=", g_sl, " tp1=", g_tp1, " tp2=", g_tp2);
     int ticket = OrderSend(g_symbol, OP_SELL, vol, Bid, MaxSlippagePoints, g_sl, g_tp1, "PAT:" + g_signalID, MagicNumber, 0, clrRed);
     if(ticket > 0)

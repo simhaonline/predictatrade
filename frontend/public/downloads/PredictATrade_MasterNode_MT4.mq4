@@ -2,20 +2,20 @@
 //|                                PredictATrade_MasterNode_MT4.mq4  |
 //|                            Predict-A-Trade v1.0.0                |
 //|     Master Node: Live data collection for system & dashboard     |
-//|     NO License Key · NO Trading · Data Collection Only            |
+//|     NO License Key · NO Trading · Data Collection Only           |
 //|  IPC: FILE_COMMON folder (shared between all MT terminals)       |
 //+------------------------------------------------------------------+
-//| This EA collects comprehensive live market data — ticks,          |
-//| multi-timeframe OHLC bars, technical indicators, account info,  |
+//| This EA collects comprehensive live market data — ticks,         |
+//| multi-timeframe OHLC bars, technical indicators, account info,   |
 //| symbol/broker specifications, and session detection — and writes |
 //| it to a FILE_COMMON folder for the Windows Agent to forward to   |
 //| the Go real-time engine and the dashboard/Command Center.        |
-//|                                                                   |
-//| This EA does NOT:                                                 |
-//|   - Require or check a license key                                |
-//|   - Read or execute trading signals                               |
-//|   - Place, modify, or close any orders                            |
-//|   - Perform any financial operation                               |
+//|                                                                  |
+//| This EA does NOT:                                                |
+//|   - Require or check a license key                               |
+//|   - Read or execute trading signals                              |
+//|   - Place, modify, or close any orders                           |
+//|   - Perform any financial operation                              |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
 #property version   "1.00"
@@ -34,6 +34,13 @@ input bool    SendMultiTF       = true;   // Include multi-timeframe bar data
 input bool    SendAccountInfo   = true;   // Include account info in snapshots
 input bool    SendSymbolInfo    = true;    // Include symbol/broker spec in snapshots
 input bool    DebugMode         = false;  // Print debug messages to Experts log
+
+// ─── Agent Status Notifications ───
+input bool    EnableNotifications  = true;   // Send notifications when agent connects/disconnects
+input string  TelegramBotToken     = "";     // Telegram bot token
+input string  TelegramChatID       = "";     // Telegram chat ID
+input string  EmailNotifyAddress   = "";     // Email for notifications (uses MT4 SendMail)
+input int     NotifyCooldownSec    = 300;    // Min seconds between repeated notifications
 
 //=== IPC Files (in FILE_COMMON folder — shared with Windows Agent) ===
 #define PAT_MASTER_FILE  "PAT_master_data.txt"
@@ -54,6 +61,28 @@ uint    g_lastSnapshot   = 0;
 int     g_tickCount     = 0;
 int     g_snapshotCount  = 0;
 datetime g_lastBarTime  = 0;
+uint    g_lastNotifyTime  = 0;
+bool    g_lastAgentState  = false;
+
+//+------------------------------------------------------------------+
+//| FormatISO8601UTC — Convert datetime to ISO8601 UTC string        |
+//| Returns: "2026-08-21T16:25:11Z" (proper RFC3339/ISO8601 format)  |
+//| This replaces TimeToStr which produces "2026.08.21 19:25:11"      |
+//| (dot separators, no timezone, broker time) — unparseable by JS   |
+//+------------------------------------------------------------------+
+string FormatISO8601UTC(datetime t)
+{
+    int year = TimeYear(t);
+    int mon = TimeMonth(t);
+    int day = TimeDay(t);
+    int hour = TimeHour(t);
+    int min = TimeMinute(t);
+    int sec = TimeSeconds(t);
+    return StringFormat("%04d-%02d-%02dT%02d:%02d:%02dZ",
+        year, mon, day, hour, min, sec);
+}
+
+
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -112,20 +141,78 @@ void OnTick()
 }
 
 //+------------------------------------------------------------------+
+// ─── Send notification via Email or Push (MT4 doesn't support WebRequest) ───
+void SendAgentNotification(string status, string message)
+{
+    if(!EnableNotifications) return;
+    
+    if(GetTickCount() - g_lastNotifyTime < (uint)(NotifyCooldownSec * 1000)) return;
+    g_lastNotifyTime = GetTickCount();
+    
+    string fullMsg = "[Predict-A-Trade Master Node] " + message;
+    fullMsg += "\nHost: " + AccountInfoString(ACCOUNT_COMPANY);
+    fullMsg += "\nBroker: " + g_broker;
+    fullMsg += "\nSymbol: " + g_symbol;
+    fullMsg += "\nTime: " + FormatISO8601UTC(TimeGMT()) + " (UTC)";
+    fullMsg += "\nAgent Status: " + status;
+    
+    Print("[NOTIFY] ", fullMsg);
+    
+    // 1. Email notification (MT4 built-in SendMail)
+    if(EmailNotifyAddress != "")
+    {
+        string subject = "[Predict-A-Trade] Agent " + status;
+        if(SendMail(subject, fullMsg))
+            Print("[NOTIFY] Email sent to ", EmailNotifyAddress);
+        else
+            Print("[NOTIFY] Email failed: ", GetLastError());
+    }
+    
+    // 2. Push notification (MT4 built-in SendNotification)
+    if(TelegramChatID != "")
+    {
+        // Use SendNotification for push to mobile (MT4 doesn't have WebRequest for Telegram API)
+        if(SendNotification(fullMsg))
+            Print("[NOTIFY] Push notification sent");
+        else
+            Print("[NOTIFY] Push failed: ", GetLastError());
+    }
+    
+    // 3. Write notification to file for Windows Agent to forward (Telegram/Discord)
+    string notifLine = "NOTIFICATION|{\"type\":\"" + status + "\",\"message\":\"" + message + "\",\"timestamp\":\"" + FormatISO8601UTC(TimeGMT()) + "\"}\n";
+    MasterAppend(notifLine);
+}
+
 void CheckAgentConnection()
 {
     static uint lastCheck = 0;
     if(GetTickCount() - lastCheck < 2000) return;
     lastCheck = GetTickCount();
 
-    if(FileIsExist(PAT_HEARTBEAT, FILE_COMMON))
+    bool agentOnline = FileIsExist(PAT_HEARTBEAT, FILE_COMMON);
+    
+    if(agentOnline)
+    {
         g_connection = "CONNECTED";
+        if(!g_lastAgentState)
+        {
+            g_lastAgentState = true;
+            Print("[AGENT] Windows Agent is now ACTIVE (heartbeat detected)");
+            SendAgentNotification("ACTIVE", "Windows Agent is now ACTIVE and connected to the Master Node.");
+        }
+    }
     else
     {
         if(g_connection == "CONNECTED")
         {
-            Print("Windows Agent heartbeat lost");
             g_connection = "OFFLINE";
+            Print("[AGENT] Windows Agent heartbeat lost");
+        }
+        if(g_lastAgentState)
+        {
+            g_lastAgentState = false;
+            Print("[AGENT] Windows Agent is now OFFLINE (heartbeat lost)");
+            SendAgentNotification("OFFLINE", "WARNING: Windows Agent is OFFLINE! No heartbeat detected. Live data feed may be interrupted.");
         }
     }
 }
@@ -154,8 +241,8 @@ void SendTickToAgent()
     msg += ",\"ask\":" + DoubleToStr(ask, 5);
     msg += ",\"spread\":" + DoubleToStr(ask - bid, 5);
     msg += ",\"volume\":" + IntegerToString((long)Volume[0]);
-    msg += ",\"timestamp\":\"" + TimeToStr(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\"";
-    msg += ",\"gmt\":\"" + TimeToStr(TimeGMT(), TIME_DATE|TIME_SECONDS) + "\"";
+    msg += ",\"timestamp\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
+    msg += ",\"gmt\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
     msg += ",\"source\":\"MT4_MASTER\"";
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";
@@ -186,8 +273,8 @@ void SendMarketSnapshot()
     string msg = "MARKET_SNAPSHOT|{";
     msg += "\"type\":\"MARKET_SNAPSHOT\"";
     msg += ",\"symbol\":\"" + g_symbol + "\"";
-    msg += ",\"timestamp\":\"" + TimeToStr(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\"";
-    msg += ",\"gmt\":\"" + TimeToStr(TimeGMT(), TIME_DATE|TIME_SECONDS) + "\"";
+    msg += ",\"timestamp\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
+    msg += ",\"gmt\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
     msg += ",\"source\":\"MT4_MASTER\"";
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";
@@ -200,7 +287,7 @@ void SendMarketSnapshot()
     msg += ",\"spread\":" + DoubleToStr(ask - bid, 5);
     msg += ",\"spread_points\":" + IntegerToString((long)MarketInfo(g_symbol, MODE_SPREAD));
     msg += ",\"volume\":" + IntegerToString((long)Volume[0]);
-    msg += ",\"time\":\"" + TimeToStr(Time[0], TIME_DATE|TIME_SECONDS) + "\"";
+    msg += ",\"time\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
     msg += "}";
 
     //--- Multi-timeframe bar data
@@ -259,7 +346,7 @@ void SendMarketSnapshot()
         msg += ",\"tick_value\":" + DoubleToStr(MarketInfo(g_symbol, MODE_TICKVALUE), 5);
         msg += ",\"tick_size\":" + DoubleToStr(MarketInfo(g_symbol, MODE_TICKSIZE), 5);
         msg += ",\"margin_init\":" + DoubleToStr(MarketInfo(g_symbol, MODE_MARGININIT), 2);
-        msg += ",\"margin_maint\":" + DoubleToStr(MarketInfo(g_symbol, MODE_MARGINMAINT), 2);
+        msg += ",\"margin_maint\":" + DoubleToStr(MarketInfo(g_symbol, MODE_MARGININIT), 2);
         msg += "}";
     }
 
@@ -288,7 +375,7 @@ string GetBarJSON(int timeframe)
     s += ",\"low\":" + DoubleToStr(iLow(g_symbol, timeframe, 0), 5);
     s += ",\"close\":" + DoubleToStr(iClose(g_symbol, timeframe, 0), 5);
     s += ",\"volume\":" + IntegerToString((long)iVolume(g_symbol, timeframe, 0));
-    s += ",\"time\":\"" + TimeToStr(iTime(g_symbol, timeframe, 0), TIME_DATE|TIME_SECONDS) + "\"";
+    s += ",\"time\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
 
     // Previous closed bar
     s += ",\"prev_open\":" + DoubleToStr(iOpen(g_symbol, timeframe, 1), 5);
@@ -384,7 +471,7 @@ string GetSessionJSON()
 {
     datetime gmt = TimeGMT();
     int hour = TimeHour(gmt);
-    int dow = DayOfWeek(gmt);
+    int dow = DayOfWeek();
 
     bool isWeekend = (dow == 0 || dow == 6);
     string sessionName = "OFF_HOURS";
@@ -474,7 +561,7 @@ void SendMasterInit()
     msg += ",\"digits\":" + IntegerToString((long)MarketInfo(g_symbol, MODE_DIGITS));
     msg += ",\"no_license\":true";
     msg += ",\"no_trading\":true";
-    msg += ",\"timestamp\":\"" + TimeToStr(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\"";
+    msg += ",\"timestamp\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
     msg += "}\n";
 
     MasterWrite(msg);

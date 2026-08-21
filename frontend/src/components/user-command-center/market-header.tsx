@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import { getGlobalWs, type WsMessage, type MarketDataEvent } from "@/lib/websocket";
 import { rafBatch } from "@/lib/performance";
+import { useServerTime, formatServerTime, formatDrift } from "@/lib/use-server-time";
 
 interface MarketState {
   Regime?: { Current?: string; Volatility?: string; Confidence?: number };
@@ -19,7 +20,15 @@ export function MarketHeader() {
   const spreadRef = useRef<HTMLSpanElement>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<number>(0);
+  const [clockTick, setClockTick] = useState<number>(0);
   const ws = getGlobalWs();
+  const { driftMs, driftWarning, driftCritical } = useServerTime();
+
+  // Update clock display every second
+  useEffect(() => {
+    const interval = setInterval(() => setClockTick(t => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const { data: marketState } = useQuery<MarketState>({
     queryKey: ["user-market-state"],
@@ -75,6 +84,8 @@ export function MarketHeader() {
     { label: "SPREAD", value: spread, refEl: spreadRef, color: spread > 0.5 ? "text-pat-warning" : "text-pat-text-primary", fixed: true },
   ];
 
+  // clockTick forces re-render every second for the UTC clock display
+  void clockTick;
   const metaItems = [
     { label: "Regime", value: regime, color: regime.includes("BULLISH") ? "text-pat-success" : regime.includes("BEARISH") ? "text-pat-danger" : "text-pat-text-secondary" },
     { label: "Session", value: session, color: "text-pat-text-secondary" },
@@ -105,6 +116,19 @@ export function MarketHeader() {
           </div>
         ))}
         <div className="ml-auto flex items-center gap-2">
+          {/* Server-authoritative UTC clock */}
+          <span className="text-[10px] font-mono tabular-nums text-pat-text-secondary">
+            {formatServerTime(driftMs)}
+          </span>
+          {driftCritical ? (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-pat-danger/10 text-pat-danger border border-pat-danger/20 font-semibold" title="Clock drift > 2min — check NTP sync on all machines">
+              ⚠ CLOCK DRIFT {formatDrift(driftMs)}
+            </span>
+          ) : driftWarning ? (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-pat-warning/10 text-pat-warning border border-pat-warning/20" title="Clock drift > 30s — minor skew detected">
+              ⏰ {formatDrift(driftMs)}
+            </span>
+          ) : null}
           <span className={`inline-block h-2 w-2 rounded-full ${wsConnected ? "bg-pat-success animate-pulse" : "bg-pat-warning"}`} />
           <span className="text-[10px] text-pat-text-muted">{wsConnected ? "LIVE" : lastUpdate > 0 ? "REST 3s" : "CONNECTING"}</span>
           {newsRisk !== "NONE" && (

@@ -52,8 +52,8 @@ input bool    RejectOnHighSlippage = true;
 input bool    AvoidRolloverSlippage = true;
 
 //=== Capital Protection (NEW v1.07) ===
-input double  MaxDailyLossPct   = 5.0;
-input double  WarningLossPct    = 3.0;
+input double  MaxDailyLossPct   = 6.0; // Phase 4: hard halt threshold
+input double  WarningLossPct    = 3.0; // warning threshold
 input bool    EmergencyCloseAll = true;
 
 //=== File names (in FILE_COMMON folder — shared with Windows Agent) ===
@@ -85,6 +85,12 @@ input double  TP1ClosePercent  = 50.0; // Close 50% at TP1, move SL to breakeven
 input double  TP2ClosePercent  = 30.0; // Close 30% at TP2, move SL to TP1
 input double  TP3ClosePercent  = 20.0; // Close remaining 20% at TP3
 input double  TP3TrailATRMult  = 1.5;  // Trail remaining by 1.5*ATR after TP3
+
+// ─── ADDON: Phase 5 — Pending Limit Orders & SL Updates ───
+input bool    UsePendingLimit   = true;   // Place LIMIT orders instead of MARKET (zero slippage)
+input int     PendingExpiryMin   = 5;      // Pending order expiry (minutes)
+input double  SoftHaltLossPct   = 4.0;    // Phase 4: Soft halt (block new, keep existing)
+input double  HardHaltLossPct   = 6.0;    // Phase 4: Hard halt (close all)
 
 CTrade        trade;
 string        g_symbol;
@@ -122,6 +128,7 @@ double        g_dailyPnL       = 0;
 double        g_dayStartBalance = 0;
 datetime      g_currentDay    = 0;
 bool          g_tradingBlocked = false;
+bool          g_hardHaltTriggered = false; // Phase 4: hard halt flag
 int           g_slippageRejects = 0;
 
 //+------------------------------------------------------------------+
@@ -247,6 +254,38 @@ void PAT_ProcessPartialClose(ulong ticket, ENUM_POSITION_TYPE posType, double op
     // TP3: remaining 20% trails by 1.5*ATR (handled by existing trailing stop logic)
 }
 
+
+//+------------------------------------------------------------------+
+//| FormatISO8601UTC — Convert datetime to ISO8601 UTC string        |
+//| Returns: "2026-08-21T16:25:11Z" (proper RFC3339/ISO8601 format)  |
+//| This replaces TimeToString which produces "2026.08.21 19:25:11"  |
+//| (dot separators, no timezone, broker time) — unparseable by JS   |
+//+------------------------------------------------------------------+
+string FormatISO8601UTC(datetime t)
+{
+    MqlDateTime dt;
+    TimeToStruct(t, dt);
+    return StringFormat("%04d-%02d-%02dT%02d:%02d:%02dZ",
+        dt.year, dt.mon, dt.day, dt.hour, dt.min, dt.sec);
+}
+
+//+------------------------------------------------------------------+
+//| FormatISO8601Broker — Broker time as ISO8601 (for reference)     |
+//| Returns: "2026-08-21T19:25:11+03:00" (with broker offset)        |
+//+------------------------------------------------------------------+
+string FormatISO8601Broker(datetime t)
+{
+    MqlDateTime dt;
+    TimeToStruct(t, dt);
+    // Calculate broker offset: TimeCurrent() - TimeGMT()
+    long offsetSec = (long)TimeCurrent() - (long)TimeGMT();
+    int offsetH = (int)(offsetSec / 3600);
+    int offsetM = (int)((abs(offsetSec) % 3600) / 60);
+    string sign = offsetSec >= 0 ? "+" : "-";
+    return StringFormat("%04d-%02d-%02dT%02d:%02d:%02d%s%02d:%02d",
+        dt.year, dt.mon, dt.day, dt.hour, dt.min, dt.sec, sign, abs(offsetH), offsetM);
+}
+
 int OnInit()
 {
     Print("Predict-A-Trade MT5 EA v1.06 initializing...");
@@ -335,7 +374,11 @@ void UpdateCapitalProtection()
         g_tradingBlocked = false;
     }
     g_dailyPnL = 0;
-    HistorySelect(TimeCurrent() - 86400, TimeCurrent());
+    // FIX: Only count today's closed deals (not last 24h) — matches MT4 behavior
+    MqlDateTime todayDt;
+    TimeToStruct(TimeCurrent(), todayDt);
+    datetime dayStart = (datetime)(todayDt.year * 10000 + todayDt.mon * 100 + todayDt.day);
+    HistorySelect(0, TimeCurrent());
     int deals = HistoryDealsTotal();
     for(int i = 0; i < deals; i++)
     {
@@ -343,38 +386,89 @@ void UpdateCapitalProtection()
         if(dealTicket == 0) continue;
         if(HistoryDealGetString(dealTicket, DEAL_SYMBOL) != g_symbol) continue;
         if(HistoryDealGetInteger(dealTicket, DEAL_MAGIC) != (long)MagicNumber) continue;
+        // Only count deals from today
+        datetime dealTime = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
+        MqlDateTime dealDt;
+        TimeToStruct(dealTime, dealDt);
+        datetime dealDay = (datetime)(dealDt.year * 10000 + dealDt.mon * 100 + dealDt.day);
+        if(dealDay != dayStart) continue;
         g_dailyPnL += HistoryDealGetDouble(dealTicket, DEAL_PROFIT)
                      + HistoryDealGetDouble(dealTicket, DEAL_SWAP)
                      + HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
     }
     double lossPct = 0;
     if(g_dayStartBalance > 0) lossPct = (g_dailyPnL / g_dayStartBalance) * 100;
-    if(lossPct <= -WarningLossPct && !g_tradingBlocked)
+
+    // Dynamic thresholds for small accounts — tiered for micro accounts
+    // Tier 1 (< $100): 3.5x — $50 * 14% = $7 loss before soft halt (2-3 losing trades)
+    // Tier 2 ($100-$200): 2x — $150 * 8% = $12 loss before soft halt
+    // Tier 3 (>= $200): normal — 4% soft halt
+    double effSoftHalt = SoftHaltLossPct;
+    double effHardHalt = HardHaltLossPct;
+    double effWarning  = WarningLossPct;
+    double minAbsLoss   = 1.0;
+    if(AccountInfoDouble(ACCOUNT_BALANCE) < 100)
+    {
+        effSoftHalt = SoftHaltLossPct * 3.5;  // 4% -> 14% ($7 on $50)
+        effHardHalt = HardHaltLossPct * 3.5;  // 6% -> 21% ($10.50 on $50)
+        effWarning  = WarningLossPct * 3.5;   // 3% -> 10.5% ($5.25 on $50)
+        minAbsLoss   = 3.0;                    // Don't block unless loss > $3
+    }
+    else if(AccountInfoDouble(ACCOUNT_BALANCE) < 200)
+    {
+        effSoftHalt = SoftHaltLossPct * 2.0;  // 4% -> 8%
+        effHardHalt = HardHaltLossPct * 2.0;  // 6% -> 12%
+        effWarning  = WarningLossPct * 2.0;   // 3% -> 6%
+        minAbsLoss   = 2.0;                    // Don't block unless loss > $2
+    }
+
+    // Minimum absolute loss floor — prevents blocking on tiny losses
+    if(g_dailyPnL > -minAbsLoss)
+    {
+        return; // Loss too small to trigger protection
+    }
+
+    if(lossPct <= -effWarning && !g_tradingBlocked)
     {
         string warnMsg = "CAPITAL_WARNING|{\"daily_pnl\":" + DoubleToString(g_dailyPnL, 2)
                        + ",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + "}";
         PAT_Append(PAT_TICK_FILE, warnMsg + "\n");
     }
-    if(lossPct <= -MaxDailyLossPct && !g_tradingBlocked)
+    // ADDON Phase 4: Two-stage halt system
+    // Soft halt at -4%: block new entries, let existing trades run naturally
+    if(lossPct <= -effSoftHalt && !g_tradingBlocked)
     {
         g_tradingBlocked = true;
-        Print("*** CAPITAL PROTECTION: Daily loss ", lossPct, "% — BLOCKED ***");
-        string blockMsg = "CAPITAL_PROTECTION|{\"event_type\":\"DAILY_LOSS_LIMIT_HIT\""
-                        + ",\"daily_pnl\":" + DoubleToString(g_dailyPnL, 2)
+        Print("*** CAPITAL PROTECTION (SOFT): Daily loss ", lossPct, "% — new entries blocked, existing trades continue ***");
+        string softMsg = "CAPITAL_PROTECTION|\"event_type\":\"SOFT_HALT\""
                         + ",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2)
-                        + ",\"action\":\"BLOCKED_NEW_TRADES\"}";
-        PAT_Append(PAT_TICK_FILE, blockMsg + "\n");
-        if(EmergencyCloseAll)
+                        + ",\"action\":\"BLOCKED_NEW_ENTRIES_ONLY\"}";
+        PAT_Append(PAT_TICK_FILE, softMsg + "\n");
+        // Do NOT close existing positions at soft halt
+    }
+    // Hard halt at -6%: emergency close all positions
+    if(lossPct <= -effHardHalt)
+    {
+        if(!g_hardHaltTriggered)
         {
-            int total = PositionsTotal();
-            for(int i = total - 1; i >= 0; i--)
+            g_hardHaltTriggered = true;
+            Print("*** CAPITAL PROTECTION (HARD): Daily loss ", lossPct, "% — CLOSING ALL POSITIONS ***");
+            string hardMsg = "CAPITAL_PROTECTION|\"event_type\":\"HARD_HALT\""
+                           + ",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2)
+                           + ",\"action\":\"EMERGENCY_CLOSE_ALL\"}";
+            PAT_Append(PAT_TICK_FILE, hardMsg + "\n");
+            if(EmergencyCloseAll)
             {
-                ulong ticket = PositionGetTicket(i);
-                if(ticket == 0) continue;
-                if(!PositionSelectByTicket(ticket)) continue;
-                if(PositionGetString(POSITION_SYMBOL) == g_symbol &&
-                   PositionGetInteger(POSITION_MAGIC) == (long)MagicNumber)
-                    ClosePosition(ticket, "EMERGENCY_CAPITAL_PROTECTION");
+                int total = PositionsTotal();
+                for(int i = total - 1; i >= 0; i--)
+                {
+                    ulong ticket = PositionGetTicket(i);
+                    if(ticket == 0) continue;
+                    if(!PositionSelectByTicket(ticket)) continue;
+                    if(PositionGetString(POSITION_SYMBOL) == g_symbol &&
+                       PositionGetInteger(POSITION_MAGIC) == (long)MagicNumber)
+                        ClosePosition(ticket, "EMERGENCY_CAPITAL_PROTECTION");
+                }
             }
         }
     }
@@ -650,7 +744,7 @@ void SendTickToAgent()
     msg += ",\"bid\":" + DoubleToString(bid, 5);
     msg += ",\"ask\":" + DoubleToString(ask, 5);
     msg += ",\"volume\":" + IntegerToString(SymbolInfoInteger(g_symbol, SYMBOL_VOLUME));
-    msg += ",\"timestamp\":\"" + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\"";
+    msg += ",\"timestamp\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
     msg += ",\"source\":\"MT5\"";
     msg += ",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";
@@ -919,7 +1013,47 @@ void ExecuteBuy()
     }
     double vol = CalculateLotSize();
     Print("ExecuteBuy: vol=", vol, " entry=", g_entry, " sl=", g_sl, " tp1=", g_tp1);
-    if(trade.Buy(vol, g_symbol, g_entry, g_sl, g_tp1, "PAT:" + g_signalID))
+    // ADDON Phase 5: Hybrid limit + market fallback (zero slippage when possible)
+    if(UsePendingLimit && MathAbs(SymbolInfoDouble(g_symbol, SYMBOL_ASK) - g_entry) < (0.5 * SymbolInfoDouble(g_symbol, SYMBOL_POINT)))
+    {
+        // Price is close to entry — use LIMIT order for zero slippage
+        datetime expiry = TimeCurrent() + (PendingExpiryMin * 60);
+        MqlTradeRequest req;
+        MqlTradeResult res;
+        ZeroMemory(req);
+        ZeroMemory(res);
+        req.action    = TRADE_ACTION_PENDING;
+        req.symbol    = g_symbol;
+        req.volume    = vol;
+        req.type      = ORDER_TYPE_BUY_LIMIT;
+        req.price     = g_entry;
+        req.sl        = g_sl;
+        req.tp        = g_tp1;
+        req.type_time = ORDER_TIME_SPECIFIED;
+        req.expiration = expiry;
+        req.magic     = MagicNumber;
+        req.comment   = "PAT:" + g_signalID;
+        if(OrderSend(req, res) && (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED))
+        {
+            g_lastExecutedSignalID = g_signalID;
+            Print("BUY LIMIT placed: ticket ", res.order, " expiry=", PendingExpiryMin, "min");
+            PAT_Append(PAT_TICK_FILE, "EXECUTION_ACK|\"signal_id\":\"" + g_signalID + "\",\"status\":\"PENDING_LIMIT\"\n");
+        }
+        else
+        {
+            Print("BUY LIMIT FAILED: ", res.retcode, " ", res.comment, " — falling back to MARKET");
+            if(trade.Buy(vol, g_symbol, g_entry, g_sl, g_tp1, "PAT:" + g_signalID))
+            {
+                g_lastExecutedSignalID = g_signalID;
+                PAT_Append(PAT_TICK_FILE, "EXECUTION_ACK|\"signal_id\":\"" + g_signalID + "\",\"status\":\"FILLED\"\n");
+            }
+            else
+            {
+                Print("BUY MARKET FALLBACK FAILED: ", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+            }
+        }
+    }
+    else if(trade.Buy(vol, g_symbol, g_entry, g_sl, g_tp1, "PAT:" + g_signalID))
     {
         g_lastExecutedSignalID = g_signalID;
         Print("BUY executed: ticket ", trade.ResultOrder());
@@ -957,7 +1091,47 @@ void ExecuteSell()
     }
     double vol = CalculateLotSize();
     Print("ExecuteSell: vol=", vol, " entry=", g_entry, " sl=", g_sl, " tp1=", g_tp1);
-    if(trade.Sell(vol, g_symbol, g_entry, g_sl, g_tp1, "PAT:" + g_signalID))
+    // ADDON Phase 5: Hybrid limit + market fallback (zero slippage when possible)
+    if(UsePendingLimit && MathAbs(SymbolInfoDouble(g_symbol, SYMBOL_BID) - g_entry) < (0.5 * SymbolInfoDouble(g_symbol, SYMBOL_POINT)))
+    {
+        // Price is close to entry — use LIMIT order for zero slippage
+        datetime expiry = TimeCurrent() + (PendingExpiryMin * 60);
+        MqlTradeRequest req;
+        MqlTradeResult res;
+        ZeroMemory(req);
+        ZeroMemory(res);
+        req.action    = TRADE_ACTION_PENDING;
+        req.symbol    = g_symbol;
+        req.volume    = vol;
+        req.type      = ORDER_TYPE_SELL_LIMIT;
+        req.price     = g_entry;
+        req.sl        = g_sl;
+        req.tp        = g_tp1;
+        req.type_time = ORDER_TIME_SPECIFIED;
+        req.expiration = expiry;
+        req.magic     = MagicNumber;
+        req.comment   = "PAT:" + g_signalID;
+        if(OrderSend(req, res) && (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_PLACED))
+        {
+            g_lastExecutedSignalID = g_signalID;
+            Print("SELL LIMIT placed: ticket ", res.order, " expiry=", PendingExpiryMin, "min");
+            PAT_Append(PAT_TICK_FILE, "EXECUTION_ACK|\"signal_id\":\"" + g_signalID + "\",\"status\":\"PENDING_LIMIT\"\n");
+        }
+        else
+        {
+            Print("SELL LIMIT FAILED: ", res.retcode, " ", res.comment, " — falling back to MARKET");
+            if(trade.Sell(vol, g_symbol, g_entry, g_sl, g_tp1, "PAT:" + g_signalID))
+            {
+                g_lastExecutedSignalID = g_signalID;
+                PAT_Append(PAT_TICK_FILE, "EXECUTION_ACK|\"signal_id\":\"" + g_signalID + "\",\"status\":\"FILLED\"\n");
+            }
+            else
+            {
+                Print("SELL MARKET FALLBACK FAILED: ", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+            }
+        }
+    }
+    else if(trade.Sell(vol, g_symbol, g_entry, g_sl, g_tp1, "PAT:" + g_signalID))
     {
         g_lastExecutedSignalID = g_signalID;
         Print("SELL executed: ticket ", trade.ResultOrder());

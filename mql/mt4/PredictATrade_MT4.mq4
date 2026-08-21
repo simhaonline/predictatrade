@@ -250,6 +250,26 @@ void PAT_ProcessPartialClose(int ticket, int orderType, double openPrice, double
     // TP3: remaining 20% trails by 1.5*ATR (handled by existing trailing stop logic)
 }
 
+//+------------------------------------------------------------------+
+//| FormatISO8601UTC — Convert datetime to ISO8601 UTC string        |
+//| Returns: "2026-08-21T16:25:11Z" (proper RFC3339/ISO8601 format)  |
+//| This replaces TimeToStr which produces "2026.08.21 19:25:11"      |
+//| (dot separators, no timezone, broker time) — unparseable by JS   |
+//+------------------------------------------------------------------+
+string FormatISO8601UTC(datetime t)
+{
+    int year = TimeYear(t);
+    int mon = TimeMonth(t);
+    int day = TimeDay(t);
+    int hour = TimeHour(t);
+    int min = TimeMinute(t);
+    int sec = TimeSeconds(t);
+    return StringFormat("%04d-%02d-%02dT%02d:%02d:%02dZ",
+        year, mon, day, hour, min, sec);
+}
+
+
+
 int OnInit()
 {
     if(BrokerSymbol != "")
@@ -750,7 +770,7 @@ void SendTickToAgent()
     msg += ",\"bid\":" + DoubleToString(bid, 5);
     msg += ",\"ask\":" + DoubleToString(ask, 5);
     msg += ",\"volume\":" + IntegerToString((long)Volume[0]);
-    msg += ",\"timestamp\":\"" + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\"";
+    msg += ",\"timestamp\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
     msg += ",\"source\":\"MT4\"";
     msg += ",\"broker\":\"" + AccountCompany() + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";

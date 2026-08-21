@@ -7,6 +7,7 @@ import (
 	"log"
 	"encoding/json"
 	"context"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,6 +15,32 @@ import (
 	"github.com/predictatrade/realtime/internal/types"
 	"github.com/shopspring/decimal"
 )
+
+// parseMQLTimestamp parses timestamps from MQL EAs.
+// Handles both old format ("2026.08.21 19:25:11" with dots, broker time)
+// and new ISO8601 format ("2026-08-21T16:25:11Z" UTC).
+// Returns the parsed time in UTC, or time.Now().UTC() if parsing fails.
+func parseMQLTimestamp(s string) time.Time {
+	if s == "" {
+		return time.Now().UTC()
+	}
+	// Try ISO8601 first (new format from updated EAs)
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t.UTC()
+	}
+	// Try parsing with dots → convert to dashes
+	dashFormat := strings.ReplaceAll(s, ".", "-")
+	// Try "2026-08-21 19:25:11" (without timezone — assume broker time)
+	// We can't know the broker offset, so use gateway time instead
+	if t, err := time.Parse("2006-01-02 15:04:05", dashFormat); err == nil {
+		// This is broker time without timezone info — we can't trust it as UTC
+		// Use gateway time instead for accuracy
+		_ = t // discard — we use gateway time
+		return time.Now().UTC()
+	}
+	// Fallback to gateway time
+	return time.Now().UTC()
+}
 
 // AgentTickMessage is the message format the Windows Agent sends with real MT5 tick data.
 type AgentTickMessage struct {
@@ -305,13 +332,17 @@ func (p *AgentProvider) processAgentTicks(agentID string, ch chan *AgentTickMess
 				continue // Skip heartbeats and other non-tick messages
 			}
 
+			// Parse the MT5 timestamp — new EAs send ISO8601 UTC, old EAs send
+			// broker time with dots. parseMQLTimestamp handles both and falls
+			// back to gateway time for old format (broker time without TZ info).
+			sourceTime := parseMQLTimestamp(msg.Timestamp)
 			tick := &types.Tick{
 				Symbol:           normalizeSymbol(msg.Symbol),
 				Bid:              decimal.NewFromFloat(msg.Bid),
 				Ask:              decimal.NewFromFloat(msg.Ask),
 				TickVolume:       msg.Volume,
 				Source:           msg.Source,
-				SourceTimestamp:  time.Now().UTC(), // MQL timestamp is string, use gateway time
+				SourceTimestamp:  sourceTime,
 				GatewayTimestamp: time.Now().UTC(),
 				Quality:          types.QualityAuthoritative, // Real MT5 data is AUTHORITATIVE
 			}

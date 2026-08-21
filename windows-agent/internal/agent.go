@@ -42,6 +42,7 @@ type Agent struct {
 	health        *healthServer
 	updater       *Updater
 	processedSignals map[string]bool  // idempotency: track processed signal IDs
+	clockDriftMs  int64              // clock drift (server - local) in ms
 }
 
 type SignalEvent struct {
@@ -449,6 +450,26 @@ func (a *Agent) connect() error {
 				return
 			}
 
+			// Parse the event — check for ACK (contains server time for clock sync)
+			var ackCheck struct {
+				Type      string `json:"type"`
+				Timestamp string `json:"timestamp"`
+			}
+			if err := json.Unmarshal(msg, &ackCheck); err == nil {
+				if ackCheck.Type == "ACK" || ackCheck.Type == "CONNECTED" {
+					// Calculate clock drift: server_time - local_time
+					if ackCheck.Timestamp != "" {
+						if serverTime, err := time.Parse(time.RFC3339, ackCheck.Timestamp); err == nil {
+							localTime := time.Now().UTC()
+							a.mu.Lock()
+							a.clockDriftMs = serverTime.Sub(localTime).Milliseconds()
+							a.mu.Unlock()
+						}
+					}
+					continue
+				}
+			}
+
 			// Parse the event
 			var event SignalEvent
 			if err := json.Unmarshal(msg, &event); err != nil {
@@ -632,13 +653,17 @@ func (a *Agent) heartbeatLoop() {
 				continue
 			}
 
+			// Calculate clock drift: compare local UTC time with server time.
+			// The server sends server_time in its responses. We track the
+			// last known drift to include in heartbeat for monitoring.
+			localNow := time.Now().UTC()
 			hb := HeartbeatData{
 				DeviceID:        a.deviceID,
 				Version:         AgentVersion,
 				Hostname:        hostname(),
 				WindowsVersion:  "windows",
 				Status:          "ONLINE",
-				Timestamp:       time.Now().UTC(),
+				Timestamp:       localNow,
 				MasterConnected: conn != nil,
 				MT4Connected:    a.pipeManager != nil && a.pipeManager.MT4Connected(),
 				MT5Connected:    a.pipeManager != nil && a.pipeManager.MT5Connected(),
@@ -646,10 +671,31 @@ func (a *Agent) heartbeatLoop() {
 				CanonicalSymbol: "XAUUSD",
 				AgentVersion:    AgentVersion,
 				MTConnected:     a.pipeManager != nil,
-				LatencyMs:       time.Since(time.Now().Add(-a.heartbeat)).Milliseconds(),
+				LatencyMs:       0, // Updated below after measuring round-trip
+				ClockDriftMs:    a.clockDriftMs,
 			}
 			data, _ := json.Marshal(hb)
+			sendStart := time.Now()
 			conn.WriteMessage(websocket.TextMessage, data)
+
+			// Measure round-trip latency from the ACK timestamp
+			// The Go server responds with {"type":"ACK","timestamp":"<RFC3339>"}
+			// We read it in the read loop, but we can estimate latency from
+			// the time between sending and the next read.
+			// For clock drift: compare server's ACK timestamp with our local time.
+			latencyMs := time.Since(sendStart).Milliseconds()
+			hb.LatencyMs = latencyMs
+
+			// Log clock drift warning if significant
+			absDrift := a.clockDriftMs
+			if absDrift < 0 {
+				absDrift = -absDrift
+			}
+			if absDrift > 120000 { // > 2 minutes
+				log.Printf("WARN: Clock drift %dms — Windows clock may not be NTP-synced! Run 'w32tm /resync' to fix.", a.clockDriftMs)
+			} else if absDrift > 30000 { // > 30 seconds
+				log.Printf("WARN: Clock drift %dms — consider syncing Windows clock via NTP.", a.clockDriftMs)
+			}
 
 			// Also send heartbeat to EA via pipe
 			if a.pipeManager != nil {

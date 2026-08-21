@@ -35,6 +35,14 @@ input bool    SendAccountInfo   = true;   // Include account info in snapshots
 input bool    SendSymbolInfo    = true;    // Include symbol/broker spec in snapshots
 input bool    DebugMode         = false;  // Print debug messages to Experts log
 
+// ─── Agent Status Notifications ───
+input bool    EnableNotifications  = true;   // Send notifications when agent connects/disconnects
+input string  TelegramBotToken     = "";     // Telegram bot token (e.g. 123456:ABC-DEF)
+input string  TelegramChatID       = "";     // Telegram chat ID (e.g. 123456789)
+input string  DiscordWebhookURL    = "";     // Discord webhook URL
+input string  EmailNotifyAddress   = "";     // Email address for notifications (uses MT5 built-in mail)
+input int     NotifyCooldownSec    = 300;    // Min seconds between repeated notifications (5 min)
+
 //=== IPC Files (in FILE_COMMON folder — shared with Windows Agent) ===
 #define PAT_MASTER_FILE  "PAT_master_data.txt"
 #define PAT_HEARTBEAT    "PAT_heartbeat.txt"
@@ -66,8 +74,42 @@ string  g_accountID     = "—";
 string  g_broker        = "";
 uint    g_lastTickSend   = 0;
 uint    g_lastSnapshot   = 0;
+uint    g_lastNotifyTime  = 0;
+bool    g_lastAgentState  = false; // false=offline, true=online (for change detection)
 ulong   g_tickCount     = 0;
 ulong   g_snapshotCount  = 0;
+
+
+//+------------------------------------------------------------------+
+//| FormatISO8601UTC — Convert datetime to ISO8601 UTC string        |
+//| Returns: "2026-08-21T16:25:11Z" (proper RFC3339/ISO8601 format)  |
+//| This replaces TimeToString which produces "2026.08.21 19:25:11"  |
+//| (dot separators, no timezone, broker time) — unparseable by JS   |
+//+------------------------------------------------------------------+
+string FormatISO8601UTC(datetime t)
+{
+    MqlDateTime dt;
+    TimeToStruct(t, dt);
+    return StringFormat("%04d-%02d-%02dT%02d:%02d:%02dZ",
+        dt.year, dt.mon, dt.day, dt.hour, dt.min, dt.sec);
+}
+
+//+------------------------------------------------------------------+
+//| FormatISO8601Broker — Broker time as ISO8601 (for reference)     |
+//| Returns: "2026-08-21T19:25:11+03:00" (with broker offset)        |
+//+------------------------------------------------------------------+
+string FormatISO8601Broker(datetime t)
+{
+    MqlDateTime dt;
+    TimeToStruct(t, dt);
+    // Calculate broker offset: TimeCurrent() - TimeGMT()
+    long offsetSec = (long)TimeCurrent() - (long)TimeGMT();
+    int offsetH = (int)(offsetSec / 3600);
+    int offsetM = (int)((abs(offsetSec) % 3600) / 60);
+    string sign = offsetSec >= 0 ? "+" : "-";
+    return StringFormat("%04d-%02d-%02dT%02d:%02d:%02d%s%02d:%02d",
+        dt.year, dt.mon, dt.day, dt.hour, dt.min, dt.sec, sign, abs(offsetH), offsetM);
+}
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -165,20 +207,96 @@ void OnTick()
 }
 
 //+------------------------------------------------------------------+
+// ─── Send notification via Telegram, Discord, or Email ───
+void SendAgentNotification(string status, string message)
+{
+    if(!EnableNotifications) return;
+    
+    // Cooldown: don't spam repeated notifications
+    if(GetTickCount() - g_lastNotifyTime < (uint)(NotifyCooldownSec * 1000)) return;
+    g_lastNotifyTime = GetTickCount();
+    
+    string fullMsg = "[Predict-A-Trade Master Node] " + message;
+    fullMsg += "\nHost: " + AccountInfoString(ACCOUNT_COMPANY);
+    fullMsg += "\nBroker: " + g_broker;
+    fullMsg += "\nSymbol: " + g_symbol;
+    fullMsg += "\nTime: " + FormatISO8601UTC(TimeGMT()) + " (UTC)";
+    fullMsg += "\nAgent Status: " + status;
+    
+    Print("[NOTIFY] ", fullMsg);
+    
+    // 1. Telegram notification (via WebRequest HTTP POST)
+    if(TelegramBotToken != "" && TelegramChatID != "")
+    {
+        string url = "https://api.telegram.org/bot" + TelegramBotToken + "/sendMessage";
+        string body = "{\"chat_id\":\"" + TelegramChatID + "\",\"text\":\"" + fullMsg + "\"}";
+        char post[];
+        StringToCharArray(body, post);
+        string headers = "Content-Type: application/json\r\n";
+        char res[];
+        string resultHeaders;
+        if(WebRequest("POST", url, headers, 5000, post, res, resultHeaders))
+            Print("[NOTIFY] Telegram notification sent");
+        else
+            Print("[NOTIFY] Telegram failed: ", GetLastError());
+    }
+    
+    // 2. Discord notification (via WebRequest HTTP POST)
+    if(DiscordWebhookURL != "")
+    {
+        string body = "{\"content\":\"" + fullMsg + "\"}";
+        char post[];
+        StringToCharArray(body, post);
+        string headers = "Content-Type: application/json\r\n";
+        char res[];
+        string resultHeaders;
+        if(WebRequest("POST", DiscordWebhookURL, headers, 5000, post, res, resultHeaders))
+            Print("[NOTIFY] Discord notification sent");
+        else
+            Print("[NOTIFY] Discord failed: ", GetLastError());
+    }
+    
+    // 3. Email notification (via MT5 built-in SendMail)
+    if(EmailNotifyAddress != "")
+    {
+        string subject = "[Predict-A-Trade] Agent " + status;
+        if(SendMail(subject, fullMsg))
+            Print("[NOTIFY] Email sent to ", EmailNotifyAddress);
+        else
+            Print("[NOTIFY] Email failed: ", GetLastError());
+    }
+}
+
 void CheckAgentConnection()
 {
     static uint lastCheck = 0;
     if(GetTickCount() - lastCheck < 2000) return;
     lastCheck = GetTickCount();
 
-    if(FileIsExist(PAT_HEARTBEAT, FILE_COMMON))
+    bool agentOnline = FileIsExist(PAT_HEARTBEAT, FILE_COMMON);
+    
+    if(agentOnline)
+    {
         g_connection = "CONNECTED";
+        if(!g_lastAgentState)
+        {
+            g_lastAgentState = true;
+            Print("[AGENT] Windows Agent is now ACTIVE (heartbeat detected)");
+            SendAgentNotification("ACTIVE", "Windows Agent is now ACTIVE and connected to the Master Node.");
+        }
+    }
     else
     {
         if(g_connection == "CONNECTED")
         {
-            Print("Windows Agent heartbeat lost");
             g_connection = "OFFLINE";
+            Print("[AGENT] Windows Agent heartbeat lost");
+        }
+        if(g_lastAgentState)
+        {
+            g_lastAgentState = false;
+            Print("[AGENT] Windows Agent is now OFFLINE (heartbeat lost)");
+            SendAgentNotification("OFFLINE", "WARNING: Windows Agent is OFFLINE! No heartbeat detected. Live data feed may be interrupted.");
         }
     }
 }
@@ -231,8 +349,8 @@ void SendTickToAgent()
     msg += ",\"ask\":" + DoubleToString(ask, 5);
     msg += ",\"spread\":" + DoubleToString(ask - bid, 5);
     msg += ",\"volume\":" + IntegerToString(vol);
-    msg += ",\"timestamp\":\"" + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\"";
-    msg += ",\"gmt\":\"" + TimeToString(TimeGMT(), TIME_DATE|TIME_SECONDS) + "\"";
+    msg += ",\"timestamp\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
+    msg += ",\"gmt\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
     msg += ",\"source\":\"MT5_MASTER\"";
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";
@@ -263,8 +381,8 @@ void SendMarketSnapshot()
     string msg = "MARKET_SNAPSHOT|{";
     msg += "\"type\":\"MARKET_SNAPSHOT\"";
     msg += ",\"symbol\":\"" + g_symbol + "\"";
-    msg += ",\"timestamp\":\"" + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\"";
-    msg += ",\"gmt\":\"" + TimeToString(TimeGMT(), TIME_DATE|TIME_SECONDS) + "\"";
+    msg += ",\"timestamp\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
+    msg += ",\"gmt\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
     msg += ",\"source\":\"MT5_MASTER\"";
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";
@@ -283,7 +401,7 @@ void SendMarketSnapshot()
     msg += ",\"spread\":" + DoubleToString(ask - bid, 5);
     msg += ",\"spread_points\":" + IntegerToString(spreadPts);
     msg += ",\"volume\":" + IntegerToString(vol);
-    msg += ",\"time\":\"" + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\"";
+    msg += ",\"time\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
     msg += "}";
 
     //--- Multi-timeframe bar data
@@ -379,7 +497,7 @@ string GetBarJSON(ENUM_TIMEFRAMES timeframe)
         s += ",\"low\":" + DoubleToString(rates[0].low, 5);
         s += ",\"close\":" + DoubleToString(rates[0].close, 5);
         s += ",\"volume\":" + IntegerToString((long)rates[0].tick_volume);
-        s += ",\"time\":\"" + TimeToString(rates[0].time, TIME_DATE|TIME_SECONDS) + "\"";
+        s += ",\"time\":\"" + FormatISO8601UTC(rates[0].time - (long)TimeCurrent() + (long)TimeGMT()) + "\"";
     }
 
     if(copied >= 2)
@@ -576,7 +694,7 @@ void SendMasterInit()
     msg += ",\"digits\":" + IntegerToString((long)SymbolInfoInteger(g_symbol, SYMBOL_DIGITS));
     msg += ",\"no_license\":true";
     msg += ",\"no_trading\":true";
-    msg += ",\"timestamp\":\"" + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\"";
+    msg += ",\"timestamp\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
     msg += "}\n";
 
     MasterWrite(msg);

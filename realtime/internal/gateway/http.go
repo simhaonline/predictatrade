@@ -98,7 +98,8 @@ func (h *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":     "ok",
-		"timestamp":  time.Now().UTC(),
+		"timestamp":  time.Now().UTC().Format(time.RFC3339),
+		"server_time": time.Now().UTC().Format(time.RFC3339),
 		"service":    "realtime-engine",
 		"version":    "1.0.0",
 		"ws_clients":    h.hub.ClientCount(),
@@ -306,7 +307,15 @@ func (h *HTTPServer) handleMarketSnapshot(w http.ResponseWriter, r *http.Request
 		// Copy all MT5 snapshot fields
 		response["type"] = mt5Snapshot.Type
 		response["symbol"] = mt5Snapshot.Symbol
-		response["timestamp"] = mt5Snapshot.Timestamp
+		// Use GMT (UTC) field if available, otherwise fall back to timestamp
+		// The MT5 EA now sends ISO8601 UTC in both fields, but older EAs
+		// may still send broker time in "timestamp" and UTC in "gmt".
+		if mt5Snapshot.GMT != "" {
+			response["timestamp"] = mt5Snapshot.GMT
+		} else {
+			response["timestamp"] = mt5Snapshot.Timestamp
+		}
+		response["broker_timestamp"] = mt5Snapshot.Timestamp
 		response["source"] = mt5Snapshot.Source
 		response["broker"] = mt5Snapshot.Broker
 		response["node"] = mt5Snapshot.Node
@@ -397,6 +406,8 @@ func (h *HTTPServer) handleMarketSnapshot(w http.ResponseWriter, r *http.Request
 		}
 
 		response["indicators"] = indMap
+		// Always include authoritative server time for frontend clock sync
+		response["server_time"] = time.Now().UTC().Format(time.RFC3339)
 	} else if engineState != nil && engineState.Indicators.ATR.GreaterThan(decimal.Zero) {
 		// No MT5 snapshot — return locally-computed indicators only
 		localMap := h.buildIndicatorMap(&engineState.Indicators)
@@ -426,14 +437,16 @@ func (h *HTTPServer) handleMarketSnapshot(w http.ResponseWriter, r *http.Request
 		}
 		response["indicators"] = localMap
 		response["source"] = "LOCAL_COMPUTE_ONLY"
-		response["timestamp"] = time.Now().UTC()
+		response["timestamp"] = time.Now().UTC().Format(time.RFC3339)
+		response["server_time"] = time.Now().UTC().Format(time.RFC3339)
 		response["message"] = "No MT5 Master Node snapshot. Showing locally-computed indicators only."
 	} else {
 		// No data at all
 		response["snapshot"] = nil
 		response["status"] = "waiting"
 		response["message"] = "No Master Node snapshot received yet. Ensure Master Node EA is running and connected to Windows Agent."
-		response["timestamp"] = time.Now().UTC()
+		response["timestamp"] = time.Now().UTC().Format(time.RFC3339)
+		response["server_time"] = time.Now().UTC().Format(time.RFC3339)
 	}
 
 	json.NewEncoder(w).Encode(response)
@@ -551,7 +564,8 @@ func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) 
 		"agents_connected":      agentsConnected,
 		"master_node_connected": masterNodeConnected,
 		"snapshot_count":        snapshotCount,
-		"timestamp":             time.Now().UTC(),
+		"timestamp":             time.Now().UTC().Format(time.RFC3339),
+		"server_time":           time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
