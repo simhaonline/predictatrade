@@ -1,8 +1,8 @@
 {
     "version": "1.2.0",
     "download_url": "https://downloads.predictatrade.com/windows-agent/agent.exe",
-    "checksum": "1d14f90d0aa3d43c29b839a68e8819797b288f345a13239c8f4bf3add0bbf3c4",
+    "checksum": "981c43b63d650e88f8c76a0273cda1e399b7fedbd160fc688edec66c4e81938e",
     "min_version": "1.0.0",
-    "release_notes": "v1.2.0 \u2014 Clock drift detection: calculates server-vs-local time skew, reports in heartbeat, logs NTP sync warnings. UTC timestamp fix for MT5/MT4 EAs.",
-    "timestamp": "2026-08-21T16:41:16Z"
+    "release_notes": "v1.2.0 — Auto-built via scripts/build-windows-agent.sh",
+    "timestamp": "2026-08-21T16:42:34Z"
 }
