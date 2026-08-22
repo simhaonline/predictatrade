@@ -1,596 +1,331 @@
 # Predict-A-Trade XAUUSD
 
-## System Overview
+Predict-A-Trade is a multi-plane XAUUSD trading and subscription platform. The repository contains the Go real-time trading plane, NestJS control plane, Next.js presentation plane, Python research plane, Windows/MetaTrader edge components, PostgreSQL/TimescaleDB persistence, Valkey cache, and Docker deployment configuration.
 
-Production XAUUSD signal generation system with four independent strategy engines, deterministic mathematical scoring, hard risk gates, MT4/MT5 integration, SaaS control plane, and a Professional Trader Brain (PTB) shared intelligence layer with 20 advanced market analysis modules.
+This README reflects the repository audit performed on **22 August 2026**. It records what is present and wired in this checkout; it does not claim production readiness where provider, broker, security, or acceptance evidence is missing.
 
-## Current Production Status (v1.10.1 — 21 August 2026)
+## Current status
 
-**Audit Result:** ✅ PASS — 0 Failed, 0 Warned
+Overall status: **PARTIAL / CONDITIONAL — not a full `prompt.md` acceptance**.
 
-**Cross-Check (v1.10.1):** All newly applied v1.10.0 changes verified, bugs fixed, services restarted, all tests pass.
+Verified in the current workspace:
 
-| Component | Status | Details |
-|-----------|--------|---------|
-| Go Real-Time Engine | ✅ Active | Port 13081, 29/29 test packages pass (RiskEngine wired) |
-| NestJS Control Plane | ✅ Active | Port 13080, 107/107 tests pass (Valkey fix) |
-| Next.js Frontend | ✅ Active | Port 13082, 70 tests pass |
-| PostgreSQL + TimescaleDB | ✅ Active | Port 5432, 25 migrations, migration 022 applied |
-| Valkey | ✅ Active | Port 6379 |
-| Ollama (local LLM) | ✅ Active | Port 11434 |
-| ML Pipeline | ✅ Active | 42 features, XGBoost + LSTM ONNX models |
-| COT Data | ✅ Available | FMP API, net_position=141636 |
-| DXY Data | ✅ Available | Twelve Data, value=98.7451 |
-| pprof Diagnostics | ✅ Enabled | Localhost-only `/debug/pprof/` endpoints |
-| Signal Engine | ✅ Active | 50 directional signals, 49/50 geometry valid |
-| API Latency | ✅ 2.3ms | (< 50ms threshold) |
+- Go realtime tests pass with `go test ./...`.
+- Frontend tests pass: 16 suites, 84 tests.
+- Frontend TypeScript check passes.
+- Frontend production build passes and generates 48 routes.
+- Frontend ESLint has 0 errors and 14 warnings.
+- Docker `pat-postgres`, `pat-valkey`, `pat-realtime`, `pat-control`, and `pat-frontend` are healthy at audit time.
+- Subscription migrations 024 and 025 are present and additive/effective-dated.
+- No production payment, subscription, commission, payout, or live-trading mutation was performed during the audit.
 
-**Known Issues (non-blocking):**
-- ~~NestJS admin/audit service tests: 13 pre-existing failures~~ → **FIXED in v1.10.1** (brace bug + mock fix)
-- Status page service: inactive (can be started on demand)
-- News/breakout/OCO/notifications: software complete, disabled by default — credentials pending (external)
-- Live MT4/MT5 terminal validation: software verified, runtime pending (external)
+Full dashboard-v3 work remains blocked by authenticated user-scoped WebSocket authorization, complete API entitlement filtering, payment-provider activation, signal distribution/quota consumption, admin entitlement controls, and required persona/security acceptance tests. See [pending-work.md](pending-work.md).
 
-See `docs/reports/PRODUCTION_STATUS_REPORT.md` for full details.
+## Architecture and runtime wiring
 
----
+```text
+MT4/MT5 terminal
+        │
+        ▼
+Windows Agent / Master Node ── WebSocket ──► Go Real-Time Engine :13081
+                                                   │
+                         ┌─────────────────────────┼──────────────────────┐
+                         ▼                         ▼                      ▼
+                 Market ingestion            Features/PTB             Strategies
+                 candles/ticks               indicators/structure      four engines
+                         │                         │                      │
+                         └─────────────────────────┴──────────┬───────────┘
+                                                               ▼
+                                                   deterministic signal engine
+                                                   + hard risk gates
+                                                               │
+                                              TimescaleDB + Valkey + WebSocket
+                                                               │
+                 ┌─────────────────────────────────────────────┴──────────┐
+                 ▼                                                        ▼
+       Next.js presentation :13082                              Windows/MT delivery
+       user/admin dashboards
 
-## Four Signal Strategies
+       NestJS control plane :13080 ── IAM, billing, plans, entitlements,
+                                     licensing, devices, referrals,
+                                     commissions, payouts, audit, backtests
 
-| Strategy | Timeframes | Threshold | Min RR | Cooldown |
-|----------|-----------|-----------|--------|----------|
-| STANDARD_SCALPING | M1/M5 + M15/M30 | 65 | 1.2 | 15m |
-| ULTRA_SCALPING | M1 + M5 | 85 | 1.0 | 15m |
-| STANDARD_SWING | M15/M30/H1 + H4/D1 | 55 | 1.8 | 120m |
-| TREND_SWING | H1/H4 + D1/W1 | 50 | 2.5 | 360m |
-
-All four evaluate independently every eligible cycle. No master strategy copies results.
-
-## Signal Decision States
-
-```
-BUY      — Valid long trade
-SELL     — Valid short trade
-WAIT     — Setup exists but entry confirmation not complete (MTF conflict)
-NO-TRADE — Evaluation completed, no valid trade
-BLOCKED  — Valid candidate but hard gate prevented execution (spread, risk, cooldown, etc.)
-ERROR    — Evaluation could not be completed (missing data, system degraded)
+       Python research plane ── datasets, backtests, calibration, ML/RL research
 ```
 
-## Architecture
+### Plane boundaries
 
-```
-MT5 Master Node → Windows Agent → WebSocket
-    ↓
-Realtime Engine (Go)
-    ├── Market data ingestion → tick/candle aggregation
-    ├── Feature engines → indicators, structure, liquidity, FVG, regime, MTF, session
-    ├── PTB shared intelligence layer (20 modules, all SHADOW)
-    │   ├── MTF bias, volatility regime, market phase
-    │   ├── Liquidity void, wick fill, session imbalance
-    │   ├── Stop hunt proxy, manipulation proxy, engineered liquidity
-    │   ├── Gold correlation engine (DXY/silver/yields — awaiting live feed)
-    │   ├── Synthesis engine → bias, confidence, confluence, setup quality
-    │   └── Data authenticity guard → rejects non-live data
-    ├── Four strategy engines (independent evaluation)
-    ├── Signal engine → 12 hard gates (short-circuit)
-    ├── Calibration → sigmoid probability (clamped 0-100)
-    └── Persistence → TimescaleDB + WebSocket broadcast
-        ↓
-MT4/MT5 client delivery + Dashboard
-```
+| Plane | Location | Responsibility | Must not become |
+|---|---|---|---|
+| Real-time trading | `realtime/` | Market data, features, strategies, signals, hard gates, delivery and reconciliation | A synchronous billing/referral dependency |
+| SaaS/control | `control/` | IAM, MFA, RBAC, subscriptions, billing, entitlements, licensing, devices, referrals, commissions, payouts, admin | The tick-to-signal hot path |
+| Presentation | `frontend/` | Public site, user dashboard, admin console, charts and commercial UI | The authority for risk, entitlement, finance or probability |
+| Research | `research/` and `scripts/` | Historical data, backtesting, validation, calibration, ML/RL research | A mandatory dependency for every live tick |
+| Windows/MT edge | `windows-agent/`, `mql/` | Broker/terminal adapter, heartbeat, signed signal handling and execution guards | Primary intelligence or private server credentials |
 
-- **Go Real-Time Engine**: Market data → features → PTB → strategy → gates → signals → WS/DB
-- **NestJS Control Plane**: IAM, billing, licensing, referrals, commissions, payouts
-- **Next.js Frontend**: Dashboard, admin, public site (pending vNext API freeze)
-- **Windows Agent**: MT4/MT5 tick data bridge via WebSocket
-- **PostgreSQL/TimescaleDB**: Signal persistence, audit trail, PTB analysis history
-- **Valkey**: Hot cache for dashboard reads
+## Docker services
 
-## Live Master Node Data Requirement
+All application services are defined in [docker-compose.yml](docker-compose.yml). The repository’s intended runtime is Docker Compose; systemd files under `infra/systemd/` are compatibility/deployment artifacts and are not the active compose runtime.
 
-All production signal generation requires `source_type = LIVE_MASTER_NODE`. Test, mock, demo, fixture, synthetic, and placeholder data sources are rejected by the DataAuthenticityGuard. No production signal can be generated from non-live data.
+| Service | Container | Port | Role |
+|---|---|---:|---|
+| `postgres` | `pat-postgres` | 5432 | PostgreSQL 17 / TimescaleDB |
+| `valkey` | `pat-valkey` | 6379 | Cache, counters and hot state |
+| `realtime` | `pat-realtime` | 13081 | Go HTTP/WebSocket realtime engine |
+| `control` | `pat-control` | 13080 | NestJS API/control plane |
+| `frontend` | `pat-frontend` | 13082 | Next.js presentation plane |
+| `status` | `pat-status` | 13083 | Status page service |
+| `nginx` | `pat-nginx` | 80/443 | Reverse proxy, TLS and WebSocket routing |
+| `prometheus` | `pat-prometheus` | 9090 internal | Metrics collection |
+| `grafana` | `pat-grafana` | 3001→3000 | Dashboards |
+| `ntfy` | `pat-ntfy` | 8091→80 | Optional self-hosted notifications |
 
-## Professional Trader Brain (PTB)
-
-The PTB is a shared intelligence layer that enriches — but does NOT replace — the existing four strategy engines. All modules start in **SHADOW** mode with zero production score impact until validated.
-
-### Synthesis Engine
-
-The core PTB function combines all evidence into a unified assessment:
-
-| Output | Values |
-|--------|--------|
-| Bias | STRONG_LONG, LONG, NEUTRAL, SHORT, STRONG_SHORT, STAND_ASIDE |
-| Action | ENTER, WAIT, AVOID, EXIT |
-| Setup Quality | A+, A, B, C, D, F |
-| Position Size Multiplier | A+→1.0, A→0.8, B→0.6, C→0.4, D→0.2, F→0.0 |
-| Stop Distance Multiplier | High manipulation→1.5, Normal→1.0, Low vol→0.8 |
-
-### Advanced Modules
-
-| Module | Status | Score Impact |
-|--------|--------|-------------|
-| Liquidity Void / Displacement | SHADOW | 0 |
-| Wick Fill / Wickology | SHADOW | 0 |
-| Session Imbalance | SHADOW | 0 |
-| Candle Range Projector | SHADOW | 0 |
-| Time At Mode | SHADOW | 0 |
-| Engineered Liquidity Proxy | SHADOW | 0 |
-| Market Phase | SHADOW | 0 |
-| Relative Tick Volume Flow | SHADOW | 0 |
-| Price Delivery | SHADOW | 0 |
-| Stop Hunt Proxy | SHADOW | 0 |
-| Institutional Footprint | UNSUPPORTED | 0 |
-| Time Cycle Analytics | SHADOW | 0 |
-| Algo Activity Proxy | SHADOW | 0 |
-| Complete Liquidity Map | SHADOW | 0 |
-| Manipulation / Dislocation Index | SHADOW | 0 |
-| MTF Bias Engine | SHADOW | 0 |
-| Volatility Regime Engine | SHADOW | 0 |
-| S/R Quality Engine | SHADOW | 0 |
-| Microstructure Engine | SHADOW | 0 |
-| Statistical Performance Engine | SHADOW | 0 |
-| Data Quality Engine | ACTIVE | 0 (informational) |
-| Synthesis Engine | SHADOW | 0 |
-| Gold Correlation Engine | SHADOW (awaiting live feed) | 0 |
-| Gold Role Classification | SHADOW (returns UNKNOWN without data) | 0 |
-| ML Pattern Layer | DISABLED/RESEARCH | 0 |
-
-### Enhanced Regime Classification
-
-```
-STRONG_TREND_UP, STRONG_TREND_DOWN, WEAK_TREND_UP, WEAK_TREND_DOWN,
-RANGE_BOUND, HIGH_VOLATILITY, LOW_VOLATILITY, TRANSITIONING, MANIPULATION
-```
-
-### Gold Correlation Engine
-
-Computes rolling Pearson correlations between gold and DXY, silver, and US10Y yields. All external feeds default to UNAVAILABLE unless connected through the Master Node. No fabricated correlations — measures the actual relationship.
-
-### Gold Role Classification
-
-Determines what is driving XAUUSD: CURRENCY, SAFE_HAVEN, MONETARY_ASSET, COMMODITY, INFLATION_HEDGE, or UNKNOWN. Returns UNKNOWN when macro data is unavailable — no forced classification.
-
-## Data Source Limitations
-
-- **Broker tick volume** (not real centralized exchange volume) — used as proxy, clearly labeled
-- **Volume Profile / Cumulative Delta**: UNSUPPORTED — cleanly disabled, does not break decisions
-- **Institutional Footprint**: UNSUPPORTED — broker ticks cannot provide DOM/Level2/Time&Sales
-- **DXY / Silver / Yields**: Correlation engine ready, awaiting live Master Node feed
-- **COT Report**: Not connected — cleanly handled
-- **Real Yields / Macro**: Research only — no production feed
-
-## ML Status
-
-```
-ML STATUS = DISABLED / RESEARCH
-```
-
-The production trading pipeline is fully deterministic. No trained model is loaded. No AI/ML/LLM inference occurs in the runtime path.
-
-## Risk Management
-
-PTB position size multiplier and stop distance multiplier are **advisory only**. The existing risk gates remain authoritative:
-- Max risk per trade, max daily loss, exposure limits
-- Spread gates, drawdown rules, margin checks
-- Subscription/license/entitlement checks
-- 12 hard gates in short-circuit order
-
-PTB cannot bypass or weaken any hard gate.
-
-## Database
-
-- **PostgreSQL + TimescaleDB**: 13 migrations, hypertables for time-series
-- **PTB Analysis History**: `trading.ptb_analysis_history` (migration 013)
-- **Signal Performance**: `trading.signal_performance` (migration 013)
-- **Feature Flags**: `trading.ptb_feature_flags` (migration 012)
-- **Evidence Snapshots**: `trading.ptb_evidence_snapshots` (migration 012)
-- **Data Provenance**: `trading.data_provenance_log` (migration 012)
-
-## Monitoring
-
-Prometheus metrics for PTB:
-- `pat_ptb_analysis_total` — analysis count by action
-- `pat_ptb_analysis_latency_ms` — evaluation latency histogram
-- `pat_ptb_setup_quality_total` — grade distribution
-- `pat_ptb_regime_total` — regime distribution
-- `pat_ptb_manipulation_index` — current manipulation index
-- `pat_ptb_confluence_score` — current confluence score
-- `pat_ptb_component_failure_total` — component failures
-- `pat_ptb_stale_input_total` — stale input occurrences
-
-## Configuration
-
-| Setting | Default | Env Var |
-|---------|---------|---------|
-| PTB Enabled | true | `PTB_ENABLED` |
-| Shadow Mode | true | `PTB_SHADOW_MODE` |
-| Min Confidence | 65.0 | — |
-| Min Confluence | 70.0 | — |
-| Manipulation High Risk | 70.0 | — |
-| Correlation Short Window | 20 | — |
-| Correlation Medium Window | 50 | — |
-| Correlation Long Window | 100 | — |
-
-## Testing
+Useful commands:
 
 ```bash
-# Go realtime engine (278 tests)
-cd realtime && go build ./... && go vet ./... && go test ./...
-
-# NestJS control plane (75 tests)
-cd control && npm test
-
-# Python research (127 tests)
-cd research && pytest
+docker compose up -d
+docker compose up -d --build
+docker compose ps
+docker compose logs -f realtime
+docker compose restart frontend
+docker compose build control && docker compose up -d control
 ```
 
-**Total: 490 tests, 0 failures**
+The compose healthchecks currently use PostgreSQL readiness, Valkey ping, realtime `/health`, control `/api/v1/health`, and frontend `/` checks.
 
-## 12 Hard Gates (Preserved — Fail Closed)
+## Go realtime plane
 
-The signal pipeline enforces 12 deterministic hard gates in short-circuit order.
-The first hard veto terminates evaluation. **None may be weakened, bypassed, or removed.**
+The realtime binary is built from `realtime/cmd/realtime-engine`. Important packages include:
 
-| # | Gate | Purpose | Init State |
-|---|------|---------|-----------|
-| 1 | data_quality | Feed freshness and tick quality | PASS (live feed) |
-| 2 | session | Strategy session suitability | PASS (live feed) |
-| 3 | news | News blackout windows | PASS (live feed) |
-| 4 | spread | Max spread absolute + spread/ATR | PASS (live feed) |
-| 5 | slippage | Expected slippage limit | PASS (live feed) |
-| 6 | total_cost | Cost-to-target ratio | PASS (live feed) |
-| 7 | exposure | Aggregate XAUUSD exposure | UNKNOWN → PASS (broker telemetry) |
-| 8 | margin | Margin headroom | UNKNOWN → PASS (broker telemetry) |
-| 9 | rr_net_expectancy | Minimum R:R | PASS (live feed) |
-| 10 | entitlement | Strategy entitlement | UNKNOWN → PASS (control plane) |
-| 11 | license | License validity | UNKNOWN → PASS (control plane) |
-| 12 | execution_permission | Execution permit / system mode | UNKNOWN → PASS (agent connect) |
+- `internal/marketdata`: agent provider, tick/candle aggregation, historical bootstrap, persistence, COT and DXY providers.
+- `internal/features`: indicators, rolling values, VWAP, Fibonacci, FVG, liquidity, structure, regime, session and multi-timeframe state.
+- `internal/strategy`: four independent products, scoring, geometry, confluence, thresholds, capability checks and no-trade behavior.
+- `internal/gates`: data quality, session/news, spread/slippage/cost, exposure, margin, R:R, entitlement, license, execution permission and capital protection.
+- `internal/signal`: signal lifecycle, cooldown, duplicate prevention and delivery helpers.
+- `internal/gateway`: HTTP, dashboard WebSocket and Windows Agent WebSocket handlers.
+- `internal/cache`: Valkey candle and hot-state access.
+- `internal/ptb`: Professional Trader Brain shared analysis; PTB modules are not allowed to bypass hard gates.
+- `internal/reconciliation`, `internal/recovery`, `internal/oco`, `internal/hedging`: operational and trade-management support.
+- `pkg/health`, `pkg/news`, `pkg/macro`, `pkg/mlengine`, `pkg/ollama`, and `pkg/notifications`: health, provider and optional intelligence integrations.
 
-**Fail-closed behavior:** Gates 7-12 start as UNKNOWN and deny all execution until
-authoritative data arrives. When the Windows Agent connects (TICK/HEARTBEAT/MASTER_INIT),
-the execution permit gate is hydrated to PASS. When a MARKET_SNAPSHOT with account_info
-arrives, the exposure and margin gates are hydrated from live broker data. On agent
-disconnect, gates expire and fail closed automatically. No hardcoded `true` values.
-No optimistic defaults. No transient allow on restart.
+The four strategy identifiers are:
 
-## Entitlement & Execution Architecture
-
-```
-authenticated user
-→ backend subscription lookup
-→ active plan
-→ entitled strategy
-→ valid license
-→ authorized bound device
-→ active terminal
-→ verified broker/account state
-→ signal strategy eligibility
-→ risk approval (12 hard gates)
-→ execution approval
+```text
+STANDARD_SCALPING
+ULTRA_SCALPING
+STANDARD_SWING
+TREND_SWING
 ```
 
-Backend/server-side enforcement is mandatory. Frontend renders derived state only.
-The Go realtime engine derives entitlement/license/execution-permit flags from the
-authoritative gate registry cached state — never from hardcoded values.
+`NO-TRADE`, `BLOCKED`, `WAIT`, and degraded/unknown states are valid outcomes. A score, UI request, or frequency target must not force a trade.
 
-## Provider Modes
+### Data truth
 
-| Mode | Allowed In | Description |
-|------|-----------|-------------|
-| agent | production + dev | Live MT5 data from Windows Agent |
-| simulated | dev/test ONLY | Synthetic ticks for development |
-| replay | dev/test | Historical replay from fixture |
+- Production signal generation is intended to require a live Master Node/MT5 Agent source.
+- Broker tick volume is a proxy, not centralized XAUUSD exchange volume.
+- DOM, CVD, aggressor-side, footprint, iceberg and global resting-liquidity claims require an explicitly available provider capability.
+- Missing required data must degrade quality or produce `NO-TRADE`; synthetic/replay data must remain visibly non-production.
+- ML/RL/LLM components are optional/research or asynchronous presentation capabilities and cannot override deterministic gates.
 
-Production config validation rejects `PROVIDER_MODE=simulated` when `NODE_ENV=production`.
+### Realtime endpoints and events
 
-## COT (Commitment of Traders) Provider
+The Go gateway exposes HTTP health/snapshot routes and WebSocket paths including `/ws`, `/ws/v1`, `/ws/v1/agent`, and `/ws/agent`. Event envelopes contain event ID, stream ID, sequence, schema version, timestamp, type, priority, payload, and optional correlation ID.
 
-The COT provider fetches weekly Commitment of Traders data from Financial Modeling Prep (FMP) API.
+The current repository has strategy filtering code in the WebSocket broadcaster, but authenticated browser identity binding and complete user entitlement hydration/refresh remain pending. Do not treat the current WebSocket as complete user-level authorization.
 
-| Setting | Default | Env Var |
-|---------|---------|---------|
-| COT Enabled | false |  |
-| FMP API Key | (not set) |  |
-| COT Symbol | GC (Gold futures) |  |
+## NestJS control plane
 
-**Fail-safe behavior:** If  is not set or the API returns 402 (restricted),
-COT is marked as  — it NEVER fabricates data. Signal generation continues;
-the  optional pillar contributes 0 weight. COT does not block signal generation.
+The NestJS application is under `control/src/` and is assembled by `control/src/app.module.ts`. Current modules include `auth`, `users`, `admin`, `health`, `plans`, `subscriptions`, `billing`, `licensing`, `device-auth`, `referrals`, `commissions`, `payouts`, `audit`, `operations`, `backtest`, and `guest-preview`.
 
-**Note:** The current FMP subscription may not include COT endpoints (HTTP 402).
-Upgrade the FMP plan or use an alternative COT data source if needed.
+Representative API groups are:
 
-## DXY (US Dollar Index) Provider
-
-The DXY provider computes the ICE US Dollar Index from 6 component currency pairs
-fetched from the Twelve Data API.
-
-| Setting | Default | Env Var |
-|---------|---------|---------|
-| DXY Enabled | false | `DXY_ENABLED` |
-| Twelve Data API Key | (not set) | `TWELVEDATA_API_KEY` |
-
-**Computation:** DXY = 50.14348112 × EUR/USD^(-0.576) × USD/JPY^(0.136) ×
-GBP/USD^(-0.119) × USD/CAD^(0.091) × USD/SEK^(0.042) × USD/CHF^(0.036)
-
-**Strategy impact:** STANDARD_SWING and TREND_SWING have mandatory DXY pillars
-(weight 20). If DXY is unavailable, those strategies correctly fail to NO-TRADE.
-
-**Fail-safe behavior:** If `TWELVEDATA_API_KEY` is not set, rate-limited (429),
-or any component currency is unavailable, DXY is marked as `UNAVAILABLE` —
-it NEVER fabricates data. The CorrelationEngine returns `NO_DXY_FEED`.
-
-**Rate limiting:** Twelve Data free tier allows 8 API credits/minute. The DXY
-provider makes 6 calls per refresh (one per currency pair) every 5 minutes —
-well within the rate limit.
-
-## Production Environment Requirements
-
-- **DATABASE_URL**: Must be supplied via production secret. Insecure hardcoded
-  passwords (e.g. `pat_local_dev_only`) cause startup failure in production.
-- **JWT_SECRET**: Must be ≥32 chars, supplied via production secret file.
-  Known placeholder secrets cause startup failure in production.
-- **PROVIDER_MODE**: Must be `agent` in production.
-- **Valkey/Redis**: Required for hot cache and cooldown state.
-- **SMTP**: ✅ VERIFIED — `mail.predictatrade.com:587` (STARTTLS), user `no-reply@predictatrade.com`.
-  Password reset and verification emails working. SMTP connection tested successfully.
-- **TLS certificates**: Must be provisioned externally (Nginx).
-- **COT/DXY feeds**: Optional — fail safely when unavailable.
-
-## Current Status
-
-**Production Readiness:** CONDITIONAL GO
-
-See [docs/reports/PRODUCTION_FULL_AUDIT_REPORT.md](docs/reports/PRODUCTION_FULL_AUDIT_REPORT.md) for the full forensic audit.
-
-```
-CONDITIONAL GO
-
-Software Blockers: 0 (all P1/P2 resolved)
-Runtime Validation Required: Live MT4/MT5 terminal
-External Configuration: TLS certificates, COT subscription upgrade
-SMTP: ✅ Verified working (mail.predictatrade.com:587)
-DXY: ✅ Verified (Twelve Data API, 6-currency ICE formula)
-JWT Secret: ✅ Generated and stored (jwt_secret.txt, gitignored)
-Database URL: ✅ Stored in secret file (database_url.txt, gitignored)
+```text
+/api/v1/auth/*
+/api/v1/users/*
+/api/v1/plans
+/api/v1/subscriptions
+/api/v1/subscriptions/entitlements
+/api/v1/billing/invoices
+/api/v1/billing/webhook
+/api/v1/referrals/*
+/api/v1/commissions/*
+/api/v1/payouts/*
+/api/v1/licensing/*
+/api/v1/devices/*
+/api/v1/admin/*
+/api/v1/backtest/*
+/api/v1/health
 ```
 
-### Blocker Resolution Summary
+JWT authentication and admin guards exist. The subscription policy validates known strategy IDs, plan strategy limits, Free restrictions, and Standard restrictions. The entitlement endpoint currently returns the effective subscription row and plan entitlement map; a complete dashboard capability manifest and per-resource authorization layer are still pending.
 
-| ID | Severity | Resolution | Final Status |
-|----|----------|-------------|--------------|
-| P1-001 | P1 | Replaced hardcoded `true` gate values with authoritative gate-registry state | RESOLVED |
-| P1-002 | P1 | Changed canonical production env from `simulated` to `agent`; added config validation | RESOLVED |
-| P2-001 | P2 | Strengthened JWT secret validation; rejects placeholders + short secrets in production | RESOLVED |
-| P2-002 | P2 | Removed hardcoded DB password from production env files; added config validation | RESOLVED |
-| P2-003 | P2 | Conservative gate seeding — safety-critical gates start UNKNOWN (fail closed) | RESOLVED |
+The billing webhook service currently acknowledges/logs received events but does not constitute a verified provider adapter. Paid activation, signature verification, refunds, chargebacks, and lifecycle propagation therefore remain unverified.
 
-## Advanced Risk, Adaptation, Hedging, ML/RL, Sentiment
+## Next.js presentation plane
 
-The system includes an advanced intelligence layer on top of the existing four-strategy engine:
+The Next.js app is under `frontend/src/app`.
 
-### Loss Recovery / Capital Protection
-- State machine: NORMAL → RECOVERY → HALTED / DAILY_LIMIT
-- Anti-martingale, anti-revenge-trading
-- State isolated per account+strategy
-- Restart-safe persistence
-- See: [Advanced Risk Documentation](docs/ADVANCED_RISK_ADAPTATION_INTELLIGENCE.md)
+User routes include:
 
-### Rule-Based Adaptation
-- Market phase classification (TRENDING, RANGING, HIGH_VOLATILITY, etc.)
-- Dynamic parameter adjustment (stop distance, risk multiplier, confluence)
-- Can only make system MORE conservative — never increases risk above hard limits
-- Deep copy of weights — never mutates base config
+```text
+/dashboard/live
+/dashboard/signals
+/dashboard/strategies
+/dashboard/backtest
+/dashboard/trading-reports
+/dashboard/billing
+/dashboard/referrals
+/dashboard/mt4-mt5-client
+/dashboard/settings
+```
 
-### Controlled Hedging
-- **DISABLED BY DEFAULT**
-- Broker capability aware (hedging vs netting)
-- Exposure capped, no martingale escalation
-- Grid/options hedging OFF by default
-- Full lifecycle audit trail
+Admin routes include dashboard, users, subscriptions, billing, referrals, commissions, payouts, licenses, devices, activations, operations, signals, indicator monitoring, strategies, backtesting, reports, health, logs, and settings pages.
 
-### ML-Based Adaptation
-- Training runs OFFLINE in Python research plane
-- Only inference in Go production hot path
-- Comprehensive fallback to rule-based adaptation
-- Data leakage protection (chronological split, walk-forward)
-- Model registry with versioning
+Shared layout and design tokens are in `frontend/src/components/layout` and `frontend/src/styles/globals.css`. The current dashboard palette follows `predictatrade-live-patched.html`; API and backend code are not responsible for visual token changes.
 
-### RL Strategy Optimizer
-- Modes: disabled → shadow → filter_only → live_approved
-- Unvalidated model CANNOT directly control live execution
-- Reward includes drawdown penalty, transaction costs, overtrading penalty
-- Walk-forward/OOS validation required for live approval
+The frontend is a presentation layer. It must render server-authoritative plan, entitlement, signal, risk, execution, commission and payout state. Full capability-driven navigation, Free-only signal allocation UI, response-field redaction, and all direct-URL/API security tests remain pending; see [pending-work.md](pending-work.md).
 
-### Real-Time Sentiment Engine
-- Async background refresh — never blocks signal hot path
-- Provider abstraction (GDELT, Reuters, Fed, Reddit, Twitter/X)
-- Timeout, retry/backoff, stale-data detection
-- Neutral fallback when unavailable
-- Cached snapshot consumed by signal engine
+## Subscription, referral and financial model
 
-### Daily Maintenance
-- UTC-based daily reset
-- Idempotent (multi-instance safe)
-- Resets daily loss counters
+The active commercial packages are:
 
-### Database (Migration 014)
-- `trading.recovery_states` — loss recovery state machine
-- `trading.trade_results` — closed trade outcomes
-- `trading.blocked_signals` — blocked signal audit
-- `trading.adaptation_history` — adaptation decisions
-- `trading.hedge_positions` — active hedge lifecycle
-- `trading.hedge_history` — closed hedge audit
-- `trading.rl_training_history` — RL training runs
-- `trading.sentiment_snapshots` — cached sentiment state
-- `trading.sentiment_items` — sentiment data points
+| Code | Monthly | Annual | New sales |
+|---|---:|---:|---|
+| FREE | $0 | not configured | Enabled |
+| STANDARD | $99 | $990 | Enabled |
+| PRO | $299 | $2,990 | Enabled |
+| ELITE | $699 | $6,990 | Enabled |
+| BASIC | historical | historical | Hidden/legacy |
 
-### Testing (Updated)
+The current v3 referral configuration is effective-dated:
+
+- Standard: 10% / 3% / 1% at levels 1 / 2 / 3.
+- Pro: 15% / 4% / 2% at levels 1 / 2 / 3.
+- Elite: 18% / 5% / 2% at levels 1 / 2 / 3.
+- First purchase: 100% multiplier through level 3.
+- Second purchase: 75% multiplier at level 1.
+- Recurring purchase: 50% multiplier through level 3.
+
+Money is represented with PostgreSQL `DECIMAL(18,8)` and commission records are ledger-oriented. Existing historical rows are preserved. Calculation policy exists and is unit-tested, but provider-backed event activation and complete production reconciliation remain pending.
+
+## Database structure
+
+Database files are in `database/migrations/`. There are 25 migration files in this checkout, with historical duplicate numeric prefixes retained for compatibility. `scripts/migrate.sh` is the canonical forward runner and records status in `audit.migration_history`; rollback is explicitly not implemented by the runner and requires PITR or a forward correction.
+
+### Schemas
+
+| Schema | Main responsibility |
+|---|---|
+| `iam` | Organizations, users, roles, memberships, sessions and authentication state |
+| `control` | Plans, plan entitlements, strategy configuration, feature/config state |
+| `billing` | Subscriptions, invoices, invoice items, payments, payment events, refunds and credits |
+| `licensing` | Licenses, devices, MT accounts and activation state |
+| `referral` | Affiliate profiles, codes, attribution, five-level relationships, rules, immutable commission ledger, wallets, payout methods and payouts |
+| `trading` | Signals, candidates, rejections, delivery, market state, positions, risk, PTB, strategy and audit history |
+| `market` | Market data, candles, provider/provenance and capability state |
+| `research` | Research/backtest and model-related durable data |
+| `audit` | Audit events, migration history and operational traceability |
+| `support` | Support/complaint-related records where enabled by migrations |
+
+### Important migrations
+
+| Migration | Purpose |
+|---|---|
+| 001–008 | Schemas/roles, IAM, plans/billing/licensing, referral/commission/payout, trading tables, session/token, device activation |
+| 009–011 | Signal delivery/replay, completion audit, COT/capability WAL |
+| 012–014 | PTB intelligence, synthesis/performance, advanced risk/adaptation/hedging/sentiment |
+| 015–023 | Backtesting, stale-operation fixes, reconciliation, regime/slippage/SLTP/trade-management, news/OCO/notifications, guest preview |
+| 024 | v3 plan metadata, effective entitlement versions, strategy preferences, commercial events, signal-delivery ledger, commission snapshots, v3 rules and feature flags |
+| 025 | Subscription billing interval persistence and index |
+
+Migration 024 creates the durable `trading.signal_delivery_ledger`, but a complete production distribution writer and concurrent Free-quota consumption path are not yet proven. Valkey is cache/optimization state, not the durable financial or quota authority.
+
+## Research plane
+
+The Python package under `research/src/patresearch` provides datasets, reference math, vectorized indicators, calibration, backtesting, ML training and RL training. Tests are under `research/tests`. Python research artifacts must not silently become mandatory for the live Go decision path.
+
+Typical research commands:
 
 ```bash
-# Go realtime engine (243 tests)
-cd realtime && go build ./... && go vet ./... && go test ./...
-
-# NestJS control plane (75 tests)
-cd control && npm test
-
-# Python research (127 tests)
-cd research && pytest
-
-# Next.js frontend (39 tests)
-cd frontend && npm test
+cd research
+python -m pytest tests/ -v --tb=short
+python -m patresearch.backtesting.cli run --strategy STANDARD_SCALPING --seed 42
 ```
 
-**Total: 490 tests, 0 failures**
+## Windows Agent and MetaTrader edge
 
-## Backtesting Framework
+The Go Windows Agent is under `windows-agent/`; MQL adapters are under `mql/mt4` and `mql/mt5`. The edge responsibilities include installation/update support, device identity, heartbeats, IPC/pipe support, broker/terminal state, signed signal handling, and execution guards. Server-side prediction, private signing keys, and primary entitlement authority do not belong in EAs.
 
-The system includes a production-grade event-driven backtesting framework that reproduces the production strategy/PTB/risk gate logic through faithful Python adapters.
-
-### Key Features
-
-- **Live/backtest parity**: Same decision logic (PTB evidence, confluence scoring, risk gates, adaptation)
-- **No-lookahead guarantees**: Multi-timeframe alignment enforces information causality
-- **Realistic execution**: Spread, slippage, commission, latency, partial fills, rejections
-- **Conservative same-bar SL/TP**: Assumes worst case when order ambiguous
-- **Exit management**: Trailing stop, break-even, time exit
-- **Walk-forward analysis**: Train/test isolation with final untouched holdout
-- **Monte Carlo robustness**: Percentile distributions, probability of loss/drawdown
-- **Parameter sensitivity**: ±% perturbation analysis without altering production
-- **Deterministic**: Same data + config + seed = same results
-- **Reproducible**: Run manifests with full provenance
-
-### CLI
+Build/validation entry points:
 
 ```bash
-# Run a backtest
-cd research && python3 -m patresearch.backtesting.cli run --strategy STANDARD_SCALPING --seed 42
-
-# Walk-forward analysis
-cd research && python3 -m patresearch.backtesting.cli walk-forward --strategy STANDARD_SCALPING
-
-# Monte Carlo
-cd research && python3 -m patresearch.backtesting.cli monte-carlo --runs 1000
+./scripts/build-windows-agent.sh --bump
+cd windows-agent && go test -race -count=1 ./...
 ```
 
-See: [Backtesting Guide](docs/BACKTESTING.md)
+Live broker/terminal qualification still requires controlled Windows/MT4/MT5 runtime evidence and must not be inferred from compilation alone.
 
-## Vectorized Indicator Engine (v1.5.0)
+## Observability and operations
 
-A fully vectorized pandas/numpy indicator and signal engine (`QuantitativeStrategyEngine`)
-provides fast batch computation across large historical datasets:
+Prometheus and Grafana configuration is under `infra/prometheus` and `infra/grafana`. Go metrics include realtime health, WebSocket connections/messages, PTB analysis, gate state, signal flow and provider state. Structured logging is used by the Go engine; NestJS exposes health and metrics support through its modules.
 
-```python
-from patresearch import QuantitativeStrategyEngine
+Operational and validation documentation is under:
 
-engine = QuantitativeStrategyEngine()
-result = engine.generate_composite_signals(df)
-# Returns: OHLCV + all indicators + 'signal' (-1/0/1) + stop_loss/take_profit
-```
+- `docs/reports/` — audit, production, GO/NO-GO and traceability reports.
+- `docs/database/` — schema, migration, traceability and performance documentation.
+- `docs/operations/` — operational procedures.
+- `docs/guides/` — user/admin/MT setup guides.
+- `docs/strategy/` — strategy and capability documentation.
+- `docs/SUBSCRIPTION_*` — current subscription/referral design and evidence.
+- [pending-work.md](pending-work.md) — open work required for complete `prompt.md` acceptance.
 
-- 7 vectorized indicators: SMA, EMA, ADX, RSI, MACD, Bollinger Bands, ATR
-- 6 signal methods + composite pipeline (EMA trend filter → RSI/BB triggers → ATR stops)
-- No Python loops over time index — fully vectorized via pandas/numpy
-- Module: `research/src/patresearch/quantitative_strategy_engine.py`
-
-
-### Testing (Updated)
+## Canonical development commands
 
 ```bash
-# Go realtime engine (243 tests)
-cd realtime && go build ./... && go vet ./... && go test ./...
+# Infrastructure
+make infra-up
+make infra-down
+docker compose ps
 
-# Python research (127 tests — includes backtesting + vectorized engine)
-cd research && python3 -m pytest tests/
+# Database
+make db-migrate
+make db-seed
+make db-test
 
-# NestJS control plane (75 tests)
-cd control && npm test
+# Go
+make go-build
+make go-test
+make go-lint
 
-# Next.js frontend (39 tests)
-cd frontend && npm test
+# Control plane
+make control-build
+make control-test
+make control-lint
+
+# Frontend
+make frontend-build
+make frontend-test
+make frontend-lint
+
+# Research and edge
+make research-test
+make agent-build
+make agent-test
 ```
 
-**Total: 490 tests, 0 failures**
+Use `npm run lint` from `frontend/` for the frontend lint check because the production frontend image intentionally contains the compiled runtime rather than the source/configuration tree.
 
-## v1.8.0 Updates (20 August 2026)
+## Security and production boundary
 
-- **Trade Management Forensic Audit**: Full audit of break-even, trailing, partial close, profit lock — all already implemented and wired in MT4/MT5 EAs
-- **Broker Stop Level Validation**: EAs now check `MODE_STOPLEVEL`/`MODE_FREEZELEVEL` (MT4) and `SYMBOL_TRADE_STOPS_LEVEL`/`SYMBOL_TRADE_FREEZE_LEVEL` (MT5) before SL modification
-- **Cost-Aware Break-Even**: Break-even SL now adds spread buffer (`entry + spread`) to prevent small realized losses
-- **SL Modification Audit Trail**: New `sl_modification_history` table + 12 new columns on `positions` for confirmed/requested/previous SL tracking
-- **Central SL Validation**: 27 new tests proving monotonic SL invariant, R calculation, management state machine
-- **Strategy-Specific Profiles**: 4 distinct trade management configs (Standard Scalping, Ultra Scalping, Standard Swing, Trend Swing)
+Do not enable live automated trading, mutate real subscriptions/commissions/wallets/payouts, run destructive production migrations, export secrets, rotate signing keys, or publish unsupported performance claims without explicit operator authorization and the applicable release evidence.
 
-## v1.7.0 Updates (20 August 2026)
+Local compose defaults include development credentials and must not be used as production secrets. Production requires injected secrets, TLS, provider credentials, broker/agent qualification, backup/restore evidence, financial reconciliation, entitlement/security tests, and rollback readiness.
 
-- **DXY Live**: US Dollar Index now fetched from Twelve Data API (value=98.72, status=AVAILABLE) — no longer blocks signal generation
-- **COT Configured**: FMP API key set — free tier restricted (HTTP 403), non-blocking, will activate on subscription upgrade
-- **Projected Performance**: Performance Matrix now shows projected hit rate and avg R from signal geometry (was null when no closed trades)
-- **Dashboard Auto-Refresh**: Live Signal Pipeline auto-refreshes from REST every 10s — no manual page refresh needed
-- **Real-Time Charts**: Value Timeline uses TradingView's lightweight-charts engine with crosshair, zoom, pan
+## Primary project controls
 
-## v1.6.0 Updates (20 August 2026)
-
-- **Microprofit Candidate Geometry**: BUY_CANDIDATE/SELL_CANDIDATE now have per-strategy tighter SL/TP (1.0-1.5×ATR stops, 1.0-1.5×ATR TP1) to capture microprofit immediately
-- **Indicator Historical Bootstrap**: Engine loads 250 real candles per timeframe from PostgreSQL/TimescaleDB on startup — all 42 indicators warm immediately (was 8-16h wait)
-- **Valkey Candle Cache**: Bootstrap candles cached in Valkey (sub-ms reads), chart candles cached with 60s TTL
-- **Indicator Monitor Page**: New `/admin/indicator-monitor` with liveness, active/reactive, performance matrix, and interactive charts
-- **Wilder Smoothing**: RSI, ATR, ADX corrected to Wilder's method (was simple average)
-- **Capital Protection**: 5% daily loss limit, 1% per-trade risk, partial TP (50/30/20), swap and slippage protection
-- **HIGH_VOLATILITY Fix**: All 4 strategies now accept HIGH_VOLATILITY regime (was missing → all NO-TRADE)
-- **DB Save Fix**: Fixed ON CONFLICT constraint for signal persistence
-
-## v1.5.0 Updates (20 August 2026)
-
-- **Vectorized Strategy Engine**: `QuantitativeStrategyEngine` — fully vectorized pandas/numpy indicator & signal engine (SMA, EMA, ADX, RSI, MACD, Bollinger, ATR + composite pipeline)
-- **29 new tests**: indicator parity verified against scalar reference, composite risk geometry verified, 127/127 Python suite pass
-- **Documentation cleanup**: 25 obsolete/duplicate documents removed, 12 canonical docs updated
-
-## v1.4.0 Updates (19 August 2026)
-
-### Color Palette
-
-The frontend uses the approved Predict-A-Trade color palette via CSS variables (`globals.css`) and semantic Tailwind tokens (`tailwind.config.ts`):
-
-| Token | Light | Dark | Usage |
-|-------|-------|------|-------|
-| `pat-success` | #10B981 | #10B981 | BUY, TP, BID |
-| `pat-danger` | #EF4444 | #EF4444 | SELL, SL, ASK |
-| `pat-warning` | #EAB308 | #EAB308 | SESSION |
-| `pat-info` | #3B82F6 | #3B82F6 | INFO |
-| `pat-candidate-buy` | #F59E0B | #F59E0B | BUY_CANDIDATE |
-| `pat-candidate-sell` | #FB923C | #FB923C | SELL_CANDIDATE |
-
-All 80+ hardcoded Tailwind color classes replaced with semantic tokens. Critical HSL `%` sign bug fixed.
-
-### Signal Delivery to MT4/MT5 Agents
-
-The Go engine now broadcasts directional signals (BUY, SELL, BUY_CANDIDATE, SELL_CANDIDATE) to both the frontend dashboard (WebSocketHub) and the Windows Agent (AgentHub) simultaneously. NO-TRADE signals are not forwarded to reduce noise.
-
-```
-Go Engine → WebSocket → Windows Agent → PAT_signals.txt → MT4/MT5 EA
-```
-
-### TP/SL Geometry Fix
-
-Entry, Stop Loss, and Take Profit levels are now computed using ATR-based multipliers (same volatility measure for both SL and TP):
-
-| Strategy | SL (×ATR) | TP1 (×ATR) | TP2 (×ATR) | TP3 (×ATR) | MinRR |
-|----------|----------|-----------|-----------|-----------|-------|
-| STANDARD_SCALPING | 1.0 | 1.0 | 1.5 | 2.0 | 1.2 |
-| ULTRA_SCALPING | 0.5 | 0.5 | 0.75 | 1.0 | 1.0 |
-| STANDARD_SWING | 1.5 | 1.5 | 2.5 | 3.5 | 1.8 |
-| TREND_SWING | 2.0 | 2.0 | 4.0 | 6.0 | 2.5 |
-
-**Before (broken):** TP1 = MinRR × SL_distance → TP1 was 2.5x further than SL, trades hit SL before reaching TP1.
-**After (fixed):** TP1 = ATRMultiplierTP1 × ATR → balanced R:R ≈ 1:1, MinRR gate validates and rejects insufficient signals.
-
-### MQL EA v1.05
-
-Both MT4 and MT5 EAs updated to v1.05 with strategy selection and direction filter inputs:
-- 4 strategy toggles (all enabled by default)
-- 4 direction filters (BUY, SELL, BUY_CANDIDATE, SELL_CANDIDATE — all enabled by default)
-- Signal counters on chart panel (received, displayed, filtered)
-- Fixed `ExtractJSONDouble()` to skip leading quotes in JSON values
+- [AGENTS.md](AGENTS.md) — repository operating contract.
+- [prompt.md](prompt.md) — user-dashboard v3 entitlement/subscription/access-control requirements.
+- [docs/Predict-A-Trade_FINAL_SCOPE_OF_WORK.md](docs/Predict-A-Trade_FINAL_SCOPE_OF_WORK.md) — canonical SOW.
+- [pending-work.md](pending-work.md) — current verified gaps and acceptance work.
+- [plans-summary.md](plans-summary.md) — current plan and referral summary.
+- [MANIFEST.md](MANIFEST.md) — repository manifest.
