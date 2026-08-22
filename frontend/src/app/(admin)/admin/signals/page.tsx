@@ -28,11 +28,13 @@ interface GoSignal {
   Timeframe: string;
   Status: string;
   ReasonCodes: string[] | null;
-  Evidence: any[] | null;
-  GateResults: any[] | null;
+  Evidence: DiagnosticRecord[] | null;
+  GateResults: DiagnosticRecord[] | null;
   CreatedAt: string;
   ExpiresAt: string;
 }
+
+type DiagnosticRecord = Record<string, string | number | string[] | null | undefined>;
 
 const STRATEGY_TABS = ["ALL", "STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING"] as const;
 const DIRECTION_FILTERS = ["ALL", "BUY", "BUY_CANDIDATE", "SELL", "SELL_CANDIDATE", "NO-TRADE"] as const;
@@ -154,7 +156,7 @@ export default function AdminSignalsPage() {
         <span><span className="text-pat-text-secondary font-bold">NO-TRADE</span> = Insufficient score or gate veto</span>
       </div>
       <div className="text-[10px] text-pat-text-muted mt-1">
-        <span className="font-medium">Prob</span> = Calibrated probability. Shows "Pending" until calibration model is validated (SOW §16, §36). Raw score is shown in the Score column.
+        <span className="font-medium">Prob</span> = Calibrated probability. Shows &quot;Pending&quot; until calibration model is validated (SOW §16, §36). Raw score is shown in the Score column.
       </div>
       </div>
 
@@ -236,7 +238,7 @@ export default function AdminSignalsPage() {
                   <div key={i} className="flex items-center gap-2 text-[10px]">
                     <span className="text-pat-text-muted w-32">{g.gate_id || g.GateID || "—"}</span>
                     <span className={`w-12 ${g.result === "PASS" || g.Result === "PASS" ? "text-pat-success" : g.result === "VETO" || g.Result === "VETO" ? "text-pat-danger" : "text-pat-session"}`}>{g.result || g.Result || "—"}</span>
-                    <span className="text-pat-text-secondary">{(g.reason_codes || []).join(", ") || "—"}</span>
+                    <span className="text-pat-text-secondary">{Array.isArray(g.reason_codes) ? g.reason_codes.join(", ") || "—" : String(g.reason_codes || "—")}</span>
                   </div>
                 ))}
               </div>

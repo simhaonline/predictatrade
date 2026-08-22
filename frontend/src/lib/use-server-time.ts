@@ -13,7 +13,7 @@
  * server-authoritative UTC time, not browser local time.
  */
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { customInstance } from "@/lib/axios-instance";
 
 interface ServerTimeState {
@@ -34,13 +34,9 @@ const DRIFT_CRITICAL_MS = 120_000; // 2 minutes
 const SYNC_INTERVAL_MS = 30_000; // 30 seconds
 
 export function useServerTime() {
-  const [state, setState] = useState<ServerTimeState>({
-    serverTimeMs: Date.now(),
-    driftMs: 0,
-    driftWarning: false,
-    driftCritical: false,
-    lastSync: "",
-  });
+  const [state, setState] = useState<ServerTimeState>(() => ({
+      serverTimeMs: Date.now(), driftMs: 0, driftWarning: false, driftCritical: false, lastSync: "",
+    }));
 
   const syncTime = useCallback(async () => {
     try {
@@ -72,9 +68,9 @@ export function useServerTime() {
   }, []);
 
   useEffect(() => {
-    syncTime();
-    const interval = setInterval(syncTime, SYNC_INTERVAL_MS);
-    return () => clearInterval(interval);
+    const initialSync = window.setTimeout(() => { void syncTime(); }, 0);
+    const interval = setInterval(() => { void syncTime(); }, SYNC_INTERVAL_MS);
+    return () => { window.clearTimeout(initialSync); clearInterval(interval); };
   }, [syncTime]);
 
   return state;

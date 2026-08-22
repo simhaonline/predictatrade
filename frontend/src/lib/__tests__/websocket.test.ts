@@ -83,14 +83,7 @@ describe('normalizeWsMessage — Go EventEnvelope to frontend WsMessage', () => 
 
     expect(msg).not.toBeNull();
     expect(msg!.type).toBe('signal');
-    expect((msg!.payload as any).id).toBe('sig-123');
-    expect((msg!.payload as any).direction).toBe('BUY');
-    expect((msg!.payload as any).strategy).toBe('STANDARD_SCALPING');
-    expect((msg!.payload as any).probability).toBe(0.75);
-    expect((msg!.payload as any).entryPrice).toBe(4357.80);
-    expect((msg!.payload as any).stopLoss).toBe(4343.76);
-    expect((msg!.payload as any).takeProfit).toBe(4380.14);
-    expect((msg!.payload as any).timestamp).toBe('2026-08-19T13:04:00Z');
+    expect(msg!.payload).toMatchObject({ id: 'sig-123', direction: 'BUY', strategy: 'STANDARD_SCALPING', probability: 0.75, entryPrice: 4357.80, stopLoss: 4343.76, takeProfit: 4380.14, timestamp: '2026-08-19T13:04:00Z' });
   });
 
   it('should normalize NO_TRADE signals', () => {
@@ -107,8 +100,7 @@ describe('normalizeWsMessage — Go EventEnvelope to frontend WsMessage', () => 
     });
 
     expect(msg!.type).toBe('signal');
-    expect((msg!.payload as any).direction).toBe('NO_TRADE');
-    expect((msg!.payload as any).strategy).toBe('TREND_SWING');
+    expect(msg!.payload).toMatchObject({ direction: 'NO_TRADE', strategy: 'TREND_SWING' });
   });
 
   it('should normalize MARKET_STATE type to market', () => {
@@ -124,9 +116,7 @@ describe('normalizeWsMessage — Go EventEnvelope to frontend WsMessage', () => 
     });
 
     expect(msg!.type).toBe('market');
-    expect((msg!.payload as any).bid).toBe(4357.38);
-    expect((msg!.payload as any).ask).toBe(4357.80);
-    expect((msg!.payload as any).spread).toBe(0.42);
+    expect(msg!.payload).toMatchObject({ bid: 4357.38, ask: 4357.80, spread: 0.42 });
   });
 
   it('should normalize SNAPSHOT connection message', () => {
@@ -149,7 +139,7 @@ describe('normalizeWsMessage — Go EventEnvelope to frontend WsMessage', () => 
     });
 
     expect(msg!.type).toBe('agent');
-    expect((msg!.payload as any).connected).toBe(true);
+    expect(msg!.payload).toMatchObject({ connected: true });
   });
 
   it('should return null for invalid input', () => {

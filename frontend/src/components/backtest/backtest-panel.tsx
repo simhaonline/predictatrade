@@ -46,8 +46,15 @@ export default function BacktestPanel({ isAdmin }: { isAdmin?: boolean }) {
     finally { setLoadingData(false); }
   }, [timeframe]);
 
-  useEffect(() => { setMounted(true); }, []);
-  useEffect(() => { if (mounted) loadData(); }, [loadData, mounted]);
+  useEffect(() => {
+    const mountTimer = window.setTimeout(() => setMounted(true), 0);
+    return () => window.clearTimeout(mountTimer);
+  }, []);
+  useEffect(() => {
+    if (!mounted) return;
+    const loadTimer = window.setTimeout(() => { void loadData(); }, 0);
+    return () => window.clearTimeout(loadTimer);
+  }, [loadData, mounted]);
 
   if (!mounted) return null;
 

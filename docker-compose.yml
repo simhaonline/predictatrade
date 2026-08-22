@@ -78,7 +78,7 @@ services:
       - pat-net
     restart: always
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:13081/health"]
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:13081/health"]
       interval: 10s
       timeout: 5s
       retries: 10

@@ -13,7 +13,7 @@ RUN CGO_ENABLED=1 go build -o bin/realtime-engine ./cmd/realtime-engine/
 # Runtime stage
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tzdata && rm -rf /var/lib/apt/lists/*
 ENV TZ=UTC
 
 WORKDIR /app

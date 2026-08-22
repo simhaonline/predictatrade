@@ -44,7 +44,14 @@ export type ConnectionState = 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' | 'REC
 // Normalize Go engine EventEnvelope to frontend WsMessage format.
 // The Go engine sends: { type: "SIGNAL", payload: { ID, Direction, StrategyID, ... } }
 // The frontend expects: { type: "signal", payload: { id, direction, strategy, ... } }
-export function normalizeWsMessage(raw: any): WsMessage | null {
+type RawRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): RawRecord | null {
+  return value !== null && typeof value === 'object' ? value as RawRecord : null;
+}
+
+export function normalizeWsMessage(input: unknown): WsMessage | null {
+  const raw = asRecord(input);
   if (!raw || typeof raw.type !== 'string') return null;
 
   const typeMap: Record<string, string> = {
@@ -58,12 +65,14 @@ export function normalizeWsMessage(raw: any): WsMessage | null {
 
   const lowerType = typeMap[raw.type] || raw.type.toLowerCase();
 
-  if (lowerType === 'signal' && raw.payload) {
-    const p = raw.payload;
+  const payload = asRecord(raw.payload);
+
+  if (lowerType === 'signal' && payload) {
+    const p = payload;
     return {
       type: 'signal',
       payload: {
-        id: p.ID || p.id || '',
+        id: String(p.ID || p.id || ''),
         direction: (p.Direction || p.direction || 'NO_TRADE') as 'BUY' | 'SELL',
         probability: Number(p.CalibratedProbability || p.calibratedProbability || p.probability || 0),
         entryPrice: Number(p.EntryPrice || p.entryPrice || 0),
@@ -76,10 +85,10 @@ export function normalizeWsMessage(raw: any): WsMessage | null {
     };
   }
 
-  if (lowerType === 'market' && raw.payload) {
-    const p = raw.payload;
+  if (lowerType === 'market' && payload) {
+    const p = payload;
     // MarketState or MarketSnapshot — extract bid/ask/spread
-    const tick = p.LastTick || p.tick || p;
+    const tick = asRecord(p.LastTick) || asRecord(p.tick) || p;
     return {
       type: 'market',
       payload: {
@@ -88,26 +97,26 @@ export function normalizeWsMessage(raw: any): WsMessage | null {
         ask: Number(tick.Ask || p.Ask || p.ask || 0),
         spread: Number(tick.Spread || p.Spread || p.spread || 0),
         timestamp: String(tick.GatewayTimestamp || p.Timestamp || p.timestamp || new Date().toISOString()),
-        session: String((p.Session && (p.Session.CurrentSession || p.Session)) || p.session || ''),
+        session: String((asRecord(p.Session)?.CurrentSession || p.Session || p.session || '')),
       },
     };
   }
 
-  if (lowerType === 'agent' && raw.payload) {
-    const p = raw.payload;
+  if (lowerType === 'agent' && payload) {
+    const p = payload;
     return {
       type: 'agent',
       payload: {
         agentId: String(p.AgentID || p.agentId || p.agent_id || ''),
-        connected: Boolean(p.Connected ?? p.connected ?? p.AgentsConnected > 0),
+        connected: Boolean(p.Connected ?? p.connected ?? (Number(p.AgentsConnected) > 0)),
         lastSeen: String(p.LastSeen || p.last_seen || p.Timestamp || new Date().toISOString()),
         version: p.Version ? String(p.Version) : undefined,
       },
     };
   }
 
-  if (lowerType === 'gate' && raw.payload) {
-    const p = raw.payload;
+  if (lowerType === 'gate' && payload) {
+    const p = payload;
     return {
       type: 'gate',
       payload: {
@@ -120,7 +129,7 @@ export function normalizeWsMessage(raw: any): WsMessage | null {
   }
 
   // Unknown type — pass through with lowercase
-  return { type: lowerType as any, payload: raw.payload || {} };
+  return null;
 }
 
 export class WebSocketManager {
