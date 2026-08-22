@@ -26,6 +26,9 @@ interface CommissionSummary {
   pending_amount: string;
   confirmed_count: string;
   confirmed_amount: string;
+  available_amount: string;
+  paid_count: string;
+  paid_amount: string;
   reversed_count: string;
   reversed_amount: string;
 }
@@ -39,10 +42,16 @@ interface AdminPayout {
   created_at: string;
   approved_at: string | null;
 }
+interface CommercialPlan { code: "FREE" | "STANDARD" | "PRO" | "ELITE"; monthly_price: string; annual_price: string | null; referral_rates: Record<string, string>; }
 
 export default function AdminReferralsPage() {
   const [tab, setTab] = useState<"commissions" | "payouts" | "summary">("commissions");
   const [page, setPage] = useState(1);
+
+  const plansQ = useQuery<CommercialPlan[]>({
+    queryKey: ["commercial-plans"],
+    queryFn: async () => (await customInstance.get("/plans")).data as CommercialPlan[],
+  });
 
   const commissionsQ = useQuery({
     queryKey: ["admin-commissions", page],
@@ -112,10 +121,10 @@ export default function AdminReferralsPage() {
         </div>
         <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-pat-text-secondary">Confirmed</span>
+            <span className="text-sm text-pat-text-secondary">Paid</span>
             <IconCoin size={18} className="text-pat-success" />
           </div>
-          <div className="text-2xl font-bold text-pat-text-primary">${parseFloat(summaryQ.data?.confirmed_amount ?? "0").toFixed(2)}</div>
+          <div className="text-2xl font-bold text-pat-text-primary">${parseFloat(summaryQ.data?.paid_amount ?? "0").toFixed(2)}</div>
         </div>
         <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-4">
           <div className="flex items-center justify-between mb-2">
@@ -131,6 +140,17 @@ export default function AdminReferralsPage() {
           </div>
           <div className="text-2xl font-bold text-pat-text-primary">{payoutStatsQ.data?.pending ?? "—"}</div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+        {(plansQ.data ?? []).map((plan) => (
+          <div key={plan.code} className="rounded-lg border border-pat-border bg-pat-bg-surface p-4">
+            <div className="text-sm font-semibold text-pat-text-primary">{plan.code}</div>
+            <div className="mt-2 text-xs text-pat-text-secondary">Base referral rates</div>
+            <div className="mt-1 text-sm text-pat-text-primary">{Object.entries(plan.referral_rates ?? {}).length ? Object.entries(plan.referral_rates).map(([level, rate]) => `L${level} ${Number(rate) * 100}%`).join(" · ") : "No commission"}</div>
+            <div className="mt-1 text-xs text-pat-text-muted">${Number(plan.monthly_price || 0).toFixed(0)}/mo{plan.annual_price ? ` · $${Number(plan.annual_price).toFixed(0)}/yr` : ""}</div>
+          </div>
+        ))}
       </div>
 
       <div className="flex gap-2">
@@ -175,8 +195,8 @@ export default function AdminReferralsPage() {
             <div><div className="text-xs text-pat-text-muted">Total Amount</div><div className="text-lg font-semibold text-pat-text-primary">${parseFloat(summaryQ.data.total_amount).toFixed(2)}</div></div>
             <div><div className="text-xs text-pat-text-muted">Pending Count</div><div className="text-lg font-semibold text-pat-text-primary">{summaryQ.data.pending_count}</div></div>
             <div><div className="text-xs text-pat-text-muted">Pending Amount</div><div className="text-lg font-semibold text-pat-warning">${parseFloat(summaryQ.data.pending_amount).toFixed(2)}</div></div>
-            <div><div className="text-xs text-pat-text-muted">Confirmed Count</div><div className="text-lg font-semibold text-pat-success">{summaryQ.data.confirmed_count}</div></div>
-            <div><div className="text-xs text-pat-text-muted">Confirmed Amount</div><div className="text-lg font-semibold text-pat-success">${parseFloat(summaryQ.data.confirmed_amount).toFixed(2)}</div></div>
+            <div><div className="text-xs text-pat-text-muted">Paid Count</div><div className="text-lg font-semibold text-pat-success">{summaryQ.data.paid_count ?? summaryQ.data.confirmed_count}</div></div>
+            <div><div className="text-xs text-pat-text-muted">Paid Amount</div><div className="text-lg font-semibold text-pat-success">${parseFloat(summaryQ.data.paid_amount ?? summaryQ.data.confirmed_amount).toFixed(2)}</div></div>
             <div><div className="text-xs text-pat-text-muted">Reversed Count</div><div className="text-lg font-semibold text-pat-danger">{summaryQ.data.reversed_count}</div></div>
             <div><div className="text-xs text-pat-text-muted">Reversed Amount</div><div className="text-lg font-semibold text-pat-danger">${parseFloat(summaryQ.data.reversed_amount).toFixed(2)}</div></div>
           </div>

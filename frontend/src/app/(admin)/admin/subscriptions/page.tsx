@@ -11,7 +11,10 @@ interface Subscription {
   user_id: string;
   user_email: string;
   plan_id: string;
+  plan_code: string;
   plan_name: string;
+  monthly_price: string;
+  annual_price: string | null;
   status: string;
   billing_cycle: string;
   current_period_start: string;
@@ -32,7 +35,8 @@ export default function AdminSubscriptionsPage() {
 
   const columns: DataTableColumn<Subscription>[] = [
     { key: "user_email", header: "User", cell: (row) => <span className="text-sm text-pat-text-primary">{row.user_email || "—"}</span> },
-    { key: "plan_name", header: "Plan", cell: (row) => <span className="text-sm text-pat-text-primary">{row.plan_name || "—"}</span> },
+    { key: "plan_name", header: "Plan", cell: (row) => <span className="text-sm text-pat-text-primary">{row.plan_code === "BASIC" ? "Legacy" : row.plan_name || "—"}</span> },
+    { key: "monthly_price", header: "Fee", cell: (row) => <span className="text-xs text-pat-text-secondary">${Number(row.monthly_price || 0).toFixed(0)}/mo{row.annual_price ? ` · $${Number(row.annual_price).toFixed(0)}/yr` : ""}</span> },
     { key: "billing_cycle", header: "Cycle", cell: (row) => <span className="text-xs text-pat-text-secondary">{row.billing_cycle || "—"}</span> },
     { key: "status", header: "Status", cell: (row) => <StatusBadge status={row.status} /> },
     { key: "current_period_start", header: "Period Start", cell: (row) => <span className="text-xs text-pat-text-muted">{row.current_period_start ? format(new Date(row.current_period_start), "MMM d, yyyy") : "—"}</span> },

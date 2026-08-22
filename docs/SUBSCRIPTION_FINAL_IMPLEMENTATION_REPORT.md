@@ -31,6 +31,8 @@ New v3 rules are effective-dated: STANDARD 10/3/1%, PRO 15/4/2%, ELITE 18/5/2% f
 
 See `docs/SUBSCRIPTION_TEST_REPORT.md`. The migration was tested transactionally and rolled back; no production data was mutated.
 
+The follow-up dashboard/API slice adds migration `025_subscription_billing_interval.sql`, exposes configured annual fees, calculated annual savings, effective referral rates and event multipliers from `GET /plans`, fixes annual interval persistence, and updates Admin and Client subscription/referral views to show only Free, Standard, Pro, and Elite. Historical BASIC subscriptions remain queryable and are displayed as `Legacy` where needed for audit clarity.
+
 ## Genuine blockers
 
 1. No signed payment-provider adapter/contract is present, so paid activation, upgrade/downgrade, refund, chargeback, and webhook processing cannot be claimed.

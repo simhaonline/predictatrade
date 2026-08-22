@@ -25,16 +25,20 @@ export class AdminService {
                        count(CASE WHEN created_at >= date_trunc('month', now()) THEN 1 END) as new_this_month
                        FROM iam.users WHERE deleted_at IS NULL`),
       this.pool.query(`SELECT count(*) as total, count(CASE WHEN s.status = 'ACTIVE' THEN 1 END) as active,
-                       COALESCE(SUM(CASE WHEN s.status = 'ACTIVE' THEN p.monthly_price ELSE 0 END), 0) as mrr
+                       COALESCE(SUM(CASE WHEN s.status = 'ACTIVE' AND s.billing_interval = 'ANNUAL'
+                                         THEN p.annual_price / 12 ELSE p.monthly_price END), 0) as mrr
                        FROM billing.subscriptions s LEFT JOIN control.plans p ON s.plan_id = p.id`),
       this.pool.query(`SELECT count(*) as total_entries,
                        COALESCE(SUM(CASE WHEN status = 'PENDING' THEN commission_amount ELSE 0 END), 0) as pending_amount,
-                       COALESCE(SUM(CASE WHEN status = 'CONFIRMED' THEN commission_amount ELSE 0 END), 0) as confirmed_amount
+                       COALESCE(SUM(CASE WHEN status = 'CLEARED' THEN commission_amount ELSE 0 END), 0) as cleared_amount,
+                       COALESCE(SUM(CASE WHEN status = 'AVAILABLE' THEN commission_amount ELSE 0 END), 0) as available_amount,
+                       COALESCE(SUM(CASE WHEN status = 'PAID' THEN commission_amount ELSE 0 END), 0) as paid_amount,
+                       COALESCE(SUM(CASE WHEN status = 'PAID' THEN commission_amount ELSE 0 END), 0) as confirmed_amount
                        FROM referral.commission_ledger`),
       this.pool.query(`SELECT count(*) as total, count(CASE WHEN status = 'REQUESTED' THEN 1 END) as pending,
                        COALESCE(SUM(CASE WHEN status = 'REQUESTED' THEN requested_amount ELSE 0 END), 0) as pending_amount
                        FROM referral.payouts`),
-      this.pool.query(`SELECT count(*) as total, count(CASE WHEN status = 'ACTIVE' THEN 1 END) as active FROM control.plans`),
+      this.pool.query(`SELECT count(*) as total, count(CASE WHEN status = 'ACTIVE' AND visible = TRUE AND legacy = FALSE THEN 1 END) as active FROM control.plans`),
     ]);
 
     return {
@@ -102,8 +106,10 @@ export class AdminService {
     const offset = (page - 1) * limit;
     const [data, count] = await Promise.all([
       this.pool.query(
-        `SELECT s.id, s.user_id, u.email as user_email, s.plan_id, p.name as plan_name,
-                s.status, p.billing_interval as billing_cycle,
+        `SELECT s.id, s.user_id, u.email as user_email, s.plan_id, p.code as plan_code,
+                CASE WHEN p.code = 'BASIC' THEN 'Legacy' ELSE p.name END as plan_name,
+                p.monthly_price, p.annual_price, s.billing_interval as billing_cycle,
+                s.status,
                 s.billing_period_start as current_period_start,
                 s.billing_period_end as current_period_end,
                 s.auto_renew, s.created_at, s.updated_at,
@@ -146,8 +152,12 @@ export class AdminService {
               COALESCE(SUM(commission_amount), 0) as total_amount,
               count(CASE WHEN status = 'PENDING' THEN 1 END) as pending_count,
               COALESCE(SUM(CASE WHEN status = 'PENDING' THEN commission_amount ELSE 0 END), 0) as pending_amount,
-              count(CASE WHEN status = 'CONFIRMED' THEN 1 END) as confirmed_count,
-              COALESCE(SUM(CASE WHEN status = 'CONFIRMED' THEN commission_amount ELSE 0 END), 0) as confirmed_amount,
+              count(CASE WHEN status = 'CLEARED' THEN 1 END) as cleared_count,
+              COALESCE(SUM(CASE WHEN status = 'CLEARED' THEN commission_amount ELSE 0 END), 0) as cleared_amount,
+              count(CASE WHEN status = 'AVAILABLE' THEN 1 END) as available_count,
+              COALESCE(SUM(CASE WHEN status = 'AVAILABLE' THEN commission_amount ELSE 0 END), 0) as available_amount,
+              count(CASE WHEN status = 'PAID' THEN 1 END) as paid_count,
+              COALESCE(SUM(CASE WHEN status = 'PAID' THEN commission_amount ELSE 0 END), 0) as paid_amount,
               count(CASE WHEN status = 'REVERSED' THEN 1 END) as reversed_count,
               COALESCE(SUM(CASE WHEN status = 'REVERSED' THEN commission_amount ELSE 0 END), 0) as reversed_amount
        FROM referral.commission_ledger`,
@@ -159,11 +169,17 @@ export class AdminService {
       total_amount: 0,
       pending_count: 0,
       pending_amount: 0,
-      confirmed_count: 0,
-      confirmed_amount: 0,
+      cleared_count: 0,
+      cleared_amount: 0,
+      available_count: 0,
+      available_amount: 0,
+      paid_count: 0,
+      paid_amount: 0,
       reversed_count: 0,
       reversed_amount: 0,
       ...(r.rows[0] || {}),
+      confirmed_count: r.rows[0]?.confirmed_count ?? r.rows[0]?.paid_count ?? 0,
+      confirmed_amount: r.rows[0]?.confirmed_amount ?? r.rows[0]?.paid_amount ?? 0,
     };
   }
 

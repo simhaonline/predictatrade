@@ -18,12 +18,17 @@ export class SubscriptionsService {
 
   async create(userId: string, dto: { planId: string; strategyIds?: string; selectedStrategies?: string[]; billingInterval?: 'MONTHLY' | 'ANNUAL' }) {
     const plan = await this.pool.query(
-      `SELECT code, allowed_strategies, max_active_strategy_slots, billing_enabled
+      `SELECT code, allowed_strategies, max_active_strategy_slots, billing_enabled,
+              monthly_price, annual_price
        FROM control.plans WHERE id = $1 AND status = 'ACTIVE'`, [dto.planId],
     );
     if (!plan.rows[0]) throw new NotFoundException('Active plan not found');
     if (plan.rows[0].code !== 'FREE' && !plan.rows[0].billing_enabled) {
       throw new BadRequestException('Plan is not available for new subscriptions');
+    }
+    const billingInterval = dto.billingInterval ?? 'MONTHLY';
+    if (billingInterval === 'ANNUAL' && plan.rows[0].annual_price === null) {
+      throw new BadRequestException('Annual billing is not available for this plan');
     }
     const requested = dto.selectedStrategies ?? (dto.strategyIds ? dto.strategyIds.split(',').map((s) => s.trim()) : ['STANDARD_SCALPING']);
     const decision = validateStrategySelection(planPolicyFromRow(plan.rows[0]), requested);
@@ -32,10 +37,10 @@ export class SubscriptionsService {
     const id = crypto.randomUUID();
     const r = await this.pool.query(
       `INSERT INTO billing.subscriptions
-       (id, user_id, plan_id, status, billing_period_start, billing_period_end, selected_strategies)
-       VALUES ($1, $2, $3, $4, now(), now() + CASE WHEN $5 = 'ANNUAL' THEN interval '1 year' ELSE interval '1 month' END, $6::jsonb)
+       (id, user_id, plan_id, status, billing_interval, billing_period_start, billing_period_end, selected_strategies)
+       VALUES ($1, $2, $3, $4, $5, now(), now() + CASE WHEN $5 = 'ANNUAL' THEN interval '1 year' ELSE interval '1 month' END, $6::jsonb)
        RETURNING *`,
-      [id, userId, dto.planId, plan.rows[0].code === 'FREE' ? 'ACTIVE' : 'INCOMPLETE', dto.billingInterval ?? 'MONTHLY', JSON.stringify(decision.selected)],
+      [id, userId, dto.planId, plan.rows[0].code === 'FREE' ? 'ACTIVE' : 'INCOMPLETE', billingInterval, JSON.stringify(decision.selected)],
     );
     return r.rows[0];
   }

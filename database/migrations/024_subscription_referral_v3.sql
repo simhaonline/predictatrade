@@ -138,8 +138,11 @@ SELECT p.id, r.level, r.rate, '2026-08-22 00:00:00+00', 300, TRUE
 FROM control.plans p
 JOIN (VALUES
   ('STANDARD', 1, 0.10::DECIMAL), ('STANDARD', 2, 0.03), ('STANDARD', 3, 0.01),
+  ('STANDARD', 4, 0.00), ('STANDARD', 5, 0.00),
   ('PRO', 1, 0.15), ('PRO', 2, 0.04), ('PRO', 3, 0.02),
-  ('ELITE', 1, 0.18), ('ELITE', 2, 0.05), ('ELITE', 3, 0.02)
+  ('PRO', 4, 0.00), ('PRO', 5, 0.00),
+  ('ELITE', 1, 0.18), ('ELITE', 2, 0.05), ('ELITE', 3, 0.02),
+  ('ELITE', 4, 0.00), ('ELITE', 5, 0.00)
 ) r(code, level, rate) ON r.code = p.code
 ON CONFLICT (plan_id, level, effective_from) DO NOTHING;
 

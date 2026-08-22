@@ -19,7 +19,7 @@ export default function UserReferralsPage() {
     queryKey: ["user-commission-summary"],
     queryFn: async () => {
       const res = await customInstance.get("/commissions/summary");
-      return res.data as { total_amount: string; pending_count: number; confirmed_count: number; pending_amount: string; confirmed_amount: string };
+      return res.data as { total_amount: string; pending_count: number; pending_amount: string; available_amount: string; paid_amount: string; };
     },
   });
 
@@ -38,8 +38,12 @@ export default function UserReferralsPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-5">
-          <div className="text-sm text-pat-text-secondary">Total Earned</div>
-          <div className="text-2xl font-bold text-pat-text-primary mt-1">${parseFloat(summary?.confirmed_amount || "0").toFixed(2)}</div>
+          <div className="text-sm text-pat-text-secondary">Paid</div>
+          <div className="text-2xl font-bold text-pat-text-primary mt-1">${parseFloat(summary?.paid_amount || "0").toFixed(2)}</div>
+        </div>
+        <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-5">
+          <div className="text-sm text-pat-text-secondary">Available</div>
+          <div className="text-2xl font-bold text-pat-success mt-1">${parseFloat(summary?.available_amount || "0").toFixed(2)}</div>
         </div>
         <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-5">
           <div className="text-sm text-pat-text-secondary">Pending</div>
