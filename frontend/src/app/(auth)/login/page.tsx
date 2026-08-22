@@ -28,8 +28,9 @@ export default function LoginPage() {
           localStorage.setItem("pat_access_token", accessToken);
           window.dispatchEvent(new Event("pat:auth-changed"));
         }
-        if (user?.role === "ADMIN") router.push("/admin/dashboard");
-        else router.push("/dashboard/live");
+        // Use window.location for hard navigation to avoid RSC 404 issues
+        if (user?.role === "ADMIN") window.location.href = "/admin/dashboard";
+        else window.location.href = "/dashboard/live";
       }
     } catch (err: unknown) {
       setError(getApiErrorMessage(err, "Invalid credentials"));
@@ -39,89 +40,93 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="space-y-5">
-      {/* Meta header */}
-      <div className="flex items-center justify-between gap-5">
-        <span className="text-pat-primary font-bold uppercase tracking-widest" style={{ fontSize: "9px" }}>Secure platform access</span>
-        <span className="flex-1 h-px bg-pat-border" />
-        <span className="text-pat-primary font-bold" style={{ fontSize: "9px" }}>01</span>
-      </div>
-
+    <div className="space-y-4" style={{ maxWidth: "440px", margin: "0 auto", padding: "20px 0" }}>
       {/* Heading */}
-      <div>
-        <h1 className="font-serif text-pat-text-primary" style={{ fontSize: "clamp(43px, 4.3vw, 60px)", lineHeight: "0.96", fontWeight: 600, letterSpacing: "-0.048em" }}>
-          Welcome <em className="text-pat-primary italic font-medium">back.</em>
+      <div style={{ marginBottom: "8px" }}>
+        <h1 style={{ fontSize: "28px", fontWeight: 700, color: "#171a22", lineHeight: "1.1", margin: "0 0 8px 0" }}>
+          Welcome back
         </h1>
-        <p className="text-pat-text-secondary mt-4" style={{ fontSize: "14px", lineHeight: "1.7", maxWidth: "440px" }}>
-          Sign in to continue to your market-intelligence dashboard.
+        <p style={{ fontSize: "14px", color: "#6c707a", margin: "0", lineHeight: "1.5" }}>
+          Sign in to continue to your dashboard.
         </p>
       </div>
 
       {/* Auth card */}
-      <div className="relative border border-pat-border rounded-lg shadow-lg p-7"
-           style={{ background: "rgba(255,255,255,0.60)", backdropFilter: "blur(12px)" }}>
+      <div style={{
+        border: "1px solid #d7d3c9",
+        borderRadius: "8px",
+        padding: "24px",
+        background: "#ffffff",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.08)"
+      }}>
         {/* Blue top accent */}
-        <div className="absolute top-0 left-0 w-[74px] h-[3px] bg-pat-primary rounded-tl-lg" />
+        <div style={{ position: "absolute", marginTop: "-25px", marginLeft: "-25px", width: "60px", height: "3px", background: "#205fdc" }} />
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           {error && (
-            <div className="text-pat-danger rounded-md px-3 py-2" style={{ fontSize: "0.8rem", background: "hsl(var(--pat-badge-danger-bg) / 0.1)", border: "1px solid hsl(var(--pat-badge-danger-bg) / 0.2)" }}>
+            <div style={{ fontSize: "13px", color: "#b42318", background: "#fbe3e5", border: "1px solid #f3c3c7", borderRadius: "6px", padding: "10px 12px" }}>
               {error}
             </div>
           )}
 
           {/* Email */}
           <div>
-            <label className="block text-pat-text-secondary mb-2 font-bold uppercase tracking-wider" style={{ fontSize: "11px" }}>Email address</label>
-            <div className="relative">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="absolute left-4 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-gray-400 pointer-events-none z-10">
-                <rect x="3" y="5" width="18" height="14" rx="1"/><path d="m4 7 8 6 8-6"/>
-              </svg>
-              <input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                className="w-full border border-pat-border bg-white/80 text-pat-text-primary focus:outline-none focus:ring-2 focus:ring-pat-primary transition-colors rounded-none"
-                style={{ height: "50px", padding: "0 46px 0 45px", fontSize: "14px", fontWeight: 500 }} placeholder="you@example.com" />
-            </div>
+            <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#343842", marginBottom: "6px" }}>Email address</label>
+            <input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)}
+              style={{ width: "100%", height: "44px", border: "1px solid #d7d3c9", borderRadius: "6px", background: "#ffffff", color: "#171a22", padding: "0 14px", fontSize: "14px", outline: "none", boxSizing: "border-box" }}
+              onFocus={(e) => e.target.style.borderColor = "#205fdc"}
+              onBlur={(e) => e.target.style.borderColor = "#d7d3c9"}
+              placeholder="you@example.com" />
           </div>
 
           {/* Password */}
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-pat-text-secondary font-bold uppercase tracking-wider" style={{ fontSize: "11px" }}>Password</label>
-              <Link href="/forgot-password" className="text-pat-primary hover:underline" style={{ fontSize: "10px", fontWeight: 700 }}>Forgot password?</Link>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+              <label style={{ fontSize: "12px", fontWeight: 600, color: "#343842" }}>Password</label>
+              <Link href="/forgot-password" style={{ fontSize: "12px", color: "#205fdc", textDecoration: "none" }}>Forgot password?</Link>
             </div>
-            <div className="relative">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="absolute left-4 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-gray-400 pointer-events-none z-10">
-                <rect x="4" y="10" width="16" height="11" rx="1"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>
-              </svg>
+            <div style={{ position: "relative" }}>
               <input type={showPassword ? "text" : "password"} required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)}
-                className="w-full border border-pat-border bg-white/80 text-pat-text-primary focus:outline-none focus:ring-2 focus:ring-pat-primary transition-colors rounded-none"
-                style={{ height: "50px", padding: "0 46px 0 45px", fontSize: "14px", fontWeight: 500 }} placeholder="Enter your password" />
-              <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 grid place-items-center text-gray-500 hover:text-pat-primary transition-colors">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="w-[18px] h-[18px]">
-                  <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6S2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.5"/>
-                </svg>
+                style={{ width: "100%", height: "44px", border: "1px solid #d7d3c9", borderRadius: "6px", background: "#ffffff", color: "#171a22", padding: "0 40px 0 14px", fontSize: "14px", outline: "none", boxSizing: "border-box" }}
+                onFocus={(e) => e.target.style.borderColor = "#205fdc"}
+                onBlur={(e) => e.target.style.borderColor = "#d7d3c9"}
+                placeholder="Enter your password" />
+              <button type="button" onClick={() => setShowPassword(!showPassword)}
+                style={{ position: "absolute", right: "8px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", padding: "4px", color: "#6c707a" }}>
+                {showPassword ? "🙈" : "👁"}
               </button>
             </div>
           </div>
 
-          {/* Submit */}
+          {/* Submit button — explicit colors, no CSS variables */}
           <button type="submit" disabled={loading}
-            className="w-full flex items-center justify-center gap-2 bg-pat-primary text-white font-bold uppercase tracking-widest hover:bg-pat-primary-hover disabled:opacity-70 transition-all rounded-none"
-            style={{ height: "52px", fontSize: "10px", letterSpacing: "0.13em" }}>
-            {loading ? (<><IconLoader2 size={15} className="animate-spin" /> Signing in...</>) : (<>Sign in securely <span aria-hidden="true">→</span></>)}
+            style={{
+              width: "100%",
+              height: "44px",
+              background: loading ? "#1749ae" : "#205fdc",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: "6px",
+              fontSize: "14px",
+              fontWeight: 600,
+              cursor: loading ? "wait" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              opacity: loading ? 0.7 : 1,
+              transition: "background 0.2s"
+            }}
+            onMouseEnter={(e) => { if (!loading) e.currentTarget.style.background = "#1749ae"; }}
+            onMouseLeave={(e) => { if (!loading) e.currentTarget.style.background = "#205fdc"; }}>
+            {loading ? (<><IconLoader2 size={16} className="animate-spin" /> Signing in...</>) : "Sign in securely"}
           </button>
         </form>
       </div>
 
       {/* Switch to register */}
-      <p className="text-center text-pat-text-secondary" style={{ fontSize: "12px" }}>
-        New to Predict-A-Trade? <Link href="/register" className="text-pat-text-primary font-bold hover:text-pat-primary transition-colors" style={{ borderBottom: "1px solid var(--pat-primary)" }}>Create an account</Link>
-      </p>
-
-      {/* Security note */}
-      <p className="flex items-center justify-center gap-2 text-pat-text-muted font-bold uppercase tracking-wider" style={{ fontSize: "9px" }}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-[14px] h-[14px] text-pat-primary"><path d="M12 3 5 6v5c0 4.6 2.8 8 7 10 4.2-2 7-5.4 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
-        Protected account access
+      <p style={{ textAlign: "center", fontSize: "13px", color: "#6c707a", margin: "0" }}>
+        New to Predict-A-Trade? <Link href="/register" style={{ color: "#205fdc", fontWeight: 600, textDecoration: "none" }}>Create an account</Link>
       </p>
     </div>
   );
