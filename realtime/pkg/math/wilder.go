@@ -205,6 +205,10 @@ func ADXWilder(highs, lows, closes []decimal.Decimal, period int) (adx, plusDI, 
 		ph, _ := highs[i-1].Float64()
 		pl, _ := lows[i-1].Float64()
 		pc, _ := closes[i-1].Float64()
+		// Skip candles with invalid (zero) high or low
+		if h <= 0 || l <= 0 || ph <= 0 || pl <= 0 {
+			continue
+		}
 		upMove := h - ph
 		downMove := pl - l
 		var plusDM, minusDM float64
