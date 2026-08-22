@@ -45,7 +45,7 @@ export default function UserReferralsPage() {
   });
 
   const referralCode = referralData?.code || "";
-  const signupUrl = referralCode ? `${process.env.NEXT_PUBLIC_WEB_URL || "https://predictatrade.com"}/register?ref=${referralCode}` : "";
+  const signupUrl = referralCode ? `https://predictatrade.com/register?ref=${referralCode}` : "";
 
   const copyCode = () => {
     if (!referralCode) return;
