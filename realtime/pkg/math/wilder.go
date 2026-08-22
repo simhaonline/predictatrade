@@ -78,23 +78,33 @@ func ATRWilder(highs, lows, closes []decimal.Decimal, period int) decimal.Decima
 	if n <= period || period <= 0 {
 		return decimal.Zero
 	}
-	// Use float64 to prevent precision explosion
-	trs := make([]float64, n-1)
+	// Use float64 to prevent precision explosion.
+	// CRITICAL: Skip candles with low=0 or high=0 (MT5 data gaps).
+	// A candle with low=0 produces TR = max(|H-0|, |H-C_prev|, |0-C_prev|) ≈ H,
+	// which is 1000x the real ATR (~2-25 for gold).
+	trs := make([]float64, 0, n-1)
 	for i := 1; i < n; i++ {
 		h, _ := highs[i].Float64()
 		l, _ := lows[i].Float64()
 		pc, _ := closes[i-1].Float64()
+		// Skip candles with invalid (zero) high or low
+		if h <= 0 || l <= 0 {
+			continue
+		}
 		hl := math.Abs(h - l)
 		hc := math.Abs(h - pc)
 		lc := math.Abs(l - pc)
 		tr := hl
 		if hc > tr { tr = hc }
 		if lc > tr { tr = lc }
-		trs[i-1] = tr
+		trs = append(trs, tr)
+	}
+	if len(trs) < period {
+		return decimal.Zero
 	}
 	// Wilder smoothing: first avg = SMA, then avg = (prev*(n-1) + TR) / n
 	atr := 0.0
-	for i := 0; i < period && i < len(trs); i++ {
+	for i := 0; i < period; i++ {
 		atr += trs[i]
 	}
 	atr /= float64(period)
