@@ -19,20 +19,20 @@ interface IndicatorChartsProps {
 }
 
 const INDICATOR_COLORS: Record<string, string> = {
-  ema9: "#10B981", ema21: "#3B82F6", ema50: "#F59E0B", ema100: "#EF4444",
-  ema200: "#8B5CF6", sma50: "#EC4899", sma100: "#06B6D4", sma200: "#84CC16",
-  rsi: "#F97316", atr: "#6366F1", adx: "#10B981", macd_main: "#3B82F6",
-  stoch_main: "#F59E0B", cci: "#EF4444", boll_upper: "#8B5CF6",
-  boll_middle: "#EC4899", boll_lower: "#06B6D4", obv: "#F97316",
-  psar: "#6366F1", vwap: "#84CC16",
+  ema9: "#16A36A", ema21: "#2563EB", ema50: "#D97706", ema100: "#D64550",
+  ema200: "#7C3AED", sma50: "#0F8B8D", sma100: "#0F8B8D", sma200: "#16A36A",
+  rsi: "#D97706", atr: "#7C3AED", adx: "#16A36A", macd_main: "#2563EB",
+  stoch_main: "#D97706", cci: "#D64550", boll_upper: "#7C3AED",
+  boll_middle: "#0F8B8D", boll_lower: "#2563EB", obv: "#D97706",
+  psar: "#7C3AED", vwap: "#16A36A",
 };
-const FALLBACK_COLORS = ["#10B981", "#3B82F6", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899"];
+const FALLBACK_COLORS = ["#16A36A", "#2563EB", "#D97706", "#D64550", "#7C3AED", "#0F8B8D"];
 
 const TOOLTIP_STYLE = {
-  background: "#0F172A",
-  border: "1px solid #334155",
+  background: "#111B2E",
+  border: "1px solid #2A3850",
   borderRadius: "10px",
-  color: "#94A3B8",
+  color: "#AAB5C6",
   fontSize: "12px",
   boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
 };
@@ -201,31 +201,31 @@ export function IndicatorCharts({ liveness, history, performance }: IndicatorCha
           {scatterData.length > 0 ? (
             <ResponsiveContainer width="100%" height={450}>
               <ScatterChart margin={{ top: 20, right: 40, left: 20, bottom: 50 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#2A3850" />
                 <XAxis
                   type="number" dataKey="x" name="Signal Frequency"
                   unit="%" domain={[0, 100]}
-                  tick={{ fill: "#475569", fontSize: 11 }}
-                  stroke="#1E293B" tickLine={false} axisLine={false}
+                  tick={{ fill: "#74829A", fontSize: 11 }}
+                  stroke="#2A3850" tickLine={false} axisLine={false}
                   label={{ value: "Signal Frequency (%)", position: "bottom", fill: "#94A3B8", fontSize: 12, offset: 15 }}
                 />
                 <YAxis
                   type="number" dataKey="y" name="Signal Accuracy"
                   unit="%" domain={[0, 100]}
-                  tick={{ fill: "#475569", fontSize: 11 }}
-                  stroke="#1E293B" tickLine={false} axisLine={false}
+                  tick={{ fill: "#74829A", fontSize: 11 }}
+                  stroke="#2A3850" tickLine={false} axisLine={false}
                   label={{ value: "Signal Accuracy (%)", angle: -90, position: "insideLeft", fill: "#94A3B8", fontSize: 12, offset: 0 }}
                 />
                 <ZAxis type="number" dataKey="z" range={[80, 200]} />
                 <Tooltip
                   contentStyle={TOOLTIP_STYLE}
-                  cursor={{ strokeDasharray: "3 3", stroke: "#334155" }}
+                  cursor={{ strokeDasharray: "3 3", stroke: "#42516B" }}
                   formatter={(value, _name, props) => {
                     if (props && props.payload) {
                       const p = props.payload;
                       return [
                         <div key="tip" style={{ lineHeight: 1.5 }}>
-                          <div style={{ color: "#F1F5F9", fontWeight: 600, marginBottom: 2 }}>{p.fullLabel}</div>
+                          <div style={{ color: "#F3F6FB", fontWeight: 600, marginBottom: 2 }}>{p.fullLabel}</div>
                           <div style={{ color: "#94A3B8" }}>Frequency: {Number(p.x).toFixed(1)}%</div>
                           <div style={{ color: "#94A3B8" }}>Accuracy: {Number(p.y).toFixed(1)}%</div>
                         </div>,
@@ -238,7 +238,7 @@ export function IndicatorCharts({ liveness, history, performance }: IndicatorCha
                 <Scatter data={scatterData} shape="circle">
                   {scatterData.map((d, i) => {
                     // Color by accuracy: green > 50, yellow 20-50, red < 20
-                    const color = d.y > 50 ? "#10B981" : d.y > 20 ? "#F59E0B" : "#EF4444";
+                    const color = d.y > 50 ? "#16A36A" : d.y > 20 ? "#D97706" : "#D64550";
                     return <Cell key={i} fill={color} fillOpacity={0.75} stroke={color} strokeWidth={1} />;
                   })}
                 </Scatter>
@@ -268,11 +268,11 @@ export function IndicatorCharts({ liveness, history, performance }: IndicatorCha
           {distributionData.length > 0 ? (
             <ResponsiveContainer width="100%" height={400}>
               <BarChart data={distributionData} margin={{ top: 10, right: 20, left: 0, bottom: 30 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
-                <XAxis dataKey="range" tick={{ fill: "#475569", fontSize: 9 }} stroke="#1E293B" tickLine={false} axisLine={false} angle={-40} textAnchor="end" height={50} interval={1} />
-                <YAxis tick={{ fill: "#475569", fontSize: 10 }} stroke="#1E293B" tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: "#1E293B40" }} />
-                <Bar dataKey="count" fill="#F59E0B" radius={[3, 3, 0, 0]} barSize={24} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#2A3850" vertical={false} />
+                <XAxis dataKey="range" tick={{ fill: "#74829A", fontSize: 9 }} stroke="#2A3850" tickLine={false} axisLine={false} angle={-40} textAnchor="end" height={50} interval={1} />
+                <YAxis tick={{ fill: "#74829A", fontSize: 10 }} stroke="#2A3850" tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: "#18243A" }} />
+                <Bar dataKey="count" fill="#D97706" radius={[3, 3, 0, 0]} barSize={24} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -291,9 +291,9 @@ export function IndicatorCharts({ liveness, history, performance }: IndicatorCha
           {radarData.length > 0 && radarIndicators.length > 0 ? (
             <ResponsiveContainer width="100%" height={400}>
               <RadarChart data={radarData} margin={{ top: 20, right: 40, left: 40, bottom: 20 }}>
-                <PolarGrid stroke="#1E293B" />
+                <PolarGrid stroke="#2A3850" />
                 <PolarAngleAxis dataKey="metric" tick={{ fill: "#94A3B8", fontSize: 11 }} />
-                <PolarRadiusAxis tick={{ fill: "#475569", fontSize: 9 }} stroke="#1E293B" angle={90} />
+                <PolarRadiusAxis tick={{ fill: "#74829A", fontSize: 9 }} stroke="#2A3850" angle={90} />
                 {radarIndicators.map((ind, i) => (
                   <Radar key={ind} name={ind} dataKey={ind} stroke={getColor(ind, i)} fill={getColor(ind, i)} fillOpacity={0.12} strokeWidth={2} />
                 ))}
@@ -337,17 +337,17 @@ function RealtimeLineChart({
         fontFamily: "monospace",
       },
       grid: {
-        vertLines: { color: "#1E293B", style: LineStyle.Dashed },
-        horzLines: { color: "#1E293B", style: LineStyle.Dashed },
+        vertLines: { color: "#2A3850", style: LineStyle.Dashed },
+        horzLines: { color: "#2A3850", style: LineStyle.Dashed },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: "#334155", labelBackgroundColor: "#0F172A" },
-        horzLine: { color: "#334155", labelBackgroundColor: "#0F172A" },
+        vertLine: { color: "#42516B", labelBackgroundColor: "#0B1220" },
+        horzLine: { color: "#42516B", labelBackgroundColor: "#0B1220" },
       },
-      rightPriceScale: { borderColor: "#1E293B" },
+      rightPriceScale: { borderColor: "#2A3850" },
       timeScale: {
-        borderColor: "#1E293B",
+        borderColor: "#2A3850",
         timeVisible: true,
         secondsVisible: true,
         rightOffset: 2,

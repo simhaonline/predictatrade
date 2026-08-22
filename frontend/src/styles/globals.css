@@ -6,59 +6,59 @@
   /* ─── LIGHT MODE (default) ─── */
   :root {
     /* Page & surfaces */
-    --pat-bg-page: 210 40% 98%;           /* #F8FAFC */
+    --pat-bg-page: 220 43% 97%;           /* #F5F7FB */
     --pat-bg-surface: 0 0% 100%;           /* #FFFFFF */
-    --pat-bg-surface-secondary: 210 40% 96%; /* #F1F5F9 */
+    --pat-bg-surface-secondary: 214 33% 95%; /* #EEF2F7 */
     --pat-bg-header: 0 0% 100%;           /* #FFFFFF */
 
     /* Sidebar — dark in both modes */
-    --pat-bg-sidebar: 222 47% 11%;        /* #0F172A */
-    --pat-bg-sidebar-hover: 217 33% 17%;  /* #1E293B */
-    --pat-bg-sidebar-active: 217 33% 17%; /* #1E293B */
-    --pat-text-sidebar: 213 27% 84%;     /* #CBD5E1 */
+    --pat-bg-sidebar: 221 31% 14%;        /* #172033 */
+    --pat-bg-sidebar-hover: 215 33% 24%;  /* #253149 */
+    --pat-bg-sidebar-active: 215 33% 24%; /* #253149 */
+    --pat-text-sidebar: 214 17% 73%;     /* #AEB8C5 */
     --pat-text-sidebar-active: 0 0% 100%; /* #FFFFFF */
-    --pat-text-sidebar-muted: 215 16% 47%;/* #64748B */
-    --pat-border-sidebar: 217 33% 17%;   /* #1E293B */
+    --pat-text-sidebar-muted: 217 14% 58%;/* #8691A3 */
+    --pat-border-sidebar: 215 33% 24%;   /* #253149 */
 
     /* Text */
-    --pat-text-primary: 222 47% 11%;     /* #0F172A */
-    --pat-text-secondary: 215 25% 27%;   /* #334155 */
-    --pat-text-muted: 215 16% 47%;        /* #64748B */
+    --pat-text-primary: 221 31% 14%;     /* #172033 */
+    --pat-text-secondary: 217 14% 42%;   /* #5B677A */
+    --pat-text-muted: 217 14% 58%;        /* #8691A3 */
     --pat-text-inverse: 0 0% 100%;       /* #FFFFFF */
 
     /* Borders */
-    --pat-border: 214 32% 91%;           /* #E2E8F0 */
-    --pat-border-strong: 213 27% 84%;    /* #CBD5E1 */
+    --pat-border: 215 23% 87%;           /* #D5DCE5 */
+    --pat-border-strong: 214 17% 73%;    /* #AEB8C5 */
 
     /* Primary (info blue) */
-    --pat-primary: 217 91% 60%;          /* #3B82F6 */
+    --pat-primary: 221 83% 53%;          /* #2563EB */
     --pat-primary-foreground: 0 0% 100%; /* #FFFFFF */
     --pat-primary-hover: 221 83% 53%;    /* #2563EB */
 
     /* Semantic — identical across modes */
-    --pat-success: 160 84% 39%;          /* #10B981 */
-    --pat-success-surface: 160 84% 39%;
-    --pat-danger: 0 84% 60%;             /* #EF4444 */
-    --pat-danger-surface: 0 84% 60%;
-    --pat-warning: 38 92% 50%;           /* #F59E0B */
-    --pat-warning-surface: 38 92% 50%;
-    --pat-info: 217 91% 60%;             /* #3B82F6 */
-    --pat-info-surface: 217 91% 60%;
+    --pat-success: 157 76% 36%;          /* #16A36A */
+    --pat-success-surface: 148 57% 91%;  /* #DDF5EA */
+    --pat-danger: 356 63% 55%;           /* #D64550 */
+    --pat-danger-surface: 356 67% 94%;   /* #FBE3E5 */
+    --pat-warning: 32 94% 44%;            /* #D97706 */
+    --pat-warning-surface: 39 100% 92%;  /* #FFF0D6 */
+    --pat-info: 221 83% 53%;              /* #2563EB */
+    --pat-info-surface: 221 100% 94%;     /* #E0EAFF */
 
     /* Cards */
     --pat-card-bg: 0 0% 100%;            /* #FFFFFF */
-    --pat-card-border: 214 32% 91%;      /* #E2E8F0 */
+    --pat-card-border: 215 23% 87%;      /* #D5DCE5 */
 
     /* Tables */
     --pat-table-bg: 0 0% 100%;           /* #FFFFFF */
-    --pat-table-header: 210 40% 96%;     /* #F1F5F9 */
-    --pat-table-hover: 210 40% 96%;     /* #F1F5F9 */
-    --pat-table-border: 214 32% 91%;    /* #E2E8F0 */
+    --pat-table-header: 214 33% 95%;     /* #EEF2F7 */
+    --pat-table-hover: 214 33% 95%;      /* #EEF2F7 */
+    --pat-table-border: 215 23% 87%;     /* #D5DCE5 */
 
     /* Inputs */
     --pat-input-bg: 0 0% 100%;          /* #FFFFFF */
-    --pat-input-border: 214 32% 91%;   /* #E2E8F0 */
-    --pat-input-text: 222 47% 11%;    /* #0F172A */
+    --pat-input-border: 215 23% 87%;   /* #D5DCE5 */
+    --pat-input-text: 221 31% 14%;    /* #172033 */
 
     /* Misc */
     --pat-overlay: 0 0% 0%;
@@ -66,16 +66,16 @@
     --pat-radius: 0.5rem;
 
     /* Status badge surfaces (lighter tints for light mode) */
-    --pat-badge-success-bg: 149 80% 90%; /* #D1FAE5 */
-    --pat-badge-success-text: 163 88% 20%; /* #065F46 */
-    --pat-badge-danger-bg: 0 93% 94%;   /* #FEE2E2 */
-    --pat-badge-danger-text: 0 70% 35%; /* #991B1B */
-    --pat-badge-warning-bg: 48 96% 89%; /* #FEF3C7 */
-    --pat-badge-warning-text: 23 82% 31%;/* #92400E */
-    --pat-badge-info-bg: 214 95% 93%;  /* #DBEAFE */
-    --pat-badge-info-text: 226 71% 40%;/* #1E40AF */
-    --pat-badge-neutral-bg: 210 40% 96%;/* #F1F5F9 */
-    --pat-badge-neutral-text: 215 16% 47%;/* #64748B */
+    --pat-badge-success-bg: 148 57% 91%; /* #DDF5EA */
+    --pat-badge-success-text: 156 83% 26%; /* #0B7A4C */
+    --pat-badge-danger-bg: 356 67% 94%;   /* #FBE3E5 */
+    --pat-badge-danger-text: 356 67% 42%; /* #B4232D */
+    --pat-badge-warning-bg: 39 100% 92%; /* #FFF0D6 */
+    --pat-badge-warning-text: 29 90% 37%;/* #B45309 */
+    --pat-badge-info-bg: 221 100% 94%;  /* #E0EAFF */
+    --pat-badge-info-text: 224 76% 48%;/* #1D4ED8 */
+    --pat-badge-neutral-bg: 214 33% 95%;/* #EEF2F7 */
+    --pat-badge-neutral-text: 217 14% 42%;/* #5B677A */
 
     /* Trading-specific colors — identical across themes */
     --pat-price-bid: 160 84% 39%;       /* #10B981 */
@@ -92,32 +92,32 @@
   /* ─── DARK MODE ─── */
   .dark {
     /* Page & surfaces */
-    --pat-bg-page: 222 47% 11%;         /* #0F172A */
-    --pat-bg-surface: 217 33% 17%;     /* #1E293B */
-    --pat-bg-surface-secondary: 215 25% 27%; /* #334155 */
-    --pat-bg-header: 222 47% 11%;      /* #0F172A */
+    --pat-bg-page: 220 47% 8%;         /* #0B1220 */
+    --pat-bg-surface: 219 46% 12%;     /* #111B2E */
+    --pat-bg-surface-secondary: 218 41% 16%; /* #18243A */
+    --pat-bg-header: 219 46% 12%;      /* #111B2E */
 
     /* Sidebar — stays dark */
-    --pat-bg-sidebar: 229 84% 5%;     /* #020617 */
-    --pat-bg-sidebar-hover: 217 33% 17%; /* #1E293B */
-    --pat-bg-sidebar-active: 217 33% 17%;/* #1E293B */
-    --pat-text-sidebar: 215 20% 65%;  /* #94A3B8 */
+    --pat-bg-sidebar: 220 47% 8%;     /* #0B1220 */
+    --pat-bg-sidebar-hover: 215 33% 24%; /* #253149 */
+    --pat-bg-sidebar-active: 215 33% 24%;/* #253149 */
+    --pat-text-sidebar: 214 17% 73%;  /* #AEB8C5 */
     --pat-text-sidebar-active: 0 0% 100%; /* #FFFFFF */
-    --pat-text-sidebar-muted: 215 19% 35%; /* #475569 */
-    --pat-border-sidebar: 217 33% 17%; /* #1E293B */
+    --pat-text-sidebar-muted: 217 14% 58%; /* #74829A */
+    --pat-border-sidebar: 215 33% 24%; /* #253149 */
 
     /* Text */
-    --pat-text-primary: 210 40% 98%;  /* #F8FAFC */
-    --pat-text-secondary: 213 27% 84%;/* #CBD5E1 */
-    --pat-text-muted: 215 20% 65%;   /* #94A3B8 */
-    --pat-text-inverse: 222 47% 11%;/* #0F172A */
+    --pat-text-primary: 216 33% 97%;  /* #F3F6FB */
+    --pat-text-secondary: 214 17% 73%;/* #AAB5C6 */
+    --pat-text-muted: 217 14% 58%;   /* #74829A */
+    --pat-text-inverse: 220 47% 8%;/* #0B1220 */
 
     /* Borders */
-    --pat-border: 215 25% 27%;      /* #334155 */
-    --pat-border-strong: 215 19% 35%; /* #475569 */
+    --pat-border: 216 31% 24%;      /* #2A3850 */
+    --pat-border-strong: 216 24% 34%; /* #42516B */
 
     /* Primary */
-    --pat-primary: 217 91% 60%;   /* #3B82F6 */
+    --pat-primary: 221 83% 53%;   /* #2563EB */
     --pat-primary-foreground: 0 0% 100%; /* #FFFFFF */
     --pat-primary-hover: 221 83% 53%; /* #2563EB */
 
@@ -132,19 +132,19 @@
     --pat-info-surface: 217 91% 60%;
 
     /* Cards */
-    --pat-card-bg: 217 33% 17%; /* #1E293B */
-    --pat-card-border: 215 25% 27%; /* #334155 */
+    --pat-card-bg: 219 46% 12%; /* #111B2E */
+    --pat-card-border: 216 31% 24%; /* #2A3850 */
 
     /* Tables */
-    --pat-table-bg: 217 33% 17%; /* #1E293B */
-    --pat-table-header: 215 25% 27%; /* #334155 */
-    --pat-table-hover: 215 25% 27%; /* #334155 */
-    --pat-table-border: 215 25% 27%; /* #334155 */
+    --pat-table-bg: 219 46% 12%; /* #111B2E */
+    --pat-table-header: 218 41% 16%; /* #18243A */
+    --pat-table-hover: 218 41% 16%; /* #18243A */
+    --pat-table-border: 216 31% 24%; /* #2A3850 */
 
     /* Inputs */
-    --pat-input-bg: 217 33% 17%; /* #1E293B */
-    --pat-input-border: 215 25% 27%; /* #334155 */
-    --pat-input-text: 210 40% 98%; /* #F8FAFC */
+    --pat-input-bg: 219 46% 12%; /* #111B2E */
+    --pat-input-border: 216 31% 24%; /* #2A3850 */
+    --pat-input-text: 216 33% 97%; /* #F3F6FB */
 
     /* Misc */
     --pat-overlay: 0 0% 0%;
