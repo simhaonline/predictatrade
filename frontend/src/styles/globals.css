@@ -6,9 +6,9 @@
   /* ─── LIGHT MODE (default) ─── */
   :root {
     /* Page & surfaces */
-    --pat-bg-page: 220 43% 97%;           /* #F5F7FB */
+    --pat-bg-page: 40 25% 96%;           /* #F9F6F1 */
     --pat-bg-surface: 0 0% 100%;           /* #FFFFFF */
-    --pat-bg-surface-secondary: 214 33% 95%; /* #EEF2F7 */
+    --pat-bg-surface-secondary: 40 15% 94%; /* #F2EFEA */
     --pat-bg-header: 0 0% 100%;           /* #FFFFFF */
 
     /* Sidebar — dark in both modes */
@@ -27,7 +27,7 @@
     --pat-text-inverse: 0 0% 100%;       /* #FFFFFF */
 
     /* Borders */
-    --pat-border: 215 23% 87%;           /* #D5DCE5 */
+    --pat-border: 40 15% 87%;           /* #E3DEDA */
     --pat-border-strong: 214 17% 73%;    /* #AEB8C5 */
 
     /* Primary (info blue) */
