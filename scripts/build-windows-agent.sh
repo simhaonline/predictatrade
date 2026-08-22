@@ -11,7 +11,12 @@
 #   1. Reads (or sets) the version from windows-agent/internal/version.go
 #   2. Cross-compiles agent.exe for Windows amd64
 #   3. Binary goes to windows-agent/bin/PredictATrade-Agent.exe
+<<<<<<< HEAD
+#   4. deploy/agent.exe is a real copied file so the Docker/Nginx deploy mount
+#      can serve it (symlinks outside the mounted directory are not portable)
+=======
 #   4. deploy/agent.exe is a symlink → bin/PredictATrade-Agent.exe (auto-updated)
+>>>>>>> 5d6cd2a2c1f902e55777ca7227bdc4cdaecfd16f
 #   5. Calculates SHA256 checksum of the new binary
 #   6. Updates deploy/version.txt
 #   7. Updates deploy/update-manifest.json with new version, checksum, timestamp
@@ -70,6 +75,18 @@ fi
 # ─── Step 3: Build the Windows binary ───
 log "Cross-compiling for Windows amd64..."
 cd "$AGENT_DIR"
+<<<<<<< HEAD
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$BIN_PATH" ./cmd/agent/ || fatal "Build failed"
+log "Binary built: $BIN_PATH ($(du -h "$BIN_PATH" | cut -f1))"
+
+# ─── Step 4: Copy a standalone deployment binary ───
+# The Nginx container mounts deploy/ only. A symlink to ../bin is therefore
+# broken inside the container and produces a public 404 for agent.exe.
+rm -f "$DEPLOY_EXE"
+cp "$BIN_PATH" "$DEPLOY_EXE"
+chmod 0644 "$DEPLOY_EXE"
+log "Copied standalone deploy binary: $DEPLOY_EXE"
+=======
 GOOS=windows GOARCH=amd64 go build -o "$BIN_PATH" ./cmd/agent/ || fatal "Build failed"
 log "Binary built: $BIN_PATH ($(du -h "$BIN_PATH" | cut -f1))"
 
@@ -88,6 +105,7 @@ fi
 if [[ ! -f "$DEPLOY_EXE" ]]; then
     fatal "Symlink broken: $DEPLOY_EXE does not resolve to a file"
 fi
+>>>>>>> 5d6cd2a2c1f902e55777ca7227bdc4cdaecfd16f
 
 # ─── Step 5: Calculate SHA256 checksum ───
 CHECKSUM=$(sha256sum "$BIN_PATH" | cut -d' ' -f1)
@@ -104,8 +122,13 @@ cat > "$MANIFEST_FILE" << EOF
     "version": "$NEW_VERSION",
     "download_url": "https://downloads.predictatrade.com/windows-agent/agent.exe",
     "checksum": "$CHECKSUM",
+<<<<<<< HEAD
+    "min_version": "$NEW_VERSION",
+    "release_notes": "v$NEW_VERSION — rebuilt Windows Agent with single-instance health-port guard and stable WebSocket reconnect lifecycle",
+=======
     "min_version": "1.0.0",
     "release_notes": "v$NEW_VERSION — Auto-built via scripts/build-windows-agent.sh",
+>>>>>>> 5d6cd2a2c1f902e55777ca7227bdc4cdaecfd16f
     "timestamp": "$TIMESTAMP"
 }
 EOF
@@ -127,7 +150,11 @@ echo "  Windows Agent Build Complete"
 echo "═══════════════════════════════════════════════"
 echo "  Version:     v$NEW_VERSION"
 echo "  Binary:      $BIN_PATH"
+<<<<<<< HEAD
+echo "  Deploy:      $DEPLOY_EXE (standalone copy)"
+=======
 echo "  Deploy:      $DEPLOY_EXE → $(readlink "$DEPLOY_EXE")"
+>>>>>>> 5d6cd2a2c1f902e55777ca7227bdc4cdaecfd16f
 echo "  Checksum:    $CHECKSUM"
 echo "  Manifest:    $MANIFEST_FILE"
 echo "  Live URL:    https://downloads.predictatrade.com/windows-agent/agent.exe"

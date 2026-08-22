@@ -168,12 +168,17 @@ func EMA(values []decimal.Decimal, period int) decimal.Decimal {
 	if len(values) == 0 || period <= 0 {
 		return decimal.Zero
 	}
-	multiplier := decimal.NewFromInt(2).Div(decimal.NewFromInt(int64(period + 1)))
-	ema := values[0]
+	// Use float64 for EMA computation to prevent decimal precision explosion.
+	// decimal.Decimal accumulates precision with each multiply/add iteration,
+	// causing EMA200 to grow to 3000+ digits. float64 is sufficient for
+	// price-level indicators (15 significant digits).
+	multiplier := 2.0 / float64(period + 1)
+	ema, _ := values[0].Float64()
 	for i := 1; i < len(values); i++ {
-		ema = values[i].Mul(multiplier).Add(ema.Mul(decimal.NewFromInt(1).Sub(multiplier)))
+		v, _ := values[i].Float64()
+		ema = v*multiplier + ema*(1-multiplier)
 	}
-	return ema
+	return decimal.NewFromFloat(ema)
 }
 
 // RSI computes the Relative Strength Index using Wilder's smoothing.

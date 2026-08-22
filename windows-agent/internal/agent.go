@@ -2,23 +2,23 @@ package agent
 
 import (
 	"bytes"
-	cryptorand "crypto/rand"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	cryptorand "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	mrand "math/rand"
-	"strconv"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 )
 
 // logf is a convenience wrapper for log.Printf.
@@ -27,22 +27,22 @@ func logf(format string, args ...any) {
 }
 
 type Agent struct {
-	config        *Config
-	deviceID      string
-	deviceKey     *ecdsa.PrivateKey
-	mu            sync.Mutex
-	conn          *websocket.Conn
-	running       bool
-	stopChan      chan struct{}
-	signals       chan *SignalEvent
-	heartbeat     time.Duration
-	lastSignal    time.Time
-	reconnectDelay time.Duration
-	pipeManager   *PipeManager
-	health        *healthServer
-	updater       *Updater
-	processedSignals map[string]bool  // idempotency: track processed signal IDs
-	clockDriftMs  int64              // clock drift (server - local) in ms
+	config           *Config
+	deviceID         string
+	deviceKey        *ecdsa.PrivateKey
+	mu               sync.Mutex
+	conn             *websocket.Conn
+	running          bool
+	stopChan         chan struct{}
+	signals          chan *SignalEvent
+	heartbeat        time.Duration
+	lastSignal       time.Time
+	reconnectDelay   time.Duration
+	pipeManager      *PipeManager
+	health           *healthServer
+	updater          *Updater
+	processedSignals map[string]bool // idempotency: track processed signal IDs
+	clockDriftMs     int64           // clock drift (server - local) in ms
 }
 
 type SignalEvent struct {
@@ -53,28 +53,28 @@ type SignalEvent struct {
 	Timestamp     time.Time       `json:"timestamp"`
 	Type          string          `json:"type"`
 	Priority      string          `json:"priority"`
-	Payload       json.RawMessage  `json:"payload"`
+	Payload       json.RawMessage `json:"payload"`
 }
 
 type HeartbeatData struct {
-	DeviceID         string    `json:"agent_id"`
-	Version          string    `json:"version"`
-	Hostname         string    `json:"hostname"`
-	WindowsVersion   string    `json:"windows_version"`
-	Status           string    `json:"status"` // ONLINE, DEGRADED, STALE, OFFLINE
-	Timestamp        time.Time `json:"timestamp"`
-	MasterConnected  bool      `json:"master_connected"`
-	MT4Connected     bool      `json:"mt4_connected"`
-	MT5Connected     bool      `json:"mt5_connected"`
-	Broker           string    `json:"broker,omitempty"`
-	AccountMasked    string    `json:"account_masked,omitempty"`
-	BrokerSymbol     string    `json:"broker_symbol,omitempty"`
-	CanonicalSymbol  string    `json:"canonical_symbol,omitempty"`
-	LastTickAt       *time.Time `json:"last_tick_at,omitempty"`
-	LatencyMs        int64     `json:"latency_ms"`
-	ClockDriftMs     int64     `json:"clock_drift_ms"`
-	AgentVersion     string    `json:"agent_version"`
-	MTConnected      bool      `json:"mt_connected"`
+	DeviceID        string     `json:"agent_id"`
+	Version         string     `json:"version"`
+	Hostname        string     `json:"hostname"`
+	WindowsVersion  string     `json:"windows_version"`
+	Status          string     `json:"status"` // ONLINE, DEGRADED, STALE, OFFLINE
+	Timestamp       time.Time  `json:"timestamp"`
+	MasterConnected bool       `json:"master_connected"`
+	MT4Connected    bool       `json:"mt4_connected"`
+	MT5Connected    bool       `json:"mt5_connected"`
+	Broker          string     `json:"broker,omitempty"`
+	AccountMasked   string     `json:"account_masked,omitempty"`
+	BrokerSymbol    string     `json:"broker_symbol,omitempty"`
+	CanonicalSymbol string     `json:"canonical_symbol,omitempty"`
+	LastTickAt      *time.Time `json:"last_tick_at,omitempty"`
+	LatencyMs       int64      `json:"latency_ms"`
+	ClockDriftMs    int64      `json:"clock_drift_ms"`
+	AgentVersion    string     `json:"agent_version"`
+	MTConnected     bool       `json:"mt_connected"`
 }
 
 func NewAgent(config *Config) *Agent {
@@ -98,6 +98,14 @@ func (a *Agent) Start() error {
 	}
 	log.Printf("Device ID: %s", a.deviceID)
 
+	// Claim the local health port before starting IPC or WebSocket workers. A
+	// second installed copy must fail here instead of creating duplicate
+	// backend connections and producing misleading handshake failures.
+	a.health = newHealthServer()
+	if err := a.health.start(); err != nil {
+		return fmt.Errorf("health endpoint: %w (another Agent process may already be running)", err)
+	}
+
 	// Initialize named pipe manager for MT4/MT5 EA communication
 	a.pipeManager = NewPipeManager(findCommonFolder(), a.sendToServer, a.config.APIURL)
 	a.pipeManager.SetCallbacks(a.onTickFromEA, a.onLicenseCheck)
@@ -116,10 +124,6 @@ func (a *Agent) Start() error {
 
 	// Start signal processor (receives signals from server → forwards to EA)
 	go a.processSignals()
-
-	// Start local HTTP health endpoint (for health-check.ps1 / external monitors)
-	a.health = newHealthServer()
-	a.health.start()
 
 	// Start auto-updater (checks for updates every hour)
 	manifestURL := getEnv("PAT_UPDATE_MANIFEST_URL", "https://downloads.predictatrade.com/windows-agent/update-manifest.json")
@@ -204,10 +208,10 @@ func (a *Agent) registerTerminalWithBackend(term TerminalInfo) error {
 			"build":      "",
 		},
 		"mt_account": map[string]string{
-			"broker":  term.Broker,
-			"server":  "",
-			"login":   term.Account,
-			"symbol":  term.Symbol,
+			"broker": term.Broker,
+			"server": "",
+			"login":  term.Account,
+			"symbol": term.Symbol,
 		},
 	}
 
@@ -434,102 +438,104 @@ func (a *Agent) connect() error {
 
 	log.Printf("Connected to live.predictatrade.com")
 
-	// Read loop — receives signals and messages from Go RT server
-	go func() {
-		defer func() {
-			a.mu.Lock()
+	// Read loop — receives signals and messages from Go RT server.
+	// This runs synchronously so connectLoop cannot open a second WebSocket while
+	// the current connection is still alive. Previously this was launched in a
+	// goroutine and connect() returned nil immediately, causing a rapid dial loop
+	// until Nginx rejected the agent with 503/connection-limit errors.
+	defer func() {
+		a.mu.Lock()
+		if a.conn == conn {
 			a.conn = nil
-			a.mu.Unlock()
-			conn.Close()
-		}()
-
-		for {
-			_, msg, err := conn.ReadMessage()
-			if err != nil {
-				log.Printf("Connection lost: %v", err)
-				return
-			}
-
-			// Parse the event — check for ACK (contains server time for clock sync)
-			var ackCheck struct {
-				Type      string `json:"type"`
-				Timestamp string `json:"timestamp"`
-			}
-			if err := json.Unmarshal(msg, &ackCheck); err == nil {
-				if ackCheck.Type == "ACK" || ackCheck.Type == "CONNECTED" {
-					// Calculate clock drift: server_time - local_time
-					if ackCheck.Timestamp != "" {
-						if serverTime, err := time.Parse(time.RFC3339, ackCheck.Timestamp); err == nil {
-							localTime := time.Now().UTC()
-							a.mu.Lock()
-							a.clockDriftMs = serverTime.Sub(localTime).Milliseconds()
-							a.mu.Unlock()
-						}
-					}
-					continue
-				}
-			}
-
-			// Parse the event
-			var event SignalEvent
-			if err := json.Unmarshal(msg, &event); err != nil {
-				// Might be a tick ack or other message
-				continue
-			}
-
-			// Handle signal events
-			if event.Type == "SIGNAL" {
-				// Idempotency check
-				if a.processedSignals[event.EventID] {
-					log.Printf("Duplicate signal ignored: %s", event.EventID)
-					continue
-				}
-				a.processedSignals[event.EventID] = true
-
-				a.lastSignal = time.Now()
-				select {
-				case a.signals <- &event:
-				default:
-					log.Printf("Signal buffer full, dropping: %s", event.EventID)
-				}
-			} else if event.Type == "ERROR" || event.Type == "DENIAL" {
-				// P1-001: Distinguish distinct failure types — never conflate
-				// auth failures with signal halts, license issues, etc.
-				var errPayload struct {
-					ErrorCode    string `json:"error_code"`
-					Reason       string `json:"reason"`
-					SignalID     string `json:"signal_id,omitempty"`
-					StrategyID   string `json:"strategy_id,omitempty"`
-				}
-				_ = json.Unmarshal(event.Payload, &errPayload)
-				switch errPayload.ErrorCode {
-				case "AUTH_TOKEN_EXPIRED", "AUTH_INVALID":
-					log.Printf("AUTH FAILURE: %s — token refresh required", errPayload.ErrorCode)
-					go a.refreshToken()
-				case "LICENSE_EXPIRED", "LICENSE_DEVICE_MISMATCH":
-					log.Printf("LICENSE FAILURE: %s — %s", errPayload.ErrorCode, errPayload.Reason)
-				case "SUBSCRIPTION_NOT_ENTITLED":
-					log.Printf("ENTITLEMENT DENIED: strategy=%s — %s", errPayload.StrategyID, errPayload.Reason)
-				case "TERMINAL_DISCONNECTED":
-					log.Printf("TERMINAL DISCONNECTED: %s", errPayload.Reason)
-				case "ACCOUNT_STATE_STALE":
-					log.Printf("ACCOUNT STATE STALE: %s", errPayload.Reason)
-				case "SYSTEM_HALTED":
-					log.Printf("SYSTEM HALTED: %s — all execution suspended", errPayload.Reason)
-				case "SIGNAL_NOT_EXECUTABLE", "SIGNAL_EXPIRED":
-					log.Printf("SIGNAL REJECTED: %s signal=%s — %s", errPayload.ErrorCode, errPayload.SignalID, errPayload.Reason)
-				case "RISK_REJECTED":
-					log.Printf("RISK REJECTED: signal=%s — %s", errPayload.SignalID, errPayload.Reason)
-				case "MARKET_CLOSED":
-					log.Printf("MARKET CLOSED: %s", errPayload.Reason)
-				default:
-					log.Printf("SERVER ERROR: code=%s reason=%s", errPayload.ErrorCode, errPayload.Reason)
-				}
-			}
 		}
+		a.mu.Unlock()
+		conn.Close()
 	}()
 
-	return nil
+	for {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			log.Printf("Connection lost: %v", err)
+			return err
+		}
+
+		// Parse the event — check for ACK (contains server time for clock sync)
+		var ackCheck struct {
+			Type      string `json:"type"`
+			Timestamp string `json:"timestamp"`
+		}
+		if err := json.Unmarshal(msg, &ackCheck); err == nil {
+			if ackCheck.Type == "ACK" || ackCheck.Type == "CONNECTED" {
+				// Calculate clock drift: server_time - local_time
+				if ackCheck.Timestamp != "" {
+					if serverTime, err := time.Parse(time.RFC3339, ackCheck.Timestamp); err == nil {
+						localTime := time.Now().UTC()
+						a.mu.Lock()
+						a.clockDriftMs = serverTime.Sub(localTime).Milliseconds()
+						a.mu.Unlock()
+					}
+				}
+				continue
+			}
+		}
+
+		// Parse the event
+		var event SignalEvent
+		if err := json.Unmarshal(msg, &event); err != nil {
+			// Might be a tick ack or other message
+			continue
+		}
+
+		// Handle signal events
+		if event.Type == "SIGNAL" {
+			// Idempotency check
+			if a.processedSignals[event.EventID] {
+				log.Printf("Duplicate signal ignored: %s", event.EventID)
+				continue
+			}
+			a.processedSignals[event.EventID] = true
+
+			a.lastSignal = time.Now()
+			select {
+			case a.signals <- &event:
+			default:
+				log.Printf("Signal buffer full, dropping: %s", event.EventID)
+			}
+		} else if event.Type == "ERROR" || event.Type == "DENIAL" {
+			// P1-001: Distinguish distinct failure types — never conflate
+			// auth failures with signal halts, license issues, etc.
+			var errPayload struct {
+				ErrorCode  string `json:"error_code"`
+				Reason     string `json:"reason"`
+				SignalID   string `json:"signal_id,omitempty"`
+				StrategyID string `json:"strategy_id,omitempty"`
+			}
+			_ = json.Unmarshal(event.Payload, &errPayload)
+			switch errPayload.ErrorCode {
+			case "AUTH_TOKEN_EXPIRED", "AUTH_INVALID":
+				log.Printf("AUTH FAILURE: %s — token refresh required", errPayload.ErrorCode)
+				go a.refreshToken()
+			case "LICENSE_EXPIRED", "LICENSE_DEVICE_MISMATCH":
+				log.Printf("LICENSE FAILURE: %s — %s", errPayload.ErrorCode, errPayload.Reason)
+			case "SUBSCRIPTION_NOT_ENTITLED":
+				log.Printf("ENTITLEMENT DENIED: strategy=%s — %s", errPayload.StrategyID, errPayload.Reason)
+			case "TERMINAL_DISCONNECTED":
+				log.Printf("TERMINAL DISCONNECTED: %s", errPayload.Reason)
+			case "ACCOUNT_STATE_STALE":
+				log.Printf("ACCOUNT STATE STALE: %s", errPayload.Reason)
+			case "SYSTEM_HALTED":
+				log.Printf("SYSTEM HALTED: %s — all execution suspended", errPayload.Reason)
+			case "SIGNAL_NOT_EXECUTABLE", "SIGNAL_EXPIRED":
+				log.Printf("SIGNAL REJECTED: %s signal=%s — %s", errPayload.ErrorCode, errPayload.SignalID, errPayload.Reason)
+			case "RISK_REJECTED":
+				log.Printf("RISK REJECTED: signal=%s — %s", errPayload.SignalID, errPayload.Reason)
+			case "MARKET_CLOSED":
+				log.Printf("MARKET CLOSED: %s", errPayload.Reason)
+			default:
+				log.Printf("SERVER ERROR: code=%s reason=%s", errPayload.ErrorCode, errPayload.Reason)
+			}
+		}
+	}
 }
 
 // sendToServer sends data (ticks, acks) to the Go RT server via WebSocket
@@ -558,10 +564,10 @@ func (a *Agent) onLicenseCheck(msg LicenseCheckMsg) {
 	// In production: send HTTP request to https://api.predictatrade.com/api/v1/licensing/validate
 	// For now, send a default ACTIVE response back to EA
 	response := LicenseResponse{
-		Type:     "LICENSE_RESPONSE",
-		Status:   "ACTIVE",
-		Plan:     "ELITE",
-		Key: msg.LicenseKey,
+		Type:   "LICENSE_RESPONSE",
+		Status: "ACTIVE",
+		Plan:   "ELITE",
+		Key:    msg.LicenseKey,
 	}
 	respData, _ := json.Marshal(response)
 	if a.pipeManager != nil {

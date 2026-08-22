@@ -8,7 +8,10 @@
 // This file implements the corrected indicator maths per prompt.md Section 1.
 package patmath
 
-import "github.com/shopspring/decimal"
+import (
+	"math"
+	"github.com/shopspring/decimal"
+)
 
 // wilderSmooth applies Wilder's smoothing to a series of values.
 // The first `period` values are averaged to seed the initial smoothed value.
@@ -65,11 +68,40 @@ func TrueRangeSeries(highs, lows, closes []decimal.Decimal) []decimal.Decimal {
 //
 // This replaces the old simple-average ATR implementation.
 func ATRWilder(highs, lows, closes []decimal.Decimal, period int) decimal.Decimal {
-	if len(highs) <= period || period <= 0 {
+	n := len(highs)
+	if len(lows) < n {
+		n = len(lows)
+	}
+	if len(closes) < n {
+		n = len(closes)
+	}
+	if n <= period || period <= 0 {
 		return decimal.Zero
 	}
-	tr := TrueRangeSeries(highs, lows, closes)
-	return wilderSmooth(tr, period)
+	// Use float64 to prevent precision explosion
+	trs := make([]float64, n-1)
+	for i := 1; i < n; i++ {
+		h, _ := highs[i].Float64()
+		l, _ := lows[i].Float64()
+		pc, _ := closes[i-1].Float64()
+		hl := math.Abs(h - l)
+		hc := math.Abs(h - pc)
+		lc := math.Abs(l - pc)
+		tr := hl
+		if hc > tr { tr = hc }
+		if lc > tr { tr = lc }
+		trs[i-1] = tr
+	}
+	// Wilder smoothing: first avg = SMA, then avg = (prev*(n-1) + TR) / n
+	atr := 0.0
+	for i := 0; i < period && i < len(trs); i++ {
+		atr += trs[i]
+	}
+	atr /= float64(period)
+	for i := period; i < len(trs); i++ {
+		atr = (atr*float64(period-1) + trs[i]) / float64(period)
+	}
+	return decimal.NewFromFloat(atr)
 }
 
 // RSIWilder computes RSI using Wilder's smoothing method.
@@ -84,56 +116,47 @@ func ATRWilder(highs, lows, closes []decimal.Decimal, period int) decimal.Decima
 //
 // If avg_loss is zero, RSI = 100. If both are zero, RSI = 50 (undefined).
 func RSIWilder(closes []decimal.Decimal, period int) decimal.Decimal {
-	if len(closes) <= period || period <= 0 {
-		return decimal.NewFromInt(50)
+	n := len(closes)
+	if n <= period || period <= 0 {
+		return decimal.Zero
 	}
-
-	// Compute gains and losses
-	gains := make([]decimal.Decimal, len(closes)-1)
-	losses := make([]decimal.Decimal, len(closes)-1)
-	for i := 1; i < len(closes); i++ {
-		change := closes[i].Sub(closes[i-1])
-		if change.GreaterThan(decimal.Zero) {
-			gains[i-1] = change
-			losses[i-1] = decimal.Zero
-		} else {
-			gains[i-1] = decimal.Zero
-			losses[i-1] = change.Abs()
-		}
+	// Use float64 to prevent precision explosion
+	changes := make([]float64, n-1)
+	for i := 1; i < n; i++ {
+		c, _ := closes[i].Float64()
+		pc, _ := closes[i-1].Float64()
+		changes[i-1] = c - pc
 	}
-
-	// Seed: simple average of first `period` gains/losses
-	avgGain := decimal.Zero
-	avgLoss := decimal.Zero
+	var avgGain, avgLoss float64
 	for i := 0; i < period; i++ {
-		avgGain = avgGain.Add(gains[i])
-		avgLoss = avgLoss.Add(losses[i])
-	}
-	avgGain = avgGain.Div(decimal.NewFromInt(int64(period)))
-	avgLoss = avgLoss.Div(decimal.NewFromInt(int64(period)))
-
-	// Wilder's recursive smoothing for remaining values
-	periodMinus1 := decimal.NewFromInt(int64(period - 1))
-	periodDec := decimal.NewFromInt(int64(period))
-	for i := period; i < len(gains); i++ {
-		avgGain = avgGain.Mul(periodMinus1).Add(gains[i]).Div(periodDec)
-		avgLoss = avgLoss.Mul(periodMinus1).Add(losses[i]).Div(periodDec)
-	}
-
-	// RSI calculation
-	if avgLoss.IsZero() {
-		if avgGain.IsZero() {
-			return decimal.NewFromInt(50) // Flat price — undefined
+		if changes[i] > 0 {
+			avgGain += changes[i]
+		} else {
+			avgLoss += -changes[i]
 		}
-		return decimal.NewFromInt(100) // No losses → RSI = 100
 	}
-	rs := avgGain.Div(avgLoss)
-	rsi := decimal.NewFromInt(100).Sub(
-		decimal.NewFromInt(100).Div(
-			decimal.NewFromInt(1).Add(rs),
-		),
-	)
-	return rsi
+	avgGain /= float64(period)
+	avgLoss /= float64(period)
+	for i := period; i < len(changes); i++ {
+		gain := 0.0
+		loss := 0.0
+		if changes[i] > 0 {
+			gain = changes[i]
+		} else {
+			loss = -changes[i]
+		}
+		avgGain = (avgGain*float64(period-1) + gain) / float64(period)
+		avgLoss = (avgLoss*float64(period-1) + loss) / float64(period)
+	}
+	if avgLoss == 0 && avgGain == 0 {
+		return decimal.NewFromInt(50)// flat price — undefined
+	}
+	if avgLoss == 0 {
+		return decimal.NewFromInt(100)
+	}
+	rs := avgGain / avgLoss
+	rsi := 100.0 - 100.0/(1.0+rs)
+	return decimal.NewFromFloat(rsi)
 }
 
 // ADXWilder computes ADX using full Wilder's smoothing for TR, +DM, -DM, and DX.
@@ -159,81 +182,91 @@ func ADXWilder(highs, lows, closes []decimal.Decimal, period int) (adx, plusDI, 
 	if len(closes) < n {
 		n = len(closes)
 	}
-	// Need at least 2*period + 1 bars for meaningful ADX
 	if n <= period*2 || period <= 0 {
 		return decimal.Zero, decimal.Zero, decimal.Zero
 	}
-
-	// Compute +DM, -DM, and TR series (starting from bar 1)
-	plusDMs := make([]decimal.Decimal, n-1)
-	minusDMs := make([]decimal.Decimal, n-1)
-	trSeries := make([]decimal.Decimal, n-1)
-
+	// Use float64 to prevent precision explosion
+	plusDMs := make([]float64, n-1)
+	minusDMs := make([]float64, n-1)
+	trs := make([]float64, n-1)
 	for i := 1; i < n; i++ {
-		upMove := highs[i].Sub(highs[i-1])
-		downMove := lows[i-1].Sub(lows[i])
-
-		if upMove.GreaterThan(downMove) && upMove.GreaterThan(decimal.Zero) {
-			plusDMs[i-1] = upMove
-		} else {
-			plusDMs[i-1] = decimal.Zero
+		h, _ := highs[i].Float64()
+		l, _ := lows[i].Float64()
+		ph, _ := highs[i-1].Float64()
+		pl, _ := lows[i-1].Float64()
+		pc, _ := closes[i-1].Float64()
+		upMove := h - ph
+		downMove := pl - l
+		var plusDM, minusDM float64
+		if upMove > downMove && upMove > 0 {
+			plusDM = upMove
 		}
-		if downMove.GreaterThan(upMove) && downMove.GreaterThan(decimal.Zero) {
-			minusDMs[i-1] = downMove
-		} else {
-			minusDMs[i-1] = decimal.Zero
+		if downMove > upMove && downMove > 0 {
+			minusDM = downMove
 		}
-
-		trSeries[i-1] = TrueRange(highs[i], lows[i], closes[i-1])
+		hl := math.Abs(h - l)
+		hc := math.Abs(h - pc)
+		lc := math.Abs(l - pc)
+		tr := hl
+		if hc > tr { tr = hc }
+		if lc > tr { tr = lc }
+		plusDMs[i-1] = plusDM
+		minusDMs[i-1] = minusDM
+		trs[i-1] = tr
 	}
-
-	// Wilder smoothing of +DM, -DM, TR
-	smoothedPlusDM := wilderSmooth(plusDMs, period)
-	smoothedMinusDM := wilderSmooth(minusDMs, period)
-	smoothedTR := wilderSmooth(trSeries, period)
-
-	if smoothedTR.IsZero() {
+	// Wilder smoothing
+	avgTR := 0.0
+	avgPlusDM := 0.0
+	avgMinusDM := 0.0
+	for i := 0; i < period; i++ {
+		avgTR += trs[i]
+		avgPlusDM += plusDMs[i]
+		avgMinusDM += minusDMs[i]
+	}
+	avgTR /= float64(period)
+	avgPlusDM /= float64(period)
+	avgMinusDM /= float64(period)
+	dxValues := make([]float64, 0, n-period)
+	for i := period; i < len(trs); i++ {
+		avgTR = (avgTR*float64(period-1) + trs[i]) / float64(period)
+		avgPlusDM = (avgPlusDM*float64(period-1) + plusDMs[i]) / float64(period)
+		avgMinusDM = (avgMinusDM*float64(period-1) + minusDMs[i]) / float64(period)
+		var plusDI, minusDI float64
+		if avgTR > 0 {
+			plusDI = 100.0 * avgPlusDM / avgTR
+			minusDI = 100.0 * avgMinusDM / avgTR
+		}
+		denom := plusDI + minusDI
+		var dx float64
+		if denom > 0 {
+			dx = 100.0 * math.Abs(plusDI-minusDI) / denom
+		}
+		dxValues = append(dxValues, dx)
+		// Store latest DI values
+		if i == len(trs)-1 {
+			plusDIF := plusDI
+			minusDIF := minusDI
+			_ = plusDIF
+			_ = minusDIF
+		}
+	}
+	// ADX = Wilder smoothed average of DX
+	if len(dxValues) == 0 {
 		return decimal.Zero, decimal.Zero, decimal.Zero
 	}
-
-	// +DI and -DI
-	plusDI = smoothedPlusDM.Div(smoothedTR).Mul(decimal.NewFromInt(100))
-	minusDI = smoothedMinusDM.Div(smoothedTR).Mul(decimal.NewFromInt(100))
-
-	// DX
-	diSum := plusDI.Add(minusDI)
-	if diSum.IsZero() {
-		return decimal.Zero, plusDI, minusDI
+	adxF := 0.0
+	for i := 0; i < period && i < len(dxValues); i++ {
+		adxF += dxValues[i]
 	}
-	dx := plusDI.Sub(minusDI).Abs().Div(diSum).Mul(decimal.NewFromInt(100))
-
-	// For a proper ADX, we need a series of DX values.
-	// Compute DX for each bar using Wilder-smoothed components, then Wilder-smooth the DX series.
-	dxSeries := make([]decimal.Decimal, len(trSeries)-period+1)
-	dxIdx := 0
-	for start := period - 1; start < len(trSeries); start++ {
-		sPlusDM := wilderSmooth(plusDMs[:start+1], period)
-		sMinusDM := wilderSmooth(minusDMs[:start+1], period)
-		sTR := wilderSmooth(trSeries[:start+1], period)
-		if sTR.IsZero() {
-			dxSeries[dxIdx] = decimal.Zero
-			dxIdx++
-			continue
-		}
-		pDI := sPlusDM.Div(sTR).Mul(decimal.NewFromInt(100))
-		mDI := sMinusDM.Div(sTR).Mul(decimal.NewFromInt(100))
-		diS := pDI.Add(mDI)
-		if diS.IsZero() {
-			dxSeries[dxIdx] = decimal.Zero
-		} else {
-			dxSeries[dxIdx] = pDI.Sub(mDI).Abs().Div(diS).Mul(decimal.NewFromInt(100))
-		}
-		dxIdx++
+	adxF /= float64(period)
+	for i := period; i < len(dxValues); i++ {
+		adxF = (adxF*float64(period-1) + dxValues[i]) / float64(period)
 	}
-
-	if len(dxSeries) < period {
-		return dx, plusDI, minusDI // Fallback to single DX if not enough DX values
+	// Get latest DI values
+	var lastPlusDI, lastMinusDI float64
+	if avgTR > 0 {
+		lastPlusDI = 100.0 * avgPlusDM / avgTR
+		lastMinusDI = 100.0 * avgMinusDM / avgTR
 	}
-	adx = wilderSmooth(dxSeries, period)
-	return adx, plusDI, minusDI
+	return decimal.NewFromFloat(adxF), decimal.NewFromFloat(lastPlusDI), decimal.NewFromFloat(lastMinusDI)
 }
