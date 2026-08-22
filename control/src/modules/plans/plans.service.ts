@@ -8,11 +8,12 @@ export class PlansService {
 
   async listActive() {
     const r = await this.pool.query(
-      `SELECT p.id, p.code, p.name, p.description, p.monthly_price, p.setup_fee,
-              p.status, p.max_active_strategy_slots, p.allowed_strategies,
+      `SELECT p.id, p.code, p.name, p.description, p.monthly_price, p.annual_price, p.setup_fee,
+              p.status, p.visible, p.legacy, p.billing_enabled,
+              p.max_active_strategy_slots, p.allowed_strategies,
               (SELECT jsonb_agg(jsonb_build_object('key', pe.entitlement_key, 'value', pe.entitlement_value))
                FROM control.plan_entitlements pe WHERE pe.plan_id = p.id) as entitlements
-       FROM control.plans p WHERE p.status = 'ACTIVE' ORDER BY p.monthly_price`,
+       FROM control.plans p WHERE p.status = 'ACTIVE' AND p.visible = TRUE ORDER BY p.sort_order, p.monthly_price`,
     );
     return r.rows;
   }

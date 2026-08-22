@@ -269,6 +269,31 @@ describe('CommissionEngine', () => {
     });
   });
 
+  describe('v3 configuration and explicit commercial events', () => {
+    it('supports v3 rates/depth without changing legacy engine configuration', () => {
+      const v3 = new CommissionEngine();
+      v3.setBaseRates('v3-standard', [0.10, 0.03, 0.01]);
+      v3.setPurchaseRule('FIRST_PURCHASE', { multiplier: 1, maxReferralLevel: 3 });
+      const result = v3.calculate({
+        planId: 'v3-standard', commissionableAmount: 99, paymentNumber: 1,
+        sponsorChain: ['L1', 'L2', 'L3', 'L4'], sourceUserId: 'source',
+        sourceSubscriptionId: 'sub', purchaseId: 'payment', invoiceId: 'invoice',
+        eventType: 'NEW_SUBSCRIPTION', eligibleAmount: '80.00',
+      });
+      expect(result.commissions.map((c) => c.level)).toEqual([1, 2, 3]);
+      expect(result.commissions.map((c) => c.commissionAmount.toFixed(2))).toEqual(['8.00', '2.40', '0.80']);
+    });
+
+    it('never treats free registration as an eligible paid event', () => {
+      const result = engine.calculate({
+        planId: STANDARD_PLAN_ID, commissionableAmount: 0, paymentNumber: 0,
+        sponsorChain: ['L1', 'L2'], sourceUserId: 'source', sourceSubscriptionId: 'sub',
+        purchaseId: 'free', invoiceId: 'none', eventType: 'FREE_REGISTRATION',
+      });
+      expect(result.commissions).toHaveLength(0);
+    });
+  });
+
   describe('Commission Amount Snapshots (SOW 69.20)', () => {
     it('Each commission record contains rule snapshot', () => {
       const result = engine.calculate({

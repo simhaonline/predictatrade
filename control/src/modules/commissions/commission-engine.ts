@@ -5,6 +5,10 @@ import Decimal from 'decimal.js';
 
 // SOW Section 69.9: Purchase type classification
 export type PurchaseType = 'FIRST_PURCHASE' | 'SECOND_PURCHASE' | 'RECURRING_PURCHASE';
+export type CommercialEventType =
+  | 'FREE_REGISTRATION' | 'NEW_SUBSCRIPTION' | 'RENEWAL' | 'UPGRADE' | 'DOWNGRADE'
+  | 'CANCELLATION' | 'REACTIVATION' | 'ADD_ON' | 'REFUND' | 'PARTIAL_REFUND'
+  | 'CHARGEBACK' | 'PAYMENT_FAILED';
 
 // SOW Section 69.20: Commission ledger entry
 export interface CommissionEntry {
@@ -53,6 +57,9 @@ export interface CommissionInput {
   sourceSubscriptionId: string;
   purchaseId: string;
   invoiceId: string;
+  /** Explicit event prevents FREE registration from being treated as a purchase. */
+  eventType?: CommercialEventType;
+  eligibleAmount?: number | string;
 }
 
 export interface CommissionResult {
@@ -92,7 +99,13 @@ export class CommissionEngine {
 
   // Main calculation method
   calculate(input: CommissionInput): CommissionResult {
-    const commissionableAmount = new Decimal(input.commissionableAmount);
+    if (input.eventType === 'FREE_REGISTRATION' || input.eventType === 'REFUND' ||
+        input.eventType === 'PARTIAL_REFUND' || input.eventType === 'CHARGEBACK' ||
+        input.eventType === 'PAYMENT_FAILED' || input.eventType === 'DOWNGRADE' ||
+        input.eventType === 'CANCELLATION') {
+      return { commissions: [], purchaseType: this.classifyPurchaseType(input.paymentNumber) };
+    }
+    const commissionableAmount = new Decimal(input.eligibleAmount ?? input.commissionableAmount);
 
     // SOW Section 69.6: No commission if commissionable amount is zero
     if (commissionableAmount.isZero() || commissionableAmount.isNegative()) {

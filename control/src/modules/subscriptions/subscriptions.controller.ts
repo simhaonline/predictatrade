@@ -12,6 +12,9 @@ export class SubscriptionsController {
   @Get()
   async list(@CurrentUser('sub') userId: string) { return this.subsService.findByUser(userId); }
 
+  @Get('entitlements')
+  async entitlements(@CurrentUser('sub') userId: string) { return this.subsService.getEntitlements(userId); }
+
   @Post()
   async create(@CurrentUser('sub') userId: string, @Body() dto: CreateSubscriptionDto) {
     return this.subsService.create(userId, dto);
