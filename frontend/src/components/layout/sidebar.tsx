@@ -25,19 +25,19 @@ export default function Sidebar() {
     panelLabel = 'Loading…';
   } else if (isAdminRoute && isAdminRole(user?.role)) {
     items = adminNavigation;
-    panelLabel = 'Admin Panel';
+    panelLabel = '';
   } else if (isUserRoute && !isAdminRole(user?.role)) {
     items = userNavigation;
-    panelLabel = 'User Panel';
+    panelLabel = '';
   } else if (isAdminRoute && !isAdminRole(user?.role)) {
     items = [];
     panelLabel = 'Access Denied';
   } else if (isUserRoute && isAdminRole(user?.role)) {
     items = adminNavigation;
-    panelLabel = 'Admin Panel';
+    panelLabel = '';
   } else {
     items = isAdminRole(user?.role) ? adminNavigation : userNavigation;
-    panelLabel = panelLabelForRole(user?.role);
+    panelLabel = '';
   }
 
   return (

@@ -6,7 +6,7 @@ export default function SitemapPage() {
   const publicPages = [
     { label: "Login", href: "/login" }, { label: "Register", href: "/register" },
     { label: "Forgot Password", href: "/forgot-password" }, { label: "Reset Password", href: "/reset-password" },
-    { label: "Terms and Policies", href: "/terms" }, { label: "Privacy Policy", href: "/privacy" },
+    { label: "Terms of Service", href: "/terms" }, { label: "Privacy Policy", href: "/privacy" },
     { label: "Complaints Procedure", href: "/complaints" }, { label: "Cookie Policy", href: "/cookies" },
     { label: "Sitemap", href: "/sitemap" },
   ];

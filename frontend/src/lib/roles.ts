@@ -33,5 +33,5 @@ export function homeRouteForRole(role: Role | null | undefined): string {
 
 /** Panel label for sidebar footer. */
 export function panelLabelForRole(role: Role | null | undefined): string {
-  return isAdminRole(role) ? 'Admin Panel' : 'User Panel';
+  return ''; // Panel label removed — no UserPanel/AdminPanel text
 }
