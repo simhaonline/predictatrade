@@ -103,7 +103,7 @@ services:
       - pat-net
     restart: always
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13080/health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13080/api/v1/health"]
       interval: 10s
       timeout: 5s
       retries: 10
