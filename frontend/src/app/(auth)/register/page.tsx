@@ -1,20 +1,27 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { customInstance } from "@/lib/axios-instance";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { getApiErrorMessage } from "@/lib/errors";
 import { IconLoader2 } from "@tabler/icons-react";
 import BrandLogo from "@/components/brand-logo";
 
-export default function RegisterPage() {
+function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [referralCode, setReferralCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Pre-fill referral code from URL: /register?ref=PAT-XXXX
+  useEffect(() => {
+    const ref = searchParams.get("ref");
+    if (ref) setReferralCode(ref);
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,5 +90,13 @@ export default function RegisterPage() {
         Already have an account? <Link href="/login" className="text-pat-primary hover:underline">Sign in</Link>
       </div>
     </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><IconLoader2 size={24} className="animate-spin text-pat-text-muted" /></div>}>
+      <RegisterForm />
+    </Suspense>
   );
 }

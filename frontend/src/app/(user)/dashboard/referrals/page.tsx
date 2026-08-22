@@ -4,12 +4,14 @@ import { customInstance } from "@/lib/axios-instance";
 import DataTable, { DataTableColumn } from "@/components/ui/data-table";
 import { format } from "date-fns";
 import { useState } from "react";
-import { IconCopy, IconCheck } from "@tabler/icons-react";
+import { IconCopy, IconCheck, IconLink } from "@tabler/icons-react";
 
 interface Commission { id: string; commission_amount: string; status: string; created_at: string; }
 
 export default function UserReferralsPage() {
-  const [copied, setCopied] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+
   const { data: commissions, isLoading, error, refetch } = useQuery({
     queryKey: ["user-commissions"],
     queryFn: async () => {
@@ -42,11 +44,21 @@ export default function UserReferralsPage() {
     },
   });
 
+  const referralCode = referralData?.code || "";
+  const signupUrl = referralCode ? `${process.env.NEXT_PUBLIC_WEB_URL || "https://predictatrade.com"}/register?ref=${referralCode}` : "";
+
   const copyCode = () => {
-    if (!referralData?.code) return;
-    navigator.clipboard.writeText(referralData.code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (!referralCode) return;
+    navigator.clipboard.writeText(referralCode);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const copyLink = () => {
+    if (!signupUrl) return;
+    navigator.clipboard.writeText(signupUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
   };
 
   const columns: DataTableColumn<Commission>[] = [
@@ -62,19 +74,38 @@ export default function UserReferralsPage() {
         <p className="text-sm text-pat-text-secondary mt-1">Your referral stats and commission history.</p>
       </div>
 
-      {/* Referral Code Card */}
-      <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-5">
-        <div className="text-sm text-pat-text-secondary mb-2">Your Referral Code</div>
-        <div className="flex items-center gap-3">
-          <code className="text-lg font-mono font-bold text-pat-primary bg-pat-info/5 px-3 py-2 rounded-md border border-pat-info/20">
-            {referralData?.code || "Loading..."}
-          </code>
-          <button onClick={copyCode} disabled={!referralData?.code}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-pat-primary text-pat-primary-foreground hover:bg-pat-primary-hover disabled:opacity-50 transition-colors text-sm font-medium">
-            {copied ? <><IconCheck size={16} /> Copied!</> : <><IconCopy size={16} /> Copy</>}
-          </button>
+      {/* Referral Code + Share Link Card */}
+      <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-5 space-y-4">
+        {/* Referral Code */}
+        <div>
+          <div className="text-sm font-medium text-pat-text-secondary mb-2">Your Referral Code</div>
+          <div className="flex items-center gap-3">
+            <code className="text-lg font-mono font-bold text-pat-primary bg-pat-info/5 px-3 py-2 rounded-md border border-pat-info/20 flex-1">
+              {referralCode || "Loading..."}
+            </code>
+            <button onClick={copyCode} disabled={!referralCode}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-pat-primary text-pat-primary-foreground hover:bg-pat-primary-hover disabled:opacity-50 transition-colors text-sm font-medium whitespace-nowrap">
+              {copiedCode ? <><IconCheck size={16} /> Copied!</> : <><IconCopy size={16} /> Copy Code</>}
+            </button>
+          </div>
         </div>
-        <p className="text-xs text-pat-text-muted mt-2">Share this code with friends. They enter it during signup to link their account to you.</p>
+
+        {/* Referral Signup Link */}
+        <div>
+          <div className="text-sm font-medium text-pat-text-secondary mb-2 flex items-center gap-1.5">
+            <IconLink size={14} /> Your Referral Signup Link
+          </div>
+          <div className="flex items-center gap-3">
+            <code className="text-sm font-mono text-pat-text-primary bg-pat-bg-surface-secondary px-3 py-2 rounded-md border border-pat-border flex-1 truncate" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+              {signupUrl || "Loading..."}
+            </code>
+            <button onClick={copyLink} disabled={!signupUrl}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-pat-success text-white hover:opacity-90 disabled:opacity-50 transition-colors text-sm font-medium whitespace-nowrap">
+              {copiedLink ? <><IconCheck size={16} /> Copied!</> : <><IconLink size={16} /> Copy Link</>}
+            </button>
+          </div>
+          <p className="text-xs text-pat-text-muted mt-2">Share this link with friends — when they sign up, their referral code is automatically filled in and they'll be linked to your account.</p>
+        </div>
       </div>
 
       {/* Stats Grid */}
