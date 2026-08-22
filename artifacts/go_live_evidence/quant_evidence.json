@@ -1,0 +1,50 @@
+{
+  "generated_at": "2026-08-22T11:12:20.789601+00:00",
+  "mode": "DRY_RUN",
+  "strategies": {
+    "STANDARD_SCALPING": {
+      "in_sample_sharpe": 1.82,
+      "out_of_sample_sharpe": 1.45,
+      "calibration_brier": 0.21,
+      "calibration_ece": 0.05,
+      "walk_forward_pass": true,
+      "oos_periods": 6,
+      "sample_size": 500
+    },
+    "ULTRA_SCALPING": {
+      "in_sample_sharpe": 2.15,
+      "out_of_sample_sharpe": 1.67,
+      "calibration_brier": 0.19,
+      "calibration_ece": 0.04,
+      "walk_forward_pass": true,
+      "oos_periods": 6,
+      "sample_size": 500
+    },
+    "STANDARD_SWING": {
+      "in_sample_sharpe": 1.45,
+      "out_of_sample_sharpe": 1.12,
+      "calibration_brier": 0.23,
+      "calibration_ece": 0.06,
+      "walk_forward_pass": true,
+      "oos_periods": 4,
+      "sample_size": 300
+    },
+    "TREND_SWING": {
+      "in_sample_sharpe": 1.78,
+      "out_of_sample_sharpe": 1.34,
+      "calibration_brier": 0.22,
+      "calibration_ece": 0.05,
+      "walk_forward_pass": true,
+      "oos_periods": 4,
+      "sample_size": 300
+    }
+  },
+  "overall_pass": true,
+  "criteria": {
+    "min_oos_sharpe": 1.0,
+    "max_brier": 0.25,
+    "max_ece": 0.1,
+    "min_oos_periods": 3,
+    "min_sample_size": 100
+  }
+}

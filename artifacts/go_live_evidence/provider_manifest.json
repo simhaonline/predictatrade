@@ -1,0 +1,29 @@
+{
+  "generated_at": "2026-08-22T11:12:20.675007+00:00",
+  "period_start": "2026-07-23T11:12:20.675007+00:00",
+  "period_end": "2026-08-22T11:12:20.675007+00:00",
+  "providers": {
+    "dxy": {
+      "name": "Twelve Data DXY",
+      "endpoint": "https://api.twelvedata.com/time_series?symbol=DX&interval=1day",
+      "status": "DRY_RUN",
+      "data_points": 30,
+      "latest_value": 98.8344
+    },
+    "cot": {
+      "name": "FMP Commitment of Traders",
+      "endpoint": "https://financialmodelingprep.com/api/v4/commitment_of_traders_report",
+      "status": "DRY_RUN",
+      "data_points": 4,
+      "latest_value": 141636
+    },
+    "news": {
+      "name": "FMP Economic Calendar",
+      "endpoint": "https://financialmodelingprep.com/api/v3/economic_calendar",
+      "status": "DRY_RUN",
+      "data_points": 30
+    }
+  },
+  "provenance_hash": "892c6aaa95ea240f439e58c1d30efccc2d49a105bcfc99c0b77887b3449363b6",
+  "hmac_algorithm": "SHA256"
+}
