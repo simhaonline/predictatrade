@@ -85,15 +85,24 @@ export class AuthService {
       [userId, dto.email, passwordHash, dto.displayName || dto.email.split('@')[0]],
     );
     if (dto.referralCode) {
-      const referrer = await this.pool.query('SELECT id FROM iam.users WHERE email = $1', [dto.referralCode]);
+      const referrer = await this.pool.query(
+        `SELECT rc.user_id FROM referral.referral_codes rc WHERE rc.code = $1 AND rc.active = true`,
+        [dto.referralCode],
+      );
       if (referrer.rows.length > 0) {
         await this.pool.query(
           `INSERT INTO referral.referral_relationships (child_user_id, parent_user_id, level, created_at)
-           VALUES ($1, $2, 1, now())`,
-          [userId, referrer.rows[0].id],
+           VALUES ($1, $2, 1, now()) ON CONFLICT DO NOTHING`,
+          [userId, referrer.rows[0].user_id],
         );
       }
     }
+    const refCode = 'PAT-' + userId.replace(/-/g, '').toUpperCase().substring(0, 32);
+    await this.pool.query(
+      `INSERT INTO referral.referral_codes (id, user_id, code, active, created_at)
+       VALUES (gen_random_uuid(), $1, $2, true, now()) ON CONFLICT DO NOTHING`,
+      [userId, refCode],
+    );
     const session = await this.createSession(userId, dto.email);
     return {
       accessToken: session.accessToken,

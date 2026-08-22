@@ -3,10 +3,13 @@ import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import DataTable, { DataTableColumn } from "@/components/ui/data-table";
 import { format } from "date-fns";
+import { useState } from "react";
+import { IconCopy, IconCheck } from "@tabler/icons-react";
 
 interface Commission { id: string; commission_amount: string; status: string; created_at: string; }
 
 export default function UserReferralsPage() {
+  const [copied, setCopied] = useState(false);
   const { data: commissions, isLoading, error, refetch } = useQuery({
     queryKey: ["user-commissions"],
     queryFn: async () => {
@@ -23,6 +26,29 @@ export default function UserReferralsPage() {
     },
   });
 
+  const { data: referralData } = useQuery({
+    queryKey: ["user-referral-code"],
+    queryFn: async () => {
+      const res = await customInstance.get("/referrals/code");
+      return res.data as { code: string };
+    },
+  });
+
+  const { data: network } = useQuery({
+    queryKey: ["user-referral-network"],
+    queryFn: async () => {
+      const res = await customInstance.get("/referrals/network");
+      return res.data as { referrals: { child_user_id: string; email: string; full_name: string; level: number; created_at: string }[]; count: number };
+    },
+  });
+
+  const copyCode = () => {
+    if (!referralData?.code) return;
+    navigator.clipboard.writeText(referralData.code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const columns: DataTableColumn<Commission>[] = [
     { key: "commission_amount", header: "Amount", cell: (row) => <span className="text-pat-text-primary font-medium">${parseFloat(row.commission_amount || "0").toFixed(2)}</span> },
     { key: "status", header: "Status", cell: (row) => <span className={`text-xs px-2 py-1 rounded-full border ${row.status === 'CONFIRMED' ? 'bg-pat-success/10 text-pat-success border-pat-success/20' : 'bg-pat-warning/10 text-pat-session border-pat-warning/20'}`}>{row.status}</span> },
@@ -36,7 +62,27 @@ export default function UserReferralsPage() {
         <p className="text-sm text-pat-text-secondary mt-1">Your referral stats and commission history.</p>
       </div>
 
+      {/* Referral Code Card */}
+      <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-5">
+        <div className="text-sm text-pat-text-secondary mb-2">Your Referral Code</div>
+        <div className="flex items-center gap-3">
+          <code className="text-lg font-mono font-bold text-pat-primary bg-pat-info/5 px-3 py-2 rounded-md border border-pat-info/20">
+            {referralData?.code || "Loading..."}
+          </code>
+          <button onClick={copyCode} disabled={!referralData?.code}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-pat-primary text-pat-primary-foreground hover:bg-pat-primary-hover disabled:opacity-50 transition-colors text-sm font-medium">
+            {copied ? <><IconCheck size={16} /> Copied!</> : <><IconCopy size={16} /> Copy</>}
+          </button>
+        </div>
+        <p className="text-xs text-pat-text-muted mt-2">Share this code with friends. They enter it during signup to link their account to you.</p>
+      </div>
+
+      {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-5">
+          <div className="text-sm text-pat-text-secondary">Total Referrals</div>
+          <div className="text-2xl font-bold text-pat-text-primary mt-1">{network?.count || 0}</div>
+        </div>
         <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-5">
           <div className="text-sm text-pat-text-secondary">Paid</div>
           <div className="text-2xl font-bold text-pat-text-primary mt-1">${parseFloat(summary?.paid_amount || "0").toFixed(2)}</div>
@@ -47,7 +93,11 @@ export default function UserReferralsPage() {
         </div>
         <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-5">
           <div className="text-sm text-pat-text-secondary">Pending</div>
-          <div className="text-2xl font-bold text-pat-session mt-1">${parseFloat(summary?.pending_amount || "0").toFixed(2)}</div>
+          <div className="text-2xl font-bold text-pat-warning mt-1">${parseFloat(summary?.pending_amount || "0").toFixed(2)}</div>
+        </div>
+        <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-5">
+          <div className="text-sm text-pat-text-secondary">Total Earned</div>
+          <div className="text-2xl font-bold text-pat-text-primary mt-1">${parseFloat(summary?.total_amount || "0").toFixed(2)}</div>
         </div>
         <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-5">
           <div className="text-sm text-pat-text-secondary">Entries</div>
@@ -55,6 +105,7 @@ export default function UserReferralsPage() {
         </div>
       </div>
 
+      {/* Commission History */}
       <DataTable data={commissions || []} columns={columns} loading={isLoading} error={error as Error|null} onRetry={refetch} />
     </div>
   );

@@ -12,6 +12,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [referralCode, setReferralCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -22,7 +23,11 @@ export default function RegisterPage() {
     if (password.length < 8) { setError("Password must be at least 8 characters"); return; }
     setLoading(true);
     try {
-      await customInstance.post("/auth/register", { email, password });
+      await customInstance.post("/auth/register", {
+        email,
+        password,
+        ...(referralCode.trim() ? { referralCode: referralCode.trim() } : {}),
+      });
       router.push("/login");
     } catch (err: unknown) {
       setError(getApiErrorMessage(err, "Registration failed"));
@@ -60,6 +65,12 @@ export default function RegisterPage() {
             <input type="password" required autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
               className="w-full rounded-md border border-pat-input-border bg-pat-input-bg text-pat-input-text focus:outline-none focus:ring-2 focus:ring-pat-primary transition-colors"
               style={{ padding: "clamp(0.4rem, 1vh, 0.55rem)", fontSize: "clamp(0.8rem, 1.5vh, 0.9rem)" }} placeholder="Re-enter password" />
+          </div>
+          <div>
+            <label className="block text-pat-text-primary mb-1" style={{ fontSize: "clamp(0.7rem, 1.4vh, 0.85rem)", fontWeight: 500 }}>Referral Code <span className="text-pat-text-muted">(optional)</span></label>
+            <input type="text" autoComplete="off" value={referralCode} onChange={(e) => setReferralCode(e.target.value)}
+              className="w-full rounded-md border border-pat-input-border bg-pat-input-bg text-pat-input-text focus:outline-none focus:ring-2 focus:ring-pat-primary transition-colors"
+              style={{ padding: "clamp(0.4rem, 1vh, 0.55rem)", fontSize: "clamp(0.8rem, 1.5vh, 0.9rem)" }} placeholder="PAT-XXXX..." />
           </div>
           <button type="submit" disabled={loading}
             className="w-full rounded-md bg-pat-primary text-pat-primary-foreground hover:bg-pat-primary-hover disabled:opacity-50 transition-colors flex items-center justify-center gap-2 font-semibold"

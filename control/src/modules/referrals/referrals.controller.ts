@@ -8,6 +8,11 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 export class ReferralsController {
   constructor(private referralsService: ReferralsService) {}
 
+  @Get('code')
+  async getReferralCode(@CurrentUser('sub') userId: string) {
+    return { code: await this.referralsService.getReferralCode(userId) };
+  }
+
   @Get('network')
   async getNetwork(@CurrentUser('sub') userId: string) {
     return this.referralsService.getReferralNetwork(userId);
