@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import {
   IconChartBar, IconCoin, IconReceipt, IconActivity,
-  IconTrendingUp, IconBolt, IconBrandWindows,
+  IconTrendingUp, IconBolt,
   IconTerminal2, IconInfoCircle,
 } from "@tabler/icons-react";
 import { format } from "date-fns";
@@ -52,12 +52,6 @@ interface UserDevice {
   activations: TerminalActivation[] | null;
 }
 
-interface AgentsStatus {
-  agents_connected: number;
-  master_node_connected: boolean;
-  snapshot_count: number;
-}
-
 interface CommissionSummary {
   total_amount: string; pending_count: string; confirmed_count: string;
   pending_amount: string; confirmed_amount: string;
@@ -65,6 +59,8 @@ interface CommissionSummary {
 
 // Master Node account numbers that should NOT be shown to users (admin-only)
 const MASTER_NODE_ACCOUNTS = ["1013700717"];
+// Master Node device names — terminals on these devices are admin-only
+const MASTER_NODE_DEVICE_NAMES = ["Equiti MT5 Master Node", "Master Node"];
 
 export default function UserTradingReportsPage() {
   const { data: devices } = useQuery<UserDevice[]>({
@@ -93,18 +89,12 @@ export default function UserTradingReportsPage() {
     refetchInterval: 15000,
   });
 
-  const { data: agentsStatus } = useQuery<AgentsStatus>({
-    queryKey: ["user-trading-agents"],
-    queryFn: async () => (await customInstance.get("/agents/status")).data,
-    refetchInterval: 10000,
-  });
-
   const signals = signalsData?.signals ?? [];
 
   // Filter out Master Node terminals — those are admin-only, not for client dashboard
   const allTerminals = (devices?.flatMap(d =>
-    (d.activations || []).map(a => ({ ...a, deviceName: d.device_name, deviceStatus: d.status }))
-  ) ?? []).filter(t => !MASTER_NODE_ACCOUNTS.includes(t.mt_account_login || ""));
+    (d.activations || []).map(a => ({ ...a, deviceName: d.device_name, deviceStatus: d.status, _isMasterNodeDevice: MASTER_NODE_DEVICE_NAMES.some(n => d.device_name?.includes(n)) }))
+  ) ?? []).filter(t => !MASTER_NODE_ACCOUNTS.includes(t.mt_account_login || "") && !t._isMasterNodeDevice);
 
   const totalSignals = signals.length;
   const directional = signals.filter(s => s.Direction !== "NO-TRADE");
@@ -152,28 +142,28 @@ export default function UserTradingReportsPage() {
         <p className="text-sm text-pat-text-secondary mt-1">Your XAUUSD trading performance and connected terminals.</p>
       </div>
 
-      {/* Connection status */}
+      {/* MT Client Connection status — no Master Node info shown to users */}
       <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
-            <div className={`flex items-center justify-center w-10 h-10 rounded-lg ${(agentsStatus?.agents_connected ?? 0) > 0 ? "bg-pat-success/10" : "bg-pat-danger/10"}`}>
-              <IconBrandWindows size={20} className={(agentsStatus?.agents_connected ?? 0) > 0 ? "text-pat-success" : "text-pat-danger"} />
+            <div className={`flex items-center justify-center w-10 h-10 rounded-lg ${allTerminals.length > 0 ? "bg-pat-success/10" : "bg-pat-danger/10"}`}>
+              <IconTerminal2 size={20} className={allTerminals.length > 0 ? "text-pat-success" : "text-pat-danger"} />
             </div>
             <div>
-              <div className="text-sm font-semibold text-pat-text-primary">Platform Connection</div>
+              <div className="text-sm font-semibold text-pat-text-primary">MT Client Connection</div>
               <div className="text-xs text-pat-text-muted">
-                {agentsStatus?.agents_connected ?? 0} agent(s) · {allTerminals.length} client terminal(s)
-                {agentsStatus?.master_node_connected ? " · Master Node: ONLINE" : " · Master Node: OFFLINE"}
+                {allTerminals.length} client terminal{allTerminals.length !== 1 ? "s" : ""} connected
+                {allTerminals.length > 0 && ` · ${allTerminals.filter(t => t.deviceStatus === "ONLINE").length} online`}
               </div>
             </div>
           </div>
           <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ${
-            (agentsStatus?.agents_connected ?? 0) > 0
+            allTerminals.length > 0
               ? "bg-pat-success/10 text-pat-success border border-pat-success/20"
               : "bg-pat-danger/10 text-pat-danger border border-pat-danger/20"
           }`}>
-            <span className={`inline-block h-2 w-2 rounded-full ${(agentsStatus?.agents_connected ?? 0) > 0 ? "bg-pat-success animate-pulse" : "bg-pat-danger"}`} />
-            {(agentsStatus?.agents_connected ?? 0) > 0 ? "LIVE" : "OFFLINE"}
+            <span className={`inline-block h-2 w-2 rounded-full ${allTerminals.length > 0 ? "bg-pat-success animate-pulse" : "bg-pat-danger"}`} />
+            {allTerminals.length > 0 ? "CONNECTED" : "NO TERMINALS"}
           </span>
         </div>
       </div>
@@ -380,7 +370,7 @@ export default function UserTradingReportsPage() {
             Account balance, equity, and P/L are captured from your MT4/MT5 terminals via the Windows Agent.
             If values show $0.00, ensure you have the latest EA version (v1.08+) installed — download it from the
             MetaTrader Client page. The EA sends account data (balance, equity, P&L, positions) to the platform
-            on initialization and during license checks. {(agentsStatus?.agents_connected ?? 0) > 0 && `${agentsStatus?.agents_connected} agent(s) are connected and sending data.`}
+            on initialization and during license checks. {allTerminals.length > 0 && `${allTerminals.length} client terminal(s) are connected and sending data.`}
           </div>
         </div>
       </div>
