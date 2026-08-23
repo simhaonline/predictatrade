@@ -1,8 +1,8 @@
 {
-    "version": "1.2.6",
+    "version": "1.2.8",
     "download_url": "https://downloads.predictatrade.com/windows-agent/pat-agent.exe",
-    "checksum": "f6205df970111c127be430dd453201f1108a41d96ea820a261c4a31a3edc64e2",
-    "min_version": "1.2.6",
-    "release_notes": "v1.2.6 — FIX: MT client connection. Moved file-based IPC (PAT_ticks/heartbeat/license/signals) to a shared ProgramData folder so the LocalSystem agent service and the user's MetaTrader terminal can actually see each other (was using mismatched per-user %APPDATA% paths).",
-    "timestamp": "2026-08-23T16:45:48Z"
+    "checksum": "8bf94aa80b5bb5a4d1353b2b78457e0fc4894e239cce654df0ece90a2819d0af",
+    "min_version": "1.2.8",
+    "release_notes": "v1.2.8 — FIX: MT client connection. The agent now discovers and uses the user's real MetaQuotes Common\Files folder (C:\Users\<user>\AppData\Roaming\MetaQuotes\Terminal\Common\Files) instead of its own LocalSystem %APPDATA%. The EA keeps using MQL FILE_COMMON (the only reliably-allowed path), so both sides finally share the same folder and the agent is detected.",
+    "timestamp": "2026-08-23T16:54:29Z"
 }

@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -34,7 +32,7 @@ type TerminalInfo struct {
 }
 
 type PipeManager struct {
-	commonDir   string
+	commonDirs  []string
 	mu          sync.Mutex
 	wsSender    func([]byte) error
 	onTick      func(MT5Tick)
@@ -68,15 +66,15 @@ type LicenseResponse struct {
 	AllowedStrategies []string `json:"allowed_strategies"`
 }
 
-func NewPipeManager(commonDir string, wsSender func([]byte) error, apiURL string) *PipeManager {
+func NewPipeManager(commonDirs []string, wsSender func([]byte) error, apiURL string) *PipeManager {
 	return &PipeManager{
-		commonDir: commonDir,
-		wsSender:  wsSender,
-		apiURL:    apiURL,
-		stopChan:  make(chan struct{}),
-		licStatus: "ACTIVE",
-		licPlan:   "ELITE",
-		terminals: make(map[string]*TerminalInfo),
+		commonDirs: commonDirs,
+		wsSender:   wsSender,
+		apiURL:     apiURL,
+		stopChan:   make(chan struct{}),
+		licStatus:  "ACTIVE",
+		licPlan:    "ELITE",
+		terminals:  make(map[string]*TerminalInfo),
 	}
 }
 
@@ -125,14 +123,24 @@ func (pm *PipeManager) GetLicense() (string, string) {
 
 func (pm *PipeManager) Start() {
 	pm.running = true
-	os.MkdirAll(pm.commonDir, 0755)
+	// Only use folders that already exist. MetaTrader creates its
+	// Common\Files directory (with the correct per-user ACL) on first run; if we
+	// (running as LocalSystem) created it ourselves, the interactive user's EA
+	// would be denied write access. Folders created by MT after agent start are
+	// still picked up automatically by the write loops (WriteFile succeeds once
+	// the parent exists).
+	for _, d := range pm.commonDirs {
+		if _, err := os.Stat(d); err == nil {
+			_ = os.MkdirAll(d, 0755) // exists already -> no-op
+		}
+	}
 
 	go pm.heartbeatLoop()
 	go pm.readLoop()
 	go pm.licenseLoop()  // Continuously write license response
 	go pm.masterReadLoop() // Read master node data (indicators, bars, snapshots)
 
-	log.Printf("File IPC started at: %s", pm.commonDir)
+	log.Printf("File IPC started at %d folder(s): %v", len(pm.commonDirs), pm.commonDirs)
 }
 
 func (pm *PipeManager) Stop() {
@@ -140,54 +148,87 @@ func (pm *PipeManager) Stop() {
 	close(pm.stopChan)
 }
 
-// findCommonFolder returns the directory used for file-based IPC between the
-// Windows Agent and the MetaTrader EAs.
+// findCommonFolders returns the MetaQuotes "Common\Files" directory used for
+// file-based IPC between the Windows Agent and the MetaTrader EAs.
 //
-// This MUST be a non-user-profile location. The agent normally runs as a
-// Windows service under LocalSystem, whose %APPDATA% resolves to
-// C:\Windows\System32\config\systemprofile\... — which is NOT the same folder
-// MetaTrader (running in the interactive user session) uses for FILE_COMMON
-// files (C:\Users\<user>\AppData\Roaming\MetaQuotes\Terminal\Common\Files).
-// That mismatch made the two sides invisible to each other (MT client never
-// connected). We therefore use a fixed, shared location under ProgramData that
-// both security contexts can access. Override with PAT_IPC_DIR if required.
-func findCommonFolder() string {
+// The MetaTrader EA writes/reads these files via the MQL FILE_COMMON flag,
+// which always resolves to:
+//
+//	C:\Users\<user>\AppData\Roaming\MetaQuotes\Terminal\Common\Files
+//
+// The agent normally runs as a Windows service under LocalSystem, whose
+// %APPDATA% resolves to C:\Windows\System32\config\systemprofile\... — a DIFFERENT
+// folder than the one the user's terminal uses. So the agent must explicitly
+// target the real user-profile Common\Files folder(s) rather than rely on its
+// own %APPDATA%.
+//
+// We scan every local user profile for the MetaQuotes Common\Files directory and
+// use all of them (so the agent works regardless of which user runs MT, and even
+// before the EA has created the folder). The EA (running as the user) reads and
+// writes in the same physical directory, so both sides finally meet.
+//
+// Override entirely with PAT_IPC_DIR (single dir) if needed.
+func findCommonFolders() []string {
 	if env := os.Getenv("PAT_IPC_DIR"); env != "" {
-		return env
+		return []string{env}
 	}
-	base := os.Getenv("ProgramData")
-	if base == "" {
-		base = `C:\ProgramData`
-	}
-	dir := filepath.Join(base, "PredictATrade", "ipc")
-	if err := os.MkdirAll(dir, 0755); err == nil {
-		secureIpcDir(dir)
-	}
-	return dir
-}
 
-// secureIpcDir best-effort grants the interactive Users group write access so
-// the MetaTrader terminal (running as the logged-on user) can read/write the
-// IPC files the agent creates. Ignored on non-Windows platforms.
-func secureIpcDir(dir string) {
-	if runtime.GOOS != "windows" {
-		return
+	var dirs []string
+	seen := map[string]bool{}
+
+	add := func(d string) {
+		if d == "" || seen[d] {
+			return
+		}
+		seen[d] = true
+		dirs = append(dirs, d)
 	}
-	cmd := exec.Command("icacls", dir, "/grant", "*S-1-5-32-545:(OI)(CI)(M)", "/T", "/Q")
-	cmd.Run() // best-effort; ignore errors
+
+	// Candidate users directory (Windows). On non-Windows dev builds this is a
+	// no-op and the caller simply gets an empty list (harmless).
+	usersRoot := `C:\Users`
+	if env := os.Getenv("PAT_USERS_ROOT"); env != "" {
+		usersRoot = env
+	}
+	if entries, err := os.ReadDir(usersRoot); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			// Skip well-known non-real profiles.
+			switch strings.ToLower(name) {
+			case "public", "default", "default user", "all users", "administrator":
+				// "administrator" can be a real trading account, but is also a
+				// default profile; include it anyway (harmless, just an extra dir).
+			}
+			cand := filepath.Join(usersRoot, name, "AppData", "Roaming",
+				"MetaQuotes", "Terminal", "Common", "Files")
+			add(cand)
+		}
+	}
+
+	// Fallback: the agent's own profile (original behavior) — included so a
+	// LocalSystem-only scenario still has a folder to write into.
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		add(filepath.Join(appData, "MetaQuotes", "Terminal", "Common", "Files"))
+	}
+
+	return dirs
 }
 
 // heartbeatLoop writes heartbeat every 2s so EA knows Agent is alive.
 func (pm *PipeManager) heartbeatLoop() {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-	hbPath := filepath.Join(pm.commonDir, "PAT_heartbeat.txt")
 	for {
 		select {
 		case <-ticker.C:
 			content := fmt.Sprintf(`{"type":"HEARTBEAT","timestamp":"%s","agent":"1.02"}`,
 				time.Now().UTC().Format(time.RFC3339))
-			os.WriteFile(hbPath, []byte(content), 0644)
+			for _, d := range pm.commonDirs {
+				os.WriteFile(filepath.Join(d, "PAT_heartbeat.txt"), []byte(content), 0644)
+			}
 		case <-pm.stopChan:
 			return
 		}
@@ -200,7 +241,6 @@ func (pm *PipeManager) heartbeatLoop() {
 func (pm *PipeManager) licenseLoop() {
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
-	licPath := filepath.Join(pm.commonDir, "PAT_license.txt")
 	for {
 		select {
 		case <-ticker.C:
@@ -211,36 +251,41 @@ func (pm *PipeManager) licenseLoop() {
 				Key:    pm.licKey,
 			}
 			respData, _ := json.Marshal(response)
-			os.WriteFile(licPath, respData, 0644)
+			for _, d := range pm.commonDirs {
+				os.WriteFile(filepath.Join(d, "PAT_license.txt"), respData, 0644)
+			}
 		case <-pm.stopChan:
 			return
 		}
 	}
 }
 
-// readLoop continuously reads PAT_ticks.txt for tick data from the EA.
+// readLoop continuously reads PAT_ticks.txt for tick data from the EA. It
+// scans every candidate Common\Files folder so the agent picks up whichever
+// user profile the MetaTrader terminal is running under.
 func (pm *PipeManager) readLoop() {
-	ticksPath := filepath.Join(pm.commonDir, "PAT_ticks.txt")
 	for {
 		select {
 		case <-pm.stopChan:
 			return
 		default:
 		}
-		data, err := os.ReadFile(ticksPath)
-		if err != nil || len(data) == 0 {
-			time.Sleep(1 * time.Millisecond)
-			continue
-		}
-		lines := strings.Split(string(data), "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" {
+		for _, d := range pm.commonDirs {
+			ticksPath := filepath.Join(d, "PAT_ticks.txt")
+			data, err := os.ReadFile(ticksPath)
+			if err != nil || len(data) == 0 {
 				continue
 			}
-			pm.processMessage(line)
+			lines := strings.Split(string(data), "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				pm.processMessage(line)
+			}
+			os.WriteFile(ticksPath, []byte(""), 0644)
 		}
-		os.WriteFile(ticksPath, []byte(""), 0644)
 		time.Sleep(1 * time.Millisecond)
 	}
 }
@@ -446,10 +491,12 @@ func (pm *PipeManager) processMessage(line string) {
 func (pm *PipeManager) WriteToPipe(msgType, payload string) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	signalsPath := filepath.Join(pm.commonDir, "PAT_signals.txt")
-	existing, _ := os.ReadFile(signalsPath)
 	fullMsg := fmt.Sprintf("%s|%s\n", msgType, payload)
-	os.WriteFile(signalsPath, []byte(string(existing)+fullMsg), 0644)
+	for _, d := range pm.commonDirs {
+		signalsPath := filepath.Join(d, "PAT_signals.txt")
+		existing, _ := os.ReadFile(signalsPath)
+		os.WriteFile(signalsPath, []byte(string(existing)+fullMsg), 0644)
+	}
 }
 
 func (pm *PipeManager) SendSignalToEA(signalJSON string) {
@@ -458,39 +505,41 @@ func (pm *PipeManager) SendSignalToEA(signalJSON string) {
 }
 
 func (pm *PipeManager) IsConnected() bool {
-	hbPath := filepath.Join(pm.commonDir, "PAT_heartbeat.txt")
-	info, err := os.Stat(hbPath)
-	if err != nil {
-		return false
+	for _, d := range pm.commonDirs {
+		info, err := os.Stat(filepath.Join(d, "PAT_heartbeat.txt"))
+		if err == nil && time.Since(info.ModTime()) < 10*time.Second {
+			return true
+		}
 	}
-	return time.Since(info.ModTime()) < 10*time.Second
+	return false
 }
 
 // masterReadLoop reads PAT_master_data.txt for comprehensive market data from the Master Node EA.
 // The Master Node sends: MASTER_TICK, MARKET_SNAPSHOT, MASTER_INIT, MASTER_DEINIT
 // This data is forwarded to the Go RT server for the dashboard/Command Center.
 func (pm *PipeManager) masterReadLoop() {
-	masterPath := filepath.Join(pm.commonDir, "PAT_master_data.txt")
 	for {
 		select {
 		case <-pm.stopChan:
 			return
 		default:
 		}
-		data, err := os.ReadFile(masterPath)
-		if err != nil || len(data) == 0 {
-			time.Sleep(1 * time.Millisecond)
-			continue
-		}
-		lines := strings.Split(string(data), "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" {
+		for _, d := range pm.commonDirs {
+			masterPath := filepath.Join(d, "PAT_master_data.txt")
+			data, err := os.ReadFile(masterPath)
+			if err != nil || len(data) == 0 {
 				continue
 			}
-			pm.processMasterMessage(line)
+			lines := strings.Split(string(data), "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				pm.processMasterMessage(line)
+			}
+			os.WriteFile(masterPath, []byte(""), 0644)
 		}
-		os.WriteFile(masterPath, []byte(""), 0644)
 		time.Sleep(1 * time.Millisecond)
 	}
 }

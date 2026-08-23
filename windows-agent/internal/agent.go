@@ -212,14 +212,15 @@ func (a *Agent) Start() error {
 	a.health.start()
 
 	// Initialize named pipe manager for MT4/MT5 EA communication
-	a.pipeManager = NewPipeManager(findCommonFolder(), a.sendToServer, a.config.APIURL)
+	commonDirs := findCommonFolders()
+	a.pipeManager = NewPipeManager(commonDirs, a.sendToServer, a.config.APIURL)
 	a.pipeManager.SetCallbacks(a.onTickFromEA, a.onLicenseCheck)
 	a.pipeManager.SetTerminalCallback(func(term TerminalInfo) {
 		// Register each new terminal with the NestJS control plane
 		go a.registerTerminalWithBackend(term)
 	})
 	a.pipeManager.Start()
-	log.Printf("File IPC started at: %s", findCommonFolder())
+	log.Printf("File IPC started at %d folder(s): %v", len(commonDirs), commonDirs)
 
 	// Connect to live.predictatrade.com WebSocket
 	go a.safe(a.connectLoop)

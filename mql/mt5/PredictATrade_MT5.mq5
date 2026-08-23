@@ -2,7 +2,7 @@
 //|                                          PredictATrade_MT5.mq5   |
 //|                            Predict-A-Trade v1.0.0                |
 //|        Tick data collection + licensed signal execution EA       |
-//|  IPC: shared ProgramData folder (see PAT_IPC_PATH)               |
+//|  IPC: FILE_COMMON folder (shared between all MT terminals)       |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
 #property version   "1.07"
@@ -56,19 +56,12 @@ input double  MaxDailyLossPct   = 6.0; // Phase 4: hard halt threshold
 input double  WarningLossPct    = 3.0; // warning threshold
 input bool    EmergencyCloseAll = true;
 
-//=== File names (shared with Windows Agent via PAT_IPC_PATH) ===
+//=== File names (in FILE_COMMON folder — shared with Windows Agent) ===
 #define PAT_TICK_FILE    "PAT_ticks.txt"
 #define PAT_SIGNAL_FILE  "PAT_signals.txt"
 #define PAT_LICENSE_FILE "PAT_license.txt"
 #define PAT_HEARTBEAT    "PAT_heartbeat.txt"
 #define PAT_ACK_FILE     "PAT_ack.txt"
-
-// Shared IPC directory. The Windows Agent normally runs as a service
-// (LocalSystem), so it cannot see MetaTrader's per-user FILE_COMMON folder.
-// Both the agent and the EA must use this fixed, non-user-profile location.
-#ifndef PAT_IPC_PATH
-#define PAT_IPC_PATH "C:\\ProgramData\\PredictATrade\\ipc\\"
-#endif
 
 //=== Global State ===
 
@@ -291,7 +284,7 @@ int OnInit()
     Print("Account: ", g_accountID);
     Print("License Key: ", (g_licenseKey == "" ? "NOT SET — SIGNALS WILL BE IGNORED" : g_licenseKey));
 
-    if(FileIsExist(PAT_IPC_PATH + PAT_HEARTBEAT))
+    if(FileIsExist(PAT_HEARTBEAT, FILE_COMMON))
     {
         g_connection = "CONNECTED";
         Print("Windows Agent detected (heartbeat found in common folder)");
@@ -701,7 +694,7 @@ void CheckAgentConnection()
     if(GetTickCount() - lastCheck < 2000) return;
     lastCheck = GetTickCount();
 
-    if(FileIsExist(PAT_IPC_PATH + PAT_HEARTBEAT))
+    if(FileIsExist(PAT_HEARTBEAT, FILE_COMMON))
         g_connection = "CONNECTED";
     else
     {
@@ -799,7 +792,7 @@ void RequestLicenseValidation()
 void ReadFromAgent()
 {
     // Read license response
-    if(FileIsExist(PAT_IPC_PATH + PAT_LICENSE_FILE))
+    if(FileIsExist(PAT_LICENSE_FILE, FILE_COMMON))
     {
         string content = PAT_Read(PAT_LICENSE_FILE);
         if(StringLen(content) > 0)
@@ -810,7 +803,7 @@ void ReadFromAgent()
     }
 
     // Read signals — check every tick
-    if(FileIsExist(PAT_IPC_PATH + PAT_SIGNAL_FILE))
+    if(FileIsExist(PAT_SIGNAL_FILE, FILE_COMMON))
     {
         string content = PAT_Read(PAT_SIGNAL_FILE);
         if(StringLen(content) > 0)
@@ -1152,14 +1145,14 @@ double CalculateLotSize()
 }
 
 //+------------------------------------------------------------------+
-//| File I/O using a shared non-user-profile IPC directory           |
+//| File I/O using FILE_COMMON (shared between all MT terminals)     |
 //+------------------------------------------------------------------+
 void PAT_Write(string filename, string content)
 {
     int retry = 0;
     while(retry < 3)
     {
-        int h = FileOpen(PAT_IPC_PATH + filename, FILE_WRITE | FILE_TXT | FILE_ANSI);
+        int h = FileOpen(filename, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
         if(h != INVALID_HANDLE)
         {
             FileWriteString(h, content);
@@ -1177,7 +1170,7 @@ void PAT_Append(string filename, string content)
     int retry = 0;
     while(retry < 3)
     {
-        int h = FileOpen(PAT_IPC_PATH + filename, FILE_WRITE | FILE_TXT | FILE_ANSI);
+        int h = FileOpen(filename, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
         if(h != INVALID_HANDLE)
         {
             FileWriteString(h, content);
@@ -1191,7 +1184,7 @@ void PAT_Append(string filename, string content)
 
 string PAT_Read(string filename)
 {
-    int h = FileOpen(PAT_IPC_PATH + filename, FILE_READ | FILE_TXT | FILE_ANSI);
+    int h = FileOpen(filename, FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON);
     if(h == INVALID_HANDLE) return "";
     string content = "";
     while(!FileIsEnding(h))
@@ -1209,7 +1202,7 @@ string PAT_Read(string filename)
 
 void PAT_Clear(string filename)
 {
-    int h = FileOpen(PAT_IPC_PATH + filename, FILE_WRITE | FILE_TXT | FILE_ANSI);
+    int h = FileOpen(filename, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
     if(h != INVALID_HANDLE) FileClose(h);
 }
 
