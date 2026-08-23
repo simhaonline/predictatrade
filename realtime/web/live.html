@@ -878,6 +878,7 @@ const STATE = {
   brokerTime: '',
   positions: {total:0, buy:0, sell:0, lots:0, profit:0},
   candles: [],
+  candleTimeframe: '',
 };
 
 const API_BASE = window.location.origin;
@@ -924,9 +925,15 @@ async function loadSnapshot(){
 var priceHistoryTicks=[];
 async function loadPriceHistoryForChart(){
   var d=await fetchJSON(API_BASE+'/api/v1/price/history');
-  if(!d||!d.prices)return;
-  priceHistoryTicks=d.prices.map(function(p){return {t:Number(p.timestamp_ms),p:Number(p.price)};});
-  buildCandlesFromTicks();
+  if(d&&d.prices&&d.prices.length){
+    priceHistoryTicks=d.prices.map(function(p){return {t:Number(p.timestamp_ms),p:Number(p.price)};});
+    return;
+  }
+  // Observation-mode fallback: derive the price line from already-loaded real
+  // historical candles so the chart is never blank when no live tick stream exists.
+  if(STATE.candles&&STATE.candles.length){
+    priceHistoryTicks=STATE.candles.map(function(c){return {t:c.t,p:c.c};});
+  }
 }
 function buildCandlesFromTicks(){
   if(priceHistoryTicks.length<2)return;
@@ -973,11 +980,23 @@ function buildCandlesFromMarketState(candles){
 
 /* ============ CANDLES FROM TIMESCALEDB (preferred when available) ============ */
 async function loadCandles(){
-  var d=await fetchJSON(API_BASE+'/api/v1/candles?symbol=XAUUSD&timeframe=M5&limit=200');
-  if(!d||!d.candles||!d.candles.length)return false;
-  STATE.candles=d.candles.map(function(c){return {t:Date.parse(c.time),o:Number(c.open),h:Number(c.high),l:Number(c.low),c:Number(c.close),v:Number(c.volume||0)};}).sort(function(a,b){return a.t-b.t;});
-  STATE.candleSource='DB';
-  return true;
+  // M5 is preferred (live granularity) but is frequently empty when no live feed
+  // has produced M5 bars yet. Fall back through available historical timeframes
+  // so the chart always shows REAL data (never fabricated) in observation mode.
+  var tfs=['M5','M15','H1','D1'];
+  for(var i=0;i<tfs.length;i++){
+    var tf=tfs[i];
+    var d=await fetchJSON(API_BASE+'/api/v1/candles?symbol=XAUUSD&timeframe='+tf+'&limit=200');
+    if(d&&d.candles&&d.candles.length){
+      STATE.candles=d.candles.map(function(c){return {t:Date.parse(c.time),o:Number(c.open),h:Number(c.high),l:Number(c.low),c:Number(c.close),v:Number(c.volume||0)};}).sort(function(a,b){return a.t-b.t;});
+      STATE.candleSource='DB';
+      STATE.candleTimeframe=tf;
+      priceHistoryTicks=STATE.candles.map(function(c){return {t:c.t,p:c.c};});
+      return true;
+    }
+  }
+  STATE.candleTimeframe='';
+  return false;
 }
 
 /* ============ LOAD MARKET STATE ============ */
@@ -1622,7 +1641,8 @@ function updateModeBanner(){
   }else{
     b.className='mode-banner observe';
     var src=STATE.source||'LOCAL_COMPUTE_ONLY';
-    b.textContent='◐ OBSERVATION MODE — No live MT5 master node connected · indicators from aggregated historical candles ('+src+') · not live trading data';
+    var tf=STATE.candleTimeframe?(' '+STATE.candleTimeframe+' timeframe'):'';
+    b.textContent='◐ OBSERVATION MODE — No live MT5 master node connected · showing real historical'+tf+' candles ('+src+') · not live trading data';
   }
   // Header LIVE pill reflects reality
   var lp=$('livePill');

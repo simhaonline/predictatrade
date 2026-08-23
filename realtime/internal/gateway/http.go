@@ -183,6 +183,52 @@ func (h *HTTPServer) handlePriceHistory(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
+	// Fallback: derive a real price line from historical candles so the dashboard
+	// never shows a blank chart before a live tick stream exists. This uses only
+	// genuine stored candle closes — it never fabricates market data.
+	if h.persister != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		for _, spec := range []struct {
+			tf      string
+			lookback time.Duration
+		}{
+			{"M15", 72 * time.Hour},
+			{"H1", 240 * time.Hour},
+			{"D1", 8760 * time.Hour},
+		} {
+			timeStart := time.Now().UTC().Add(-spec.lookback)
+			rows, err := h.persister.GetDB().QueryContext(ctx, `
+				SELECT time, close FROM market.candles
+				WHERE symbol = $1 AND timeframe = $2 AND time >= $3
+				ORDER BY time ASC LIMIT $4
+			`, "XAUUSD", spec.tf, timeStart, 300)
+			if err != nil {
+				continue
+			}
+			pts := []map[string]interface{}{}
+			for rows.Next() {
+				var t time.Time
+				var closeStr string
+				if err := rows.Scan(&t, &closeStr); err != nil {
+					continue
+				}
+				pts = append(pts, map[string]interface{}{
+					"timestamp_ms": t.UnixMilli(),
+					"price":        parseFloatStr(closeStr),
+				})
+			}
+			rows.Close()
+			if len(pts) > 0 {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"prices":    pts,
+					"source":    "historical_candles",
+					"timeframe": spec.tf,
+				})
+				return
+			}
+		}
+	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"prices": []interface{}{}})
 }
 

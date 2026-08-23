@@ -567,6 +567,13 @@ func (pm *PipeManager) IsConnected() bool {
 // masterReadLoop reads PAT_master_data.txt for comprehensive market data from the Master Node EA.
 // The Master Node sends: MASTER_TICK, MARKET_SNAPSHOT, MASTER_INIT, MASTER_DEINIT
 // This data is forwarded to the Go RT server for the dashboard/Command Center.
+//
+// Diagnostic note: a throttled (every 30s) log reports whether PAT_master_data.txt is
+// present in each scanned Common\Files folder. If it is NEVER present, the Master Node EA
+// is not writing it (attach/enable the PredictATrade_MasterNode_MT5 EA). If it IS present
+// but "Forwarding MARKET_SNAPSHOT to engine" never logs, the file content is malformed.
+var lastMasterDiag time.Time
+
 func (pm *PipeManager) masterReadLoop() {
 	for {
 		select {
@@ -574,11 +581,22 @@ func (pm *PipeManager) masterReadLoop() {
 			return
 		default:
 		}
+		now := time.Now()
+		doDiag := now.Sub(lastMasterDiag) > 30*time.Second
+		if doDiag {
+			lastMasterDiag = now
+		}
 		for _, d := range pm.commonDirs {
 			masterPath := filepath.Join(d, "PAT_master_data.txt")
 			data, err := os.ReadFile(masterPath)
 			if err != nil || len(data) == 0 {
+				if doDiag {
+					log.Printf("[IPC] PAT_master_data.txt not present in %s", d)
+				}
 				continue
+			}
+			if doDiag {
+				log.Printf("[IPC] PAT_master_data.txt present in %s (%d bytes) — forwarding to engine", d, len(data))
 			}
 			lines := strings.Split(string(data), "\n")
 			for _, line := range lines {
