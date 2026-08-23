@@ -4,11 +4,14 @@
 package gateway
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"strings"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -71,32 +74,95 @@ func (c *Client) isEntitled(strategyID types.StrategyID) bool {
 }
 
 
-// extractUserIDFromJWT parses a JWT token and extracts the user ID from claims.
+// extractUserIDFromJWT parses and CRYPTOGRAPHICALLY VERIFIES a JWT token.
 // This is the ONLY way WebSocket client identity is established — never from query params.
+// The JWT secret is loaded from the JWT_SECRET environment variable, shared with NestJS.
+var jwtSecret = os.Getenv("JWT_SECRET")
+
 func extractUserIDFromJWT(tokenString string) (string, error) {
-	// Parse without verification for now — the Go engine trusts the NestJS-issued token
-	// In production, this should verify the JWT signature using a shared secret.
-	// For now, we extract the "sub" claim which contains the user ID.
 	parts := strings.Split(tokenString, ".")
 	if len(parts) != 3 {
-		return "", fmt.Errorf("invalid token format")
+		return "", fmt.Errorf("invalid token format: expected 3 parts")
 	}
 
-	// Decode the payload (second part)
+	// Step 1: Verify signature using HMAC-SHA256
+	signingInput := parts[0] + "." + parts[1]
+	expectedSig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		return "", fmt.Errorf("invalid signature encoding: %w", err)
+	}
+
+	secret := jwtSecret
+	if secret == "" {
+		// In dev mode, try to read from file or use dev secret
+		secret = os.Getenv("JWT_SECRET")
+		if secret == "" {
+			return "", fmt.Errorf("JWT_SECRET not configured — cannot verify tokens")
+		}
+	}
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(signingInput))
+	computedSig := mac.Sum(nil)
+
+	if !hmac.Equal(computedSig, expectedSig) {
+		return "", fmt.Errorf("JWT signature verification failed: signature mismatch")
+	}
+
+	// Step 2: Decode and parse payload
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("invalid payload encoding: %w", err)
 	}
 
-	var claims map[string]interface{}
+	var claims struct {
+		Sub string `json:"sub"`
+		Exp int64  `json:"exp"`
+		Iat int64  `json:"iat"`
+		Role string `json:"role"`
+	}
 	if err := json.Unmarshal(payload, &claims); err != nil {
-		return "", err
+		return "", fmt.Errorf("invalid payload JSON: %w", err)
 	}
 
-	if sub, ok := claims["sub"].(string); ok {
-		return sub, nil
+	// Step 3: Verify expiration
+	if claims.Exp > 0 {
+		now := time.Now().Unix()
+		if now > claims.Exp {
+			return "", fmt.Errorf("JWT expired: exp=%d, now=%d", claims.Exp, now)
+		}
 	}
-	return "", fmt.Errorf("no sub claim in token")
+
+	// Step 4: Verify issued-at sanity (not too far in future)
+	if claims.Iat > 0 {
+		now := time.Now().Unix()
+		if claims.Iat > now+60 {
+			return "", fmt.Errorf("JWT iat is in the future: iat=%d, now=%d", claims.Iat, now)
+		}
+	}
+
+	// Step 5: Verify algorithm (check header for HS256)
+	header, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return "", fmt.Errorf("invalid header encoding: %w", err)
+	}
+	var headerMap map[string]interface{}
+	if err := json.Unmarshal(header, &headerMap); err != nil {
+		return "", fmt.Errorf("invalid header JSON: %w", err)
+	}
+	if alg, ok := headerMap["alg"].(string); ok {
+		if alg != "HS256" {
+			return "", fmt.Errorf("unsupported JWT algorithm: %s (expected HS256)", alg)
+		}
+	} else {
+		return "", fmt.Errorf("missing alg in JWT header")
+	}
+
+	if claims.Sub == "" {
+		return "", fmt.Errorf("no sub claim in token")
+	}
+
+	return claims.Sub, nil
 }
 
 // WebSocketHub manages WebSocket clients and broadcasts events.

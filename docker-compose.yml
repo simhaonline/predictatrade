@@ -65,6 +65,7 @@ services:
       - DATABASE_URL=postgresql://pat_admin:pat_local_dev_only@postgres:5432/predictatrade?sslmode=disable
       - VALKEY_ADDR=valkey:6379
       - HTTP_HOST=0.0.0.0
+      - JWT_SECRET=lyFoqwbIPuflF/6PjNtrZXCM1wXGVfYJhj7ZxDAWKYA=
       - HTTP_PORT=13081
       - WS_PORT=13081
     ports:

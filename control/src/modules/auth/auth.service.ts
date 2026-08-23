@@ -90,11 +90,23 @@ export class AuthService {
         [dto.referralCode],
       );
       if (referrer.rows.length > 0) {
-        await this.pool.query(
-          `INSERT INTO referral.referral_relationships (child_user_id, parent_user_id, level, created_at)
-           VALUES ($1, $2, 1, now()) ON CONFLICT DO NOTHING`,
-          [userId, referrer.rows[0].user_id],
+        const referrerUserId = referrer.rows[0].user_id;
+        // P0: Self-referral prevention
+        if (referrerUserId === userId) {
+          throw new BadRequestException('Cannot use your own referral code');
+        }
+        // P0: Immutable attribution — only set if no existing referral
+        const existing = await this.pool.query(
+          `SELECT 1 FROM referral.referral_relationships WHERE child_user_id = $1 LIMIT 1`,
+          [userId],
         );
+        if (existing.rows.length === 0) {
+          await this.pool.query(
+            `INSERT INTO referral.referral_relationships (child_user_id, parent_user_id, level, created_at)
+             VALUES ($1, $2, 1, now()) ON CONFLICT DO NOTHING`,
+            [userId, referrerUserId],
+          );
+        }
       }
     }
     const refCode = 'PAT-' + userId.replace(/-/g, '').toUpperCase().substring(0, 32);

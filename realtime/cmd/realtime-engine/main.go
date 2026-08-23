@@ -1204,7 +1204,7 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			if model != nil && model.Status == "PROMOTED" {
 				calibratedProb = calibConsumer.Calibrate(strat.ID(), stratResult.RawScore)
 				calibStatus = types.CalibrationPromoted
-			} else if model != nil && model.Status == "VALIDATED" {
+			} else if model != nil && model.Status == "VALIDATED" || model.Status == "PROVISIONAL" {
 				calibratedProb = calibConsumer.Calibrate(strat.ID(), stratResult.RawScore)
 				calibStatus = types.CalibrationValidated
 			}

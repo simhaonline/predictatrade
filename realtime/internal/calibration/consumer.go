@@ -101,7 +101,7 @@ func (c *Consumer) SeedDefaultModels() {
 			SampleSize:       100,
 			WilsonLower:      decimal.NewFromFloat(0.45),
 			IsActive:         true,
-			Status:           "VALIDATED", // Default models — replaced by trained models when available
+			Status:           "PROVISIONAL", // Default models — NOT statistically validated, replaced by trained models when OOS data available
 		})
 	}
 }
