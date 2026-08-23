@@ -885,7 +885,7 @@ func main() {
 				}
 				processCandle(candle, featureReg, stateMgr, strategies, engine, mlEngine, ollamaClient, healthManager, staleChecker,
 					calibConsumer, reconciler, wsHub, agentHub, persister, gateRegistry,
-					cooldownMgr, dupChecker, ptbEngine)
+					cooldownMgr, dupChecker, ptbEngine, auditLogger)
 			}
 		}
 	}()
@@ -952,7 +952,7 @@ func processTick(tick *types.Tick, validator *marketdata.TickValidator, staleDet
 	}
 }
 
-func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr *features.StateManager, strategies []strategy.Strategy, engine *sigengine.Engine, mlEngine *mlengine.MLEngine, ollamaClient *ollama.OllamaClient, healthManager *health.Manager, staleChecker *health.StaleChecker, calibConsumer *calibration.Consumer, reconciler *reconciliation.Reconciler, wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, persister *marketdata.Persister, gateRegistry *gates.Registry, cooldownMgr *sigengine.CooldownManager, dupChecker *sigengine.DuplicateChecker, ptbEngine *ptb.Engine) {
+func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr *features.StateManager, strategies []strategy.Strategy, engine *sigengine.Engine, mlEngine *mlengine.MLEngine, ollamaClient *ollama.OllamaClient, healthManager *health.Manager, staleChecker *health.StaleChecker, calibConsumer *calibration.Consumer, reconciler *reconciliation.Reconciler, wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, persister *marketdata.Persister, gateRegistry *gates.Registry, cooldownMgr *sigengine.CooldownManager, dupChecker *sigengine.DuplicateChecker, ptbEngine *ptb.Engine, auditLogger *audit.Logger) {
 	if candle == nil { return }
 	observability.CandlesGenerated.WithLabelValues(candle.Symbol, string(candle.Timeframe)).Inc()
 
@@ -1165,6 +1165,70 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 	sessionAllowed := features.IsSessionAllowed(string(mergedState.Regime.Current), mergedState.Session.CurrentSession, mergedState.Session.IsWeekend)
 	for _, strat := range strategies {
 		stratResult := strat.Evaluate(mergedState)
+
+		// ─── Audit: Start pipeline execution (prompt.md audit logging) ───
+		var pipelineExecID uuid.UUID
+		var scoreExecID uuid.UUID
+		stepStart := time.Now().UTC()
+		if auditLogger != nil {
+			pipeCtx, pipeCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			if pid, err := auditLogger.StartPipeline(pipeCtx, string(candle.Symbol), string(candle.Timeframe)); err == nil {
+				pipelineExecID = pid
+				// Log the strategy evaluation as a pipeline step
+				rawScoreF, _ := stratResult.RawScore.Float64()
+				longScoreF, _ := stratResult.LongScore.Float64()
+				shortScoreF, _ := stratResult.ShortScore.Float64()
+				_ = auditLogger.LogStep(pipeCtx, audit.PipelineStep{
+					PipelineExecutionID: pid,
+					EngineName:           string(strat.ID()),
+					EngineVersion:        "1.0",
+					Timeframe:            string(candle.Timeframe),
+					StartedAt:            stepStart,
+					Status:               "COMPLETED",
+					RawValue:             rawScoreF,
+					NormalizedValue:      rawScoreF,
+					Direction:            string(stratResult.Direction),
+					Confidence:           stratResult.Confidence,
+					Weight:               1.0,
+				})
+				// Log score execution with pillar components from evidence
+				components := make([]audit.ScoreComponent, 0, len(stratResult.Evidence))
+				for _, ev := range stratResult.Evidence {
+					w, _ := ev.Weight.Float64()
+					c, _ := ev.Contribution.Float64()
+					nv, _ := ev.NormalizedValue.Float64()
+					components = append(components, audit.ScoreComponent{
+						PillarName:           ev.Pillar,
+						FeatureName:          ev.Feature,
+						RawScore:             c,
+						Weight:               w,
+						WeightedContribution: c,
+						NormalizedScore:      nv,
+						Direction:            string(ev.Direction),
+						Status:               "ACTIVE",
+					})
+				}
+				scoreExec := audit.ScoreExecution{
+					PipelineExecutionID: pid,
+					ScoreVersion:        "1.0",
+					RawScore:             rawScoreF,
+					NormalizedScore:     rawScoreF,
+					BullishScore:         longScoreF,
+					BearishScore:         shortScoreF,
+					Confidence:           stratResult.Confidence,
+					Signal:               string(stratResult.Direction),
+					SignalGrade:          string(stratResult.HumanReason),
+					StrategyID:           string(strat.ID()),
+					Asset:                string(candle.Symbol),
+					Timeframe:            string(candle.Timeframe),
+				}
+				if err := auditLogger.LogScore(pipeCtx, scoreExec, components); err == nil {
+					scoreExecID = scoreExec.ID
+				}
+			}
+			pipeCancel()
+		}
+		// ─── End audit: pipeline + score ───
 
 		// ===== ADDON: Engine Override (Phase 1 wiring) =====
 		// Try to get a specialized engine for this strategy.
@@ -1417,6 +1481,11 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 					})
 				}(sig)
 			}
+			if auditLogger != nil && pipelineExecID != uuid.Nil {
+				ac, acCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+				_ = auditLogger.CompletePipeline(ac, pipelineExecID, uuid.Nil, "NO_TRADE", nil)
+				acCancel()
+			}
 			continue
 		}
 		// Signal cooldown check (SOW Section 17)
@@ -1467,6 +1536,11 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 						CreatedAt: time.Now().UTC(),
 					})
 				}(sig)
+			}
+			if auditLogger != nil && pipelineExecID != uuid.Nil {
+				ac, acCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+				_ = auditLogger.CompletePipeline(ac, pipelineExecID, uuid.Nil, "NO_TRADE", nil)
+				acCancel()
 			}
 			continue
 		}
@@ -1530,6 +1604,11 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 						CreatedAt: time.Now().UTC(),
 					})
 				}(sig)
+			}
+			if auditLogger != nil && pipelineExecID != uuid.Nil {
+				ac, acCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+				_ = auditLogger.CompletePipeline(ac, pipelineExecID, uuid.Nil, "NO_TRADE", nil)
+				acCancel()
 			}
 			continue
 		}
@@ -1713,6 +1792,42 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			observability.SignalsGenerated.WithLabelValues(string(strat.ID()), string(decision.Signal.Direction)).Inc()
 			if decision.FirstVeto != nil {
 				observability.GateVetoTotal.WithLabelValues(string(decision.FirstVeto.GateID)).Inc()
+			}
+			// ─── Audit: Log final signal decision (prompt.md audit logging) ───
+			if auditLogger != nil && pipelineExecID != uuid.Nil {
+				auditCtx, auditCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+				sigID, _ := uuid.Parse(decision.Signal.ID)
+				entryF, _ := decision.Signal.EntryPrice.Float64()
+				slF, _ := decision.Signal.StopLoss.Float64()
+				tp1F, _ := decision.Signal.TP1.Float64()
+				rrF, _ := decision.Signal.GrossRRTP1.Float64()
+				scoreF, _ := decision.Signal.RawScore.Float64()
+				_ = auditLogger.LogSignal(auditCtx, audit.SignalExecution{
+					SignalID:            sigID,
+					PipelineExecutionID: pipelineExecID,
+					ScoreExecutionID:    scoreExecID,
+					Asset:               string(candle.Symbol),
+					Timeframe:           string(candle.Timeframe),
+					Signal:              string(decision.Signal.Direction),
+					Decision:             string(decision.Signal.SignalClass),
+					Score:               scoreF,
+					Confidence:          stratResult.Confidence,
+					Entry:               entryF,
+					StopLoss:            slF,
+					TakeProfit:          tp1F,
+					RiskReward:          rrF,
+					DecisionReason:      stratResult.HumanReason,
+					StrategyID:          string(strat.ID()),
+					MarketDataTimestamp: candle.Time,
+					DataSource:          decision.Signal.SourceMode,
+				})
+				_ = auditLogger.CompletePipeline(auditCtx, pipelineExecID, sigID, "COMPLETED", map[string]interface{}{
+					"strategy":  string(strat.ID()),
+					"direction": string(decision.Signal.Direction),
+					"signal_class": string(decision.Signal.SignalClass),
+					"gates_pass": decision.AllGatesPass,
+				})
+				auditCancel()
 			}
 		}
 	}

@@ -874,6 +874,7 @@ const STATE = {
   session: '', isOverlap: false, isWeekend: false, newsRisk: 'NONE',
   agentsConnected: 0, masterNode: false, snapshotCount: 0,
   strategies: [],
+  signals: [],
   brokerTime: '',
   positions: {total:0, buy:0, sell:0, lots:0, profit:0},
   candles: [],
@@ -1027,6 +1028,21 @@ async function loadStrategies(){
   return true;
 }
 
+// Load real engine signals from /api/v1/signals (missing-api.md fix)
+async function loadSignals(){
+  try{
+    const d=await fetchJSON(API_BASE+'/api/v1/signals?limit=8');
+    if(d&&d.signals&&Array.isArray(d.signals)){
+      STATE.signals=d.signals;
+    }else if(d&&Array.isArray(d)){
+      STATE.signals=d;
+    }
+    return true;
+  }catch(e){
+    return false;
+  }
+}
+
 /* ============ WEBSOCKET — SELF-HEALING ============ */
 var ws=null,wsTimer=null,wsReconnectGen=0;
 var STALE_THRESHOLD=15000; // 15s without data = stale
@@ -1135,6 +1151,7 @@ function recoverRealtimeSession(){
       await loadMarketState();
       await loadAgentStatus();
       await loadStrategies();
+      await loadSignals();
       updateAllDisplay();
     }catch(e){}
     
@@ -1445,7 +1462,17 @@ function buildAgents(){
   var ss=$('stratSignals');if(ss){ss.innerHTML='';
     var strats=STATE.strategies.length>0?STATE.strategies:['STANDARD_SCALPING','ULTRA_SCALPING','STANDARD_SWING','TREND_SWING'];
     strats.forEach(function(s){
-      var sig=STATE.mtfScore>20?'BUY':STATE.mtfScore<-20?'SELL':'HOLD';
+      // Use real engine signals from /api/v1/signals (missing-api.md fix)
+      var sig='—';
+      if(STATE.signals&&STATE.signals.length>0){
+        for(var si=0;si<STATE.signals.length;si++){
+          if(STATE.signals[si].strategy_id===s||STATE.signals[si].strategyId===s){
+            sig=STATE.signals[si].direction||STATE.signals[si].Direction||'NO-TRADE';
+            break;
+          }
+        }
+      }
+      if(sig==='—'){sig=STATE.mtfScore>20?'BUY':STATE.mtfScore<-20?'SELL':'HOLD';}
       var cls=sig==='BUY'?'sig-buy':sig==='SELL'?'sig-sell':'sig-hold';
       var row=document.createElement('div');row.className='strat-row';
       row.innerHTML='<span class="strat-name">'+s+'</span><span class="strat-sig '+cls+'">'+sig+'</span>';
@@ -1733,7 +1760,7 @@ async function init(){
   if(ti)ti.textContent=document.body.classList.contains('dark')?'☀':'🌙';
   await loadSnapshot();
   await loadCandles(); // preferred chart source; falls back to aggregated market-state candles
-  await Promise.all([loadMarketState(),loadAgentStatus(),loadStrategies()]);
+  await Promise.all([loadMarketState(),loadAgentStatus(),loadStrategies(),loadSignals()]);
   buildSparklines();buildResGrid();buildGantt();buildActiveMarkets();buildAgents();buildTicker();buildFooter();buildDOM();
   if(priceChart)priceChart.setOption(priceOption());
   if(edgeChart)edgeChart.setOption(edgeOption());
