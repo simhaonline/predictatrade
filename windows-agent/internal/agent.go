@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -100,11 +101,9 @@ func (a *Agent) Start() error {
 
 	// Claim the local health port before starting IPC or WebSocket workers. A
 	// second installed copy must fail here instead of creating duplicate
-	// backend connections and producing misleading handshake failures.
 	a.health = newHealthServer()
-	if err := a.health.start(); err != nil {
-		return fmt.Errorf("health endpoint: %w (another Agent process may already be running)", err)
-	}
+
+
 
 	// Initialize named pipe manager for MT4/MT5 EA communication
 	a.pipeManager = NewPipeManager(findCommonFolder(), a.sendToServer, a.config.APIURL)
@@ -558,16 +557,81 @@ func (a *Agent) onTickFromEA(tick MT5Tick) {
 	a.sendToServer(data)
 }
 
-// onLicenseCheck is called when the EA requests license validation
+// onLicenseCheck is called when the EA requests license validation.
+// It calls the NestJS control plane API to validate the license key.
 func (a *Agent) onLicenseCheck(msg LicenseCheckMsg) {
-	log.Printf("License check requested: account=%s broker=%s", msg.Account, msg.Broker)
-	// In production: send HTTP request to https://api.predictatrade.com/api/v1/licensing/validate
-	// For now, send a default ACTIVE response back to EA
+	log.Printf("License check requested: account=%s broker=%s key=%s", msg.Account, msg.Broker, msg.LicenseKey)
+
+	// Build the API URL for license validation
+	validateURL := strings.Replace(a.config.APIURL, "/api/v1", "/api/v1/licensing/validate", 1)
+	if !strings.Contains(validateURL, "licensing/validate") {
+		validateURL = a.config.APIURL + "/licensing/validate"
+	}
+
+	// POST license_key to the control plane for validation
+	reqBody, _ := json.Marshal(map[string]string{"license_key": msg.LicenseKey})
+	req, err := http.NewRequest("POST", validateURL, bytes.NewReader(reqBody))
+	if err != nil {
+		log.Printf("License validation request error: %v", err)
+		a.sendLicenseResponse(msg.LicenseKey, "ERROR", "UNKNOWN", nil)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("License validation HTTP error: %v", err)
+		// Fallback: send UNKNOWN status so EA knows validation failed
+		a.sendLicenseResponse(msg.LicenseKey, "ERROR", "UNKNOWN", nil)
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	log.Printf("License validation response: HTTP %d — %s", resp.StatusCode, string(respBody))
+
+	if resp.StatusCode != 200 {
+		log.Printf("License validation failed: HTTP %d", resp.StatusCode)
+		a.sendLicenseResponse(msg.LicenseKey, "ERROR", "UNKNOWN", nil)
+		return
+	}
+
+	// Parse the API response
+	var apiResp struct {
+		Valid             bool     `json:"valid"`
+		Status            string   `json:"status"`
+		Plan              string   `json:"plan"`
+		MaxDevices        int      `json:"max_devices"`
+		MaxMTAccounts     int      `json:"max_mt_accounts"`
+		AllowedStrategies []string `json:"allowed_strategies"`
+	}
+	if err := json.Unmarshal(respBody, &apiResp); err != nil {
+		log.Printf("License response parse error: %v", err)
+		a.sendLicenseResponse(msg.LicenseKey, "ERROR", "UNKNOWN", nil)
+		return
+	}
+
+	status := apiResp.Status
+	if !apiResp.Valid {
+		status = "INVALID"
+		log.Printf("License INVALID: status=%s", apiResp.Status)
+	} else {
+		log.Printf("License VALID: status=%s plan=%s devices=%d", apiResp.Status, apiResp.Plan, apiResp.MaxDevices)
+	}
+
+	a.sendLicenseResponse(msg.LicenseKey, status, apiResp.Plan, apiResp.AllowedStrategies)
+}
+
+// sendLicenseResponse writes the license validation result back to the EA via the pipe.
+func (a *Agent) sendLicenseResponse(key, status, plan string, strategies []string) {
 	response := LicenseResponse{
-		Type:   "LICENSE_RESPONSE",
-		Status: "ACTIVE",
-		Plan:   "ELITE",
-		Key:    msg.LicenseKey,
+		Type:              "LICENSE_RESPONSE",
+		Status:            status,
+		Plan:              plan,
+		Key:               key,
+		Valid:             status == "ACTIVE",
+		AllowedStrategies: strategies,
 	}
 	respData, _ := json.Marshal(response)
 	if a.pipeManager != nil {

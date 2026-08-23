@@ -55,10 +55,14 @@ type LicenseCheckMsg struct {
 }
 
 type LicenseResponse struct {
-	Type   string `json:"type"`
-	Status string `json:"status"`
-	Plan   string `json:"plan"`
-	Key    string `json:"key"`
+	Type              string   `json:"type"`
+	Status            string   `json:"status"`
+	Plan              string   `json:"plan"`
+	Key               string   `json:"key"`
+	Valid             bool     `json:"valid"`
+	MaxDevices        int      `json:"max_devices"`
+	MaxMTAccounts     int      `json:"max_mt_accounts"`
+	AllowedStrategies []string `json:"allowed_strategies"`
 }
 
 func NewPipeManager(commonDir string, wsSender func([]byte) error, apiURL string) *PipeManager {

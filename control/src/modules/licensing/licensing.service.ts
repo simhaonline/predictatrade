@@ -317,4 +317,32 @@ export class LicensingService {
     }
     return { success: true, updated: result.rows[0] };
   }
-}
+
+  /** Public license validation by license key (no JWT — used by Windows Agent) */
+  async validateLicenseKey(licenseKey: string) {
+    const r = await this.pool.query(
+      `SELECT l.status, l.license_key, l.max_devices, l.max_mt_accounts,
+              l.allowed_strategies, l.allowed_execution_modes,
+              p.code as plan_code, p.name as plan_name
+       FROM licensing.licenses l
+       LEFT JOIN control.plans p ON l.plan_id = p.id
+       WHERE l.license_key = $1 AND l.revoked_at IS NULL
+       LIMIT 1`,
+      [licenseKey],
+    );
+    if (r.rows.length === 0) {
+      return { valid: false, status: 'NOT_FOUND', error: 'License key not found' };
+    }
+    const row = r.rows[0];
+    return {
+      valid: row.status === 'ACTIVE',
+      status: row.status,
+      plan: row.plan_code,
+      plan_name: row.plan_name,
+      max_devices: row.max_devices,
+      max_mt_accounts: row.max_mt_accounts,
+      allowed_strategies: row.allowed_strategies || [],
+      allowed_execution_modes: row.allowed_execution_modes || [],
+      license_key: row.license_key,
+    };
+  }}
