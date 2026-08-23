@@ -20,7 +20,7 @@ $InstallDir    = "C:\Program Files\PredictATrade\XAUUSD"
 $ServiceName   = "pat-agent"
 $EventSource   = "pat-agent"
 $TaskName      = "PredictATradeHealthCheck"
-$AgentExe      = "agent.exe"
+$AgentExe      = "pat-agent.exe"
 $NssmExe       = "nssm.exe"
 
 # ─── Helper: Write to Event Log ───
@@ -67,10 +67,10 @@ function Stop-PATService {
         }
     }
 
-    # Extra safety: kill the agent.exe process directly if still running
-    $proc = Get-Process -Name "agent" -ErrorAction SilentlyContinue
+    # Extra safety: kill the pat-agent.exe process directly if still running
+    $proc = Get-Process -Name "pat-agent" -ErrorAction SilentlyContinue
     if ($proc) {
-        Write-Host "  Force-killing agent.exe process..."
+        Write-Host "  Force-killing pat-agent.exe process..."
         $proc | Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
     }
@@ -195,9 +195,9 @@ if ($isUpdate) {
 Write-Host "[install] Creating Event Log source '$EventSource'..."
 Write-PATEventLog -Message "Predict-A-Trade XAUUSD installation started$(if ($isUpdate) { " (update from v$previousVersion)" })" -EventId 1
 
-# ─── Step 5: Download all files (agent.exe is no longer locked) ───
+# ─── Step 5: Download all files (pat-agent.exe is no longer locked) ───
 $FilesToDownload = @(
-    @{ Name = "agent.exe";        Dest = "agent.exe";        Overwrite = $true  }
+    @{ Name = "pat-agent.exe";        Dest = "pat-agent.exe";        Overwrite = $true  }
     @{ Name = "notify.ps1";        Dest = "notify.ps1";        Overwrite = $true  }
     @{ Name = "health-check.ps1"; Dest = "health-check.ps1"; Overwrite = $true  }
     @{ Name = "status.ps1";       Dest = "status.ps1";        Overwrite = $true  }
@@ -227,9 +227,9 @@ foreach ($file in $FilesToDownload) {
     } catch {
         Write-Host "  FAIL: Could not download $($file.Name): $_"
         Write-PATEventLog -Message "install.ps1: Failed to download $($file.Name): $_" -Level "Error" -EventId 2
-        if ($file.Name -eq "agent.exe") {
-            Write-Host "[install] FATAL: Cannot install without agent.exe — aborting"
-            Write-PATEventLog -Message "install.ps1: FATAL - agent.exe download failed, aborting" -Level "Error" -EventId 3
+        if ($file.Name -eq "pat-agent.exe") {
+            Write-Host "[install] FATAL: Cannot install without pat-agent.exe — aborting"
+            Write-PATEventLog -Message "install.ps1: FATAL - pat-agent.exe download failed, aborting" -Level "Error" -EventId 3
             Write-Host ""
             Read-Host "Press Enter to close"
             exit 1

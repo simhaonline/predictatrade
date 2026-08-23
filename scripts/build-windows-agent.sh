@@ -9,9 +9,9 @@
 #
 # What it does (in order):
 #   1. Reads (or sets) the version from windows-agent/internal/version.go
-#   2. Cross-compiles agent.exe for Windows amd64
-#   3. Binary goes to windows-agent/bin/PredictATrade-Agent.exe
-#   4. deploy/agent.exe is a real copied file so the Docker/Nginx deploy mount
+#   2. Cross-compiles pat-agent.exe for Windows amd64
+#   3. Binary goes to windows-agent/bin/pat-agent.exe
+#   4. deploy/pat-agent.exe is a real copied file so the Docker/Nginx deploy mount
 #      can serve it (symlinks outside the mounted directory are not portable)
 #   5. Calculates SHA256 checksum of the new binary
 #   6. Updates deploy/version.txt
@@ -27,9 +27,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 AGENT_DIR="$ROOT_DIR/windows-agent"
-BIN_PATH="$AGENT_DIR/bin/PredictATrade-Agent.exe"
+BIN_PATH="$AGENT_DIR/bin/pat-agent.exe"
 DEPLOY_DIR="$AGENT_DIR/deploy"
-DEPLOY_EXE="$DEPLOY_DIR/agent.exe"
+DEPLOY_EXE="$DEPLOY_DIR/pat-agent.exe"
 VERSION_FILE="$DEPLOY_DIR/version.txt"
 MANIFEST_FILE="$DEPLOY_DIR/update-manifest.json"
 VERSION_GO="$AGENT_DIR/internal/version.go"
@@ -62,7 +62,7 @@ package agent
 
 // AgentVersion is the single source of truth for the agent binary version.
 // The installer's version.txt on the server must match this value.
-// When pushing a new release: increment this, rebuild agent.exe, update deploy/version.txt.
+// When pushing a new release: increment this, rebuild pat-agent.exe, update deploy/version.txt.
 const AgentVersion = "$NEW_VERSION"
 EOF
     log "Updated version.go → v$NEW_VERSION"
@@ -76,7 +76,7 @@ log "Binary built: $BIN_PATH ($(du -h "$BIN_PATH" | cut -f1))"
 
 # ─── Step 4: Copy a standalone deployment binary ───
 # The Nginx container mounts deploy/ only. A symlink to ../bin is therefore
-# broken inside the container and produces a public 404 for agent.exe.
+# broken inside the container and produces a public 404 for pat-agent.exe.
 rm -f "$DEPLOY_EXE"
 cp "$BIN_PATH" "$DEPLOY_EXE"
 chmod 0644 "$DEPLOY_EXE"
@@ -95,7 +95,7 @@ TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 cat > "$MANIFEST_FILE" << EOF
 {
     "version": "$NEW_VERSION",
-    "download_url": "https://downloads.predictatrade.com/windows-agent/agent.exe",
+    "download_url": "https://downloads.predictatrade.com/windows-agent/pat-agent.exe",
     "checksum": "$CHECKSUM",
     "min_version": "$NEW_VERSION",
     "release_notes": "v$NEW_VERSION — rebuilt Windows Agent with single-instance health-port guard and stable WebSocket reconnect lifecycle",
@@ -106,7 +106,7 @@ log "Updated update-manifest.json"
 
 # ─── Step 8: Verify live endpoint ───
 log "Verifying live download endpoint..."
-HTTP_CODE=$(curl -sI -o /dev/null -w "%{http_code}" "https://downloads.predictatrade.com/windows-agent/agent.exe" 2>/dev/null || echo "000")
+HTTP_CODE=$(curl -sI -o /dev/null -w "%{http_code}" "https://downloads.predictatrade.com/windows-agent/pat-agent.exe" 2>/dev/null || echo "000")
 if [[ "$HTTP_CODE" == "200" ]]; then
     log "✅ Live endpoint OK (HTTP 200)"
 else
@@ -123,6 +123,6 @@ echo "  Binary:      $BIN_PATH"
 echo "  Deploy:      $DEPLOY_EXE (standalone copy)"
 echo "  Checksum:    $CHECKSUM"
 echo "  Manifest:    $MANIFEST_FILE"
-echo "  Live URL:    https://downloads.predictatrade.com/windows-agent/agent.exe"
+echo "  Live URL:    https://downloads.predictatrade.com/windows-agent/pat-agent.exe"
 echo "  Install cmd: irm https://downloads.predictatrade.com/windows-agent/install.ps1 | iex"
 echo "═══════════════════════════════════════════════"

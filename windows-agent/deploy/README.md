@@ -24,7 +24,7 @@ The `nssm/` subdirectory contains both architectures:
 The installer auto-detects the OS architecture and downloads the correct one.
 
 Also ensure these are present:
-- `agent.exe` — the compiled Go agent binary (cross-compile: `GOOS=windows GOARCH=amd64 go build -o deploy/agent.exe ./cmd/agent/`)
+- `pat-agent.exe` — the compiled Go agent binary (cross-compile: `GOOS=windows GOARCH=amd64 go build -o deploy/pat-agent.exe ./cmd/agent/`)
 - `nssm/win32/nssm.exe` and `nssm/win64/nssm.exe` — NSSM binaries (from https://nssm.cc)
   The installer auto-detects 32-bit vs 64-bit and downloads the correct one.
 
@@ -61,8 +61,8 @@ Client Machine                          Server
 │  (self-elevates)    │                │  downloads/windows-agent/ │
 │                     │                │  ├── install.ps1          │
 │  NSSM Service       │                │  ├── uninstall.ps1       │
-│  pat-agent│                │  ├── agent.exe            │
-│  ├─ agent.exe       │                │  ├── nssm.exe             │
+│  pat-agent│                │  ├── pat-agent.exe            │
+│  ├─ pat-agent.exe       │                │  ├── nssm.exe             │
 │  ├─ notify.ps1      │                │  ├── notify.ps1           │
 │  ├─ settings.json   │                │  ├── health-check.ps1     │
 │  └─ logs/           │                │  ├── settings.json        │
@@ -81,7 +81,7 @@ Client Machine                          Server
 
 ### Test crash notification
 1. Start the service: `nssm start pat-agent`
-2. Kill the agent process: `taskkill /F /IM agent.exe`
+2. Kill the agent process: `taskkill /F /IM pat-agent.exe`
 3. NSSM auto-restarts after 5 seconds
 4. `notify.ps1` fires with the exit code → sends Telegram/Discord/Email alert
 
@@ -106,11 +106,11 @@ irm "https://downloads.predictatrade.com/windows-agent/uninstall.ps1?Silent=true
 The Go agent includes a built-in auto-updater that:
 
 1. **Checks every 60 minutes** (configurable via `PAT_UPDATE_INTERVAL_MIN` env var) for a new version by fetching `https://downloads.predictatrade.com/windows-agent/update-manifest.json`
-2. **Compares versions** — if the server version is newer, downloads the new `agent.exe`
+2. **Compares versions** — if the server version is newer, downloads the new `pat-agent.exe`
 3. **Verifies SHA-256 checksum** — refuses to apply if checksum doesn't match
 4. **Applies via helper script** — on Windows, the running binary is locked, so a helper batch script:
    - Stops the NSSM service
-   - Backs up the current `agent.exe` → `agent.exe.bak`
+   - Backs up the current `pat-agent.exe` → `pat-agent.exe.bak`
    - Replaces with the new binary
    - Updates `version.txt`
    - Restarts the service
@@ -122,7 +122,7 @@ The Go agent includes a built-in auto-updater that:
 | File | Purpose |
 |------|---------|
 | `update-manifest.json` | Version, download URL, SHA-256 checksum, release notes |
-| `agent.exe` | The new binary (downloaded and checksum-verified) |
+| `pat-agent.exe` | The new binary (downloaded and checksum-verified) |
 | `version.txt` | Plain-text version number (used by installer for update detection) |
 
 ### How to push an update:
@@ -134,10 +134,10 @@ cd /srv/predictatrade/xauusd/windows-agent
 # Edit internal/version.go: const AgentVersion = "1.1.0"
 
 # 2. Rebuild Windows binary
-GOOS=windows GOARCH=amd64 go build -o deploy/agent.exe ./cmd/agent/
+GOOS=windows GOARCH=amd64 go build -o deploy/pat-agent.exe ./cmd/agent/
 
 # 3. Compute new checksum
-SHA256=$(sha256sum deploy/agent.exe | awk '{print $1}')
+SHA256=$(sha256sum deploy/pat-agent.exe | awk '{print $1}')
 
 # 4. Update manifest (version + checksum)
 # Edit deploy/update-manifest.json: set "version" and "checksum" fields

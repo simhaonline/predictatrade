@@ -139,7 +139,7 @@ research-lint: ## Lint Python code
 # ============================================================
 
 agent-build: ## Build Windows Agent (cross-compile for windows/amd64)
-	cd windows-agent && GOOS=windows GOARCH=amd64 go build -ldflags "$(GO_LDFLAGS)" -o bin/PredictATradeAgent.exe ./cmd/agent
+	cd windows-agent && GOOS=windows GOARCH=amd64 go build -ldflags "$(GO_LDFLAGS)" -o bin/pat-agent.exe ./cmd/agent
 
 agent-test: ## Test Windows Agent
 	cd windows-agent && go test -race -count=1 ./...

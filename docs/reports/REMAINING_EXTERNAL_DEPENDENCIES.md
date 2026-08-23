@@ -13,7 +13,7 @@ Software blockers have been resolved; remaining items are either external data, 
 
 **What's Done:**
 - Windows Agent source code complete (service, installer, updater)
-- Cross-compilation succeeds: `GOOS=windows GOARCH=amd64 go build -o bin/PredictATradeAgent.exe`
+- Cross-compilation succeeds: `GOOS=windows GOARCH=amd64 go build -o bin/pat-pat-agent.exe`
 - Windows Service registration/unregistration/start/stop code implemented
 - Secure updater with checksum validation, atomic replacement, rollback
 - Validation package generated (PowerShell script + checklist)

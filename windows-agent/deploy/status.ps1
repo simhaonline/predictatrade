@@ -20,10 +20,10 @@
       & "C:\Program Files\PredictATrade\XAUUSD\status.ps1"
 #>
 
-$ServiceName = "PredictATradeXAUUSD"
+$ServiceName = "pat-agent"
 $InstallDir  = "C:\Program Files\PredictATrade\XAUUSD"
 $HealthUrl   = "http://127.0.0.1:9000/health"
-$EventSource = "PredictATradeXAUUSD"
+$EventSource = "pat-agent"
 
 Write-Host ""
 Write-Host "═══════════════════════════════════════════════════════════════"
@@ -50,7 +50,7 @@ Write-Host ""
 
 # ─── 2. Agent Process ───
 Write-Host "[2] Agent Process"
-$proc = Get-Process -Name "agent" -ErrorAction SilentlyContinue
+$proc = Get-Process -Name "pat-agent" -ErrorAction SilentlyContinue
 if ($proc) {
     $mem = [math]::Round($proc.WorkingSet64 / 1MB, 1)
     $cpu = $proc.CPU

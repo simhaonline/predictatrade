@@ -26,8 +26,8 @@ if (Test-Path $configPath) {
 }
 
 # Service status
-Get-Service "PredictATradeAgent" | Format-List > "$OutputDir\service-status.txt" 2>&1
-sc.exe qfailure "PredictATradeAgent" >> "$OutputDir\service-status.txt" 2>&1
+Get-Service "pat-agent" | Format-List > "$OutputDir\service-status.txt" 2>&1
+sc.exe qfailure "pat-agent" >> "$OutputDir\service-status.txt" 2>&1
 
 # Named pipe status
 Get-ChildItem "\\.\pipe\" | Where-Object { $_.Name -match "PredictATrade" } | Format-Table > "$OutputDir\pipes.txt" 2>&1

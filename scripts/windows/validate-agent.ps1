@@ -4,7 +4,7 @@
 # Generates JSON + human-readable reports.
 
 param(
-    [string]$AgentPath = "C:\Program Files\PredictATrade\PredictATradeAgent.exe",
+    [string]$AgentPath = "C:\Program Files\PredictATrade\XAUUSD\pat-agent.exe",
     [string]$BackendURL = "https://api.predictatrade.com",
     [string]$OutputDir = "$env:TEMP\pat-validation",
     [string]$LicenseKey = "",
@@ -69,7 +69,7 @@ try {
 
 # 4. WINDOWS_SERVICE
 if (-not $SkipService) {
-    $svc = Get-Service -Name "PredictATradeAgent" -ErrorAction SilentlyContinue
+    $svc = Get-Service -Name "pat-agent" -ErrorAction SilentlyContinue
     if ($svc) {
         $autoStart = ($svc.StartType -eq "Automatic")
         Test-Gate "WINDOWS_SERVICE" "PASS" "Status: $($svc.Status), StartType: $($svc.StartType)"
@@ -78,7 +78,7 @@ if (-not $SkipService) {
         try {
             & $AgentPath -install 2>&1 | Out-Null
             Start-Sleep 3
-            $svc = Get-Service -Name "PredictATradeAgent" -ErrorAction SilentlyContinue
+            $svc = Get-Service -Name "pat-agent" -ErrorAction SilentlyContinue
             if ($svc) {
                 Test-Gate "WINDOWS_SERVICE" "PASS" "Installed and running"
             } else {
@@ -91,7 +91,7 @@ if (-not $SkipService) {
 }
 
 # 5. WINDOWS_AUTO_START
-$svc = Get-Service -Name "PredictATradeAgent" -ErrorAction SilentlyContinue
+$svc = Get-Service -Name "pat-agent" -ErrorAction SilentlyContinue
 if ($svc -and $svc.StartType -eq "Automatic") {
     Test-Gate "WINDOWS_AUTO_START" "PASS" "StartType: Automatic"
 } else {
@@ -99,13 +99,13 @@ if ($svc -and $svc.StartType -eq "Automatic") {
 }
 
 # 6. WINDOWS_CRASH_RECOVERY
-$svc = Get-Service -Name "PredictATradeAgent" -ErrorAction SilentlyContinue
+$svc = Get-Service -Name "pat-agent" -ErrorAction SilentlyContinue
 if ($svc) {
-    $recovery = sc.exe qfailure "PredictATradeAgent" 2>&1
+    $recovery = sc.exe qfailure "pat-agent" 2>&1
     if ($recovery -match "RESTART") {
         Test-Gate "WINDOWS_CRASH_RECOVERY" "PASS" "Recovery actions configured"
     } else {
-        Test-Gate "WINDOWS_CRASH_RECOVERY" "PENDING" "Configure service recovery: sc.exe failure PredictATradeAgent reset=86400 actions=restart/5000/restart/10000/restart/30000"
+        Test-Gate "WINDOWS_CRASH_RECOVERY" "PENDING" "Configure service recovery: sc.exe failure pat-agent reset=86400 actions=restart/5000/restart/10000/restart/30000"
     }
 } else {
     Test-Gate "WINDOWS_CRASH_RECOVERY" "PENDING" "Service not installed"

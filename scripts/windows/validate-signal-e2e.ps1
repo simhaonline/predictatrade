@@ -7,7 +7,7 @@ $ErrorActionPreference = "Continue"
 Write-Host "=== Signal E2E Validation ===" -ForegroundColor Cyan
 
 # Check agent is running
-$svc = Get-Service "PredictATradeAgent" -ErrorAction SilentlyContinue
+$svc = Get-Service "pat-agent" -ErrorAction SilentlyContinue
 if (-not $svc -or $svc.Status -ne "Running") {
     Write-Host "[FAIL] Agent service not running" -ForegroundColor Red
     exit 1

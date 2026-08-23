@@ -1,5 +1,5 @@
 # Validate agent update process: version discovery, download, verify, apply, rollback
-param([string]$AgentPath = "C:\Program Files\PredictATrade\PredictATradeAgent.exe")
+param([string]$AgentPath = "C:\Program Files\PredictATrade\XAUUSD\pat-agent.exe")
 $ErrorActionPreference = "Continue"
 
 Write-Host "=== Updater Validation ===" -ForegroundColor Cyan

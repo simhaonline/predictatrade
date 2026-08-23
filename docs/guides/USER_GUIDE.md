@@ -169,7 +169,7 @@ All are enabled by default. Set any to `false` to filter out those signals. The 
 
 ### Installation Steps
 
-1. **Install Windows Agent** — Download `PredictATradeAgent.exe` and run on the MT4/MT5 terminal machine
+1. **Install Windows Agent** — Download `pat-pat-agent.exe` and run on the MT4/MT5 terminal machine
 2. **Install EA** — Copy `PredictATrade_MT5.mq5` (or `PredictATrade_MT4.mq4`) to `MQL5/Experts/` (or `MQL4/Experts/`)
 3. **Install Master Node EA** — Copy `PredictATrade_MasterNode_MT5.mq5` (or MT4) to another chart
 4. **Configure** — Enter license key in EA inputs

@@ -76,7 +76,7 @@ if ([string]::IsNullOrWhiteSpace($healthUrl)) {
 }
 
 # ─── Check 1: Is the agent process running? ───
-$agentProcess = Get-Process -Name "agent" -ErrorAction SilentlyContinue
+$agentProcess = Get-Process -Name "pat-agent" -ErrorAction SilentlyContinue
 if (-not $agentProcess) {
     # Also check by service name
     $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
@@ -182,7 +182,7 @@ try {
     Start-Sleep -Seconds 2
 
     # Ensure process is killed
-    $proc = Get-Process -Name "agent" -ErrorAction SilentlyContinue
+    $proc = Get-Process -Name "pat-agent" -ErrorAction SilentlyContinue
     if ($proc) {
         $proc | Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 1

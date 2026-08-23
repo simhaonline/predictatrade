@@ -19,7 +19,7 @@ The Linux development environment cannot validate Windows runtime behavior.
 - [ ] Logs are written to `C:\ProgramData\PredictATrade\logs\`
 
 ### 2. Service Installation
-- [ ] `PredictATradeAgent -install` succeeds
+- [ ] `pat-agent -install` succeeds
 - [ ] Service appears in `services.msc`
 - [ ] Service startup type is "Automatic"
 - [ ] Recovery actions configured (restart on failure)
@@ -54,7 +54,7 @@ The Linux development environment cannot validate Windows runtime behavior.
 - [ ] Connection status is "online"
 
 ### 9. Service Restart
-- [ ] `Restart-Service PredictATradeAgent` works
+- [ ] `Restart-Service pat-agent` works
 - [ ] Agent reconnects after restart
 - [ ] No duplicate signals after restart
 
@@ -74,7 +74,7 @@ The Linux development environment cannot validate Windows runtime behavior.
 - [ ] Service continues running with old version
 
 ### 13. Uninstall
-- [ ] `PredictATradeAgent -uninstall` succeeds
+- [ ] `pat-agent -uninstall` succeeds
 - [ ] Service removed from `services.msc`
 - [ ] Config optionally preserved
 
@@ -87,12 +87,12 @@ The Linux development environment cannot validate Windows runtime behavior.
 
 ```powershell
 # Run the automated validation script
-.\windows_validation.ps1 -AgentPath "C:\Program Files\PredictATrade\PredictATradeAgent.exe" `
+.\windows_validation.ps1 -AgentPath "C:\Program Files\PredictATrade\XAUUSD\pat-agent.exe" `
     -BackendURL "https://api.predictatrade.com" `
     -LicenseKey "YOUR_LICENSE_KEY"
 
 # Or run individual tests manually
-.\windows_validation.ps1 -AgentPath "C:\path\to\agent.exe"
+.\windows_validation.ps1 -AgentPath "C:\path\to\pat-agent.exe"
 ```
 
 ## Result Reporting

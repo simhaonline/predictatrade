@@ -705,7 +705,7 @@ func (a *Agent) checkAndUpdate() {
 	logf("[updater] Update verified (checksum OK), staged at %s", stagedPath)
 
 	// Apply the update (Windows: helper batch script stops service, swaps, restarts)
-	currentPath := filepath.Join(getEnv("PAT_INSTALL_DIR", "C:\\Program Files\\PredictATrade\\XAUUSD"), "agent.exe")
+	currentPath := filepath.Join(getEnv("PAT_INSTALL_DIR", "C:\\Program Files\\PredictATrade\\XAUUSD"), "pat-agent.exe")
 	if err := a.updater.ApplyUpdateOnWindows(stagedPath, currentPath, manifest); err != nil {
 		logf("[updater] Apply failed: %v", err)
 		return

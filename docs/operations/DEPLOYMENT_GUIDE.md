@@ -143,7 +143,7 @@ Production: Copy `.next/` to `/opt/predictatrade/frontend/`, use systemd unit.
 
 ```bash
 cd windows-agent
-GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o bin/PredictATradeAgent.exe ./cmd/agent
+GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o bin/pat-pat-agent.exe ./cmd/agent
 ```
 
 Distribute to MT4/MT5 terminal machines. Requires Windows.

@@ -90,10 +90,10 @@ npm start
 
 ```bash
 cd windows-agent
-GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o bin/PredictATradeAgent.exe ./cmd/agent
+GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o bin/pat-pat-agent.exe ./cmd/agent
 ```
 
-Distribute `PredictATradeAgent.exe` to Windows machines running MT4/MT5 terminals.
+Distribute `pat-pat-agent.exe` to Windows machines running MT4/MT5 terminals.
 
 ### 6. MT4/MT5 EAs
 

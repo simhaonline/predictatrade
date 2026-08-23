@@ -1,6 +1,6 @@
 # Validate network recovery: disconnect, verify reconnection with bounded backoff
 param(
-    [string]$AgentPath = "C:\Program Files\PredictATrade\PredictATradeAgent.exe",
+    [string]$AgentPath = "C:\Program Files\PredictATrade\XAUUSD\pat-agent.exe",
     [int]$DisconnectSeconds = 10,
     [int]$ReconnectTimeout = 60
 )
@@ -9,9 +9,9 @@ $ErrorActionPreference = "Continue"
 Write-Host "=== Network Recovery Validation ===" -ForegroundColor Cyan
 
 # Start agent if not running
-$svc = Get-Service "PredictATradeAgent" -ErrorAction SilentlyContinue
+$svc = Get-Service "pat-agent" -ErrorAction SilentlyContinue
 if ($svc -and $svc.Status -ne "Running") {
-    Start-Service "PredictATradeAgent"
+    Start-Service "pat-agent"
     Start-Sleep 5
 }
 

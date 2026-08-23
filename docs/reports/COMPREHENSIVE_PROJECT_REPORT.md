@@ -576,7 +576,7 @@ BACKUP_ENCRYPTION=sse
 
 ### Windows Validation (Required)
 ```powershell
-.\scripts\windows\validate-agent.ps1 -AgentPath "C:\Program Files\PredictATrade\PredictATradeAgent.exe"
+.\scripts\windows\validate-agent.ps1 -AgentPath "C:\Program Files\PredictATrade\pat-pat-agent.exe"
 ```
 
 ### COT Provider (Optional)

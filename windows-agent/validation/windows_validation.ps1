@@ -3,7 +3,7 @@
 # Run this script on a real Windows machine/VM to validate the agent.
 
 param(
-    [string]$AgentPath = "C:\Program Files\PredictATrade\PredictATradeAgent.exe",
+    [string]$AgentPath = "C:\Program Files\PredictATrade\XAUUSD\pat-agent.exe",
     [string]$BackendURL = "https://api.predictatrade.com",
     [string]$LicenseKey = ""
 )
@@ -44,7 +44,7 @@ Write-Host "`n--- Test: Service Installation ---" -ForegroundColor Yellow
 try {
     & $AgentPath -install
     Start-Sleep -Seconds 2
-    $svc = Get-Service -Name "PredictATradeAgent" -ErrorAction SilentlyContinue
+    $svc = Get-Service -Name "pat-agent" -ErrorAction SilentlyContinue
     Test-Step "Service Installation" ($svc -ne $null) "Service exists"
 } catch {
     Test-Step "Service Installation" $false $_.Exception.Message
@@ -53,9 +53,9 @@ try {
 # Test 4: Service start
 Write-Host "`n--- Test: Service Start ---" -ForegroundColor Yellow
 try {
-    Start-Service -Name "PredictATradeAgent"
+    Start-Service -Name "pat-agent"
     Start-Sleep -Seconds 3
-    $svc = Get-Service -Name "PredictATradeAgent"
+    $svc = Get-Service -Name "pat-agent"
     Test-Step "Service Start" ($svc.Status -eq 'Running') "Status: $($svc.Status)"
 } catch {
     Test-Step "Service Start" $false $_.Exception.Message
@@ -84,9 +84,9 @@ try {
 # Test 7: Service restart
 Write-Host "`n--- Test: Service Restart ---" -ForegroundColor Yellow
 try {
-    Restart-Service -Name "PredictATradeAgent" -Force
+    Restart-Service -Name "pat-agent" -Force
     Start-Sleep -Seconds 3
-    $svc = Get-Service -Name "PredictATradeAgent"
+    $svc = Get-Service -Name "pat-agent"
     Test-Step "Service Restart" ($svc.Status -eq 'Running') "Status: $($svc.Status)"
 } catch {
     Test-Step "Service Restart" $false $_.Exception.Message
@@ -95,7 +95,7 @@ try {
 # Test 8: Reboot persistence (check service start type)
 Write-Host "`n--- Test: Reboot Persistence ---" -ForegroundColor Yellow
 try {
-    $svc = Get-Service -Name "PredictATradeAgent"
+    $svc = Get-Service -Name "pat-agent"
     Test-Step "Reboot Persistence" ($svc.StartType -eq 'Automatic') "StartType: $($svc.StartType)"
 } catch {
     Test-Step "Reboot Persistence" $false $_.Exception.Message
@@ -104,9 +104,9 @@ try {
 # Test 9: Service stop
 Write-Host "`n--- Test: Service Stop ---" -ForegroundColor Yellow
 try {
-    Stop-Service -Name "PredictATradeAgent" -Force
+    Stop-Service -Name "pat-agent" -Force
     Start-Sleep -Seconds 2
-    $svc = Get-Service -Name "PredictATradeAgent"
+    $svc = Get-Service -Name "pat-agent"
     Test-Step "Service Stop" ($svc.Status -eq 'Stopped') "Status: $($svc.Status)"
 } catch {
     Test-Step "Service Stop" $false $_.Exception.Message
@@ -117,7 +117,7 @@ Write-Host "`n--- Test: Service Uninstall ---" -ForegroundColor Yellow
 try {
     & $AgentPath -uninstall
     Start-Sleep -Seconds 2
-    $svc = Get-Service -Name "PredictATradeAgent" -ErrorAction SilentlyContinue
+    $svc = Get-Service -Name "pat-agent" -ErrorAction SilentlyContinue
     Test-Step "Service Uninstall" ($svc -eq $null) "Service removed"
 } catch {
     Test-Step "Service Uninstall" $false $_.Exception.Message

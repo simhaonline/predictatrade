@@ -66,7 +66,7 @@ jobs:
         with: { go-version: '1.23' }
       - run: go mod download
       - run: go test ./...
-      - run: GOOS=windows GOARCH=amd64 go build -o bin/PredictATradeAgent.exe ./cmd/agent
+      - run: GOOS=windows GOARCH=amd64 go build -o bin/pat-agent.exe ./cmd/agent
 
   security:
     name: Security Scan
