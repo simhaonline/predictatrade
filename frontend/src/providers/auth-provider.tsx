@@ -130,7 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const handler = () => {
       setUser(null);
       setSessionState('UNAUTHENTICATED');
-      router.replace('/login');
+      window.location.href = '/login';
     };
     window.addEventListener('pat:logout', handler);
     return () => window.removeEventListener('pat:logout', handler);
@@ -203,7 +203,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Canonical role-aware redirect — handles SUPER_ADMIN too
     const dest = homeRouteForRole(role);
-    router.replace(dest);
+    window.location.href = dest;
   };
 
   const logout = async () => {
@@ -215,7 +215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     clearAccessToken();
     setUser(null);
     setSessionState('UNAUTHENTICATED');
-    router.replace('/login');
+    window.location.href = '/login';
   };
 
   const refreshUser = async () => {

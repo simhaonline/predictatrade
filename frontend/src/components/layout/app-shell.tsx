@@ -3,14 +3,13 @@ import Sidebar from "./sidebar";
 import Topbar from "./topbar";
 import Footer from "./footer";
 import { useAuth } from "@/providers/auth-provider";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { isAdminRole } from "@/lib/roles";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { sessionState, user } = useAuth();
   const pathname = usePathname();
-  const router = useRouter();
 
   useEffect(() => {
     if (sessionState !== 'AUTHENTICATED' || !user) return;
@@ -18,11 +17,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     const onAdminRoute = pathname.startsWith('/admin');
     const onUserRoute = pathname.startsWith('/dashboard');
     if (isAdmin && onUserRoute) {
-      router.replace('/admin/dashboard');
+      // Hard navigation to avoid RSC 404 errors
+      window.location.href = '/admin/dashboard';
     } else if (!isAdmin && onAdminRoute) {
-      router.replace('/dashboard/live');
+      window.location.href = '/dashboard/live';
     }
-  }, [sessionState, user, pathname, router]);
+  }, [sessionState, user, pathname]);
 
   if (sessionState === 'LOADING') {
     return (
