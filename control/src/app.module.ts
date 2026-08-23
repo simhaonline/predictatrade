@@ -14,6 +14,7 @@ import { CommissionsModule } from './modules/commissions/commissions.module';
 import { PayoutsModule } from './modules/payouts/payouts.module';
 import { LicensingModule } from './modules/licensing/licensing.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { ComplianceModule } from './modules/compliance/compliance.module';
 import { HealthModule } from './modules/health/health.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { DeviceAuthModule } from './modules/device-auth/device-auth.module';
@@ -41,6 +42,7 @@ import { GuestPreviewModule } from './modules/guest-preview/guest-preview.module
     PayoutsModule,
     LicensingModule,
     AuditModule,
+    ComplianceModule,
     HealthModule,
     AdminModule,
     DeviceAuthModule,
