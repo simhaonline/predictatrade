@@ -252,6 +252,81 @@ try {
     Write-PATEventLog -Message "install.ps1: NSSM download failed: $_" -Level "Warning" -EventId 4
 }
 
+# ─── Step 5.5: Interactive configuration (notification + health monitoring) ───
+# Honours PAT_NONINTERACTIVE=1 for automated/CI runs (keeps downloaded settings).
+function Read-PATSecret {
+    param([string]$Prompt)
+    $secure = Read-Host -Prompt $Prompt -AsSecureString
+    $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try { return [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($ptr) }
+    finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+}
+
+$Interactive = ($env:PAT_NONINTERACTIVE -ne "1")
+if ($Interactive) {
+    $settingsPath = Join-Path $InstallDir "settings.json"
+    $existing = $null
+    if (Test-Path $settingsPath) {
+        Write-Host "[config] Existing Predict-A-Trade configuration detected."
+        try { $existing = Get-Content $settingsPath -Raw | ConvertFrom-Json } catch {}
+        Copy-Item $settingsPath "$settingsPath.bak" -Force
+        Write-Host "[config] Backed up existing settings to settings.json.bak"
+    }
+    $settings = [PSCustomObject]@{}
+    if ($existing) { $existing.PSObject.Properties | ForEach-Object { $settings | Add-Member -MemberType NoteProperty -Name $_.Name -Value $_.Value -Force } }
+
+    Write-Host ""
+    Write-Host "Predict-A-Trade Windows Agent Configuration"
+    Write-Host "--------------------------------------------"
+    Write-Host "Notification Type:"
+    Write-Host "  1. Telegram"
+    Write-Host "  2. Discord"
+    Write-Host "  3. Email"
+    Write-Host "  4. None"
+    $def = if ($settings.notification_type) { $settings.notification_type } else { "none" }
+    $nt = Read-Host "Select [1-4] (default: $def)"
+    switch ($nt) {
+        '1' { $settings.notification_type = "telegram"
+              $settings.telegram_bot_token = Read-PATSecret "Telegram Bot Token"
+              $settings.telegram_chat_id   = Read-Host "Telegram Chat ID" }
+        '2' { $settings.notification_type = "discord"
+              $settings.discord_webhook     = Read-PATSecret "Discord Webhook URL" }
+        '3' { $settings.notification_type = "email"
+              $settings.email_smtp     = Read-Host "SMTP Server"
+              $p = Read-Host "SMTP Port (default 587)"
+              $settings.email_port     = if ($p) { [int]$p } else { 587 }
+              $settings.email_user     = Read-Host "SMTP Username"
+              $settings.email_password = Read-PATSecret "SMTP Password"
+              $settings.email_from     = Read-Host "From Email"
+              $settings.email_to       = Read-Host "To Email" }
+        default { $settings.notification_type = "none" }
+    }
+
+    $url = Read-Host "Health Check URL (default: http://localhost:9000/health)"
+    $settings.health_check_url = if ($url) { $url } else { "http://localhost:9000/health" }
+    $to = Read-Host "Health Check Timeout Seconds (default: 5)"
+    $settings.health_check_timeout_seconds = if ($to) { [int]$to } else { 5 }
+    $iv = Read-Host "Health Check Interval Minutes (default: 1)"
+    $settings.health_check_interval_minutes = if ($iv) { [int]$iv } else { 1 }
+
+    $settings | ConvertTo-Json -Depth 5 | Set-Content -Path $settingsPath -Encoding UTF8
+    Write-Host "[config] Wrote $settingsPath"
+
+    # Restrict configuration file permissions (secrets: tokens/passwords)
+    try {
+        $acl = Get-Acl $settingsPath
+        $acl.SetAccessRuleProtection($true, $false)
+        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+            (New-Object System.Security.Principal.NTAccount("BUILTIN\Administrators")), "FullControl", "Allow")))
+        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+            (New-Object System.Security.Principal.NTAccount("NT AUTHORITY\SYSTEM")), "FullControl", "Allow")))
+        Set-Acl $settingsPath $acl
+        Write-Host "[config] Restricted settings.json ACL (Administrators + SYSTEM only)"
+    } catch {
+        Write-Host "[config] WARN: could not restrict ACL: $_"
+    }
+}
+
 # ─── Step 6: Write version file ───
 if ($serverVersion -ne "unknown") {
     Set-Content -Path $installedVersionFile -Value $serverVersion -Encoding UTF8
@@ -403,6 +478,9 @@ Write-Host "  Service:     $ServiceName"
 Write-Host "  Status:      $(if ($svc -and $svc.Status -eq 'Running') { 'Running' } else { 'Check logs' })"
 Write-Host "  Install Dir: $InstallDir"
 Write-Host "  Version:     v$serverVersion"
+$exePath = Join-Path $InstallDir "pat-agent.exe"
+try { $sigStatus = (Get-AuthenticodeSignature $exePath).Status } catch { $sigStatus = "Unknown" }
+Write-Host "  Code Sign:   $sigStatus  (production builds MUST be Authenticode-signed)"
 Write-Host "  NSSM:        $(if ($is64bit) { '64-bit' } else { '32-bit' })"
 Write-Host "  Logs:        $logsDir"
 Write-Host "  Health Task: $TaskName (every $intervalMin min)"

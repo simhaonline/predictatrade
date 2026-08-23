@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -95,6 +96,27 @@ func NewAgent(config *Config) *Agent {
 	}
 }
 
+// buildInfo is overridden at link time via -ldflags "-X ...buildInfo=...".
+var buildInfo = "dev"
+
+// safe runs fn, recovering from panics so a single transient failure cannot
+// terminate the whole agent process (Windows Service stability).
+func (a *Agent) safe(fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[panic] recovered in agent routine: %v", r)
+		}
+	}()
+	fn()
+}
+
+func maskSecret(s string) string {
+	if len(s) <= 6 {
+		return "******"
+	}
+	return s[:3] + "******" + s[len(s)-3:]
+}
+
 // AgentStatus is a live, read-only snapshot of the agent's relationship with
 // the backend (SERVER) and the MT4/MT5 EA (CLIENT). It powers the local
 // status page served on http://127.0.0.1:9000.
@@ -168,12 +190,23 @@ func (a *Agent) Start() error {
 	a.backendName = a.config.LiveWSURL
 	a.statusMu.Unlock()
 
+	// Startup diagnostics (helps Windows Service / Defender triage).
+	exe, _ := os.Executable()
+	log.Printf("=========================================================")
+	log.Printf("Predict-A-Trade Windows Agent starting")
+	log.Printf("  Version:          %s", AgentVersion)
+	log.Printf("  Build:            %s", buildInfo)
+	log.Printf("  OS / Arch:        %s / %s", runtime.GOOS, runtime.GOARCH)
+	log.Printf("  Executable Path:  %s", exe)
+	log.Printf("  Data Dir:         %s", a.config.AgentDataDir)
+	log.Printf("  Service Mode:     %v", IsWindowsService())
+	log.Printf("  Health Endpoint:  http://127.0.0.1:9000/health")
+	log.Printf("=========================================================")
+
 	// Claim the local health port before starting IPC or WebSocket workers. A
 	// second installed copy must fail here instead of creating duplicate
 	a.health = newHealthServer(a)
 	a.health.start()
-
-
 
 	// Initialize named pipe manager for MT4/MT5 EA communication
 	a.pipeManager = NewPipeManager(findCommonFolder(), a.sendToServer, a.config.APIURL)
@@ -186,19 +219,19 @@ func (a *Agent) Start() error {
 	log.Printf("File IPC started at: %s", findCommonFolder())
 
 	// Connect to live.predictatrade.com WebSocket
-	go a.connectLoop()
+	go a.safe(a.connectLoop)
 
 	// Start heartbeat
-	go a.heartbeatLoop()
+	go a.safe(a.heartbeatLoop)
 
 	// Start signal processor (receives signals from server → forwards to EA)
-	go a.processSignals()
+	go a.safe(a.processSignals)
 
 	// Start auto-updater (checks for updates every hour)
 	manifestURL := getEnv("PAT_UPDATE_MANIFEST_URL", "https://downloads.predictatrade.com/windows-agent/update-manifest.json")
 	installDir := getEnv("PAT_INSTALL_DIR", "C:\\Program Files\\PredictATrade\\XAUUSD")
 	a.updater = NewUpdater(manifestURL, AgentVersion, a.config.AgentDataDir, installDir, a.config.UpdateChannel)
-	go a.updateLoop()
+	go a.safe(a.updateLoop)
 
 	return nil
 }
@@ -630,7 +663,7 @@ func (a *Agent) onTickFromEA(tick MT5Tick) {
 // onLicenseCheck is called when the EA requests license validation.
 // It calls the NestJS control plane API to validate the license key.
 func (a *Agent) onLicenseCheck(msg LicenseCheckMsg) {
-	log.Printf("License check requested: account=%s broker=%s key=%s", msg.Account, msg.Broker, msg.LicenseKey)
+	log.Printf("License check requested: account=%s broker=%s key=%s", msg.Account, msg.Broker, maskSecret(msg.LicenseKey))
 
 	// Build the API URL for license validation
 	validateURL := strings.Replace(a.config.APIURL, "/api/v1", "/api/v1/licensing/validate", 1)

@@ -1,8 +1,8 @@
 {
-    "version": "1.2.4",
+    "version": "1.2.5",
     "download_url": "https://downloads.predictatrade.com/windows-agent/pat-agent.exe",
-    "checksum": "babd8000a1fc4a59709400ab21cbc25ca8767ce3e835c97ac4478659ab834666",
-    "min_version": "1.2.4",
-    "release_notes": "v1.2.4 — rebuilt Windows Agent with single-instance health-port guard and stable WebSocket reconnect lifecycle",
-    "timestamp": "2026-08-23T15:47:33Z"
+    "checksum": "9fbbf3e0f8d15e49c15ae82a830e05a656574002bcd60fec58f3b0c22e83f6a0",
+    "min_version": "1.2.5",
+    "release_notes": "v1.2.5 — rebuilt Windows Agent with single-instance health-port guard and stable WebSocket reconnect lifecycle",
+    "timestamp": "2026-08-23T16:07:50Z"
 }

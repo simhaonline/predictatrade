@@ -10,6 +10,12 @@ import (
 )
 
 func main() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[panic] agent process recovered: %v", r)
+		}
+	}()
+
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	log.Println("Predict-A-Trade Windows Agent v" + agent.AgentVersion + " starting...")
 
@@ -24,7 +30,9 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 
-	log.Println("Shutting down agent...")
+	log.Println("Agent stopping")
+	log.Println("  Shutdown reason: signal received")
+	log.Println("  Exit code: 0")
 	a.Stop()
 	log.Println("Agent stopped.")
 }
