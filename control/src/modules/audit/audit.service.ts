@@ -52,6 +52,44 @@ export class AuditService {
   }
 
   /**
+   * List audit events belonging to a single authenticated client (actor_id = user).
+   * Used by the client-facing Activity Log so a user only sees their own events.
+   */
+  async listForClient(userId: string, page = 1, limit = 50) {
+    const offset = (page - 1) * limit;
+    const [data, count] = await Promise.all([
+      this.pool.query(
+        `SELECT e.id, e.event_id, e.actor_type, e.action as event_type, e.entity_type, e.entity_id,
+                e.request_id, e.timestamp as created_at, e.source_ip,
+                e.new_value, e.reason, e.correlation_id
+         FROM audit.audit_events e
+         WHERE e.actor_id = $1
+         ORDER BY e.timestamp DESC
+         LIMIT $2 OFFSET $3`,
+        [userId, limit, offset],
+      ),
+      this.pool.query('SELECT count(*) as total FROM audit.audit_events WHERE actor_id = $1', [userId]),
+    ]);
+
+    const items = data.rows.map((row) => ({
+      ...row,
+      metadata: {
+        new_value: row.new_value,
+        reason: row.reason,
+        entity_type: row.entity_type,
+        entity_id: row.entity_id,
+      },
+    }));
+
+    return {
+      items,
+      total: parseInt(count.rows[0].total, 10),
+      page,
+      limit,
+    };
+  }
+
+  /**
    * Log an audit event.
    * Uses the actual audit.audit_events table schema.
    */

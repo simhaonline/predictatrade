@@ -99,6 +99,25 @@ dashboard/logs never expose the full secret.
 | Stale `agent` service present | Installer removes `agent`/`pat-agent`/`PredictATradeXAUUSD`; if manual, `nssm remove <name> confirm`. |
 | Secret exposed | License key is masked everywhere; `settings.json` ACL-restricted to Administrators + SYSTEM. |
 
+## Client Data Collection (go-prompt.md client-dashboard spec)
+
+The agent now reports genuine per-client operational data on each heartbeat
+(`internal/agent.go:sendHeartbeatToBackend`, every 30s):
+
+- **Agent**: `agent_version`, `agent_started_at`, `agent_uptime_seconds`, `os_name`,
+  `architecture`, `service_status`, `health_status`, `hostname`.
+- **Terminal** (per MT4/MT5): `client_type`, `broker`, `server`, `account`, `symbol`,
+  `connected`, balance/equity/profit/currency/leverage, open/buy/sell positions, total lots,
+  floating P/L, and a genuine `xauusd` block (bid/ask/spread/last_tick_time) captured from
+  real MT5 ticks (never fabricated).
+
+Backend persistence: `control` `device-auth.service.ts:heartbeat` stores these into
+`licensing.devices` and `licensing.device_activations`; migration
+`database/migrations/060_agent_heartbeat_enrichment.sql` adds the columns (additive).
+`licensing.service.ts:listDevices` exposes them, scoped to the authenticated client.
+
+See `docs/agents/CLIENT_DATA_FLOW_AUDIT.md` for the full audit and change list.
+
 ## Deviation Notes (vs `go-prompt.md`)
 
 - **Service registration**: `go-prompt.md` prefers a native Windows service (`golang.org/x/sys/windows/svc`)

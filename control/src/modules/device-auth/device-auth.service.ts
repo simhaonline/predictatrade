@@ -313,20 +313,53 @@ export class DeviceAuthService {
       if (body.terminals && Array.isArray(body.terminals)) {
         for (const term of body.terminals) {
           if (term.account && term.balance !== undefined) {
+            const xau = term.xauusd && term.xauusd.available ? term.xauusd : null;
             await client.query(
               `UPDATE licensing.device_activations SET
                 account_balance = $1, account_equity = $2, account_profit = $3,
                 open_positions = $4, buy_positions = $5, sell_positions = $6,
-                total_lots = $7, floating_pnl = $8, last_account_update = now()
-               WHERE device_id = $9 AND mt_account_login = $10`,
+                total_lots = $7, floating_pnl = $8, last_account_update = now(),
+                terminal_connected = $9, terminal_version = $10,
+                xauusd_available = $11, xauusd_bid = $12, xauusd_ask = $13,
+                xauusd_spread = $14, xauusd_last_tick_time = $15
+               WHERE device_id = $16 AND mt_account_login = $17`,
               [term.balance || 0, term.equity || 0, term.profit || 0,
-               term.open_positions || 0, term.buy_positions || 0, term.sell_positions || 0,
-               term.total_lots || 0, term.floating_pnl || 0,
-               deviceId, term.account],
+                term.open_positions || 0, term.buy_positions || 0, term.sell_positions || 0,
+                term.total_lots || 0, term.floating_pnl || 0,
+                term.connected === false ? false : true,
+                term.terminal_version || null,
+                xau ? true : false,
+                xau ? (xau.bid ?? null) : null,
+                xau ? (xau.ask ?? null) : null,
+                xau ? (xau.spread ?? null) : null,
+                xau ? (xau.last_tick_time || null) : null,
+                deviceId, term.account],
             );
           }
         }
       }
+
+      // Persist genuine agent/OS operational metadata (go-prompt §3-8)
+      await client.query(
+        `UPDATE licensing.devices SET
+           agent_version = COALESCE($2, agent_version),
+           os_name = COALESCE($3, os_name),
+           architecture = COALESCE($4, architecture),
+           agent_uptime_seconds = $5,
+           service_status = COALESCE($6, service_status),
+           health_status = COALESCE($7, health_status),
+           hostname = COALESCE($8, hostname),
+           updated_at = now()
+         WHERE id = $1`,
+        [deviceId,
+          body.agent_version || null,
+          body.os_name || null,
+          body.architecture || null,
+          body.agent_uptime_seconds != null ? body.agent_uptime_seconds : null,
+          body.service_status || null,
+          body.health_status || null,
+          body.hostname || null],
+      );
 
       if (lease.status === 'REVOKED') {
         await client.query('ROLLBACK');

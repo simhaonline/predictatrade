@@ -2,6 +2,7 @@ import {
   IconDashboard, IconChartLine, IconDeviceDesktop, IconBolt,
   IconFileAnalytics, IconTestPipe, IconUsers, IconCreditCard, IconSettings,
   IconShieldLock, IconBell, IconLifebuoy, IconWallet, IconCertificate,
+  IconHistory,
 } from '@tabler/icons-react';
 
 export interface NavItem {
@@ -22,6 +23,7 @@ export const userNavigation: NavItem[] = [
   { label: 'Payouts', href: '/dashboard/payouts', icon: IconWallet },
   { label: 'License', href: '/dashboard/license', icon: IconCertificate },
   { label: 'Security', href: '/dashboard/security', icon: IconShieldLock },
+  { label: 'Activity Log', href: '/dashboard/activity-log', icon: IconHistory },
   { label: 'Notifications', href: '/dashboard/notifications', icon: IconBell },
   { label: 'Support', href: '/dashboard/support', icon: IconLifebuoy },
   { label: 'Settings', href: '/dashboard/settings', icon: IconSettings },

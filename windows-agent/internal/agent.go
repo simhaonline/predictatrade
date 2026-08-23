@@ -50,6 +50,9 @@ type Agent struct {
 	backendName   string // display URL of the backend the agent connects to
 	startedAt     time.Time
 	lastHeartbeat time.Time
+
+	tickMu         sync.RWMutex
+	lastXAUUSDTick *MT5Tick // most recent XAUUSD tick, used for heartbeat market status
 }
 
 type SignalEvent struct {
@@ -394,30 +397,72 @@ func (a *Agent) sendHeartbeatToBackend() error {
 	var terminals []map[string]interface{}
 	if a.pipeManager != nil {
 		for _, t := range a.pipeManager.GetTerminals() {
-			terminals = append(terminals, map[string]interface{}{
-				"client_type":    t.ClientType,
-				"broker":         t.Broker,
-				"account":        t.Account,
-				"symbol":         t.Symbol,
-				"balance":        t.Balance,
-				"equity":         t.Equity,
-				"profit":         t.Profit,
-				"currency":       t.Currency,
-				"open_positions": t.OpenPositions,
-				"buy_positions":  t.BuyPositions,
-				"sell_positions": t.SellPositions,
-				"total_lots":     t.TotalLots,
-				"floating_pnl":   t.FloatingPnL,
-			})
+			term := map[string]interface{}{
+				"client_type":      t.ClientType,
+				"broker":           t.Broker,
+				"server":           t.Server,
+				"account":          t.Account,
+				"symbol":           t.Symbol,
+				"connected":        true,
+				"balance":          t.Balance,
+				"equity":           t.Equity,
+				"profit":           t.Profit,
+				"currency":         t.Currency,
+				"leverage":         t.Leverage,
+				"open_positions":   t.OpenPositions,
+				"buy_positions":    t.BuyPositions,
+				"sell_positions":   t.SellPositions,
+				"total_lots":       t.TotalLots,
+				"floating_pnl":     t.FloatingPnL,
+			}
+			// Attach genuine XAUUSD market status when this terminal trades XAUUSD
+			// and we have a real tick. Do not fabricate missing data.
+			if strings.EqualFold(t.Symbol, "XAUUSD") {
+				a.tickMu.RLock()
+				tk := a.lastXAUUSDTick
+				a.tickMu.RUnlock()
+				xau := map[string]interface{}{"symbol": "XAUUSD", "available": false}
+				if tk != nil {
+					spread := tk.Ask - tk.Bid
+					xau["available"] = true
+					xau["bid"] = tk.Bid
+					xau["ask"] = tk.Ask
+					xau["spread"] = spread
+					xau["last_tick_time"] = tk.Timestamp
+				}
+				term["xauusd"] = xau
+			}
+			terminals = append(terminals, term)
 		}
 	}
 
+	a.statusMu.RLock()
+	uptime := int64(0)
+	if !a.startedAt.IsZero() {
+		uptime = int64(time.Since(a.startedAt).Seconds())
+	}
+	a.statusMu.RUnlock()
+
+	healthStatus := "ok"
+	if !a.running {
+		healthStatus = "stopped"
+	} else if a.pipeManager == nil {
+		healthStatus = "degraded"
+	}
+
 	reqBody, _ := json.Marshal(map[string]interface{}{
-		"device_id":    a.config.DeviceID,
-		"session_id":   a.config.SessionID,
-		"mt_connected": a.pipeManager != nil,
-		"terminals":    terminals,
-		"hostname":     hostname(),
+		"device_id":            a.config.DeviceID,
+		"session_id":           a.config.SessionID,
+		"mt_connected":         a.pipeManager != nil,
+		"terminals":            terminals,
+		"hostname":             hostname(),
+		"agent_version":        AgentVersion,
+		"agent_started_at":     a.startedAt.Format(time.RFC3339),
+		"agent_uptime_seconds": uptime,
+		"os_name":              runtime.GOOS,
+		"architecture":         runtime.GOARCH,
+		"service_status":       serviceState(a.running),
+		"health_status":        healthStatus,
 	})
 
 	req, err := http.NewRequest("POST", a.config.APIURL+"/devices/heartbeat", bytes.NewReader(reqBody))
@@ -652,6 +697,14 @@ func (a *Agent) sendToServer(data []byte) error {
 
 // onTickFromEA is called when the EA sends real MT5 tick data via named pipe
 func (a *Agent) onTickFromEA(tick MT5Tick) {
+	// Capture latest XAUUSD tick for the heartbeat market-status payload (do not
+	// fabricate; only store ticks the EA actually sends).
+	if strings.EqualFold(tick.Symbol, "XAUUSD") {
+		a.tickMu.Lock()
+		t := tick
+		a.lastXAUUSDTick = &t
+		a.tickMu.Unlock()
+	}
 	// Forward tick to Go RT server via WebSocket
 	data, err := MarshalTick(tick)
 	if err != nil {
@@ -928,6 +981,14 @@ func (a *Agent) processSignals() {
 }
 
 // hostname returns the machine hostname for heartbeat.
+// serviceState maps the running flag to a heartbeat service status string.
+func serviceState(running bool) string {
+	if running {
+		return "running"
+	}
+	return "stopped"
+}
+
 func hostname() string {
 	h, err := os.Hostname()
 	if err != nil {

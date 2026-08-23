@@ -27,6 +27,8 @@ export class LicensingService {
               d.first_seen_at as registered_at, d.last_seen_at,
               d.installation_id, d.fingerprint_hash, d.fingerprint_version,
               d.bound_license_id, d.revoked_at, d.revocation_reason,
+              d.os_name, d.architecture, d.agent_uptime_seconds,
+              d.service_status, d.health_status,
               l.license_key, l.status as license_status,
               l.max_devices, l.max_mt_accounts,
               (SELECT json_agg(json_build_object(
@@ -34,6 +36,8 @@ export class LicensingService {
                   'client_type', da.client_type,
                   'terminal_build', da.terminal_build,
                   'ea_version', da.ea_version,
+                  'terminal_version', da.terminal_version,
+                  'terminal_connected', da.terminal_connected,
                   'broker_name', da.broker_name,
                   'broker_server', da.broker_server,
                   'mt_account_login', da.mt_account_login,
@@ -49,7 +53,14 @@ export class LicensingService {
                   'sell_positions', da.sell_positions,
                   'total_lots', da.total_lots,
                   'floating_pnl', da.floating_pnl,
-                  'last_account_update', da.last_account_update
+                  'last_account_update', da.last_account_update,
+                  'xauusd', json_build_object(
+                    'available', da.xauusd_available,
+                    'bid', da.xauusd_bid,
+                    'ask', da.xauusd_ask,
+                    'spread', da.xauusd_spread,
+                    'last_tick_time', da.xauusd_last_tick_time
+                  )
                )) FROM licensing.device_activations da WHERE da.device_id = d.id) as activations
        FROM licensing.devices d
        LEFT JOIN licensing.licenses l ON d.bound_license_id = l.id
