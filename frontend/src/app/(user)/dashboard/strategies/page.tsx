@@ -20,8 +20,8 @@ export default function UserStrategiesPage() {
   if (query.isLoading) return <div className="text-sm text-pat-text-secondary">Loading strategy preferences…</div>;
   if (query.isError) return <div className="rounded border border-pat-danger/30 p-4 text-sm text-pat-danger">Strategy preferences are unavailable.</div>;
 
-  const allowed = query.data?.allowed_strategies ?? [];
-  const initial = query.data?.selected_strategies ?? allowed;
+  const allowed = query.data?.allowed_strategies ?? query.data?.selected_strategies ?? ["STANDARD_SCALPING"];
+  const initial = query.data?.selected_strategies ?? query.data?.allowed_strategies ?? ["STANDARD_SCALPING"];
   const selected = local ?? initial;
 
   const toggle = (s: string) => {

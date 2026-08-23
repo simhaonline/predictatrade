@@ -48,15 +48,15 @@ export class SubscriptionsService {
   async getEntitlements(userId: string) {
     const r = await this.pool.query(
       `SELECT p.code, p.name, p.annual_price, p.monthly_price, p.visible,
-              p.max_active_strategy_slots, p.allowed_strategies, s.selected_strategies,
+              p.max_active_strategy_slots, p.allowed_strategies, COALESCE(NULLIF(s.selected_strategies, '[]'::jsonb), p.allowed_strategies) as selected_strategies,
               COALESCE(jsonb_object_agg(pe.entitlement_key, pe.entitlement_value)
                 FILTER (WHERE pe.entitlement_key IS NOT NULL), '{}'::jsonb) AS entitlements
        FROM billing.subscriptions s JOIN control.plans p ON p.id = s.plan_id
        LEFT JOIN control.plan_entitlements pe ON pe.plan_id = p.id
        WHERE s.user_id = $1 AND s.status IN ('ACTIVE','TRIAL','GRACE','CANCEL_AT_PERIOD_END')
        GROUP BY p.code, p.name, p.annual_price, p.monthly_price, p.visible,
-                p.max_active_strategy_slots, p.allowed_strategies, s.selected_strategies
-       ORDER BY s.created_at DESC LIMIT 1`, [userId],
+                p.max_active_strategy_slots, p.allowed_strategies, COALESCE(NULLIF(s.selected_strategies, '[]'::jsonb), p.allowed_strategies)
+       ORDER BY MAX(s.created_at) DESC LIMIT 1`, [userId],
     );
     return r.rows[0] ?? { code: 'FREE', selected_strategies: ['STANDARD_SCALPING'], entitlements: {} };
   }
