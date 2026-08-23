@@ -6,17 +6,17 @@ import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ComplianceService as svc, extractClientIp } from './compliance.service';
 
-@Controller('compliance')
+@Controller('')
 export class ComplianceController {
   constructor(private complianceService: ComplianceService) {}
 
   /**
-   * POST /api/v1/compliance/telemetry
+   * POST /api/v1/telemetry/client
    * Accept client telemetry from authenticated users.
    * Rate limited to prevent flooding.
    * Server-authoritative fields are never accepted from client.
    */
-  @Post('telemetry')
+  @Post('telemetry/client')
   @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.CREATED)
@@ -53,10 +53,10 @@ export class ComplianceController {
   }
 
   /**
-   * GET /api/v1/compliance/events
+   * GET /api/v1/audit/events
    * Admin-only: query audit events
    */
-  @Get('events')
+  @Get('audit/events')
   @UseGuards(JwtAuthGuard, AdminGuard)
   async listEvents(
     @Query('page') page = '1',
@@ -74,7 +74,7 @@ export class ComplianceController {
       event_type: 'ADMIN_AUDIT_VIEW',
       user_id: req.user?.sub,
       http_method: 'GET',
-      endpoint: '/api/v1/compliance/events',
+      endpoint: '/api/v1/audit/events',
       client_ip: ip,
       proxy_chain: proxyChain,
       user_agent: req.headers['user-agent'] || '',

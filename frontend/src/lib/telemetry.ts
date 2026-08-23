@@ -95,9 +95,9 @@ export function sendTelemetry(): void {
     const body = JSON.stringify(telemetry);
 
     if (navigator.sendBeacon) {
-      navigator.sendBeacon('/api/v1/compliance/telemetry', body);
+      navigator.sendBeacon('/api/v1/telemetry/client', body);
     } else {
-      fetch('/api/v1/compliance/telemetry', {
+      fetch('/api/v1/telemetry/client', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,

@@ -24,11 +24,32 @@ function redact(obj: Record<string, any>): Record<string, any> {
 const TRUSTED_PROXY_CIDRS = (process.env.TRUSTED_PROXY_CIDRS || '172.16.0.0/12,10.0.0.0/8,127.0.0.0/8').split(',');
 
 function isTrustedProxy(ip: string): boolean {
-  // Simple CIDR check for private/internal networks
+  // Check if IP is in trusted private/internal network ranges
+  // Docker containers use 172.16-31.x.x, 10.x.x.x, 127.x.x.x
+  if (!ip) return false;
+  
+  // Strip IPv6 prefix if present (e.g., ::ffff:172.18.0.1)
+  const cleanIp = ip.replace(/^::ffff:/, '');
+  
   for (const cidr of TRUSTED_PROXY_CIDRS) {
-    const [network] = cidr.split('/');
-    if (ip.startsWith(network.split('.').slice(0, 2).join('.'))) {
-      return true;
+    const [network, prefix] = cidr.split('/');
+    const prefixLen = parseInt(prefix || '32');
+    
+    // Simple check: compare first N octets for IPv4
+    const netParts = network.split('.').map(Number);
+    const ipParts = cleanIp.split('.').map(Number);
+    
+    if (netParts.length === 4 && ipParts.length === 4) {
+      const octetsToCheck = Math.ceil(prefixLen / 8);
+      let match = true;
+      for (let i = 0; i < octetsToCheck; i++) {
+        const mask = prefixLen % 8 === 0 || i < Math.floor(prefixLen / 8) ? 255 : (256 - Math.pow(2, 8 - (prefixLen % 8)));
+        if ((netParts[i] & mask) !== (ipParts[i] & mask)) {
+          match = false;
+          break;
+        }
+      }
+      if (match) return true;
     }
   }
   return false;
@@ -72,7 +93,7 @@ export class ComplianceService {
   constructor(@Inject(DB_POOL) private pool: Pool) {}
 
   /**
-   * Record a compliance audit event to compliance.client_event_log (TimescaleDB hypertable)
+   * Record a compliance audit event to audit.client_events (TimescaleDB hypertable)
    * and optionally to audit.audit_events for backward compatibility.
    */
   async recordEvent(input: AuditEventInput): Promise<void> {
@@ -85,9 +106,9 @@ export class ComplianceService {
       const ua = input.user_agent || '';
       const browserInfo = this.parseUserAgent(ua);
 
-      // Insert into compliance.client_event_log
+      // Insert into audit.client_events
       await this.pool.query(
-        `INSERT INTO compliance.client_event_log (
+        `INSERT INTO audit.client_events (
           event_id, event_time, event_type, event_version, telemetry_schema_version,
           request_id, correlation_id, user_id, account_id, session_id,
           source, http_method, endpoint, http_status, latency_ms,
@@ -134,41 +155,7 @@ export class ComplianceService {
         ],
       );
 
-      // Also insert into existing audit.audit_events for backward compatibility
-      await this.pool.query(
-        `INSERT INTO audit.audit_events (
-          event_id, actor_type, actor_id, action, entity_type,
-          request_id, timestamp, source_ip, user_agent, correlation_id,
-          event_type_detailed, http_method, endpoint, http_status, latency_ms,
-          client_ip, browser_name, browser_version, os_name, device_type,
-          language, timezone, screen_width, screen_height, viewport_width, viewport_height,
-          device_pixel_ratio, touch_points, client_hints, prediction_id,
-          application_version, api_version, risk_flags, metadata_jsonb
-        ) VALUES (
-          $1, 'user', $2, $3, $4,
-          $5, $6, $7, $8, $9,
-          $10, $11, $12, $13, $14,
-          $15, $16, $17, $18, $19,
-          $20, $21, $22, $23, $24, $25,
-          $26, $27, $28, $29,
-          $30, $31, $32, $33
-        )`,
-        [
-          eventId, input.user_id || null, input.event_type, input.prediction_id ? 'prediction' : 'system',
-          input.request_id, now, input.client_ip, ua, input.correlation_id,
-          input.event_type, input.http_method, input.endpoint, input.http_status, input.latency_ms,
-          input.client_ip, browserInfo.browser, browserInfo.version, browserInfo.os, browserInfo.deviceType,
-          telemetry.language || null, telemetry.timezone || null,
-          telemetry.screen?.width || null, telemetry.screen?.height || null,
-          telemetry.viewport?.width || null, telemetry.viewport?.height || null,
-          telemetry.device_pixel_ratio || null, telemetry.touch_points || null,
-          telemetry.client_hints ? JSON.stringify(telemetry.client_hints) : null,
-          input.prediction_id || null,
-          process.env.npm_package_version || '1.0.0', 'v1',
-          input.risk_flags ? JSON.stringify(redact(input.risk_flags)) : null,
-          input.metadata ? JSON.stringify(redact(input.metadata)) : null,
-        ],
-      );
+
     } catch (err) {
       // Audit failure must not crash the application (non-critical telemetry)
       this.logger.error(`Failed to record compliance event: ${err instanceof Error ? err.message : 'unknown'}`);
@@ -298,7 +285,7 @@ export class ComplianceService {
    */
   async listEvents(page: number, limit: number, filter?: { userId?: string; eventType?: string }) {
     const offset = (page - 1) * limit;
-    let query = `SELECT * FROM compliance.client_event_log WHERE 1=1`;
+    let query = `SELECT * FROM audit.client_events WHERE 1=1`;
     const params: any[] = [];
     let paramIdx = 1;
 
@@ -316,7 +303,7 @@ export class ComplianceService {
 
     const [data, count] = await Promise.all([
       this.pool.query(query, params),
-      this.pool.query(`SELECT count(*) as total FROM compliance.client_event_log`),
+      this.pool.query(`SELECT count(*) as total FROM audit.client_events`),
     ]);
 
     return { items: data.rows, total: count.rows[0].total, page, limit };
