@@ -31,13 +31,14 @@ export function proxy(request: NextRequest) {
   const isAuthenticated = role !== null;
   const isAdmin = isAdminRole(role);
 
+  // Root path — redirect to login (not preview!)
+  // Preview is ONLY for live.predictatrade.com, not platform.predictatrade.com
   if (pathname === '/') {
     if (isAuthenticated) return NextResponse.redirect(new URL(homeRouteForRole(role), request.url));
-    // Unauthenticated visitors get the free preview dashboard (server-enforced gate).
-    return NextResponse.redirect(new URL('/preview', request.url));
+    return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  // Public routes — no auth required
+  // Public routes — no auth required (preview is accessible directly but not as default)
   if (PUBLIC_ROUTES.some(r => pathname === r)) {
     return NextResponse.next();
   }
