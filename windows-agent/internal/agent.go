@@ -750,7 +750,7 @@ func (a *Agent) onLicenseCheck(msg LicenseCheckMsg) {
 	respBody, _ := io.ReadAll(resp.Body)
 	log.Printf("License validation response: HTTP %d — %s", resp.StatusCode, string(respBody))
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		log.Printf("License validation failed: HTTP %d", resp.StatusCode)
 		a.pipeManager.SetLicenseResult("UNKNOWN", "", nil)
 		a.sendLicenseResponse(msg.LicenseKey, "ERROR", "UNKNOWN", nil)

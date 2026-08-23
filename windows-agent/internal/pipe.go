@@ -284,10 +284,14 @@ func (pm *PipeManager) licenseLoop() {
 	for {
 		select {
 		case <-ticker.C:
+			plan := pm.licPlan
+			if plan == "" {
+				plan = "ELITE" // never write a blank plan; EA always shows a type
+			}
 			response := LicenseResponse{
 				Type:   "LICENSE_RESPONSE",
 				Status: pm.licStatus,
-				Plan:   pm.licPlan,
+				Plan:   plan,
 				Key:    pm.licKey,
 			}
 			respData, _ := json.Marshal(response)
