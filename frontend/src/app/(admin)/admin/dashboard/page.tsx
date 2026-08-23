@@ -47,6 +47,13 @@ export default function AdminDashboardPage() {
     refetchInterval: 30000,
   });
 
+  // Go engine system-health (public, no auth needed)
+  const { data: goSystemHealth } = useQuery<Record<string, unknown>>({
+    queryKey: ["go-system-health"],
+    queryFn: async () => (await customInstance.get("/system-health")).data,
+    refetchInterval: 30000,
+  });
+
   // --- WebSocket for live signals ---
   const [liveSignals, setLiveSignals] = useState<{ id: string; direction: string; strategy: string; probability: number; timestamp: string }[]>([]);
   const [wsState, setWsState] = useState<ConnectionState>('CONNECTING');
