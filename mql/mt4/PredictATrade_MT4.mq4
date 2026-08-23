@@ -80,6 +80,14 @@ input double  TP3TrailATRMult  = 1.5;  // Trail remaining by 1.5*ATR after TP3
 #define PAT_LICENSE_FILE "PAT_license.txt"
 #define PAT_HEARTBEAT   "pat_heartbeat.txt"
 
+// Shared IPC directory. The Windows Agent normally runs as a service
+// (LocalSystem), so it cannot see MetaTrader's per-user FILE_COMMON folder
+// (C:\Users\<user>\AppData\Roaming\MetaQuotes\Terminal\Common\Files). Both the
+// agent and the EA must use this fixed, non-user-profile location instead.
+#ifndef PAT_IPC_PATH
+#define PAT_IPC_PATH "C:\\ProgramData\\PredictATrade\\ipc\\"
+#endif
+
 // ─── Global state ───
 string  g_connection      = "OFFLINE";
 string  g_licenseStatus    = "PENDING";
@@ -737,7 +745,7 @@ void CheckAgentConnection()
     if(GetTickCount() - lastCheck < 2000) return;
     lastCheck = GetTickCount();
 
-    if(FileIsExist(PAT_HEARTBEAT, FILE_COMMON))
+    if(FileIsExist(PAT_IPC_PATH + PAT_HEARTBEAT))
         g_connection = "CONNECTED";
     else
     {
@@ -815,9 +823,9 @@ void SendInitMessage()
 void ReadFromAgent()
 {
     // Read license response from PAT_LICENSE_FILE (written by Windows Agent every 3s)
-    if(FileIsExist(PAT_LICENSE_FILE, FILE_COMMON))
+    if(FileIsExist(PAT_IPC_PATH + PAT_LICENSE_FILE))
     {
-        int lh = FileOpen(PAT_LICENSE_FILE, FILE_READ|FILE_TXT|FILE_COMMON);
+        int lh = FileOpen(PAT_IPC_PATH + PAT_LICENSE_FILE, FILE_READ|FILE_TXT);
         if(lh != INVALID_HANDLE)
         {
             string licContent = "";
@@ -827,15 +835,15 @@ void ReadFromAgent()
             licContent = StringTrimLeft(StringTrimRight(licContent));
             if(StringLen(licContent) > 0)
                 HandleLicenseResponse(licContent);
-            FileDelete(PAT_LICENSE_FILE, FILE_COMMON);
+            FileDelete(PAT_IPC_PATH + PAT_LICENSE_FILE);
         }
     }
 
     // Read signals from PAT_SIGNAL_FILE (same file Windows Agent writes to)
-    if(!FileIsExist(PAT_SIGNAL_FILE, FILE_COMMON))
+    if(!FileIsExist(PAT_IPC_PATH + PAT_SIGNAL_FILE))
         return;
 
-    int h = FileOpen(PAT_SIGNAL_FILE, FILE_READ|FILE_TXT|FILE_COMMON);
+    int h = FileOpen(PAT_IPC_PATH + PAT_SIGNAL_FILE, FILE_READ|FILE_TXT);
     if(h == INVALID_HANDLE) return;
 
     string content = "";
@@ -844,7 +852,7 @@ void ReadFromAgent()
         content += FileReadString(h) + "\n";
     }
     FileClose(h);
-    FileDelete(PAT_SIGNAL_FILE, FILE_COMMON);
+    FileDelete(PAT_IPC_PATH + PAT_SIGNAL_FILE);
 
     if(StringLen(content) == 0) return;
 
@@ -1188,7 +1196,7 @@ double ExtractJSONDouble(string json, string key)
 //+------------------------------------------------------------------+
 void PAT_Write(string filename, string content)
 {
-    int h = FileOpen(filename, FILE_WRITE|FILE_TXT|FILE_COMMON);
+    int h = FileOpen(PAT_IPC_PATH + filename, FILE_WRITE|FILE_TXT);
     if(h == INVALID_HANDLE) return;
     FileWriteString(h, content);
     FileClose(h);
@@ -1196,10 +1204,10 @@ void PAT_Write(string filename, string content)
 
 void PAT_Append(string filename, string content)
 {
-    int h = FileOpen(filename, FILE_READ|FILE_WRITE|FILE_TXT|FILE_COMMON);
+    int h = FileOpen(PAT_IPC_PATH + filename, FILE_READ|FILE_WRITE|FILE_TXT);
     if(h == INVALID_HANDLE)
     {
-        h = FileOpen(filename, FILE_WRITE|FILE_TXT|FILE_COMMON);
+        h = FileOpen(PAT_IPC_PATH + filename, FILE_WRITE|FILE_TXT);
         if(h == INVALID_HANDLE) return;
     }
     FileSeek(h, 0, SEEK_END);

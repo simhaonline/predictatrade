@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -138,13 +140,41 @@ func (pm *PipeManager) Stop() {
 	close(pm.stopChan)
 }
 
+// findCommonFolder returns the directory used for file-based IPC between the
+// Windows Agent and the MetaTrader EAs.
+//
+// This MUST be a non-user-profile location. The agent normally runs as a
+// Windows service under LocalSystem, whose %APPDATA% resolves to
+// C:\Windows\System32\config\systemprofile\... — which is NOT the same folder
+// MetaTrader (running in the interactive user session) uses for FILE_COMMON
+// files (C:\Users\<user>\AppData\Roaming\MetaQuotes\Terminal\Common\Files).
+// That mismatch made the two sides invisible to each other (MT client never
+// connected). We therefore use a fixed, shared location under ProgramData that
+// both security contexts can access. Override with PAT_IPC_DIR if required.
 func findCommonFolder() string {
-	appData := os.Getenv("APPDATA")
-	if appData == "" {
-		home := os.Getenv("USERPROFILE")
-		appData = filepath.Join(home, "AppData", "Roaming")
+	if env := os.Getenv("PAT_IPC_DIR"); env != "" {
+		return env
 	}
-	return filepath.Join(appData, "MetaQuotes", "Terminal", "Common", "Files")
+	base := os.Getenv("ProgramData")
+	if base == "" {
+		base = `C:\ProgramData`
+	}
+	dir := filepath.Join(base, "PredictATrade", "ipc")
+	if err := os.MkdirAll(dir, 0755); err == nil {
+		secureIpcDir(dir)
+	}
+	return dir
+}
+
+// secureIpcDir best-effort grants the interactive Users group write access so
+// the MetaTrader terminal (running as the logged-on user) can read/write the
+// IPC files the agent creates. Ignored on non-Windows platforms.
+func secureIpcDir(dir string) {
+	if runtime.GOOS != "windows" {
+		return
+	}
+	cmd := exec.Command("icacls", dir, "/grant", "*S-1-5-32-545:(OI)(CI)(M)", "/T", "/Q")
+	cmd.Run() // best-effort; ignore errors
 }
 
 // heartbeatLoop writes heartbeat every 2s so EA knows Agent is alive.

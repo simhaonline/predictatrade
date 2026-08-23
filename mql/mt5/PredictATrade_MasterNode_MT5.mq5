@@ -3,12 +3,12 @@
 //|                            Predict-A-Trade v1.0.0                |
 //|     Master Node: Live data collection for system & dashboard     |
 //|     NO License Key · NO Trading · Data Collection Only           |
-//|  IPC: FILE_COMMON folder (shared between all MT terminals)       |
+//|  IPC: shared ProgramData folder (see PAT_IPC_PATH)              |
 //+------------------------------------------------------------------+
 //| This EA collects comprehensive live market data — ticks,         |
 //| multi-timeframe OHLC bars, technical indicators, account info,   |
 //| symbol/broker specifications, and session detection — and writes |
-//| it to a FILE_COMMON folder for the Windows Agent to forward to   |
+//| it to a shared ProgramData folder for the Windows Agent to forward to |
 //| the Go real-time engine and the dashboard/Command Center.        |
 //|                                                                  |
 //| This EA does NOT:                                                |
@@ -43,9 +43,15 @@ input string  DiscordWebhookURL    = "";     // Discord webhook URL
 input string  EmailNotifyAddress   = "";     // Email address for notifications (uses MT5 built-in mail)
 input int     NotifyCooldownSec    = 300;    // Min seconds between repeated notifications (5 min)
 
-//=== IPC Files (in FILE_COMMON folder — shared with Windows Agent) ===
+//=== IPC Files (shared with Windows Agent via PAT_IPC_PATH) ===
 #define PAT_MASTER_FILE  "PAT_master_data.txt"
 #define PAT_HEARTBEAT    "PAT_heartbeat.txt"
+
+// Shared IPC directory (see EAs). Non-user-profile so the LocalSystem agent
+// service and the user's terminal agree on the same folder.
+#ifndef PAT_IPC_PATH
+#define PAT_IPC_PATH "C:\\ProgramData\\PredictATrade\\ipc\\"
+#endif
 
 //=== Timeframes for multi-TF bar data ===
 #define TF_COUNT 7
@@ -131,7 +137,7 @@ int OnInit()
         return(INIT_FAILED);
     }
 
-    if(FileIsExist(PAT_HEARTBEAT, FILE_COMMON))
+    if(FileIsExist(PAT_IPC_PATH + PAT_HEARTBEAT))
     {
         g_connection = "CONNECTED";
         Print("Windows Agent detected (heartbeat found in common folder)");
@@ -142,7 +148,7 @@ int OnInit()
         g_connection = "OFFLINE";
         Print("WARNING: Windows Agent not detected.");
         Print("Ensure pat-agent.exe is running on this machine.");
-        Print("Agent writes heartbeat to FILE_COMMON folder.");
+        Print("Agent writes heartbeat to the shared IPC folder (PAT_IPC_PATH).");
     }
 
     UpdatePanel();
@@ -256,7 +262,7 @@ void CheckAgentConnection()
     if(GetTickCount() - lastCheck < 2000) return;
     lastCheck = GetTickCount();
 
-    bool agentOnline = FileIsExist(PAT_HEARTBEAT, FILE_COMMON);
+    bool agentOnline = FileIsExist(PAT_IPC_PATH + PAT_HEARTBEAT);
     
     if(agentOnline)
     {
@@ -704,14 +710,14 @@ string EscapeJSON(string s)
 }
 
 //+------------------------------------------------------------------+
-//| File I/O using FILE_COMMON (shared between all MT terminals)     |
+//| File I/O using the shared non-user-profile IPC directory         |
 //+------------------------------------------------------------------+
 void MasterWrite(string content)
 {
     int retry = 0;
     while(retry < 3)
     {
-        int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+        int h = FileOpen(PAT_IPC_PATH + PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI);
         if(h != INVALID_HANDLE)
         {
             FileWriteString(h, content);
@@ -732,7 +738,7 @@ void MasterAppend(string content)
     int retry = 0;
     while(retry < 3)
     {
-        int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+        int h = FileOpen(PAT_IPC_PATH + PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI);
         if(h != INVALID_HANDLE)
         {
             FileWriteString(h, content);

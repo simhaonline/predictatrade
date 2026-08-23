@@ -178,6 +178,27 @@ if (-not (Test-Path $logsDir)) {
     New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
 }
 
+# ─── Step 1.5: Create shared IPC directory (file-based IPC with MT terminals) ───
+# The Windows Agent normally runs as LocalSystem, while MetaTrader runs as the
+# interactive user. They must share ONE folder for files like PAT_ticks.txt,
+# PAT_heartbeat.txt, etc. A per-user %APPDATA% path would differ between the two
+# security contexts, so we use a fixed, non-user-profile location under
+# ProgramData and grant the Users group modify rights.
+$ipcDir = Join-Path $env:ProgramData "PredictATrade\ipc"
+if (-not (Test-Path $ipcDir)) {
+    New-Item -ItemType Directory -Path $ipcDir -Force | Out-Null
+}
+try {
+    $acl = Get-Acl $ipcDir
+    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+        "Users", "Modify", "ContainerInherit,ObjectInherit", "None", "Allow")
+    $acl.AddAccessRule($rule)
+    Set-Acl $ipcDir $acl
+    Write-Host "[install] Shared IPC directory ready: $ipcDir (Users: Modify)"
+} catch {
+    Write-Host "[install] WARN: could not set ACL on IPC dir: $_"
+}
+
 # ─── Step 2: Detect OS architecture for NSSM ───
 $is64bit = [Environment]::Is64BitOperatingSystem
 $nssmArchPath = if ($is64bit) { "nssm/win64/nssm.exe" } else { "nssm/win32/nssm.exe" }

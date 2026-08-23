@@ -98,7 +98,7 @@ cat > "$MANIFEST_FILE" << EOF
     "download_url": "https://downloads.predictatrade.com/windows-agent/pat-agent.exe",
     "checksum": "$CHECKSUM",
     "min_version": "$NEW_VERSION",
-    "release_notes": "v$NEW_VERSION — rebuilt Windows Agent with single-instance health-port guard and stable WebSocket reconnect lifecycle",
+    "release_notes": "v$NEW_VERSION — FIX: MT client connection. Moved file-based IPC (PAT_ticks/heartbeat/license/signals) to a shared ProgramData folder so the LocalSystem agent service and the user's MetaTrader terminal can actually see each other (was using mismatched per-user %APPDATA% paths).",
     "timestamp": "$TIMESTAMP"
 }
 EOF

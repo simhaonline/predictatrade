@@ -1,8 +1,8 @@
 {
-    "version": "1.2.5",
+    "version": "1.2.6",
     "download_url": "https://downloads.predictatrade.com/windows-agent/pat-agent.exe",
-    "checksum": "9fbbf3e0f8d15e49c15ae82a830e05a656574002bcd60fec58f3b0c22e83f6a0",
-    "min_version": "1.2.5",
-    "release_notes": "v1.2.5 — rebuilt Windows Agent with single-instance health-port guard and stable WebSocket reconnect lifecycle",
-    "timestamp": "2026-08-23T16:07:50Z"
+    "checksum": "f6205df970111c127be430dd453201f1108a41d96ea820a261c4a31a3edc64e2",
+    "min_version": "1.2.6",
+    "release_notes": "v1.2.6 — FIX: MT client connection. Moved file-based IPC (PAT_ticks/heartbeat/license/signals) to a shared ProgramData folder so the LocalSystem agent service and the user's MetaTrader terminal can actually see each other (was using mismatched per-user %APPDATA% paths).",
+    "timestamp": "2026-08-23T16:45:48Z"
 }
