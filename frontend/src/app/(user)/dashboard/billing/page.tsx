@@ -6,10 +6,23 @@ import DataTable, { DataTableColumn } from "@/components/ui/data-table";
 import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { IconCalendar, IconRefresh, IconX } from "@tabler/icons-react";
+import { DegradedNote } from "@/components/ui/tabs";
 
 interface Plan { id: string; code: "FREE" | "STANDARD" | "PRO" | "ELITE"; name: string; monthly_price: string; annual_price: string | null; allowed_strategies: string[]; annual_savings_percent: number | null; }
 interface Invoice { id: string; amount: number; status: string; description: string; created_at: string; due_date: string; }
 interface Entitlements { code?: string; }
+interface Subscription {
+  id: string;
+  plan_id: string;
+  plan_name?: string;
+  plan_code?: string;
+  status: string;
+  billing_interval: string;
+  billing_period_start?: string;
+  billing_period_end?: string;
+  selected_strategies?: string[];
+}
 
 const planCopy: Record<Plan["code"], string> = {
   FREE: "Explore Predict-A-Trade with five qualified real-time signals per month.",
@@ -20,10 +33,13 @@ const planCopy: Record<Plan["code"], string> = {
 
 export default function UserBillingPage() {
   const [interval, setInterval] = useState<"MONTHLY" | "ANNUAL">("MONTHLY");
+  const [autoRenew, setAutoRenew] = useState(true);
   const queryClient = useQueryClient();
   const plansQ = useQuery({ queryKey: ["plans"], queryFn: async () => (await customInstance.get("/plans")).data as Plan[] });
   const entitlementsQ = useQuery({ queryKey: ["subscription-entitlements"], queryFn: async () => (await customInstance.get("/subscriptions/entitlements")).data as Entitlements });
   const invoicesQ = useQuery({ queryKey: ["user-invoices"], queryFn: async () => ((await customInstance.get("/billing/invoices")).data as Invoice[]) || [] });
+  const subsQ = useQuery({ queryKey: ["user-subscriptions"], queryFn: async () => ((await customInstance.get("/subscriptions")).data as Subscription[]) || [] });
+
   const requestSubscription = useMutation({
     mutationFn: async (plan: Plan) => {
       const count = plan.code === "ELITE" ? 4 : plan.code === "PRO" ? 2 : 1;
@@ -32,6 +48,9 @@ export default function UserBillingPage() {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["subscription-entitlements"] }); toast.success("Subscription request recorded; activation awaits validated payment."); },
     onError: () => toast.error("Subscription request could not be recorded."),
   });
+
+  const current = subsQ.data?.find((s) => ["ACTIVE", "TRIAL", "GRACE", "CANCEL_AT_PERIOD_END"].includes(s.status)) || subsQ.data?.[0];
+
   const columns: DataTableColumn<Invoice>[] = [
     { key: "description", header: "Description", cell: (row) => <span className="text-sm text-pat-text-primary">{row.description || "Invoice"}</span> },
     { key: "amount", header: "Amount", cell: (row) => <span className="font-medium text-pat-text-primary">${parseFloat(String(row.amount || 0)).toFixed(2)}</span> },
@@ -42,7 +61,59 @@ export default function UserBillingPage() {
   const currentCode = entitlementsQ.data?.code;
   return <div className="space-y-6">
     <div className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-xl font-bold text-pat-text-primary">Plans & Subscription</h1><p className="mt-1 text-sm text-pat-text-secondary">Fees and access are read from the server-authoritative plan configuration.</p></div><div className="flex rounded-lg border border-pat-border p-1"><button onClick={() => setInterval("MONTHLY")} className={`rounded px-3 py-1 text-xs ${interval === "MONTHLY" ? "bg-primary text-primary-foreground" : "text-pat-text-secondary"}`}>Monthly</button><button onClick={() => setInterval("ANNUAL")} className={`rounded px-3 py-1 text-xs ${interval === "ANNUAL" ? "bg-primary text-primary-foreground" : "text-pat-text-secondary"}`}>Annual</button></div></div>
+
+    {/* Current subscription summary */}
+    {subsQ.isLoading ? <div className="text-sm text-pat-text-secondary">Loading subscription…</div> : current ? (
+      <div className="rounded-lg border border-pat-border bg-pat-bg-surface p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <IconCalendar size={18} className="text-pat-info" />
+            <span className="text-sm font-medium text-pat-text-primary">Current subscription</span>
+          </div>
+          <StatusBadge status={current.status} size="sm" />
+        </div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <Field label="Plan" value={current.plan_name || current.plan_code || "—"} />
+          <Field label="Billing" value={(current.billing_interval || "—").toLowerCase()} />
+          <Field label="Next billing" value={current.billing_period_end ? format(new Date(current.billing_period_end), "MMM d, yyyy") : "—"} />
+          <Field label="Period start" value={current.billing_period_start ? format(new Date(current.billing_period_start), "MMM d, yyyy") : "—"} />
+        </div>
+        <div className="flex items-center justify-between rounded-md border border-pat-border bg-pat-bg-surface-secondary/30 px-3 py-2">
+          <div>
+            <div className="text-xs text-pat-text-secondary">Auto-renew</div>
+            <div className="text-[10px] text-pat-text-muted">Local preference — no server endpoint persists this yet.</div>
+          </div>
+          <button
+            onClick={() => setAutoRenew((v) => !v)}
+            role="switch"
+            aria-checked={autoRenew}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${autoRenew ? "bg-pat-success" : "bg-pat-bg-surface-secondary border border-pat-border"}`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoRenew ? "translate-x-6" : "translate-x-1"}`} />
+          </button>
+        </div>
+        <DegradedNote>
+          Cancellation and plan downgrade are not yet exposed by a backend endpoint (the subscription service supports
+          create/read/entitlements only). The buttons below are shown for layout clarity but currently degrade — contact
+          support or use the admin console to change your plan.
+        </DegradedNote>
+        <div className="flex flex-wrap gap-2">
+          <button disabled className="flex items-center gap-1.5 rounded-lg border border-pat-danger/30 px-4 py-2 text-sm text-pat-danger/70 cursor-not-allowed"><IconX size={16} /> Cancel subscription</button>
+          <button disabled className="flex items-center gap-1.5 rounded-lg border border-pat-border px-4 py-2 text-sm text-pat-text-muted cursor-not-allowed"><IconRefresh size={16} /> Downgrade</button>
+        </div>
+      </div>
+    ) : null}
+
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">{(plansQ.data ?? []).map((plan) => { const isCurrent = currentCode === plan.code; const annual = interval === "ANNUAL" && plan.annual_price !== null; const price = annual ? plan.annual_price : plan.monthly_price; return <div key={plan.id} className="rounded-lg border border-pat-border bg-pat-bg-surface p-5"><div className="flex items-center justify-between"><h2 className="font-semibold text-pat-text-primary">{plan.name}</h2><StatusBadge status={isCurrent ? "CURRENT" : "AVAILABLE"} size="sm" /></div><div className="mt-3 text-2xl font-bold text-pat-text-primary">${Number(price || 0).toFixed(0)}<span className="text-xs font-normal text-pat-text-muted">/{annual ? "year" : "month"}</span></div>{annual && plan.annual_savings_percent !== null && <div className="mt-1 text-xs text-pat-success">Save {plan.annual_savings_percent}%</div>}<p className="mt-3 min-h-10 text-xs text-pat-text-secondary">{planCopy[plan.code]}</p><div className="mt-3 text-xs text-pat-text-muted">{plan.allowed_strategies.length} permitted strateg{plan.allowed_strategies.length === 1 ? "y" : "ies"}</div><button onClick={() => requestSubscription.mutate(plan)} disabled={isCurrent || requestSubscription.isPending} className="mt-4 w-full rounded bg-primary px-3 py-2 text-xs text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{isCurrent ? "Current Plan" : plan.code === "FREE" ? "Start Free" : "Select Plan"}</button></div>; })}</div>
     <div><h2 className="mb-3 text-sm font-semibold text-pat-text-primary">Invoice history</h2><DataTable data={invoicesQ.data || []} columns={columns} loading={invoicesQ.isLoading} error={invoicesQ.error as Error|null} onRetry={() => invoicesQ.refetch()} /></div>
   </div>;
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[10px] text-pat-text-muted">{label}</div>
+      <div className="text-sm font-medium text-pat-text-primary">{value}</div>
+    </div>
+  );
 }

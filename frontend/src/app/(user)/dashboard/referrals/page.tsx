@@ -4,9 +4,13 @@ import { customInstance } from "@/lib/axios-instance";
 import DataTable, { DataTableColumn } from "@/components/ui/data-table";
 import { format } from "date-fns";
 import { useState } from "react";
-import { IconCopy, IconCheck, IconLink } from "@tabler/icons-react";
+import { IconCopy, IconCheck, IconLink, IconNetwork, IconWallet } from "@tabler/icons-react";
+import Link from "next/link";
+import { fetchReferralNetwork, type NetworkReferral } from "@/lib/user-referrals-api";
 
-interface Commission { id: string; commission_amount: string; status: string; created_at: string; }
+interface Commission { id: string; commission_amount: string; status: string; created_at: string; level?: number; }
+
+const LEVEL_LABELS = ["L1", "L2", "L3", "L4", "L5"];
 
 export default function UserReferralsPage() {
   const [copiedCode, setCopiedCode] = useState(false);
@@ -38,10 +42,7 @@ export default function UserReferralsPage() {
 
   const { data: network } = useQuery({
     queryKey: ["user-referral-network"],
-    queryFn: async () => {
-      const res = await customInstance.get("/referrals/network");
-      return res.data as { referrals: { child_user_id: string; email: string; full_name: string; level: number; created_at: string }[]; count: number };
-    },
+    queryFn: fetchReferralNetwork,
   });
 
   const referralCode = referralData?.code || "";
@@ -61,6 +62,8 @@ export default function UserReferralsPage() {
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
+  const byLevel = (level: number) => (network?.referrals ?? []).filter((r) => r.level === level);
+
   const columns: DataTableColumn<Commission>[] = [
     { key: "commission_amount", header: "Amount", cell: (row) => <span className="text-pat-text-primary font-medium">${parseFloat(row.commission_amount || "0").toFixed(2)}</span> },
     { key: "status", header: "Status", cell: (row) => <span className={`text-xs px-2 py-1 rounded-full border ${row.status === 'CONFIRMED' ? 'bg-pat-success/10 text-pat-success border-pat-success/20' : 'bg-pat-warning/10 text-pat-session border-pat-warning/20'}`}>{row.status}</span> },
@@ -76,7 +79,6 @@ export default function UserReferralsPage() {
 
       {/* Referral Code + Share Link Card */}
       <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-5 space-y-4">
-        {/* Referral Code */}
         <div>
           <div className="text-sm font-medium text-pat-text-secondary mb-2">Your Referral Code</div>
           <div className="flex items-center gap-3">
@@ -89,8 +91,6 @@ export default function UserReferralsPage() {
             </button>
           </div>
         </div>
-
-        {/* Referral Signup Link */}
         <div>
           <div className="text-sm font-medium text-pat-text-secondary mb-2 flex items-center gap-1.5">
             <IconLink size={14} /> Your Referral Signup Link
@@ -104,7 +104,7 @@ export default function UserReferralsPage() {
               {copiedLink ? <><IconCheck size={16} /> Copied!</> : <><IconLink size={16} /> Copy Link</>}
             </button>
           </div>
-          <p className="text-xs text-pat-text-muted mt-2">Share this link with friends — when they sign up, their referral code is automatically filled in and they'll be linked to your account.</p>
+          <p className="text-xs text-pat-text-muted mt-2">Share this link with friends — when they sign up, their referral code is automatically filled in and they&apos;ll be linked to your account.</p>
         </div>
       </div>
 
@@ -135,6 +135,59 @@ export default function UserReferralsPage() {
           <div className="text-2xl font-bold text-pat-text-primary mt-1">{commissions?.length || 0}</div>
         </div>
       </div>
+
+      {/* Downline network tree (L1-L5) */}
+      <div>
+        <h2 className="mb-3 text-sm font-semibold text-pat-text-primary flex items-center gap-1.5"><IconNetwork size={16} /> Downline network</h2>
+        {!network || network.referrals.length === 0 ? (
+          <div className="rounded-lg border border-pat-border bg-pat-bg-surface p-6 text-center text-sm text-pat-text-muted">
+            No referrals in your downline yet. Share your link to start building your network.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {LEVEL_LABELS.map((label, idx) => {
+              const refs = byLevel(idx + 1);
+              return (
+                <div key={label} className="rounded-lg border border-pat-border bg-pat-bg-surface p-4">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-pat-text-primary">{label}</span>
+                    <span className="text-[10px] text-pat-text-muted">{refs.length} member{refs.length === 1 ? "" : "s"}</span>
+                  </div>
+                  {refs.length === 0 ? (
+                    <div className="text-[11px] text-pat-text-muted">No referrals at this level.</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {refs.map((r: NetworkReferral) => (
+                        <div key={r.child_user_id} className="rounded-md border border-pat-border/60 bg-pat-bg-surface-secondary/20 px-3 py-2">
+                          <div className="text-xs font-medium text-pat-text-primary">{r.full_name || r.email}</div>
+                          <div className="text-[10px] text-pat-text-muted">
+                            {r.email}{r.created_at ? ` · joined ${format(new Date(r.created_at), "MMM d, yyyy")}` : ""}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <p className="text-[10px] text-pat-text-muted mt-2">
+          The referral network endpoint returns a flat list with a <code>level</code> attribute; it is grouped here into L1–L5 tiers. Multi-tier commission mapping is rendered from available data only.
+        </p>
+      </div>
+
+      {/* Payout link */}
+      <Link href="/dashboard/payouts" className="flex items-center justify-between rounded-lg border border-pat-border bg-pat-bg-surface p-4 hover:border-pat-border/80 transition-colors">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-pat-success/10"><IconWallet size={18} className="text-pat-success" /></div>
+          <div>
+            <div className="text-sm font-medium text-pat-text-primary">Request a payout</div>
+            <div className="text-xs text-pat-text-muted">Withdraw your available commission earnings.</div>
+          </div>
+        </div>
+        <span className="text-xs text-pat-info">Open →</span>
+      </Link>
 
       {/* Commission History */}
       <DataTable data={commissions || []} columns={columns} loading={isLoading} error={error as Error|null} onRetry={refetch} />

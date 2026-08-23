@@ -21,6 +21,7 @@ import (
 	"github.com/predictatrade/realtime/pkg/macro"
 	"github.com/predictatrade/realtime/pkg/mlengine"
 	"github.com/predictatrade/realtime/pkg/news"
+	"github.com/predictatrade/realtime/internal/audit"
 	"github.com/predictatrade/realtime/pkg/ollama"
 	"github.com/predictatrade/realtime/internal/config"
 	"github.com/predictatrade/realtime/internal/features"
@@ -202,6 +203,20 @@ func main() {
 		} else {
 			log.Info().Msg("Database connected")
 			defer persister.Close()
+		}
+	}
+
+	// Audit logger for pipeline/score/signal execution tracing (prompt.md audit logging)
+	var auditLogger *audit.Logger
+	if cfg.DBURL != "" {
+		al, err := audit.NewLoggerFromURL(cfg.DBURL)
+		if err != nil {
+			log.Warn().Err(err).Msg("Audit logger init failed — running without audit execution logging")
+			auditLogger = nil
+		} else {
+			auditLogger = al
+			defer auditLogger.Close()
+			log.Info().Msg("Audit execution logger connected")
 		}
 	}
 
