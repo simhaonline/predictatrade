@@ -564,8 +564,10 @@ func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) 
 		"agents_connected":      agentsConnected,
 		"master_node_connected": masterNodeConnected,
 		"snapshot_count":        snapshotCount,
-		"timestamp":             time.Now().UTC().Format(time.RFC3339),
-		"server_time":           time.Now().UTC().Format(time.RFC3339),
+		"mt4_connected":        h.agentHub.MT4ConnectedCount(),
+		"mt5_connected":        h.agentHub.MT5ConnectedCount(),
+		"timestamp":            time.Now().UTC().Format(time.RFC3339),
+		"server_time":          time.Now().UTC().Format(time.RFC3339),
 	})
 }
 

@@ -35,6 +35,10 @@ type AgentHub struct {
 	unregister chan *AgentConnection
 	provider   AgentDataProvider
 	upgrader   websocket.Upgrader
+	// Per-agent terminal link state, derived from agent heartbeats so the
+	// status endpoint can report live MT4/MT5 connection liveness.
+	mt4States map[string]bool
+	mt5States map[string]bool
 }
 
 func NewAgentHub(provider AgentDataProvider) *AgentHub {
@@ -43,12 +47,51 @@ func NewAgentHub(provider AgentDataProvider) *AgentHub {
 		register:   make(chan *AgentConnection),
 		unregister: make(chan *AgentConnection),
 		provider:   provider,
+		mt4States:  make(map[string]bool),
+		mt5States:  make(map[string]bool),
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  4096,
 			WriteBufferSize: 4096,
 			CheckOrigin:     func(r *http.Request) bool { return true },
 		},
 	}
+}
+
+// updateAgentTerminals records the latest MT4/MT5 link state reported by an
+// agent heartbeat.
+func (h *AgentHub) updateAgentTerminals(agentID string, mt4, mt5 bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.mt4States[agentID] = mt4
+	h.mt5States[agentID] = mt5
+}
+
+// MT4ConnectedCount returns the number of connected agents that currently
+// report a live MT4 terminal link.
+func (h *AgentHub) MT4ConnectedCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	n := 0
+	for _, v := range h.mt4States {
+		if v {
+			n++
+		}
+	}
+	return n
+}
+
+// MT5ConnectedCount returns the number of connected agents that currently
+// report a live MT5 terminal link.
+func (h *AgentHub) MT5ConnectedCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	n := 0
+	for _, v := range h.mt5States {
+		if v {
+			n++
+		}
+	}
+	return n
 }
 
 func (h *AgentHub) Run() {
@@ -77,6 +120,8 @@ func (h *AgentHub) Run() {
 			if current, ok := h.agents[agent.ID]; ok && current == agent {
 				delete(h.agents, agent.ID)
 			}
+			delete(h.mt4States, agent.ID)
+			delete(h.mt5States, agent.ID)
 			h.mu.Unlock()
 			if h.provider != nil {
 				h.provider.UnregisterAgent(agent.ID)
@@ -204,6 +249,14 @@ func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) 
 			_, data, err := conn.ReadMessage()
 			if err != nil {
 				return
+			}
+			// Track live MT4/MT5 terminal link state from agent heartbeats.
+			var hb struct {
+				MT4Connected bool `json:"mt4_connected"`
+				MT5Connected bool `json:"mt5_connected"`
+			}
+			if json.Unmarshal(data, &hb) == nil {
+				h.updateAgentTerminals(agentID, hb.MT4Connected, hb.MT5Connected)
 			}
 			if h.provider != nil {
 				h.provider.HandleAgentMessage(agentID, data)

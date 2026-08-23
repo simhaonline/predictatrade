@@ -5,7 +5,7 @@ import { customInstance } from "@/lib/axios-instance";
 import StatusBadge from "@/components/ui/status-badge";
 import {
   IconDownload, IconBrandWindows, IconDeviceDesktop,
-  IconClipboard, IconCheck, IconTerminal2,
+  IconClipboard, IconCheck, IconTerminal2, IconRefresh,
   IconFingerprint, IconShieldCheck, IconLicense,
 } from "@tabler/icons-react";
 
@@ -53,8 +53,15 @@ export default function UserMtClientPage() {
     refetchInterval: 5000,
   });
 
-  // Go engine live agent connection status
-  const { data: agentsStatus } = useQuery<{ agents_connected: number; master_node_connected: boolean; snapshot_count: number }>({
+  // Go engine live agent connection status (includes per-platform MT4/MT5 liveness)
+  const { data: agentsStatus, refetch: refetchAgents } = useQuery<{
+    agents_connected: number;
+    master_node_connected: boolean;
+    snapshot_count: number;
+    mt4_connected: number;
+    mt5_connected: number;
+    backend_reachable: boolean;
+  }>({
     queryKey: ["user-mt-agents"],
     queryFn: async () => (await customInstance.get("/agents/status")).data,
     refetchInterval: 5000,
@@ -120,35 +127,55 @@ export default function UserMtClientPage() {
         </div>
       </div>
 
-      {/* Live Connection Status */}
+      {/* MT4 / MT5 Connection Liveness */}
       <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-4">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-3">
-            <div className={`flex items-center justify-center w-10 h-10 rounded-lg ${(agentsStatus?.agents_connected ?? 0) > 0 ? "bg-pat-success/10" : "bg-pat-danger/10"}`}>
-              <svg className={`w-5 h-5 ${(agentsStatus?.agents_connected ?? 0) > 0 ? "text-pat-success" : "text-pat-danger"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.407-.304 6.728.897 9.336 3.504M1.924 8.674c5.327-.69 10.65.98 14.704 5.034m1.429-1.429l-1.429 1.429L15.2 9.278M12 18.75a.75.75 0 100-1.5.75.75 0 000 1.5z" />
-              </svg>
-            </div>
-            <div>
-              <div className="text-sm font-semibold text-pat-text-primary">Windows Agent Connection</div>
-              <div className="text-xs text-pat-text-muted">
-                {agentsStatus?.agents_connected ?? 0} agent(s) connected
-                {agentsStatus?.master_node_connected ? " · Master Node: ONLINE" : " · Master Node: OFFLINE"}
-                {" · "}{(agentsStatus?.snapshot_count ?? 0).toLocaleString()} snapshots
-              </div>
-            </div>
-          </div>
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
           <div className="flex items-center gap-2">
-            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ${
-              (agentsStatus?.agents_connected ?? 0) > 0
-                ? "bg-pat-success/10 text-pat-success border border-pat-success/20"
-                : "bg-pat-danger/10 text-pat-danger border border-pat-danger/20"
-            }`}>
-              <span className={`inline-block h-2 w-2 rounded-full ${(agentsStatus?.agents_connected ?? 0) > 0 ? "bg-pat-success animate-pulse" : "bg-pat-danger"}`} />
-              {(agentsStatus?.agents_connected ?? 0) > 0 ? "LIVE" : "OFFLINE"}
-            </span>
+            <IconDeviceDesktop size={18} className="text-pat-info" />
+            <h2 className="text-sm font-semibold text-pat-text-primary">MT4 / MT5 Connection Liveness</h2>
           </div>
+          <button
+            onClick={() => refetchAgents()}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-pat-border bg-pat-bg-surface-secondary text-xs text-pat-text-secondary hover:text-pat-text-primary transition-colors"
+          >
+            <IconRefresh size={14} /> Recheck
+          </button>
         </div>
+
+        <div className="flex items-center gap-2 mb-3 text-xs text-pat-text-muted">
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium ${
+            (agentsStatus?.agents_connected ?? 0) > 0
+              ? "bg-pat-success/10 text-pat-success border border-pat-success/20"
+              : "bg-pat-danger/10 text-pat-danger border border-pat-danger/20"
+          }`}>
+            <span className={`inline-block h-1.5 w-1.5 rounded-full ${(agentsStatus?.agents_connected ?? 0) > 0 ? "bg-pat-success animate-pulse" : "bg-pat-danger"}`} />
+            Windows Agent: {(agentsStatus?.agents_connected ?? 0) > 0 ? "LIVE" : "OFFLINE"}
+          </span>
+          <span>
+            {agentsStatus?.agents_connected ?? 0} agent(s)
+            {agentsStatus?.master_node_connected ? " · Master Node ONLINE" : " · Master Node OFFLINE"}
+            {" · "}{(agentsStatus?.snapshot_count ?? 0).toLocaleString()} snapshots
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <TerminalLiveness
+            label="MT4 Terminal"
+            connected={(agentsStatus?.mt4_connected ?? 0) > 0}
+            detail={`${agentsStatus?.mt4_connected ?? 0} connected`}
+          />
+          <TerminalLiveness
+            label="MT5 Terminal"
+            connected={(agentsStatus?.mt5_connected ?? 0) > 0}
+            detail={`${agentsStatus?.mt5_connected ?? 0} connected`}
+          />
+        </div>
+
+        {agentsStatus && !agentsStatus.backend_reachable && (
+          <div className="mt-3 text-[11px] text-pat-warning">
+            Agent status backend unreachable — showing last known state.
+          </div>
+        )}
       </div>
 
       {/* Registered devices with terminal details */}
@@ -320,6 +347,32 @@ export default function UserMtClientPage() {
           <div>• Swap and slippage protection per strategy.</div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function TerminalLiveness({ label, connected, detail }: { label: string; connected: boolean; detail: string }) {
+  return (
+    <div className={`flex items-center justify-between rounded-lg border p-3 ${
+      connected ? "border-pat-success/30 bg-pat-success/5" : "border-pat-border bg-pat-bg-surface-secondary/30"
+    }`}>
+      <div className="flex items-center gap-2.5">
+        <span className={`flex items-center justify-center w-8 h-8 rounded-lg ${connected ? "bg-pat-success/10" : "bg-pat-danger/10"}`}>
+          <IconTerminal2 size={16} className={connected ? "text-pat-success" : "text-pat-danger"} />
+        </span>
+        <div>
+          <div className="text-sm font-medium text-pat-text-primary">{label}</div>
+          <div className="text-[10px] text-pat-text-muted">{detail}</div>
+        </div>
+      </div>
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium ${
+        connected
+          ? "bg-pat-success/10 text-pat-success border border-pat-success/20"
+          : "bg-pat-danger/10 text-pat-danger border border-pat-danger/20"
+      }`}>
+        <span className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? "bg-pat-success animate-pulse" : "bg-pat-danger"}`} />
+        {connected ? "CONNECTED" : "OFFLINE"}
+      </span>
     </div>
   );
 }

@@ -21,6 +21,7 @@ import { DeviceAuthModule } from './modules/device-auth/device-auth.module';
 import { OperationsModule } from './modules/operations/operations.module';
 import { BacktestModule } from './modules/backtest/backtest.module';
 import { GuestPreviewModule } from './modules/guest-preview/guest-preview.module';
+import { AgentsModule } from './modules/agents/agents.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { GuestPreviewModule } from './modules/guest-preview/guest-preview.module
     OperationsModule,
     BacktestModule,
     GuestPreviewModule,
+    AgentsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
