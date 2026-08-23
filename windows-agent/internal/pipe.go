@@ -44,6 +44,7 @@ type PipeManager struct {
 	licKey      string
 	terminals   map[string]*TerminalInfo // keyed by "MT4:<account>" or "MT5:<account>"
 	onTerminalConnect func(TerminalInfo) // callback when a new terminal connects
+	onLicense   func(LicenseCheckMsg)    // callback to validate a license against the server
 }
 
 type LicenseCheckMsg struct {
@@ -95,6 +96,21 @@ func (pm *PipeManager) GetTerminals() []*TerminalInfo {
 
 func (pm *PipeManager) SetCallbacks(onTick func(MT5Tick), onLicense func(LicenseCheckMsg)) {
 	pm.onTick = onTick
+	pm.onLicense = onLicense
+}
+
+// SetLicenseResult records the authoritative license status returned by the
+// server so licenseLoop() writes the real verdict (not a local self-approval)
+// to PAT_license.txt for the EA to read.
+func (pm *PipeManager) SetLicenseResult(status, plan string, strategies []string) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if status != "" {
+		pm.licStatus = status
+	}
+	if plan != "" {
+		pm.licPlan = plan
+	}
 }
 
 func (pm *PipeManager) Start() {
@@ -235,10 +251,19 @@ func (pm *PipeManager) processMessage(line string) {
 		}
 		if json.Unmarshal([]byte(payload), &initMsg) == nil && initMsg.LicenseKey != "" {
 			pm.licKey = initMsg.LicenseKey
-			pm.licStatus = "ACTIVE"
-			pm.licPlan = "ELITE"
-			log.Printf("EA init: %s account=%s balance=%.2f equity=%.2f positions=%d",
+			// Do NOT self-approve. Mark pending and validate against the server.
+			pm.licStatus = "PENDING"
+			log.Printf("EA init: validating license %s account=%s balance=%.2f equity=%.2f positions=%d",
 				initMsg.LicenseKey, initMsg.Account, initMsg.Balance, initMsg.Equity, initMsg.OpenPos)
+			if pm.onLicense != nil {
+				go pm.onLicense(LicenseCheckMsg{
+					Type:       "LICENSE_CHECK",
+					Account:    initMsg.Account,
+					Broker:     initMsg.Broker,
+					Symbol:     initMsg.Symbol,
+					LicenseKey: initMsg.LicenseKey,
+				})
+			}
 
 			// Register/update terminal with account data
 			clientType := "MT5"
@@ -276,13 +301,11 @@ func (pm *PipeManager) processMessage(line string) {
 			return
 		}
 		log.Printf("License check: account=%s broker=%s key=%s", lic.Account, lic.Broker, lic.LicenseKey)
-		if lic.LicenseKey != "" {
-			pm.licKey = lic.LicenseKey
-			pm.licStatus = "ACTIVE"
-			pm.licPlan = "ELITE"
-		} else {
-			pm.licStatus = "ACTIVE"
-			pm.licPlan = "TRIAL"
+		// Do NOT self-approve. Mark pending and validate against the server.
+		pm.licKey = lic.LicenseKey
+		pm.licStatus = "PENDING"
+		if pm.onLicense != nil {
+			go pm.onLicense(lic)
 		}
 
 		// Detect terminal type from the message (MT4 vs MT5)

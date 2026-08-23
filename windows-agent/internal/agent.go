@@ -573,6 +573,7 @@ func (a *Agent) onLicenseCheck(msg LicenseCheckMsg) {
 	req, err := http.NewRequest("POST", validateURL, bytes.NewReader(reqBody))
 	if err != nil {
 		log.Printf("License validation request error: %v", err)
+		a.pipeManager.SetLicenseResult("UNKNOWN", "", nil)
 		a.sendLicenseResponse(msg.LicenseKey, "ERROR", "UNKNOWN", nil)
 		return
 	}
@@ -583,6 +584,7 @@ func (a *Agent) onLicenseCheck(msg LicenseCheckMsg) {
 	if err != nil {
 		log.Printf("License validation HTTP error: %v", err)
 		// Fallback: send UNKNOWN status so EA knows validation failed
+		a.pipeManager.SetLicenseResult("UNKNOWN", "", nil)
 		a.sendLicenseResponse(msg.LicenseKey, "ERROR", "UNKNOWN", nil)
 		return
 	}
@@ -593,6 +595,7 @@ func (a *Agent) onLicenseCheck(msg LicenseCheckMsg) {
 
 	if resp.StatusCode != 200 {
 		log.Printf("License validation failed: HTTP %d", resp.StatusCode)
+		a.pipeManager.SetLicenseResult("UNKNOWN", "", nil)
 		a.sendLicenseResponse(msg.LicenseKey, "ERROR", "UNKNOWN", nil)
 		return
 	}
@@ -608,6 +611,7 @@ func (a *Agent) onLicenseCheck(msg LicenseCheckMsg) {
 	}
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
 		log.Printf("License response parse error: %v", err)
+		a.pipeManager.SetLicenseResult("UNKNOWN", "", nil)
 		a.sendLicenseResponse(msg.LicenseKey, "ERROR", "UNKNOWN", nil)
 		return
 	}
@@ -620,6 +624,8 @@ func (a *Agent) onLicenseCheck(msg LicenseCheckMsg) {
 		log.Printf("License VALID: status=%s plan=%s devices=%d", apiResp.Status, apiResp.Plan, apiResp.MaxDevices)
 	}
 
+	// Record the authoritative verdict so licenseLoop() writes it to PAT_license.txt.
+	a.pipeManager.SetLicenseResult(status, apiResp.Plan, apiResp.AllowedStrategies)
 	a.sendLicenseResponse(msg.LicenseKey, status, apiResp.Plan, apiResp.AllowedStrategies)
 }
 

@@ -61,7 +61,7 @@ Client Machine                          Server
 │  (self-elevates)    │                │  downloads/windows-agent/ │
 │                     │                │  ├── install.ps1          │
 │  NSSM Service       │                │  ├── uninstall.ps1       │
-│  PredictATradeXAUUSD│                │  ├── agent.exe            │
+│  pat-agent│                │  ├── agent.exe            │
 │  ├─ agent.exe       │                │  ├── nssm.exe             │
 │  ├─ notify.ps1      │                │  ├── notify.ps1           │
 │  ├─ settings.json   │                │  ├── health-check.ps1     │
@@ -73,14 +73,14 @@ Client Machine                          Server
 │     (every 60s)     │
 │                     │
 │  Event Log Source   │
-│  PredictATradeXAUUSD │
+│  pat-agent │
 └─────────────────────┘
 ```
 
 ## Testing
 
 ### Test crash notification
-1. Start the service: `nssm start PredictATradeXAUUSD`
+1. Start the service: `nssm start pat-agent`
 2. Kill the agent process: `taskkill /F /IM agent.exe`
 3. NSSM auto-restarts after 5 seconds
 4. `notify.ps1` fires with the exit code → sends Telegram/Discord/Email alert
@@ -90,7 +90,7 @@ Client Machine                          Server
 2. Block the health endpoint (e.g., firewall port 9000) or make the agent hang
 3. Wait 60 seconds (health check interval)
 4. `health-check.ps1` detects hang → kills process → restarts → calls `notify.ps1 -ExitCode -999`
-5. Check Event Log: `Get-EventLog -Source PredictATradeXAUUSD -Newest 10`
+5. Check Event Log: `Get-EventLog -Source pat-agent -Newest 10`
 
 ### Test uninstall
 ```powershell

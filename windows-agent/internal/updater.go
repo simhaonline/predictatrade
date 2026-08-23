@@ -152,7 +152,7 @@ func (u *Updater) ApplyUpdateOnWindows(stagedPath, currentPath string, manifest 
 	backupPath := currentPath + ".bak"
 	versionFile := filepath.Join(u.installDir, "version.txt")
 	nssmPath := filepath.Join(u.installDir, "nssm.exe")
-	serviceName := "PredictATradeXAUUSD"
+	serviceName := "pat-agent"
 
 	// Build the helper batch script
 	batchContent := fmt.Sprintf(`@echo off

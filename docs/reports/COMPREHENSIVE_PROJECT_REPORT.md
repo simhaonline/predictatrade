@@ -433,7 +433,7 @@ PATTERN     (max 0.10): Candle patterns (15+ patterns)
 - Named pipe communication with MT4/MT5 Expert Advisors
 - WebSocket connection to backend (wss://live.predictatrade.com/ws/v1/agent)
 - Bounded exponential backoff reconnection: 1s → 2s → 5s → 10s → 30s (with jitter)
-- Service: PredictATradeAgent, StartupType=Automatic, crash recovery actions
+- Service: pat-agent, StartupType=Automatic, crash recovery actions
 
 ### 6.2 Heartbeat Fields
 ```json

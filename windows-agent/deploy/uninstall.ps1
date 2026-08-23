@@ -22,8 +22,8 @@ param(
 # ─── Configuration ───
 $BaseUrl       = "https://downloads.predictatrade.com/windows-agent"
 $InstallDir    = "C:\Program Files\PredictATrade\XAUUSD"
-$ServiceName   = "PredictATradeXAUUSD"
-$EventSource   = "PredictATradeXAUUSD"
+$ServiceName   = "pat-agent"
+$EventSource   = "pat-agent"
 $TaskName      = "PredictATradeHealthCheck"
 $NssmExe       = "nssm.exe"
 

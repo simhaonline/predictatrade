@@ -27,7 +27,7 @@ $ErrorActionPreference = "Stop"
 # ─── Paths ───
 $ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SettingsFile = Join-Path $ScriptDir "settings.json"
-$EventSource  = "PredictATradeXAUUSD"
+$EventSource  = "pat-agent"
 
 # ─── Helper: Write to Event Log ───
 function Write-PATEventLog {
@@ -168,7 +168,7 @@ Host:       $hostname
 Timestamp:  $timestamp
 Exit Code:  $ExitCode
 Reason:     $reasonText
-Service:    PredictATradeXAUUSD
+Service:    pat-agent
 "@
 
 Write-Host $fullMessage

@@ -17,8 +17,8 @@
 # ─── Configuration ───
 $BaseUrl       = "https://downloads.predictatrade.com/windows-agent"
 $InstallDir    = "C:\Program Files\PredictATrade\XAUUSD"
-$ServiceName   = "PredictATradeXAUUSD"
-$EventSource   = "PredictATradeXAUUSD"
+$ServiceName   = "pat-agent"
+$EventSource   = "pat-agent"
 $TaskName      = "PredictATradeHealthCheck"
 $AgentExe      = "agent.exe"
 $NssmExe       = "nssm.exe"
@@ -256,6 +256,39 @@ try {
 if ($serverVersion -ne "unknown") {
     Set-Content -Path $installedVersionFile -Value $serverVersion -Encoding UTF8
     Write-Host "[install] Wrote version.txt (v$serverVersion)"
+}
+
+# ─── Step 6.5: Remove stale prior service names of THIS product ───
+# Older installs registered the agent under different service names
+# (agent / PredictATradeAgent / PredictATradeXAUUSD). A leftover "agent"
+# service can keep holding the named pipe and overlap with the new install,
+# so we stop and delete any prior service that actually points to OUR agent
+# binary before installing the canonical "pat-agent".
+Write-Host "[install] Checking for stale prior service names..."
+$PriorServiceNames = @("agent", "PredictATradeAgent", "PredictATradeXAUUSD")
+foreach ($prior in $PriorServiceNames) {
+    if ($prior -eq $ServiceName) { continue }
+    $pSvc = Get-Service -Name $prior -ErrorAction SilentlyContinue
+    if (-not $pSvc) { continue }
+    # Safety: only remove services that belong to THIS product.
+    $pPath = (Get-CimInstance Win32_Service -Filter "Name='$prior'" -ErrorAction SilentlyContinue).PathName
+    if ($pPath -and $pPath -notmatch [regex]::Escape($InstallDir) -and $pPath -notmatch 'PredictATrade' -and $pPath -notmatch 'pat-agent') {
+        Write-Host "[install]   Skipping '$prior' — not a Predict-A-Trade agent service."
+        continue
+    }
+    Write-Host "[install]   Removing stale prior service '$prior'..."
+    try {
+        if (Test-Path $nssmDest) {
+            & $nssmDest stop $prior 2>&1 | Out-Null
+            & $nssmDest remove $prior confirm 2>&1 | Out-Null
+        } else {
+            Stop-Service -Name $prior -Force -ErrorAction SilentlyContinue
+            sc.exe delete $prior 2>&1 | Out-Null
+        }
+        Start-Sleep -Seconds 1
+    } catch {
+        sc.exe delete $prior 2>&1 | Out-Null
+    }
 }
 
 # ─── Step 7: Remove old service and install fresh ───

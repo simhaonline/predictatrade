@@ -109,7 +109,7 @@ int OnInit()
     {
         g_connection = "OFFLINE";
         Print("WARNING: Windows Agent not detected.");
-        Print("Ensure PredictATradeAgent.exe is running on this machine.");
+        Print("Ensure the pat-agent service is running on this machine.");
     }
 
     UpdatePanel();

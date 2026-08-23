@@ -30,7 +30,7 @@ func IsWindowsService() bool {
 
 // ServiceExecute runs the agent as a Windows service.
 func ServiceExecute(a *Agent) error {
-	return svc.Run("PredictATradeAgent", &WindowsService{agent: a})
+	return svc.Run("pat-agent", &WindowsService{agent: a})
 }
 
 func (s *WindowsService) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (ssec bool, errno uint32) {
@@ -71,13 +71,13 @@ func InstallService(execPath string) error {
 	}
 	defer m.Disconnect()
 
-	s, err := m.OpenService("PredictATradeAgent")
+	s, err := m.OpenService("pat-agent")
 	if err == nil {
 		s.Close()
 		return fmt.Errorf("service already exists")
 	}
 
-	s, err = m.CreateService("PredictATradeAgent", execPath, mgr.Config{
+	s, err = m.CreateService("pat-agent", execPath, mgr.Config{
 		DisplayName:    "Predict-A-Trade Agent",
 		Description:    "Predict-A-Trade Windows Agent — MT4/MT5 bridge and signal delivery",
 		StartType:      mgr.StartAutomatic,
@@ -99,7 +99,7 @@ func InstallService(execPath string) error {
 		log.Printf("Warning: failed to set recovery actions: %v", err)
 	}
 
-	log.Println("Service 'PredictATradeAgent' installed successfully")
+	log.Println("Service 'pat-agent' installed successfully")
 	return nil
 }
 
@@ -111,7 +111,7 @@ func UninstallService() error {
 	}
 	defer m.Disconnect()
 
-	s, err := m.OpenService("PredictATradeAgent")
+	s, err := m.OpenService("pat-agent")
 	if err != nil {
 		return fmt.Errorf("service not found: %w", err)
 	}
@@ -122,7 +122,7 @@ func UninstallService() error {
 		return fmt.Errorf("failed to delete service: %w", err)
 	}
 
-	log.Println("Service 'PredictATradeAgent' uninstalled successfully")
+	log.Println("Service 'pat-agent' uninstalled successfully")
 	return nil
 }
 
@@ -134,7 +134,7 @@ func StartService() error {
 	}
 	defer m.Disconnect()
 
-	s, err := m.OpenService("PredictATradeAgent")
+	s, err := m.OpenService("pat-agent")
 	if err != nil {
 		return fmt.Errorf("service not found: %w", err)
 	}
@@ -145,7 +145,7 @@ func StartService() error {
 		return fmt.Errorf("failed to start service: %w", err)
 	}
 
-	log.Println("Service 'PredictATradeAgent' started successfully")
+	log.Println("Service 'pat-agent' started successfully")
 	return nil
 }
 
@@ -157,7 +157,7 @@ func StopService() error {
 	}
 	defer m.Disconnect()
 
-	s, err := m.OpenService("PredictATradeAgent")
+	s, err := m.OpenService("pat-agent")
 	if err != nil {
 		return fmt.Errorf("service not found: %w", err)
 	}
@@ -168,7 +168,7 @@ func StopService() error {
 		return fmt.Errorf("failed to stop service: %w", err)
 	}
 
-	log.Println("Service 'PredictATradeAgent' stopped successfully")
+	log.Println("Service 'pat-agent' stopped successfully")
 	return nil
 }
 

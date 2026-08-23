@@ -14,7 +14,7 @@
     Special exit code -999 is passed to notify.ps1 for hang detection.
 .NOTES
     All actions are logged to the Windows Application Event Log under
-    source "PredictATradeXAUUSD".
+    source "pat-agent".
 #>
 
 $ErrorActionPreference = "Stop"
@@ -23,8 +23,8 @@ $ErrorActionPreference = "Stop"
 $ScriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SettingsFile = Join-Path $ScriptDir "settings.json"
 $NotifyScript = Join-Path $ScriptDir "notify.ps1"
-$EventSource  = "PredictATradeXAUUSD"
-$ServiceName  = "PredictATradeXAUUSD"
+$EventSource  = "pat-agent"
+$ServiceName  = "pat-agent"
 $InstallDir   = "C:\Program Files\PredictATrade\XAUUSD"
 
 # ─── Helper: Write to Event Log ───
