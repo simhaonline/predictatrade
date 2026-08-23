@@ -214,7 +214,6 @@ export default function UserMtClientPage() {
           </span>
           <span>
             {agentsStatus?.agents_connected ?? 0} agent(s)
-            {agentsStatus?.master_node_connected ? " · Master Node ONLINE" : " · Master Node OFFLINE"}
             {" · "}{(agentsStatus?.snapshot_count ?? 0).toLocaleString()} snapshots
           </span>
         </div>
