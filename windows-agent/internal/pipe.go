@@ -349,6 +349,12 @@ func (pm *PipeManager) processMessage(line string) {
 			return
 		}
 		log.Printf("Tick: %s bid=%.5f ask=%.5f", tick.Symbol, tick.Bid, tick.Ask)
+		// The INIT message does not carry a platform tag, but every TICK does
+		// ("source":"MT4"|"MT5"). Reclassify the terminal so MT4/MT5 detection
+		// is correct without requiring an EA recompile.
+		if src := strings.ToUpper(tick.Source); src == "MT4" || src == "MT5" {
+			pm.setTerminalClientType(tick.Account, src)
+		}
 		if pm.onTick != nil {
 			pm.onTick(tick)
 		}
@@ -640,6 +646,22 @@ func (pm *PipeManager) processMasterMessage(line string) {
 }
 
 // MT4Connected returns true if any MT4 terminal is active.
+// setTerminalClientType reclassifies a terminal by account once the EA's
+// platform ("source") is learned from a TICK message, keeping the lookup key
+// consistent with the real ClientType.
+func (pm *PipeManager) setTerminalClientType(account, clientType string) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	for k, t := range pm.terminals {
+		if t.Account == account && t.ClientType != clientType {
+			t.ClientType = clientType
+			delete(pm.terminals, k)
+			pm.terminals[clientType+":"+account] = t
+			log.Printf("Terminal %s reclassified as %s", account, clientType)
+		}
+	}
+}
+
 func (pm *PipeManager) MT4Connected() bool {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -648,7 +670,7 @@ func (pm *PipeManager) MT4Connected() bool {
 			return true
 		}
 	}
-	return len(pm.terminals) > 0 // fallback: any terminal
+	return false
 }
 
 // MT5Connected returns true if any MT5 terminal is active.
@@ -660,5 +682,5 @@ func (pm *PipeManager) MT5Connected() bool {
 			return true
 		}
 	}
-	return len(pm.terminals) > 0 // fallback: any terminal
+	return false
 }
