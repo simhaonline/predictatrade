@@ -215,7 +215,7 @@ type AgentProvider struct {
 	snapshotCount   uint64
 
 	// Valkey cache — write snapshots directly (not via delayed broadcast loop)
-	valkeyCache interface{ SetSnapshot(interface{}) error; SetMarketState(interface{}) error; AddPricePoint(float64, time.Time) error }
+	valkeyCache interface{ SetSnapshot(interface{}) error; SetLastSnapshot(interface{}) error; SetMarketState(interface{}) error; AddPricePoint(float64, time.Time) error }
 
 	// State manager — merge snapshot indicators/bars into market state
 	stateMgr StateUpdater
@@ -248,7 +248,7 @@ type LicenseValidationResult struct {
 	Error       string `json:"error,omitempty"`
 }
 
-func (p *AgentProvider) SetValkeyCache(v interface{ SetSnapshot(interface{}) error; SetMarketState(interface{}) error; AddPricePoint(float64, time.Time) error }) {
+func (p *AgentProvider) SetValkeyCache(v interface{ SetSnapshot(interface{}) error; SetLastSnapshot(interface{}) error; SetMarketState(interface{}) error; AddPricePoint(float64, time.Time) error }) {
 	p.valkeyCache = v
 }
 
@@ -466,6 +466,7 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		// Write directly to Valkey
 		if p.valkeyCache != nil {
 			p.valkeyCache.SetSnapshot(&snapshot)
+			p.valkeyCache.SetLastSnapshot(&snapshot)
 			if snapshot.Tick.Bid > 0 && snapshot.Tick.Ask > 0 {
 				mid := (snapshot.Tick.Bid + snapshot.Tick.Ask) / 2
 				p.valkeyCache.AddPricePoint(mid, time.Now().UTC())

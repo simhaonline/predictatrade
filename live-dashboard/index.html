@@ -884,6 +884,43 @@ const STATE = {
 const API_BASE = window.location.origin;
 var WS_URL = (window.location.hostname === 'localhost' || window.location.protocol === 'file:') ? 'ws://localhost:13081/ws' : ((window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws');
 
+/* ============ LAST PRICE PERSISTENCE ============ */
+// Persist last known Master Node price to localStorage so the dashboard
+// keeps displaying it even when the market is closed or the feed pauses.
+var LAST_PRICE_KEY = 'pat_last_price';
+function saveLastPrice(){
+  if(STATE.price > 0){
+    try{
+      localStorage.setItem(LAST_PRICE_KEY, JSON.stringify({
+        price: STATE.price, bid: STATE.bid, ask: STATE.ask, spread: STATE.spread,
+        broker: STATE.broker, source: STATE.source, digits: STATE.digits,
+        timestamp: Date.now(), isoTime: new Date().toISOString()
+      }));
+    }catch(e){}
+  }
+}
+function loadLastPrice(){
+  try{
+    var raw = localStorage.getItem(LAST_PRICE_KEY);
+    if(!raw) return null;
+    var d = JSON.parse(raw);
+    if(d && d.price > 0) return d;
+  }catch(e){}
+  return null;
+}
+function applyLastPrice(){
+  var lp = loadLastPrice();
+  if(!lp) return;
+  // Only apply if current price is zero (no live data)
+  if(STATE.price <= 0){
+    STATE.price = lp.price; STATE.bid = lp.bid; STATE.ask = lp.ask;
+    STATE.spread = lp.spread; STATE.broker = lp.broker || STATE.broker;
+    STATE.digits = lp.digits || STATE.digits;
+    STATE._lastPriceTime = lp.timestamp;
+    STATE._lastPriceIso = lp.isoTime;
+  }
+}
+
 async function fetchJSON(url){
   try{const r=await fetch(url,{cache:'no-store'});if(!r.ok)return null;return await r.json();}
   catch(e){return null;}
@@ -909,6 +946,7 @@ async function loadSnapshot(){
     STATE.spread=Number(d.tick.spread)||0; STATE.volume=Number(d.tick.volume)||0;
     STATE.price=STATE.bid||STATE.ask||0;
   }
+  if(STATE.price > 0) saveLastPrice();
   if(d.bars){STATE.bars=d.bars;
     var m5=d.bars.M5; if(m5){STATE.dayOpen=Number(m5.open)||0;STATE.high=Number(m5.high)||0;STATE.low=Number(m5.low)||0;}
   }
@@ -1019,6 +1057,7 @@ async function loadMarketState(){
   if(s.Ask!==undefined&&s.Ask!=='0'&&s.Ask!=='0.0')STATE.ask=Number(s.Ask)||STATE.ask;
   if(s.Spread!==undefined&&s.Spread!=='0')STATE.spread=Number(s.Spread)||STATE.spread;
   if(s.CurrentPrice!==undefined&&s.CurrentPrice!=='0')STATE.price=Number(s.CurrentPrice)||STATE.price;
+  if(STATE.price > 0) saveLastPrice();
   if(s.Regime){STATE.regime=s.Regime.Current||'';STATE.regimeVol=s.Regime.Volatility||'';STATE.regimeConf=Number(s.Regime.Confidence)||0;}
   if(s.MTF){STATE.mtfScore=Number(s.MTF.Score)||0;STATE.mtfStates=s.MTF.States||{};}
   if(s.Session){STATE.session=s.Session.CurrentSession||STATE.session;STATE.isOverlap=!!s.Session.IsOverlap;STATE.isWeekend=!!s.Session.IsWeekend;STATE.newsRisk=s.Session.NewsRisk||'NONE';}
@@ -1649,7 +1688,12 @@ function updateModeBanner(){
     b.className='mode-banner observe';
     var src2=STATE.source||'LOCAL_COMPUTE_ONLY';
     var tf2=STATE.candleTimeframe?(' '+STATE.candleTimeframe+' timeframe'):'';
-    b.textContent='◐ OBSERVATION MODE — No live MT5 master node connected · showing real historical'+tf2+' candles ('+src2+') · not live trading data';
+    var lastPriceStr='';
+    if(STATE.price>0 && STATE._lastPriceIso){
+      var age = Math.round((Date.now() - (STATE._lastPriceTime||0)) / 60000);
+      lastPriceStr = ' · last price '+fmt(STATE.price, STATE.digits)+' ('+age+'m ago)';
+    }
+    b.textContent='◐ OBSERVATION MODE — No live MT5 master node connected · showing real historical'+tf2+' candles ('+src2+')'+lastPriceStr+' · not live trading data';
   }
   // Header LIVE pill reflects reality
   var lp=$('livePill');
@@ -1785,6 +1829,7 @@ async function init(){
   // Set correct toggle icon
   var ti=document.getElementById('themeToggle');
   if(ti)ti.textContent=document.body.classList.contains('dark')?'☀':'🌙';
+  applyLastPrice(); // restore last known price before first render
   await loadSnapshot();
   await loadCandles(); // preferred chart source; falls back to aggregated market-state candles
   await Promise.all([loadMarketState(),loadAgentStatus(),loadStrategies(),loadSignals()]);

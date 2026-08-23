@@ -198,3 +198,29 @@ func (v *ValkeyCache) GetLatestSignals() (json.RawMessage, error) {
 	}
 	return json.RawMessage(b), nil
 }
+
+// SetLastSnapshot persists the last known market snapshot with a long TTL (7 days).
+// This ensures the dashboard can display the last Master Node price even when the
+// market is closed, the agent reconnects, or the engine restarts.
+func (v *ValkeyCache) SetLastSnapshot(data interface{}) error {
+	if v.client == nil {
+		return nil
+	}
+	b, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	return v.client.Set(v.ctx, "pat:last_snapshot", b, 7*24*time.Hour).Err()
+}
+
+// GetLastSnapshot reads the persistent last known market snapshot from Valkey.
+func (v *ValkeyCache) GetLastSnapshot() (json.RawMessage, error) {
+	if v.client == nil {
+		return nil, fmt.Errorf("no client")
+	}
+	b, err := v.client.Get(v.ctx, "pat:last_snapshot").Bytes()
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(b), nil
+}

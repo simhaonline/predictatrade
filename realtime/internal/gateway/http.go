@@ -329,12 +329,24 @@ func (h *HTTPServer) handleStrategies(w http.ResponseWriter, r *http.Request) {
 func (h *HTTPServer) handleMarketSnapshot(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Step 1: Get the raw MT5 snapshot from Valkey cache or agent provider
+	// Step 1: Get the raw MT5 snapshot from agent provider (in-memory)
 	var mt5Snapshot *marketdata.MarketSnapshot
 	if h.agentProvider != nil {
 		if snap := h.agentProvider.GetLastSnapshot(); snap != nil {
 			if ms, ok := snap.(*marketdata.MarketSnapshot); ok {
 				mt5Snapshot = ms
+			}
+		}
+	}
+
+	// Step 1b: If no in-memory snapshot, try persistent Valkey cache.
+	// This ensures the dashboard shows the last Master Node price even when
+	// the market is closed, the agent disconnected, or the engine restarted.
+	if mt5Snapshot == nil && h.valkeyCache != nil {
+		if data, err := h.valkeyCache.GetLastSnapshot(); err == nil && len(data) > 0 {
+			var persistent marketdata.MarketSnapshot
+			if err := json.Unmarshal(data, &persistent); err == nil {
+				mt5Snapshot = &persistent
 			}
 		}
 	}
