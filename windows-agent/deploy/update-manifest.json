@@ -1,8 +1,8 @@
 {
-    "version": "1.2.0",
-    "download_url": "https://downloads.predictatrade.com/windows-agent/agent.exe",
-    "checksum": "981c43b63d650e88f8c76a0273cda1e399b7fedbd160fc688edec66c4e81938e",
-    "min_version": "1.0.0",
-    "release_notes": "v1.2.0 — Auto-built via scripts/build-windows-agent.sh",
-    "timestamp": "2026-08-21T16:42:34Z"
+  "version": "1.2.1",
+  "download_url": "https://downloads.predictatrade.com/windows-agent/agent.exe",
+  "checksum": "3869a9440582cce2fc39b74c8bb6e5090a95eee0054d0859166248301079ea75",
+  "min_version": "1.0.0",
+  "release_notes": "v1.2.1 \u2014 Fix license validation: call NestJS API instead of hardcoded response",
+  "timestamp": "2026-08-23T14:39:00Z"
 }
