@@ -379,7 +379,7 @@ export default function UserTradingReportsPage() {
           <div className="text-[11px] text-pat-text-muted leading-relaxed">
             Account balance, equity, and P/L are captured from your MT4/MT5 terminals via the Windows Agent.
             If values show $0.00, ensure you have the latest EA version (v1.08+) installed — download it from the
-            MT4/MT5 Client Setup page. The EA sends account data (balance, equity, P&L, positions) to the platform
+            MetaTrader Client page. The EA sends account data (balance, equity, P&L, positions) to the platform
             on initialization and during license checks. {(agentsStatus?.agents_connected ?? 0) > 0 && `${agentsStatus?.agents_connected} agent(s) are connected and sending data.`}
           </div>
         </div>

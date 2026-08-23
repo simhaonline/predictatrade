@@ -39,7 +39,7 @@ describe('Admin Sidebar', () => {
   it('does NOT show user-only items', async () => {
     const { default: Sidebar } = await import('@/components/layout/sidebar');
     render(<Sidebar />);
-    expect(screen.queryByText('MT4/MT5 Client')).not.toBeInTheDocument();
+    expect(screen.queryByText('MetaTrader Client')).not.toBeInTheDocument();
     expect(screen.queryByText('Referral & Earnings')).not.toBeInTheDocument();
     expect(screen.queryByText('Billing & Subscription')).not.toBeInTheDocument();
     expect(screen.queryByText('Strategy Preferences')).not.toBeInTheDocument();

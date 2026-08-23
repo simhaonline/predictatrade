@@ -38,7 +38,7 @@ describe('User Sidebar Separation', () => {
     }));
     const { default: Sidebar } = await import('@/components/layout/sidebar');
     render(<Sidebar />);
-    expect(screen.getByText('MT4/MT5 Client')).toBeInTheDocument();
+    expect(screen.getByText('MetaTrader Client')).toBeInTheDocument();
     expect(screen.getByText('Referral & Earnings')).toBeInTheDocument();
     expect(screen.getByText('Billing & Subscription')).toBeInTheDocument();
   });

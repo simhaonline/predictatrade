@@ -44,7 +44,6 @@ interface UserDevice {
 type InstallStep = "download" | "install" | "connect" | "mt4" | "mt5" | "verify";
 
 export default function UserMtClientPage() {
-  const [activeStep, setActiveStep] = useState<InstallStep>("download");
   const [copiedKey, setCopiedKey] = useState(false);
 
   const { data: devices, isLoading } = useQuery<UserDevice[]>({
@@ -95,10 +94,72 @@ export default function UserMtClientPage() {
     { id: "verify", label: "6. Verify" },
   ];
 
+  // Full installation steps shown inline on the dashboard (no toggling required).
+  const guideSteps: Record<InstallStep, { title: string; steps: string[] }> = {
+    download: {
+      title: "Download the Windows Agent",
+      steps: [
+        "Click the Download button for the Windows Agent (Installer) above.",
+        "Save the file to a known location.",
+        "Also download the MT4 or MT5 Expert Advisor for your platform.",
+      ],
+    },
+    install: {
+      title: "Install the Windows Agent",
+      steps: [
+        "Double-click PredictATrade-Agent-Setup.exe to start the installer.",
+        "If Windows SmartScreen appears, click 'More info' then 'Run anyway'.",
+        "Follow the installation wizard — accept the default path.",
+        "The agent installs as a Windows Service and starts automatically.",
+      ],
+    },
+    connect: {
+      title: "Enter Your License Key",
+      steps: [
+        "Right-click the Predict-A-Trade agent icon in the system tray.",
+        "Select 'Settings' or 'Configure'.",
+        "Paste your license key (from the box above) into the License Key field.",
+        "Click 'Save' or 'Connect'. The agent will show 'Connected' status.",
+        "Your device and hardware fingerprint will be registered to the platform.",
+      ],
+    },
+    mt4: {
+      title: "Install MT4 Expert Advisor",
+      steps: [
+        "Open MetaTrader 4 → File → Open Data Folder → MQL4 → Experts.",
+        "Copy PredictATrade_MT4.mq4 into the Experts folder.",
+        "In MT4, refresh the Navigator (Ctrl+N) → Right-click 'Expert Advisors' → 'Refresh'.",
+        "Drag PredictATrade_MT4 onto a XAUUSD chart.",
+        "Check 'Allow live trading' → OK. Enable the 'AutoTrading' button (green).",
+      ],
+    },
+    mt5: {
+      title: "Install MT5 Expert Advisor",
+      steps: [
+        "Open MetaTrader 5 → File → Open Data Folder → MQL5 → Experts.",
+        "Copy PredictATrade_MT5.mq5 into the Experts folder.",
+        "In MT5, refresh the Navigator → Right-click 'Expert Advisors' → 'Refresh'.",
+        "Drag PredictATrade_MT5 onto a XAUUSD chart.",
+        "Check 'Allow Algo Trading' → OK. Enable 'Algo Trading' button (green).",
+        "Press F7 in MetaEditor to compile if the file shows as .mq5 (not .ex5).",
+      ],
+    },
+    verify: {
+      title: "Verify Your Connection",
+      steps: [
+        "Check the Windows Agent system tray icon — should show 'Connected'.",
+        "In MT4/MT5, check the Experts tab — should show 'PAT: Connected to agent'.",
+        "Your device and terminal details should appear in the 'Registered Devices' section above.",
+        "The hardware fingerprint binds your license to this machine — no other machine can use your license.",
+        "If you see 'Agent: Disconnected', restart the Windows Agent service from the system tray.",
+      ],
+    },
+  };
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-pat-text-primary">MT4/MT5 Client Setup</h1>
+        <h1 className="text-xl font-bold text-pat-text-primary">MetaTrader Client</h1>
         <p className="text-sm text-pat-text-secondary mt-1">
           Download the Windows Agent and MQL Expert Advisors. Manage your registered devices and terminals.
         </p>
@@ -279,59 +340,32 @@ export default function UserMtClientPage() {
         </div>
       </div>
 
-      {/* Installation guide */}
+      {/* Installation guide — always visible step list */}
       <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-5">
         <h2 className="text-sm font-semibold text-pat-text-primary mb-4">Installation Guide</h2>
-        <div className="flex flex-wrap gap-1.5 mb-4">
-          {installSteps.map((step) => (
-            <button key={step.id} onClick={() => setActiveStep(step.id)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${activeStep === step.id ? "bg-pat-success/15 text-pat-success border border-pat-success/30" : "text-pat-text-muted hover:text-pat-text-secondary border border-transparent"}`}>
-              {step.label}
-            </button>
-          ))}
-        </div>
-        <div className="rounded-lg bg-pat-bg-surface-secondary/20 p-4">
-          {activeStep === "download" && <Steps title="Download the Windows Agent" steps={[
-            "Click the Download button for the Windows Agent (Installer) above.",
-            "Save the file to a known location.",
-            "Also download the MT4 or MT5 Expert Advisor for your platform.",
-          ]} />}
-          {activeStep === "install" && <Steps title="Install the Windows Agent" steps={[
-            "Double-click PredictATrade-Agent-Setup.exe to start the installer.",
-            "If Windows SmartScreen appears, click 'More info' then 'Run anyway'.",
-            "Follow the installation wizard — accept the default path.",
-            "The agent installs as a Windows Service and starts automatically.",
-          ]} />}
-          {activeStep === "connect" && <Steps title="Enter Your License Key" steps={[
-            "Right-click the Predict-A-Trade agent icon in the system tray.",
-            "Select 'Settings' or 'Configure'.",
-            "Paste your license key (from the box above) into the License Key field.",
-            "Click 'Save' or 'Connect'. The agent will show 'Connected' status.",
-            "Your device and hardware fingerprint will be registered to the platform.",
-          ]} />}
-          {activeStep === "mt4" && <Steps title="Install MT4 Expert Advisor" steps={[
-            "Open MetaTrader 4 → File → Open Data Folder → MQL4 → Experts.",
-            "Copy PredictATrade_MT4.mq4 into the Experts folder.",
-            "In MT4, refresh the Navigator (Ctrl+N) → Right-click 'Expert Advisors' → 'Refresh'.",
-            "Drag PredictATrade_MT4 onto a XAUUSD chart.",
-            "Check 'Allow live trading' → OK. Enable the 'AutoTrading' button (green).",
-          ]} />}
-          {activeStep === "mt5" && <Steps title="Install MT5 Expert Advisor" steps={[
-            "Open MetaTrader 5 → File → Open Data Folder → MQL5 → Experts.",
-            "Copy PredictATrade_MT5.mq5 into the Experts folder.",
-            "In MT5, refresh the Navigator → Right-click 'Expert Advisors' → 'Refresh'.",
-            "Drag PredictATrade_MT5 onto a XAUUSD chart.",
-            "Check 'Allow Algo Trading' → OK. Enable 'Algo Trading' button (green).",
-            "Press F7 in MetaEditor to compile if the file shows as .mq5 (not .ex5).",
-          ]} />}
-          {activeStep === "verify" && <Steps title="Verify Your Connection" steps={[
-            "Check the Windows Agent system tray icon — should show 'Connected'.",
-            "In MT4/MT5, check the Experts tab — should show 'PAT: Connected to agent'.",
-            "Your device and terminal details should appear in the 'Registered Devices' section above.",
-            "The hardware fingerprint binds your license to this machine — no other machine can use your license.",
-            "If you see 'Agent: Disconnected', restart the Windows Agent service from the system tray.",
-          ]} />}
-        </div>
+        <ol className="space-y-4">
+          {installSteps.map((step, i) => {
+            const g = guideSteps[step.id];
+            return (
+              <li key={step.id} className="flex gap-3">
+                <span className="flex items-center justify-center w-7 h-7 shrink-0 rounded-full bg-pat-success/15 text-pat-success text-xs font-bold">
+                  {i + 1}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-pat-text-primary mb-1.5">{g.title}</div>
+                  <ul className="space-y-1">
+                    {g.steps.map((s, j) => (
+                      <li key={j} className="flex items-start gap-2 text-xs text-pat-text-secondary">
+                        <span className="mt-1.5 w-1 h-1 rounded-full bg-pat-text-muted shrink-0" />
+                        <span className="leading-relaxed">{s}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
       </div>
 
       {/* Risk protection info */}
@@ -373,22 +407,6 @@ function TerminalLiveness({ label, connected, detail }: { label: string; connect
         <span className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? "bg-pat-success animate-pulse" : "bg-pat-danger"}`} />
         {connected ? "CONNECTED" : "OFFLINE"}
       </span>
-    </div>
-  );
-}
-
-function Steps({ title, steps }: { title: string; steps: string[] }) {
-  return (
-    <div>
-      <h3 className="text-sm font-medium text-pat-text-primary mb-2">{title}</h3>
-      <ol className="space-y-1.5">
-        {steps.map((step, i) => (
-          <li key={i} className="flex items-start gap-2 text-xs text-pat-text-secondary">
-            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-pat-bg-surface-secondary text-[10px] text-pat-text-muted shrink-0 mt-0.5">{i + 1}</span>
-            <span className="leading-relaxed">{step}</span>
-          </li>
-        ))}
-      </ol>
     </div>
   );
 }
