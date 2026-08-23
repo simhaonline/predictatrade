@@ -1,6 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Pool } from 'pg';
 import { DB_POOL } from '../../common/database.module';
+import { CommissionsService } from '../commissions/commissions.service';
 
 export interface HealthServiceStatus {
   service: string;
@@ -15,7 +16,10 @@ export interface HealthServiceStatus {
 export class AdminService {
   private readonly logger = new Logger(AdminService.name);
 
-  constructor(@Inject(DB_POOL) private pool: Pool) {}
+  constructor(
+    @Inject(DB_POOL) private pool: Pool,
+    private commissionsService: CommissionsService,
+  ) {}
 
   /** System overview with real statistics from the database. */
   async getOverview() {
@@ -315,8 +319,12 @@ export class AdminService {
     const userCheck = await this.pool.query('SELECT id FROM iam.users WHERE id = $1 AND deleted_at IS NULL', [userId]);
     if (userCheck.rows.length === 0) throw new Error('User not found');
 
-    const planCheck = await this.pool.query('SELECT id FROM control.plans WHERE id = $1', [planId]);
+    const planCheck = await this.pool.query(
+      'SELECT id, monthly_price, annual_price, currency, billing_interval FROM control.plans WHERE id = $1',
+      [planId],
+    );
     if (planCheck.rows.length === 0) throw new Error('Plan not found');
+    const plan = planCheck.rows[0];
 
     const id = licenseKey ? crypto.randomUUID() : crypto.randomUUID();
     const key = licenseKey || `PAT-${id.slice(0, 8).toUpperCase()}-${id.slice(9, 13).toUpperCase()}-${id.slice(14, 18).toUpperCase()}-${id.slice(19, 23).toUpperCase()}-${id.slice(24, 36).toUpperCase()}`;
@@ -340,6 +348,25 @@ export class AdminService {
        VALUES ($1, 'ASSIGNED', 'Admin assigned license', $2, now())`,
       [id, JSON.stringify({ actor_id: actorId, user_id: userId })],
     );
+
+    // Credit referral commission to the referrer of the license owner (idempotent).
+    try {
+      const commissionable =
+        plan.billing_interval === 'ANNUAL'
+          ? Number(plan.annual_price)
+          : Number(plan.monthly_price);
+      if (commissionable > 0) {
+        await this.commissionsService.creditReferralForLicense(
+          userId,
+          planId,
+          id,
+          commissionable,
+          plan.currency || 'USD',
+        );
+      }
+    } catch (err) {
+      this.logger.error(`Referral commission credit failed for license ${id}: ${err?.message || err}`);
+    }
 
     return r.rows[0];
   }

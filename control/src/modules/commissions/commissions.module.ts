@@ -7,5 +7,6 @@ import { DatabaseModule } from '../../common/database.module';
   imports: [DatabaseModule],
   controllers: [CommissionsController],
   providers: [CommissionsService],
+  exports: [CommissionsService],
 })
 export class CommissionsModule {}
