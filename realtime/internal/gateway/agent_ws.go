@@ -218,3 +218,25 @@ func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) 
 		}
 	}()
 }
+
+// SendToAgent sends a JSON message to a specific agent by ID.
+func (h *AgentHub) SendToAgent(agentID string, msgType string, payload interface{}) {
+	data, err := json.Marshal(map[string]interface{}{
+		"type":      msgType,
+		"timestamp": time.Now().UTC(),
+		"payload":   payload,
+	})
+	if err != nil {
+		return
+	}
+	h.mu.RLock()
+	agent, ok := h.agents[agentID]
+	h.mu.RUnlock()
+	if !ok {
+		return
+	}
+	select {
+	case agent.send <- data:
+	default:
+	}
+}

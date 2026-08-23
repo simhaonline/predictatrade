@@ -231,6 +231,21 @@ type AgentProvider struct {
 	// AgentConnectFn — called when an agent connects or sends heartbeat.
 	// This hydrates the execution permit gate (terminal connected = PASS).
 	agentConnectFn func(agentID string, msgType string)
+
+	// LicenseValidateFn — validates a license key against the DB and sends
+	// a LICENSE_STATUS response back to the agent. Set by main.go.
+	licenseValidateFn func(agentID, licenseKey string) LicenseValidationResult
+}
+
+// LicenseValidationResult holds the result of license key validation.
+type LicenseValidationResult struct {
+	Valid       bool   `json:"valid"`
+	Status      string `json:"status"`       // ACTIVE, EXPIRED, REVOKED, NOT_FOUND
+	Plan        string `json:"plan"`         // FREE, STANDARD, PRO, ELITE
+	MaxDevices  int    `json:"max_devices"`
+	MaxMTAccts  int    `json:"max_mt_accounts"`
+	Strategies  []string `json:"allowed_strategies"`
+	Error       string `json:"error,omitempty"`
 }
 
 func (p *AgentProvider) SetValkeyCache(v interface{ SetSnapshot(interface{}) error; SetMarketState(interface{}) error; AddPricePoint(float64, time.Time) error }) {
@@ -263,6 +278,11 @@ func (p *AgentProvider) SetBrokerAccountHydrateFn(fn func(account *SnapshotAccou
 // when an agent connects or sends a heartbeat.
 func (p *AgentProvider) SetAgentConnectFn(fn func(agentID string, msgType string)) {
 	p.agentConnectFn = fn
+}
+
+// SetLicenseValidateFn sets the license validation callback.
+func (p *AgentProvider) SetLicenseValidateFn(fn func(agentID, licenseKey string) LicenseValidationResult) {
+	p.licenseValidateFn = fn
 }
 
 func NewAgentProvider() *AgentProvider {
@@ -511,6 +531,16 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		// Master Node EA initialized — agent terminal is connected and ready
 		if p.agentConnectFn != nil {
 			p.agentConnectFn(agentID, "MASTER_INIT")
+		}
+		// Parse license key from the MASTER_INIT message and validate
+		if p.licenseValidateFn != nil {
+			var initMsg struct {
+				LicenseKey string `json:"license_key"`
+			}
+			_ = json.Unmarshal(data, &initMsg)
+			if initMsg.LicenseKey != "" {
+				p.licenseValidateFn(agentID, initMsg.LicenseKey)
+			}
 		}
 	case "MASTER_DEINIT":
 		// Master Node lifecycle events — logged but no tick processing needed

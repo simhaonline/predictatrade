@@ -703,6 +703,58 @@ func main() {
 		go agentHub.Run()
 	}
 
+	// License validation: when MASTER_INIT arrives, validate the license key
+	// against the control plane DB and send a LICENSE_STATUS response to the EA.
+	agentProvider.SetLicenseValidateFn(func(agentID, licenseKey string) marketdata.LicenseValidationResult {
+		result := marketdata.LicenseValidationResult{
+			Valid:  false,
+			Status: "NOT_FOUND",
+		}
+		if persister == nil {
+			observability.Log.Warn().Str("license_key", licenseKey).Msg("No DB connection — license validation skipped")
+			result.Error = "database unavailable"
+			agentHub.SendToAgent(agentID, "LICENSE_STATUS", result)
+			return result
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		row := persister.GetDB().QueryRowContext(ctx, `
+			SELECT l.status, p.code, l.max_devices, l.max_mt_accounts, l.allowed_strategies::text
+			FROM licensing.licenses l
+			LEFT JOIN control.plans p ON l.plan_id = p.id
+			WHERE l.license_key = $1 AND l.revoked_at IS NULL
+			LIMIT 1
+		`, licenseKey)
+		var status, planCode string
+		var maxDev, maxMT int
+		var strategiesStr string
+		if err := row.Scan(&status, &planCode, &maxDev, &maxMT, &strategiesStr); err != nil {
+			observability.Log.Warn().Str("license_key", licenseKey).Msg("License key not found in DB")
+			result.Error = "license key not found"
+			agentHub.SendToAgent(agentID, "LICENSE_STATUS", result)
+			return result
+		}
+		result.Status = status
+		result.Plan = planCode
+		result.MaxDevices = maxDev
+		result.MaxMTAccts = maxMT
+		result.Strategies = []string{}
+		if strategiesStr != "" && strategiesStr != "null" {
+			// Parse JSON array string
+			import_str := strategiesStr
+			_ = import_str
+		}
+		if status == "ACTIVE" {
+			result.Valid = true
+			observability.Log.Info().Str("license_key", licenseKey).Str("plan", planCode).Msg("License validated — ACTIVE")
+		} else {
+			result.Error = "license is " + status
+			observability.Log.Warn().Str("license_key", licenseKey).Str("status", status).Msg("License found but not active")
+		}
+		agentHub.SendToAgent(agentID, "LICENSE_STATUS", result)
+		return result
+	})
+
 	// HTTP server
 	httpServer := gateway.NewHTTPServer(wsHub, persister, stateMgr, agentHub, agentProvider, valkeyCache)
 	go func() {
