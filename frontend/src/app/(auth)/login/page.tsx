@@ -4,6 +4,7 @@ import Link from "next/link";
 import { customInstance } from "@/lib/axios-instance";
 import { useRouter } from "next/navigation";
 import { getApiErrorMessage } from "@/lib/errors";
+import { setAccessToken } from "@/lib/auth";
 import { IconLoader2 } from "@tabler/icons-react";
 
 export default function LoginPage() {
@@ -25,7 +26,9 @@ export default function LoginPage() {
       } else {
         const { accessToken, user } = res.data;
         if (accessToken) {
-          localStorage.setItem("pat_access_token", accessToken);
+          // Persist via the canonical setter (memory + pat_access_token cookie) —
+          // middleware/proxy and axios read the cookie, not localStorage.
+          setAccessToken(accessToken);
           window.dispatchEvent(new Event("pat:auth-changed"));
         }
         // Use window.location for hard navigation to avoid RSC 404 issues

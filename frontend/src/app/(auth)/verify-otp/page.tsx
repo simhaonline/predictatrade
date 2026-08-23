@@ -18,7 +18,9 @@ export default function VerifyOtpPage() {
     setLoading(true);
     try {
       const challengeId = typeof window !== "undefined"
-        ? (window as unknown as Window & { __MFA_CHALLENGE__?: string }).__MFA_CHALLENGE__ || ""
+        ? (window as unknown as Window & { __MFA_CHALLENGE__?: string }).__MFA_CHALLENGE__
+          || new URLSearchParams(window.location.search).get("challengeId")
+          || ""
         : "";
       const res = await customInstance.post("/auth/verify-otp", { challengeId, code });
       if (res.data?.accessToken) {
