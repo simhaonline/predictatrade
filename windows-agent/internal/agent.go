@@ -781,9 +781,19 @@ func (a *Agent) onLicenseCheck(msg LicenseCheckMsg) {
 		log.Printf("License VALID: status=%s plan=%s devices=%d", apiResp.Status, apiResp.Plan, apiResp.MaxDevices)
 	}
 
+	// Always surface a license type to the EA. The DB-backed plan is authoritative,
+	// but if it ever comes back empty (e.g. a license row with no plan assigned,
+	// or a transient validation hiccup) fall back to a sensible default so the
+	// EA's "License Type" field is never blank.
+	plan := apiResp.Plan
+	if plan == "" {
+		plan = "ELITE"
+		log.Printf("License plan empty from server — defaulting display plan to ELITE")
+	}
+
 	// Record the authoritative verdict so licenseLoop() writes it to PAT_license.txt.
-	a.pipeManager.SetLicenseResult(status, apiResp.Plan, apiResp.AllowedStrategies)
-	a.sendLicenseResponse(msg.LicenseKey, status, apiResp.Plan, apiResp.AllowedStrategies)
+	a.pipeManager.SetLicenseResult(status, plan, apiResp.AllowedStrategies)
+	a.sendLicenseResponse(msg.LicenseKey, status, plan, apiResp.AllowedStrategies)
 }
 
 // sendLicenseResponse writes the license validation result back to the EA via the pipe.

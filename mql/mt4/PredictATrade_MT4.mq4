@@ -12,7 +12,7 @@ input bool    SendTickData   = true;
 input int     MagicNumber    = 20240002;
 input int     TickIntervalMs = 0;
 input string  BrokerSymbol   = "";
-input string  LicenseKey     = "ee710bf6-5fe0-4b91-9b6b-a201348ea310";
+input string  LicenseKey     = "PAT-A1B2C3D4-0002-4000-8000-000000000002";
 
 // ─── Strategy/Direction filters ───
 input bool    ReceiveStandardScalping = true;
