@@ -114,6 +114,38 @@ if ($Silent) {
 
 Write-PATEventLog -Message "Predict-A-Trade XAUUSD uninstall started$(if ($Silent) { ' (silent mode)' })" -EventId 401
 
+# ─── 0. Remove any stale prior service names of THIS product ───
+# Older installs used different service names (agent / PredictATradeAgent /
+# PredictATradeXAUUSD). Remove them so uninstall fully cleans up and there is
+# no overlap with a future reinstall.
+Write-Host "[uninstall] Checking for stale prior service names..."
+$PriorServiceNames = @("agent", "PredictATradeAgent", "PredictATradeXAUUSD")
+$nssmPath = Join-Path $InstallDir $NssmExe
+foreach ($prior in $PriorServiceNames) {
+    if ($prior -eq $ServiceName) { continue }
+    $pSvc = Get-Service -Name $prior -ErrorAction SilentlyContinue
+    if (-not $pSvc) { continue }
+    # Safety: only remove services that belong to THIS product.
+    $pPath = (Get-CimInstance Win32_Service -Filter "Name='$prior'" -ErrorAction SilentlyContinue).PathName
+    if ($pPath -and $pPath -notmatch [regex]::Escape($InstallDir) -and $pPath -notmatch 'PredictATrade' -and $pPath -notmatch 'pat-agent') {
+        Write-Host "  Skipping '$prior' — not a Predict-A-Trade agent service."
+        continue
+    }
+    Write-Host "  Removing stale prior service '$prior'..."
+    try {
+        if (Test-Path $nssmPath) {
+            & $nssmPath stop $prior 2>&1 | Out-Null
+            & $nssmPath remove $prior confirm 2>&1 | Out-Null
+        } else {
+            Stop-Service -Name $prior -Force -ErrorAction SilentlyContinue
+            sc.exe delete $prior 2>&1 | Out-Null
+        }
+        Start-Sleep -Seconds 1
+    } catch {
+        sc.exe delete $prior 2>&1 | Out-Null
+    }
+}
+
 # ─── 1. Stop and delete the Windows service ───
 Write-Host "[uninstall] Stopping and removing service..."
 $nssmPath = Join-Path $InstallDir $NssmExe
