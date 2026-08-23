@@ -1,6 +1,7 @@
 import {
   IconDashboard, IconChartLine, IconDeviceDesktop, IconBolt,
   IconFileAnalytics, IconTestPipe, IconUsers, IconCreditCard, IconSettings,
+  IconShieldLock, IconBell, IconLifebuoy, IconWallet, IconCertificate,
 } from '@tabler/icons-react';
 
 export interface NavItem {
@@ -18,5 +19,10 @@ export const userNavigation: NavItem[] = [
   { label: 'Backtest', href: '/dashboard/backtest', icon: IconTestPipe },
   { label: 'Referral & Earnings', href: '/dashboard/referrals', icon: IconUsers },
   { label: 'Billing & Subscription', href: '/dashboard/billing', icon: IconCreditCard },
+  { label: 'Payouts', href: '/dashboard/payouts', icon: IconWallet },
+  { label: 'License', href: '/dashboard/license', icon: IconCertificate },
+  { label: 'Security', href: '/dashboard/security', icon: IconShieldLock },
+  { label: 'Notifications', href: '/dashboard/notifications', icon: IconBell },
+  { label: 'Support', href: '/dashboard/support', icon: IconLifebuoy },
   { label: 'Settings', href: '/dashboard/settings', icon: IconSettings },
 ];

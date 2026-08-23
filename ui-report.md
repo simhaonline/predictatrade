@@ -8,6 +8,52 @@ Legend: **REAL** = functional with API wiring; **PARTIAL** = functional but miss
 
 ---
 
+## 0. Resolution Status (2026-08-23)
+
+All named gaps from §1–§3 have been addressed at the UI layer. Implemented pages are wired to existing backend endpoints where available; where a backend endpoint does not yet exist, the page renders an honest **Degraded / endpoint-pending** state (no fabricated finance, payout, commission, referral, AI, or market data, per SOW §Market-Data Truth / Non-Regression).
+
+### Admin routes — now implemented (previously missing)
+- **Plans & Entitlements** → `/admin/plans-entitlements` (REAL list; write = degraded, no backend Plan-write API).
+- **Commission Control Center** → `/admin/commission-control-center` (REAL summary; rule-write = degraded).
+- **Commission Operations** → `/admin/commission-operations` (REAL ledger + CSV export; hold/release/reverse/adjust = degraded).
+- **Payout Operations** → `/admin/payout-operations` (REAL list/stats/Approve + CSV export; reject/process/reconcile/retry/cancel = degraded).
+- **Risk Center** → `/admin/risk-center` (REAL Halt/Pause + 12 hard-gate view; kill-switch/limit/blackout config = local/optimistic, backend persistence pending).
+- **MT Accounts** → `/admin/mt-accounts` (REAL list + create via `/licensing/mt-accounts`).
+- **AI Providers** → `/admin/ai-providers` (REAL model activate/deactivate; add-provider = degraded).
+- **Market Data** → `/admin/market-data` (REAL `/market/snapshot`; monitoring sub-metrics = degraded).
+- **Macro / News** → `/admin/macro-news` (degraded placeholder panels).
+- **Releases** → `/admin/releases` (degraded placeholder table).
+- **Backup/DR** → `/admin/backup-dr` (degraded placeholder cards).
+- **Feature Flags** → `/admin/feature-flags` (degraded schema list).
+- **Broker Qualification** → `/admin/broker-qualification` (degraded placeholder table).
+
+### Admin pages upgraded (previously PARTIAL/STUB)
+- `billing` — added invoices tab (REAL) + refunds/chargebacks/coupons (degraded).
+- `subscriptions` — added invoices/payments/refunds/chargebacks/coupons/provider-refs (degraded where no endpoint).
+- `licenses` — added management action buttons (create/suspend/revoke/renew/reset/force-logout/activation-history) = degraded (no admin endpoints).
+- `device-auth` — revoke LIVE; reset/force-upgrade/disable-signal = degraded.
+- `logs` — added client-side search/filter by actor/action/entity/IP/state/reason over fetched rows (server-side search pending).
+- `referrals` — added rule-config link, downline tree (when `/referrals/network` available), ops links.
+- `users`, `activations`, `strategies`, `settings` — remain partly server-action-limited; core LIVE controls retained.
+
+### User routes — now implemented (previously missing)
+- **Security / MFA / Sessions** → `/dashboard/security` (REAL MFA setup/verify + trusted-devices revoke; sessions/login-history degraded — admin-guarded endpoints).
+- **Notifications** → `/dashboard/notifications` (local persistence; backend field pending).
+- **Support** → `/dashboard/support` (mailto/contact form; ticket backend pending).
+- **Payouts** → `/dashboard/payouts` (REAL request + history).
+- **License detail** → `/dashboard/license` (REAL from `/licensing/licenses`).
+- `settings` — no longer accessibility-only: password (degraded to forgot-password flow) + quick-links to Security/Notifications.
+- `signals` — added strategy/direction/regime filters + expandable explainability (evidence, reason codes, pillar contributions, AI verification, risk decision; `N/A` when absent).
+- `strategies` — added enable/disable toggles (local-only; server persistence pending).
+- `billing` — added next-billing, auto-renew toggle, cancel/downgrade (degraded where no mutation endpoint).
+- `referrals` — added L1–L5 downline tree + payout link.
+
+**Build:** `npm run build` and `npm run typecheck` pass (exit 0) for all new/changed routes. All new pages committed and pushed.
+
+**Outstanding backend work (outside frontend scope, required for full REAL status):** Plan/Commission/Payout/License CRUD + operations endpoints, server-side audit search, user session/login-history endpoints, subscription mutation/DELETE, support-ticket backend, market-data monitoring + macro/news/releases/backup/feature-flag/broker-qualification data sources.
+
+---
+
 ## 1. Admin Pages — Status
 
 | Page | Status | Notes |
