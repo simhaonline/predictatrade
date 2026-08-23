@@ -113,6 +113,14 @@ func (pm *PipeManager) SetLicenseResult(status, plan string, strategies []string
 	}
 }
 
+// GetLicense returns the last authoritative license status and plan recorded
+// by SetLicenseResult (or "" if none yet).
+func (pm *PipeManager) GetLicense() (string, string) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	return pm.licStatus, pm.licPlan
+}
+
 func (pm *PipeManager) Start() {
 	pm.running = true
 	os.MkdirAll(pm.commonDir, 0755)

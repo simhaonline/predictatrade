@@ -44,6 +44,11 @@ type Agent struct {
 	updater          *Updater
 	processedSignals map[string]bool // idempotency: track processed signal IDs
 	clockDriftMs     int64           // clock drift (server - local) in ms
+
+	statusMu      sync.RWMutex
+	backendName   string // display URL of the backend the agent connects to
+	startedAt     time.Time
+	lastHeartbeat time.Time
 }
 
 type SignalEvent struct {
@@ -90,6 +95,64 @@ func NewAgent(config *Config) *Agent {
 	}
 }
 
+// AgentStatus is a live, read-only snapshot of the agent's relationship with
+// the backend (SERVER) and the MT4/MT5 EA (CLIENT). It powers the local
+// status page served on http://127.0.0.1:9000.
+type AgentStatus struct {
+	Version           string `json:"version"`
+	DeviceID          string `json:"device_id"`
+	UptimeSeconds     int64  `json:"uptime_seconds"`
+	BackendURL        string `json:"backend_url"`
+	BackendConnected  bool   `json:"backend_connected"`
+	LicenseStatus     string `json:"license_status"`
+	LicensePlan       string `json:"license_plan"`
+	MT4Connected      bool   `json:"mt4_connected"`
+	MT5Connected      bool   `json:"mt5_connected"`
+	TerminalConnected bool   `json:"terminal_connected"`
+	LastHeartbeat     string `json:"last_heartbeat"`
+	LastSignal        string `json:"last_signal"`
+	ClockDriftMs      int64  `json:"clock_drift_ms"`
+	GeneratedAt       string `json:"generated_at"`
+}
+
+// getStatus returns a consistent snapshot of the agent's live state.
+func (a *Agent) getStatus() AgentStatus {
+	a.statusMu.RLock()
+	bname := a.backendName
+	sa := a.startedAt
+	lhb := a.lastHeartbeat
+	a.statusMu.RUnlock()
+
+	a.mu.Lock()
+	conn := a.conn
+	a.mu.Unlock()
+
+	var mt4, mt5 bool
+	var licStatus, licPlan string
+	if a.pipeManager != nil {
+		mt4 = a.pipeManager.MT4Connected()
+		mt5 = a.pipeManager.MT5Connected()
+		licStatus, licPlan = a.pipeManager.GetLicense()
+	}
+
+	return AgentStatus{
+		Version:           AgentVersion,
+		DeviceID:          a.deviceID,
+		UptimeSeconds:     int64(time.Since(sa).Seconds()),
+		BackendURL:        bname,
+		BackendConnected:  conn != nil,
+		LicenseStatus:     licStatus,
+		LicensePlan:       licPlan,
+		MT4Connected:      mt4,
+		MT5Connected:      mt5,
+		TerminalConnected: mt4 || mt5,
+		LastHeartbeat:     lhb.UTC().Format(time.RFC3339),
+		LastSignal:        a.lastSignal.UTC().Format(time.RFC3339),
+		ClockDriftMs:      a.clockDriftMs,
+		GeneratedAt:       time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
 func (a *Agent) Start() error {
 	a.running = true
 
@@ -99,9 +162,15 @@ func (a *Agent) Start() error {
 	}
 	log.Printf("Device ID: %s", a.deviceID)
 
+	// Record startup metadata for the local status page.
+	a.statusMu.Lock()
+	a.startedAt = time.Now()
+	a.backendName = a.config.LiveWSURL
+	a.statusMu.Unlock()
+
 	// Claim the local health port before starting IPC or WebSocket workers. A
 	// second installed copy must fail here instead of creating duplicate
-	a.health = newHealthServer()
+	a.health = newHealthServer(a)
 	a.health.start()
 
 
@@ -754,6 +823,7 @@ func (a *Agent) heartbeatLoop() {
 			data, _ := json.Marshal(hb)
 			sendStart := time.Now()
 			conn.WriteMessage(websocket.TextMessage, data)
+			a.lastHeartbeat = time.Now()
 
 			// Measure round-trip latency from the ACK timestamp
 			// The Go server responds with {"type":"ACK","timestamp":"<RFC3339>"}
