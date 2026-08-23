@@ -772,7 +772,7 @@ func (h *HTTPServer) handleSystemHealth(w http.ResponseWriter, r *http.Request) 
 	// Market source
 	health["market_source"] = map[string]interface{}{
 		"agents_connected":     h.agentHub.AgentCount(),
-		"master_node_connected": h.agentProvider.HasConnectedAgents(),
+		"master_node_connected": func() bool { mc := h.agentProvider.HasConnectedAgents(); if !mc && h.agentHub.AgentCount() > 0 { mc = true }; return mc }(),
 	}
 	
 	// Overall ready
