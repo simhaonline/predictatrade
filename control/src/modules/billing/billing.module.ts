@@ -7,5 +7,6 @@ import { DatabaseModule } from '../../common/database.module';
   imports: [DatabaseModule],
   controllers: [BillingController],
   providers: [BillingService],
+  exports: [BillingService],
 })
 export class BillingModule {}

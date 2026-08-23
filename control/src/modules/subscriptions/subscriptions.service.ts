@@ -1,11 +1,16 @@
-import { BadRequestException, Injectable, Inject, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Inject, NotFoundException, Logger } from '@nestjs/common';
 import { Pool } from 'pg';
 import { DB_POOL } from '../../common/database.module';
 import { planPolicyFromRow, validateStrategySelection } from './entitlement-policy';
+import { BillingService } from '../billing/billing.service';
 
 @Injectable()
 export class SubscriptionsService {
-  constructor(@Inject(DB_POOL) private pool: Pool) {}
+  private logger = new Logger(SubscriptionsService.name);
+  constructor(
+    @Inject(DB_POOL) private pool: Pool,
+    private billingService: BillingService,
+  ) {}
 
   async findByUser(userId: string) {
     const r = await this.pool.query(
@@ -42,7 +47,20 @@ export class SubscriptionsService {
        RETURNING *`,
       [id, userId, dto.planId, plan.rows[0].code === 'FREE' ? 'ACTIVE' : 'INCOMPLETE', billingInterval, JSON.stringify(decision.selected)],
     );
-    return r.rows[0];
+    const subscription = r.rows[0];
+
+    // Generate a branded invoice for the subscription period. Failures here must
+    // never break subscription creation — they are logged and retried via the
+    // billing/invoices/generate endpoint or the payment webhook.
+    try {
+      await this.billingService.generateInvoiceForSubscription(id, userId, {
+        markPaid: plan.rows[0].code === 'FREE',
+      });
+    } catch (e) {
+      this.logger.warn(`Invoice generation skipped for subscription ${id}: ${e instanceof Error ? e.message : e}`);
+    }
+
+    return subscription;
   }
 
   async getEntitlements(userId: string) {

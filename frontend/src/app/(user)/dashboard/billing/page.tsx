@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { IconCalendar, IconCheck, IconLock } from "@tabler/icons-react";
 
 interface Plan { id: string; code: "FREE" | "STANDARD" | "PRO" | "ELITE"; name: string; monthly_price: string; annual_price: string | null; allowed_strategies: string[]; annual_savings_percent: number | null; legacy?: boolean; }
-interface Invoice { id: string; amount: number; status: string; description: string; created_at: string; due_date: string; }
+interface Invoice { id: string; invoice_number: string; total: number | string; items_total?: number | string; status: string; created_at: string; due_date: string; }
 interface Entitlements { code?: string; }
 interface Subscription {
   id: string;
@@ -56,12 +56,49 @@ export default function UserBillingPage() {
   const currentTier = currentCode ? (PLAN_TIERS[currentCode] ?? 0) : 0;
 
   const columns: DataTableColumn<Invoice>[] = [
-    { key: "description", header: "Description", cell: (row) => <span className="text-sm text-pat-text-primary">{row.description || "Invoice"}</span> },
-    { key: "amount", header: "Amount", cell: (row) => <span className="font-medium text-pat-text-primary">${parseFloat(String(row.amount || 0)).toFixed(2)}</span> },
+    { key: "invoice_number", header: "Invoice", cell: (row) => <span className="text-sm text-pat-text-primary">{row.invoice_number || "—"}</span> },
+    { key: "total", header: "Amount", cell: (row) => <span className="font-medium text-pat-text-primary">${parseFloat(String(row.total || 0)).toFixed(2)}</span> },
     { key: "status", header: "Status", cell: (row) => <StatusBadge status={row.status} /> },
     { key: "created_at", header: "Created", cell: (row) => <span className="text-xs text-pat-text-muted">{row.created_at ? format(new Date(row.created_at), "MMM d, yyyy") : "—"}</span> },
     { key: "due_date", header: "Due", cell: (row) => <span className="text-xs text-pat-text-muted">{row.due_date ? format(new Date(row.due_date), "MMM d, yyyy") : "—"}</span> },
+    {
+      key: "actions",
+      header: "Actions",
+      cell: (row) => (
+        <button
+          onClick={() => openInvoice(row.id)}
+          className="text-xs text-primary hover:underline"
+        >
+          View / Print
+        </button>
+      ),
+    },
   ];
+
+  const openInvoice = async (invoiceId: string) => {
+    try {
+      const res = await customInstance.get<string>(`/billing/invoices/${invoiceId}/html`, { responseType: "text" });
+      const html = typeof res.data === "string" ? res.data : String(res.data);
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      toast.error("Could not open invoice");
+    }
+  };
+
+  const generateInvoice = useMutation({
+    mutationFn: async (subscriptionId: string) => {
+      await customInstance.post("/billing/invoices/generate", { subscription_id: subscriptionId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["user-invoices"] });
+      toast.success("Invoice generated");
+    },
+    onError: () => toast.error("Could not generate invoice"),
+  });
+
+  const hasInvoices = (invoicesQ.data?.length ?? 0) > 0;
 
   return (
     <div className="space-y-6">
@@ -163,7 +200,18 @@ export default function UserBillingPage() {
       </div>
 
       <div>
-        <h2 className="mb-3 text-sm font-semibold text-pat-text-primary">Invoice history</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-pat-text-primary">Invoice history</h2>
+          {current && !hasInvoices && (
+            <button
+              onClick={() => generateInvoice.mutate(current.id)}
+              disabled={generateInvoice.isPending}
+              className="rounded px-3 py-1.5 text-xs bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {generateInvoice.isPending ? "Generating…" : "Generate invoice"}
+            </button>
+          )}
+        </div>
         <DataTable data={invoicesQ.data || []} columns={columns} loading={invoicesQ.isLoading} error={invoicesQ.error as Error|null} onRetry={() => invoicesQ.refetch()} />
       </div>
     </div>

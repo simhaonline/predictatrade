@@ -37,7 +37,7 @@ export function collectClientTelemetry(): ClientTelemetryPayload | null {
     if (typeof window === 'undefined') return null;
 
     const nav = navigator as Navigator & {
-      userAgentData?: { platform?: string; mobile?: boolean };
+      userAgentData?: { platform?: string; mobile?: boolean; getHighEntropyValues?: (hints: string[]) => Promise<Record<string, unknown>> };
       maxTouchPoints?: number;
     };
 
