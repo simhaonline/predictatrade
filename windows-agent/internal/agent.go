@@ -102,6 +102,7 @@ func (a *Agent) Start() error {
 	// Claim the local health port before starting IPC or WebSocket workers. A
 	// second installed copy must fail here instead of creating duplicate
 	a.health = newHealthServer()
+	a.health.start()
 
 
 
