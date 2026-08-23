@@ -5,7 +5,8 @@ import { customInstance } from "@/lib/axios-instance";
 import { format } from "date-fns";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { getGlobalWs, type WsMessage, type SignalEvent } from "@/lib/websocket";
-import { IconChevronRight, IconChevronDown, IconBrain, IconShieldCheck, IconListDetails } from "@tabler/icons-react";
+import { IconChevronRight, IconChevronDown } from "@tabler/icons-react";
+import SignalEvidencePanel from "@/components/signal/signal-evidence";
 
 // Interface matches the actual Go engine API response (PascalCase)
 interface EngineSignal {
@@ -53,11 +54,6 @@ function mapWs(s: SignalEvent): EngineSignal {
     Symbol: "XAUUSD",
     ReasonCodes: [],
   };
-}
-
-function na(v: unknown): string {
-  if (v === undefined || v === null || v === "" || (Array.isArray(v) && v.length === 0)) return "N/A";
-  return String(v);
 }
 
 export default function UserSignalsPage() {
@@ -203,7 +199,7 @@ export default function UserSignalsPage() {
                     {isOpen && (
                       <tr className="bg-pat-bg-surface-secondary/30">
                         <td colSpan={11} className="px-4 py-4">
-                          <Explainability signal={row} />
+                          <SignalEvidencePanel sig={row} />
                         </td>
                       </tr>
                     )}
@@ -242,103 +238,4 @@ function StatusText({ status }: { status: string }) {
       : status === "EXPIRED" || status === "INVALIDATED" ? "text-pat-danger"
       : "text-pat-text-secondary";
   return <span className={`text-xs px-2 py-0.5 rounded-full border ${cls}`}>{status}</span>;
-}
-
-function flattenEvidence(ev: unknown): string[] {
-  if (!ev) return [];
-  const pair = (k: string, v: unknown) =>
-    `${k}=${typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)}`;
-  if (Array.isArray(ev)) {
-    return ev.map((e) => {
-      if (typeof e === "string") return e;
-      if (e && typeof e === "object") {
-        return Object.entries(e as Record<string, unknown>).map(([k, v]) => pair(k, v)).join("  ·  ");
-      }
-      return String(e);
-    });
-  }
-  if (typeof ev === "object") {
-    return Object.entries(ev as Record<string, unknown>).map(([k, v]) => pair(k, v));
-  }
-  return [String(ev)];
-}
-
-function Explainability({ signal }: { signal: EngineSignal }) {
-  const pillRaw = signal.PillarContributions;
-  const pill: Record<string, number> =
-    pillRaw && typeof pillRaw === "object" && !Array.isArray(pillRaw)
-      ? (pillRaw as Record<string, number>)
-      : {};
-  const evidenceRows = flattenEvidence(signal.Evidence);
-
-  return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <div className="space-y-2">
-        <SectionTitle icon={<IconListDetails size={14} />} title="Reason codes" />
-        <div className="flex flex-wrap gap-1.5">
-          {(signal.ReasonCodes ?? []).length > 0 ? (
-            signal.ReasonCodes!.map((rc, i) => (
-              <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-pat-info/10 text-pat-info border border-pat-info/20">{rc}</span>
-            ))
-          ) : (
-            <span className="text-xs text-pat-text-muted">N/A</span>
-          )}
-        </div>
-
-        <SectionTitle icon={<IconBrain size={14} />} title="Pillar contributions" />
-        {Object.keys(pill).length > 0 ? (
-          <div className="space-y-1">
-            {Object.entries(pill).map(([k, v]) => (
-              <div key={k} className="flex items-center gap-2 text-xs">
-                <span className="w-32 text-pat-text-secondary truncate">{k}</span>
-                <div className="flex-1 h-1.5 rounded bg-pat-bg-surface-secondary overflow-hidden">
-                  <div className="h-full bg-pat-primary" style={{ width: `${Math.max(2, Math.min(100, Math.abs(v)))}%` }} />
-                </div>
-                <span className="w-10 text-right tabular-nums text-pat-text-primary">{v}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <span className="text-xs text-pat-text-muted">N/A</span>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <SectionTitle icon={<IconShieldCheck size={14} />} title="AI verification & risk decision" />
-        <Row label="AI verification" value={na(signal.AiVerification)} />
-        <Row label="Risk decision" value={na(signal.RiskDecision)} />
-        <Row label="Grade" value={na(signal.Grade)} />
-        <Row label="Session" value={na(signal.Session)} />
-        <Row label="Executable" value={signal.Executable === undefined ? "N/A" : signal.Executable ? "Yes" : "No"} />
-
-        <SectionTitle title="Evidence" />
-        {evidenceRows.length > 0 ? (
-          <ul className="space-y-1 text-xs text-pat-text-secondary">
-            {evidenceRows.map((v, i) => (
-              <li key={i}><span className="text-pat-text-muted">•</span> {v}</li>
-            ))}
-          </ul>
-        ) : (
-          <span className="text-xs text-pat-text-muted">N/A</span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SectionTitle({ title, icon }: { title: string; icon?: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-pat-text-secondary mt-2">
-      {icon} {title}
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between text-xs">
-      <span className="text-pat-text-muted">{label}</span>
-      <span className="text-pat-text-primary">{value}</span>
-    </div>
-  );
 }
