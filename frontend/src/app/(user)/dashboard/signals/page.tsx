@@ -244,14 +244,32 @@ function StatusText({ status }: { status: string }) {
   return <span className={`text-xs px-2 py-0.5 rounded-full border ${cls}`}>{status}</span>;
 }
 
+function flattenEvidence(ev: unknown): string[] {
+  if (!ev) return [];
+  const pair = (k: string, v: unknown) =>
+    `${k}=${typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)}`;
+  if (Array.isArray(ev)) {
+    return ev.map((e) => {
+      if (typeof e === "string") return e;
+      if (e && typeof e === "object") {
+        return Object.entries(e as Record<string, unknown>).map(([k, v]) => pair(k, v)).join("  ·  ");
+      }
+      return String(e);
+    });
+  }
+  if (typeof ev === "object") {
+    return Object.entries(ev as Record<string, unknown>).map(([k, v]) => pair(k, v));
+  }
+  return [String(ev)];
+}
+
 function Explainability({ signal }: { signal: EngineSignal }) {
-  const pill: Record<string, number> = signal.PillarContributions ?? {};
-  const evidence = signal.Evidence;
-  const evidenceRows: [string, string][] = Array.isArray(evidence)
-    ? evidence.map((e, i) => [`Item ${i + 1}`, e])
-    : evidence && typeof evidence === "object"
-    ? Object.entries(evidence as Record<string, string>)
-    : [];
+  const pillRaw = signal.PillarContributions;
+  const pill: Record<string, number> =
+    pillRaw && typeof pillRaw === "object" && !Array.isArray(pillRaw)
+      ? (pillRaw as Record<string, number>)
+      : {};
+  const evidenceRows = flattenEvidence(signal.Evidence);
 
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -296,8 +314,8 @@ function Explainability({ signal }: { signal: EngineSignal }) {
         <SectionTitle title="Evidence" />
         {evidenceRows.length > 0 ? (
           <ul className="space-y-1 text-xs text-pat-text-secondary">
-            {evidenceRows.map(([k, v], i) => (
-              <li key={i}><span className="text-pat-text-muted">{k}:</span> {v}</li>
+            {evidenceRows.map((v, i) => (
+              <li key={i}><span className="text-pat-text-muted">•</span> {v}</li>
             ))}
           </ul>
         ) : (

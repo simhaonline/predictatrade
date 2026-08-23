@@ -872,7 +872,7 @@ const STATE = {
   regime: '', regimeVol: '', regimeConf: 0,
   mtfScore: 0, mtfStates: {},
   session: '', isOverlap: false, isWeekend: false, newsRisk: 'NONE',
-  agentsConnected: 0, masterNode: false, snapshotCount: 0,
+  agentsConnected: 0, masterNode: false, mt5Connected: 0, snapshotCount: 0,
   strategies: [],
   signals: [],
   brokerTime: '',
@@ -1035,6 +1035,7 @@ async function loadAgentStatus(){
   if(!d)return false;
   STATE.agentsConnected=Number(d.agents_connected)||0;
   STATE.masterNode=!!d.master_node_connected;
+  STATE.mt5Connected=Number(d.mt5_connected)||0;
   STATE.snapshotCount=Number(d.snapshot_count)||0;
   return true;
 }
@@ -1635,14 +1636,20 @@ function updateModeBanner(){
     b.textContent='⚠ DATA UNAVAILABLE — cannot reach realtime engine ('+API_BASE+')';
     return;
   }
-  if(STATE.masterNode && /MASTER|LIVE/.test(STATE.source||'')){
+  var masterOnline = STATE.masterNode || STATE.mt5Connected>0;
+  var hasLiveData = /MASTER|LIVE/.test(STATE.source||'') || (STATE.tick && (STATE.tick.bid||STATE.tick.ask)) || STATE.snapshotCount>0;
+  if(masterOnline && hasLiveData){
     b.className='mode-banner live';
     b.textContent='● LIVE — MT5 master node connected · streaming XAUUSD';
+  }else if(masterOnline){
+    b.className='mode-banner observe';
+    var tf=STATE.candleTimeframe?(' showing historic '+STATE.candleTimeframe+' candles'):'';
+    b.textContent='◐ CONNECTED — MT5 master node online · awaiting market feed'+tf+' · not live trading data yet';
   }else{
     b.className='mode-banner observe';
-    var src=STATE.source||'LOCAL_COMPUTE_ONLY';
-    var tf=STATE.candleTimeframe?(' '+STATE.candleTimeframe+' timeframe'):'';
-    b.textContent='◐ OBSERVATION MODE — No live MT5 master node connected · showing real historical'+tf+' candles ('+src+') · not live trading data';
+    var src2=STATE.source||'LOCAL_COMPUTE_ONLY';
+    var tf2=STATE.candleTimeframe?(' '+STATE.candleTimeframe+' timeframe'):'';
+    b.textContent='◐ OBSERVATION MODE — No live MT5 master node connected · showing real historical'+tf2+' candles ('+src2+') · not live trading data';
   }
   // Header LIVE pill reflects reality
   var lp=$('livePill');
