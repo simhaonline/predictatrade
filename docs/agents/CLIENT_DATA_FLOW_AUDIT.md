@@ -31,10 +31,18 @@ This document satisfies §1 (audit before modifying) and records the wiring impl
 2. **Backend persistence** (`control` `device-auth.service.ts:heartbeat`): stores the new
    agent-level fields into `licensing.devices` and terminal/XAUUSD fields into
    `licensing.device_activations`. Additive only.
-3. **DB migration** `database/migrations/060_agent_heartbeat_enrichment.sql`: adds
-   `os_name, architecture, agent_uptime_seconds, service_status, health_status` to
-   `licensing.devices` and `terminal_connected, terminal_version, xauusd_*` to
-   `licensing.device_activations` (all `IF NOT EXISTS`, safe to re-run).
+ 3. **DB migrations** (additive, `IF NOT EXISTS`, safe to re-run):
+    - `060_agent_heartbeat_enrichment.sql`: `os_name, architecture, agent_uptime_seconds,
+      service_status, health_status` on `licensing.devices`; `terminal_connected,
+      terminal_version, xauusd_*` on `licensing.device_activations`.
+    - `061_device_activation_account_columns.sql`: **fixes a real schema gap** — the existing
+      `heartbeat` service and `listDevices` already referenced
+      `device_activations.account_balance / account_equity / account_profit / account_currency
+      / open_positions / ...` and `da.account_currency`, but no committed migration created
+      those columns. Adds the full §6 trading-account column set plus `agent_started_at`.
+ 3b. **Heartbeat persistence hardened**: `device-auth.service.ts:heartbeat` now also persists
+     `account_currency`, `leverage`, `margin`, `free_margin`, `margin_level`, `account_type`,
+     `pending_orders_count` (genuine values only; null when the agent doesn't send them).
 4. **Exposure** (`licensing.service.ts:listDevices`): returns the new columns incl. the
    `xauusd` object inside each activation, so the client dashboard shows the user's own
    agent/terminal/market state.

@@ -321,8 +321,15 @@ export class DeviceAuthService {
                 total_lots = $7, floating_pnl = $8, last_account_update = now(),
                 terminal_connected = $9, terminal_version = $10,
                 xauusd_available = $11, xauusd_bid = $12, xauusd_ask = $13,
-                xauusd_spread = $14, xauusd_last_tick_time = $15
-               WHERE device_id = $16 AND mt_account_login = $17`,
+                xauusd_spread = $14, xauusd_last_tick_time = $15,
+                account_currency = COALESCE($16, account_currency),
+                leverage = COALESCE($17, leverage),
+                margin = COALESCE($18, margin),
+                free_margin = COALESCE($19, free_margin),
+                margin_level = COALESCE($20, margin_level),
+                account_type = COALESCE($21, account_type),
+                pending_orders_count = COALESCE($22, pending_orders_count)
+               WHERE device_id = $23 AND mt_account_login = $24`,
               [term.balance || 0, term.equity || 0, term.profit || 0,
                 term.open_positions || 0, term.buy_positions || 0, term.sell_positions || 0,
                 term.total_lots || 0, term.floating_pnl || 0,
@@ -333,6 +340,13 @@ export class DeviceAuthService {
                 xau ? (xau.ask ?? null) : null,
                 xau ? (xau.spread ?? null) : null,
                 xau ? (xau.last_tick_time || null) : null,
+                term.currency || null,
+                term.leverage != null ? term.leverage : null,
+                term.margin != null ? term.margin : null,
+                term.free_margin != null ? term.free_margin : null,
+                term.margin_level != null ? term.margin_level : null,
+                term.account_type || null,
+                term.pending_orders_count != null ? term.pending_orders_count : null,
                 deviceId, term.account],
             );
           }
@@ -349,6 +363,7 @@ export class DeviceAuthService {
            service_status = COALESCE($6, service_status),
            health_status = COALESCE($7, health_status),
            hostname = COALESCE($8, hostname),
+           agent_started_at = COALESCE($9, agent_started_at),
            updated_at = now()
          WHERE id = $1`,
         [deviceId,
@@ -358,7 +373,8 @@ export class DeviceAuthService {
           body.agent_uptime_seconds != null ? body.agent_uptime_seconds : null,
           body.service_status || null,
           body.health_status || null,
-          body.hostname || null],
+          body.hostname || null,
+          body.agent_started_at || null],
       );
 
       if (lease.status === 'REVOKED') {

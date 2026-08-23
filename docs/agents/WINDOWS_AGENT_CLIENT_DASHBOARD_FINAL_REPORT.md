@@ -53,9 +53,15 @@ Files Added:
   docs/agents/WINDOWS_AGENT_CLIENT_DASHBOARD_FINAL_REPORT.md
 
 Database Changes:
-  licensing.devices: +os_name, +architecture, +agent_uptime_seconds, +service_status, +health_status
+  licensing.devices: +os_name, +architecture, +agent_uptime_seconds, +service_status,
+    +health_status, +agent_started_at
   licensing.device_activations: +terminal_connected, +terminal_version, +xauusd_available,
-    +xauusd_bid, +xauusd_ask, +xauusd_spread, +xauusd_digits, +xauusd_last_tick_time
+    +xauusd_bid, +xauusd_ask, +xauusd_spread, +xauusd_digits, +xauusd_last_tick_time,
+    +account_balance, +account_equity, +account_profit, +account_currency, +open_positions,
+    +buy_positions, +sell_positions, +total_lots, +floating_pnl, +last_account_update,
+    +leverage, +margin, +free_margin, +margin_level, +account_type, +pending_orders_count
+  (Migrations 060 + 061 are additive IF NOT EXISTS; 061 closes a pre-existing gap where the
+  heartbeat/listDevices referenced device_activations.account_* columns that were never created.)
 
 API Changes:
   POST /devices/heartbeat  (accepts enriched payload; persists new fields)
