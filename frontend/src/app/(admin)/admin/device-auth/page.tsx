@@ -1,13 +1,16 @@
 "use client";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
+import { revokeDevice } from "@/lib/admin-api";
+import { resetDevice, forceUpgradeDevice, disableDeviceSignal } from "@/lib/admin-commercial-api";
 import DataTable, { DataTableColumn } from "@/components/ui/data-table";
 import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
+import { toast } from "sonner";
 import {
   IconBrandWindows, IconBroadcast, IconServer,
-  IconActivity, IconInfoCircle,
+  IconActivity, IconInfoCircle, IconAlertTriangle,
 } from "@tabler/icons-react";
 
 interface DeviceActivation {
@@ -40,6 +43,24 @@ interface Device {
 
 export default function AdminDeviceAuthPage() {
   const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Device | null>(null);
+  const queryClient = useQueryClient();
+
+  const deviceAction = useMutation({
+    mutationFn: async (p: { action: string; fn: () => Promise<unknown> }) => { await p.fn(); },
+    onSuccess: (_d, v) => {
+      queryClient.invalidateQueries({ queryKey: ["admin-devices", page] });
+      toast.success(`${v.action} succeeded`);
+    },
+    onError: (err: unknown, v) => {
+      toast.error(`${v.action}: backend endpoint pending — ${err instanceof Error ? err.message : "not available"}`);
+    },
+  });
+
+  const doDeviceAction = (action: string, fn: () => Promise<unknown>) => {
+    toast.message(`${action} requested…`);
+    deviceAction.mutate({ action, fn });
+  };
 
   // Live Go engine agents status
   const { data: agentsStatus } = useQuery<{ agents_connected: number; master_node_connected: boolean; snapshot_count: number }>({
@@ -89,6 +110,11 @@ export default function AdminDeviceAuthPage() {
     { key: "revoked_at", header: "Revoked", cell: (row) => row.revoked_at ? (
       <span className="text-xs text-pat-danger">{format(new Date(row.revoked_at), "MMM d, yyyy")}</span>
     ) : <span className="text-xs text-pat-text-muted">—</span> },
+    { key: "actions", header: "Actions", cell: (row) => (
+      <button onClick={() => setSelected(row)} className="text-xs bg-pat-bg-surface-secondary text-pat-text-primary px-2 py-1 rounded hover:bg-pat-bg-surface-secondary transition-colors">
+        Manage
+      </button>
+    )},
   ];
 
   const totalPages = data?.total ? Math.ceil(data.total / 20) : 1;
@@ -173,6 +199,22 @@ export default function AdminDeviceAuthPage() {
       {/* Registered Devices Table */}
       <div>
         <h2 className="text-sm font-semibold text-pat-text-primary mb-3">Registered Devices (Licensing Database)</h2>
+
+        <div className="rounded-lg border border-pat-warning/30 bg-pat-warning/5 px-4 py-3 flex items-start gap-2 mb-3">
+          <IconAlertTriangle size={16} className="text-pat-warning shrink-0 mt-0.5" />
+          <div className="text-xs text-pat-text-secondary">
+            Device write actions: <strong>Revoke</strong> is wired via the licensing device-revoke endpoint. <strong>Reset / Force Upgrade / Disable Signal</strong> are pending backend endpoints and degrade honestly with a &quot;backend endpoint pending&quot; toast.
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 mb-3">
+          <button onClick={() => selected ? doDeviceAction(`Revoke ${selected.device_name}`, () => revokeDevice(selected.id, "admin")) : toast.error("Select a device first (click Manage)")} disabled={!selected} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors disabled:opacity-40">Revoke</button>
+          <button onClick={() => selected ? doDeviceAction(`Reset ${selected.device_name}`, () => resetDevice(selected.id)) : toast.error("Select a device first")} disabled={!selected} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors disabled:opacity-40">Reset</button>
+          <button onClick={() => selected ? doDeviceAction(`Force upgrade ${selected.device_name}`, () => forceUpgradeDevice(selected.id)) : toast.error("Select a device first")} disabled={!selected} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors disabled:opacity-40">Force Upgrade</button>
+          <button onClick={() => selected ? doDeviceAction(`Disable signal ${selected.device_name}`, () => disableDeviceSignal(selected.id)) : toast.error("Select a device first")} disabled={!selected} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors disabled:opacity-40">Disable Signal</button>
+          {selected && <span className="text-xs text-pat-text-muted self-center">Selected: {selected.device_name}</span>}
+        </div>
+
         <DataTable data={data?.items || []} columns={columns} loading={isLoading} error={error as Error|null} onRetry={refetch} />
       </div>
       {totalPages > 1 && (

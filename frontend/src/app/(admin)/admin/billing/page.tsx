@@ -2,10 +2,12 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
+import { fetchInvoices } from "@/lib/admin-api";
 import DataTable, { DataTableColumn } from "@/components/ui/data-table";
 import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { IconAlertTriangle } from "@tabler/icons-react";
 
 interface AdminSub {
   id: string;
@@ -39,10 +41,31 @@ interface AdminPayout {
   approved_at: string | null;
 }
 
+interface AdminInvoice {
+  id: string;
+  user_email?: string;
+  amount?: string | number;
+  status?: string;
+  currency?: string;
+  invoice_number?: string;
+  issued_at?: string;
+  due_at?: string;
+  paid_at?: string | null;
+}
+
 export default function AdminBillingPage() {
-  const [tab, setTab] = useState<"subscriptions" | "commissions" | "payouts">("subscriptions");
+  const [tab, setTab] = useState<"subscriptions" | "commissions" | "payouts" | "invoices" | "refunds" | "chargebacks" | "coupons">("subscriptions");
   const [page, setPage] = useState(1);
   const queryClient = useQueryClient();
+
+  const invoicesQ = useQuery({
+    queryKey: ["admin-invoices"],
+    queryFn: async () => {
+      const res = await fetchInvoices();
+      return res as { items?: AdminInvoice[]; invoices?: AdminInvoice[] } | AdminInvoice[];
+    },
+    enabled: tab === "invoices",
+  });
 
   const subsQ = useQuery({
     queryKey: ["admin-subs-billing", page],
@@ -123,8 +146,8 @@ export default function AdminBillingPage() {
         <h1 className="text-xl font-bold text-pat-text-primary">Billing & Payouts</h1>
         <p className="text-sm text-pat-text-secondary mt-1">Manage subscriptions, commissions, and payout approvals.</p>
       </div>
-      <div className="flex gap-2">
-        {(["subscriptions", "commissions", "payouts"] as const).map((t) => (
+      <div className="flex gap-2 flex-wrap">
+        {(["subscriptions", "commissions", "payouts", "invoices", "refunds", "chargebacks", "coupons"] as const).map((t) => (
           <button key={t} onClick={() => { setTab(t); setPage(1); }} className={`text-xs px-3 py-1.5 rounded transition-colors capitalize ${tab === t ? "bg-primary text-primary-foreground" : "bg-pat-bg-surface-secondary text-pat-text-primary hover:bg-pat-bg-surface-secondary"}`}>
             {t}
           </button>
@@ -139,6 +162,50 @@ export default function AdminBillingPage() {
       )}
       {tab === "payouts" && (
         <DataTable data={payoutsQ.data?.items ?? []} columns={payoutCols} loading={payoutsQ.isLoading} error={payoutsQ.error as Error | null} onRetry={() => payoutsQ.refetch()} />
+      )}
+
+      {tab === "invoices" && (() => {
+        const rows: AdminInvoice[] = Array.isArray(invoicesQ.data)
+          ? invoicesQ.data
+          : (invoicesQ.data?.items ?? invoicesQ.data?.invoices ?? []);
+        const invCols: DataTableColumn<AdminInvoice>[] = [
+          { key: "invoice_number", header: "Invoice #", cell: (row) => <span className="text-xs font-mono text-pat-text-muted">{row.invoice_number || row.id || "—"}</span> },
+          { key: "user_email", header: "User", cell: (row) => <span className="text-sm text-pat-text-primary">{row.user_email || "—"}</span> },
+          { key: "amount", header: "Amount", cell: (row) => <span className="text-pat-text-primary font-medium">${Number(row.amount || 0).toFixed(2)} {row.currency || ""}</span> },
+          { key: "status", header: "Status", cell: (row) => <StatusBadge status={row.status ?? "unknown"} /> },
+          { key: "issued_at", header: "Issued", cell: (row) => <span className="text-xs text-pat-text-muted">{row.issued_at ? format(new Date(row.issued_at), "MMM d, yyyy") : "—"}</span> },
+          { key: "paid_at", header: "Paid", cell: (row) => <span className="text-xs text-pat-text-muted">{row.paid_at ? format(new Date(row.paid_at), "MMM d, yyyy") : "—"}</span> },
+        ];
+        return (
+          <>
+            {invoicesQ.isError && (
+              <div className="rounded-lg border border-pat-warning/30 bg-pat-warning/5 p-4 flex items-start gap-2 mb-3">
+                <IconAlertTriangle size={16} className="text-pat-warning shrink-0 mt-0.5" />
+                <div className="text-xs text-pat-text-secondary">Degraded — invoice endpoint (<code className="font-mono">GET /billing/invoices</code>) returned an error or is pending.</div>
+              </div>
+            )}
+            <DataTable data={rows} columns={invCols} loading={invoicesQ.isLoading} error={invoicesQ.error as Error | null} onRetry={() => invoicesQ.refetch()} />
+          </>
+        );
+      })()}
+
+      {tab === "refunds" && (
+        <div className="rounded-lg border border-pat-warning/30 bg-pat-warning/5 p-4 flex items-start gap-2">
+          <IconAlertTriangle size={16} className="text-pat-warning shrink-0 mt-0.5" />
+          <div className="text-xs text-pat-text-secondary">Refunds are not yet available — no backend refunds endpoint exists. This panel is intentionally empty and does not display fabricated refund data.</div>
+        </div>
+      )}
+      {tab === "chargebacks" && (
+        <div className="rounded-lg border border-pat-warning/30 bg-pat-warning/5 p-4 flex items-start gap-2">
+          <IconAlertTriangle size={16} className="text-pat-warning shrink-0 mt-0.5" />
+          <div className="text-xs text-pat-text-secondary">Chargebacks are not yet available — no backend chargeback endpoint exists. This panel is intentionally empty.</div>
+        </div>
+      )}
+      {tab === "coupons" && (
+        <div className="rounded-lg border border-pat-warning/30 bg-pat-warning/5 p-4 flex items-start gap-2">
+          <IconAlertTriangle size={16} className="text-pat-warning shrink-0 mt-0.5" />
+          <div className="text-xs text-pat-text-secondary">Coupons are not yet available — no backend coupon endpoint exists. This panel is intentionally empty.</div>
+        </div>
       )}
 
       {((tab === "subscriptions" ? subsQ.data?.total : tab === "commissions" ? commissionsQ.data?.total : payoutsQ.data?.total) ?? 0) > 20 && (

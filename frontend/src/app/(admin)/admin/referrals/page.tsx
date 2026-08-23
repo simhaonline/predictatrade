@@ -1,11 +1,13 @@
 "use client";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { customInstance } from "@/lib/axios-instance";
+import { fetchReferralNetwork } from "@/lib/admin-commercial-api";
 import DataTable, { DataTableColumn } from "@/components/ui/data-table";
 import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
-import { IconCoin, IconUsers } from "@tabler/icons-react";
+import { IconCoin, IconUsers, IconAlertTriangle, IconSitemap } from "@tabler/icons-react";
 
 interface AdminCommission {
   id: string;
@@ -43,10 +45,17 @@ interface AdminPayout {
   approved_at: string | null;
 }
 interface CommercialPlan { code: "FREE" | "STANDARD" | "PRO" | "ELITE"; monthly_price: string; annual_price: string | null; referral_rates: Record<string, string>; }
+interface ReferralNode { id?: string; user_email?: string; email?: string; level?: number; children?: ReferralNode[]; referred_count?: number; }
 
 export default function AdminReferralsPage() {
-  const [tab, setTab] = useState<"commissions" | "payouts" | "summary">("commissions");
+  const [tab, setTab] = useState<"commissions" | "payouts" | "summary" | "network">("commissions");
   const [page, setPage] = useState(1);
+
+  const networkQ = useQuery<{ items?: ReferralNode[]; nodes?: ReferralNode[] } | ReferralNode[]>({
+    queryKey: ["referral-network"],
+    queryFn: async () => (await fetchReferralNetwork()) as { items?: ReferralNode[]; nodes?: ReferralNode[] } | ReferralNode[],
+    enabled: tab === "network",
+  });
 
   const plansQ = useQuery<CommercialPlan[]>({
     queryKey: ["commercial-plans"],
@@ -153,12 +162,15 @@ export default function AdminReferralsPage() {
         ))}
       </div>
 
-      <div className="flex gap-2">
-        {(["commissions", "payouts", "summary"] as const).map((t) => (
+      <div className="flex flex-wrap gap-2">
+        {(["commissions", "payouts", "summary", "network"] as const).map((t) => (
           <button key={t} onClick={() => setTab(t)} className={`text-xs px-3 py-1.5 rounded transition-colors capitalize ${tab === t ? "bg-primary text-primary-foreground" : "bg-pat-bg-surface-secondary text-pat-text-primary hover:bg-pat-bg-surface-secondary"}`}>
-            {t === "summary" ? "Summary Details" : t}
+            {t === "summary" ? "Summary Details" : t === "network" ? "Downline Tree" : t}
           </button>
         ))}
+        <Link href="/admin/commission-control-center" className="text-xs px-3 py-1.5 rounded bg-pat-bg-surface-secondary text-pat-text-primary hover:bg-pat-bg-surface-secondary transition-colors flex items-center gap-1">Rule Config</Link>
+        <Link href="/admin/payout-operations" className="text-xs px-3 py-1.5 rounded bg-pat-bg-surface-secondary text-pat-text-primary hover:bg-pat-bg-surface-secondary transition-colors">Payout Ops</Link>
+        <Link href="/admin/commission-operations" className="text-xs px-3 py-1.5 rounded bg-pat-bg-surface-secondary text-pat-text-primary hover:bg-pat-bg-surface-secondary transition-colors">Commission Ops</Link>
       </div>
 
       {tab === "commissions" && (
@@ -200,6 +212,39 @@ export default function AdminReferralsPage() {
             <div><div className="text-xs text-pat-text-muted">Reversed Count</div><div className="text-lg font-semibold text-pat-danger">{summaryQ.data.reversed_count}</div></div>
             <div><div className="text-xs text-pat-text-muted">Reversed Amount</div><div className="text-lg font-semibold text-pat-danger">${parseFloat(summaryQ.data.reversed_amount).toFixed(2)}</div></div>
           </div>
+        </div>
+      )}
+
+      {tab === "network" && (
+        <div className="space-y-3">
+          {networkQ.isLoading && <div className="text-sm text-pat-text-muted">Loading downline network…</div>}
+          {networkQ.isError && (
+            <div className="rounded-lg border border-pat-warning/30 bg-pat-warning/5 p-4 flex items-start gap-2">
+              <IconAlertTriangle size={16} className="text-pat-warning shrink-0 mt-0.5" />
+              <div className="text-xs text-pat-text-secondary">
+                Degraded — referral network endpoint (<code className="font-mono">GET /referrals/network</code>) returned an error or is pending. Downline tree cannot be rendered; no fabricated network data shown.
+                <div className="mt-1 text-pat-text-muted">{(networkQ.error as Error).message}</div>
+              </div>
+            </div>
+          )}
+          {networkQ.data && !networkQ.isError && (() => {
+            const rows = Array.isArray(networkQ.data) ? networkQ.data : (networkQ.data.items ?? networkQ.data.nodes ?? []);
+            if (rows.length === 0) {
+              return <div className="text-center py-8 border border-pat-card-border rounded-lg bg-pat-card-bg text-sm text-pat-text-muted">No downline network data returned</div>;
+            }
+            const renderNode = (n: ReferralNode, depth: number) => (
+              <div key={n.id ?? n.user_email ?? depth} className="ml-4 border-l border-pat-border pl-3 py-1">
+                <div className="flex items-center gap-2 text-sm">
+                  <IconSitemap size={14} className="text-pat-info" />
+                  <span className="text-pat-text-primary">{n.user_email ?? n.email ?? "—"}</span>
+                  {typeof n.level === "number" && <span className="text-[10px] text-pat-text-muted">L{n.level}</span>}
+                  {typeof n.referred_count === "number" && <span className="text-[10px] text-pat-text-muted">{n.referred_count} referred</span>}
+                </div>
+                {n.children?.map((c) => renderNode(c, depth + 1))}
+              </div>
+            );
+            return <div className="rounded-lg border border-pat-border bg-pat-bg-surface p-3">{rows.map((n) => renderNode(n, 0))}</div>;
+          })()}
         </div>
       )}
     </div>
