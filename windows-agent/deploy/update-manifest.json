@@ -1,8 +1,8 @@
 {
-    "version": "1.2.8",
+    "version": "1.2.9",
     "download_url": "https://downloads.predictatrade.com/windows-agent/pat-agent.exe",
-    "checksum": "8bf94aa80b5bb5a4d1353b2b78457e0fc4894e239cce654df0ece90a2819d0af",
-    "min_version": "1.2.8",
-    "release_notes": "v1.2.8 — FIX: MT client connection. The agent now discovers and uses the user's real MetaQuotes Common\Files folder (C:\Users\<user>\AppData\Roaming\MetaQuotes\Terminal\Common\Files) instead of its own LocalSystem %APPDATA%. The EA keeps using MQL FILE_COMMON (the only reliably-allowed path), so both sides finally share the same folder and the agent is detected.",
-    "timestamp": "2026-08-23T16:54:29Z"
+    "checksum": "a53b95a46c06fff77a834670f2befed7f33997e5ea52cef83121e45f1a7ea092",
+    "min_version": "1.2.9",
+    "release_notes": "v1.2.9 — FIX: MT client connection. The agent now discovers and uses the user's real MetaQuotes Common\Files folder so it meets the EA (which uses MQL FILE_COMMON and never needed to change). Agent auto-removes orphaned IPC files from older versions, so subscribers only need to update the agent — no EA recompile required.",
+    "timestamp": "2026-08-23T16:59:44Z"
 }

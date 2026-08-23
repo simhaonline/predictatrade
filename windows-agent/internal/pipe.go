@@ -135,12 +135,52 @@ func (pm *PipeManager) Start() {
 		}
 	}
 
+	// Remove orphaned IPC files from previous agent versions so subscribers
+	// upgrading the agent never have to clean up manually. This only touches
+	// dead locations (never the live per-user Common\Files folders the EA uses).
+	cleanupLegacyIpc()
+
 	go pm.heartbeatLoop()
 	go pm.readLoop()
 	go pm.licenseLoop()  // Continuously write license response
 	go pm.masterReadLoop() // Read master node data (indicators, bars, snapshots)
 
 	log.Printf("File IPC started at %d folder(s): %v", len(pm.commonDirs), pm.commonDirs)
+}
+
+// cleanupLegacyIpc removes orphaned IPC files left behind by earlier agent
+// versions. Upgrading the agent must be the ONLY step a subscriber performs —
+// the EA (which uses MQL FILE_COMMON and never needed to change) keeps working.
+//
+// Dead locations removed:
+//   - C:\ProgramData\PredictATrade\ipc  (v1.2.6 attempt; MQL cannot read
+//     arbitrary absolute paths, so this folder was never usable by the EA)
+//   - PAT_*.txt files in the LocalSystem %APPDATA% MetaQuotes Common\Files
+//     folder (where the pre-fix agent wrote, but the user's EA never read them)
+//
+// The live per-user Common\Files folders are intentionally left untouched.
+func cleanupLegacyIpc() {
+	// 1. Remove the obsolete shared ProgramData\ipc directory.
+	if base := os.Getenv("ProgramData"); base != "" {
+		_ = os.RemoveAll(filepath.Join(base, "PredictATrade", "ipc"))
+	}
+	_ = os.RemoveAll(`C:\ProgramData\PredictATrade\ipc`)
+
+	// 2. Remove stale PAT_*.txt orphaned in the LocalSystem MetaQuotes folder.
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		legacy := filepath.Join(appData, "MetaQuotes", "Terminal", "Common", "Files")
+		if entries, err := os.ReadDir(legacy); err == nil {
+			for _, e := range entries {
+				if e.IsDir() {
+					continue
+				}
+				name := strings.ToUpper(e.Name())
+				if strings.HasPrefix(name, "PAT_") && strings.HasSuffix(strings.ToLower(e.Name()), ".txt") {
+					_ = os.Remove(filepath.Join(legacy, e.Name()))
+				}
+			}
+		}
+	}
 }
 
 func (pm *PipeManager) Stop() {
