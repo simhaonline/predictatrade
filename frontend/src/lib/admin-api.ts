@@ -223,6 +223,46 @@ export async function fetchRegimeDiagnostics() {
   return res.data;
 }
 
+// === PTB Feature Flags (admin) ===
+export async function fetchFeatureFlags() {
+  const res = await customInstance.get("/admin/feature-flags");
+  return res.data;
+}
+
+export async function updateFeatureFlag(
+  id: string,
+  payload: { mode?: string; reason?: string; is_enabled?: boolean; set_by?: string },
+) {
+  const res = await customInstance.put(`/admin/feature-flags/${id}`, payload);
+  return res.data;
+}
+
+// === Subscription financial tabs (admin) ===
+export async function fetchSubscriptionPayments() {
+  const res = await customInstance.get("/admin/subscriptions/payments");
+  return res.data;
+}
+
+export async function fetchSubscriptionRefunds() {
+  const res = await customInstance.get("/admin/subscriptions/refunds");
+  return res.data;
+}
+
+export async function fetchSubscriptionChargebacks() {
+  const res = await customInstance.get("/admin/subscriptions/chargebacks");
+  return res.data;
+}
+
+export async function fetchSubscriptionCoupons() {
+  const res = await customInstance.get("/admin/subscriptions/coupons");
+  return res.data;
+}
+
+export async function fetchSubscriptionProvider() {
+  const res = await customInstance.get("/admin/subscriptions/provider");
+  return res.data;
+}
+
 // === Risk Config (persistent admin Risk Center) ===
 export interface RiskConfig {
   id?: string;

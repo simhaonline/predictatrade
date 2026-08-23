@@ -59,13 +59,13 @@ export default function AdminPlansEntitlementsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["commercial-plans-ent"] });
-      toast.success("Plan saved (note: backend Plan write API may be pending — verify persistence)");
+      toast.success("Plan saved");
       setEditPlan(null);
       setSaving(false);
     },
     onError: (err: unknown) => {
       setSaving(false);
-      toast.error(err instanceof Error ? err.message : "Backend Plan write API pending — change not persisted");
+      toast.error(err instanceof Error ? err.message : "Failed to save plan");
     },
   });
 
@@ -183,8 +183,8 @@ export default function AdminPlansEntitlementsPage() {
                 </div>
               </div>
             </div>
-            <div className="mt-3 rounded-md bg-pat-warning/10 border border-pat-warning/20 px-3 py-2 text-[11px] text-pat-warning">
-              Changes require backend Plan write API (pending). Submission attempts POST /plans/:id and degrades gracefully on failure.
+            <div className="mt-3 rounded-md bg-pat-info/10 border border-pat-info/20 px-3 py-2 text-[11px] text-pat-info">
+              Submission writes provided fields via POST /plans/:id (name, monthly/annual price, setup fee, slots, strategies, status, billing, visibility, grace period).
             </div>
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setEditPlan(null)} className="px-3 py-1.5 text-xs border border-pat-border-strong rounded-md text-pat-text-secondary hover:bg-pat-bg-surface-secondary transition-colors">Cancel</button>
@@ -192,7 +192,7 @@ export default function AdminPlansEntitlementsPage() {
                 onClick={() => { setSaving(true); savePlan.mutate({ id: String(editPlan.id ?? editPlan.code ?? ""), data: editForm }); }}
                 disabled={saving}
                 className="px-3 py-1.5 text-xs bg-pat-primary text-pat-primary-foreground rounded-md hover:bg-pat-primary-hover disabled:opacity-50 transition-opacity">
-                {saving ? "Saving..." : "Save (pending API)"}
+                {saving ? "Saving..." : "Save"}
               </button>
             </div>
           </div>

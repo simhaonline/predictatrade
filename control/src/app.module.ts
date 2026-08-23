@@ -22,6 +22,9 @@ import { OperationsModule } from './modules/operations/operations.module';
 import { BacktestModule } from './modules/backtest/backtest.module';
 import { GuestPreviewModule } from './modules/guest-preview/guest-preview.module';
 import { AgentsModule } from './modules/agents/agents.module';
+import { MarketProxyModule } from './modules/market-proxy/market-proxy.module';
+import { FeatureFlagsModule } from './modules/feature-flags/feature-flags.module';
+import { AdminExtrasModule } from './modules/admin-extras/admin-extras.module';
 
 @Module({
   imports: [
@@ -51,6 +54,9 @@ import { AgentsModule } from './modules/agents/agents.module';
     BacktestModule,
     GuestPreviewModule,
     AgentsModule,
+    MarketProxyModule,
+    FeatureFlagsModule,
+    AdminExtrasModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

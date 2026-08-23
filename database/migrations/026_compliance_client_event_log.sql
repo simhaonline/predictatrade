@@ -124,7 +124,7 @@ CREATE TABLE IF NOT EXISTS compliance.client_event_log (
 -- 4. Convert to TimescaleDB hypertable
 SELECT create_hypertable(
     'compliance.client_event_log',
-    by_column => 'event_time',
+    time_column_name => 'event_time',
     if_not_exists => TRUE,
     chunk_time_interval => INTERVAL '7 days'
 );
@@ -159,7 +159,3 @@ GRANT SELECT ON compliance.client_event_log TO pat_admin;
 -- 8. Optional retention policy (disabled by default, enable via env config)
 -- To enable: SELECT add_retention_policy('compliance.client_event_log', INTERVAL '365 days');
 
--- Record migration
-INSERT INTO audit.migration_history (migration_id, applied_at, description)
-VALUES ('026', NOW(), 'Compliance client event log with TimescaleDB hypertable')
-ON CONFLICT DO NOTHING;

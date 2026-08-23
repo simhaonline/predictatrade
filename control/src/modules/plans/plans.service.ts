@@ -53,4 +53,48 @@ export class PlansService {
     if (r.rows.length === 0) throw new NotFoundException('Plan not found');
     return r.rows[0];
   }
+
+  private static readonly EDITABLE_FIELDS = [
+    'name',
+    'monthly_price',
+    'annual_price',
+    'setup_fee',
+    'max_active_strategy_slots',
+    'allowed_strategies',
+    'status',
+    'billing_enabled',
+    'visible',
+    'grace_period_days',
+  ] as const;
+
+  async update(id: string, body: Record<string, any>) {
+    const sets: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+
+    for (const field of PlansService.EDITABLE_FIELDS) {
+      if (!(field in body)) continue;
+      let value = body[field];
+      if (field === 'allowed_strategies' && value !== null && typeof value === 'object') {
+        value = JSON.stringify(value);
+      }
+      sets.push(`${field} = $${idx}`);
+      values.push(value);
+      idx++;
+    }
+
+    if (sets.length === 0) {
+      return this.findById(id);
+    }
+
+    sets.push(`updated_at = now()`);
+    values.push(id);
+
+    const r = await this.pool.query(
+      `UPDATE control.plans SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
+      values,
+    );
+    if (r.rows.length === 0) throw new NotFoundException('Plan not found');
+    return r.rows[0];
+  }
 }

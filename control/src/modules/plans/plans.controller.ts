@@ -1,6 +1,7 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Body, UseGuards } from '@nestjs/common';
 import { PlansService } from './plans.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { AdminGuard } from '../../common/guards/admin.guard';
 
 @Controller('plans')
 @UseGuards(JwtAuthGuard)
@@ -12,4 +13,10 @@ export class PlansController {
 
   @Get(':id')
   async findById(@Param('id') id: string) { return this.plansService.findById(id); }
+
+  @Post(':id')
+  @UseGuards(AdminGuard)
+  async update(@Param('id') id: string, @Body() body: Record<string, any>) {
+    return this.plansService.update(id, body);
+  }
 }

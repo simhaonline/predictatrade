@@ -4,6 +4,13 @@ import { DB_POOL } from '../../common/database.module';
 import { planPolicyFromRow, validateStrategySelection } from './entitlement-policy';
 import { BillingService } from '../billing/billing.service';
 
+interface ProviderConfig {
+  provider: string | null;
+  configured: boolean;
+  note: string;
+  detected_from_env?: boolean;
+}
+
 @Injectable()
 export class SubscriptionsService {
   private logger = new Logger(SubscriptionsService.name);

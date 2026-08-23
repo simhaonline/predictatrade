@@ -694,6 +694,159 @@ export class AdminService {
     return r.rows[0];
   }
 
+  /**
+   * Returns true when the given relation is present in the connected database.
+   * Used so the financial tabs degrade to an honest empty payload instead of
+   * throwing when a migration has not been applied yet.
+   */
+  private async tableExists(schema: string, table: string): Promise<boolean> {
+    try {
+      const r = await this.pool.query(
+        `SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2`,
+        [schema, table],
+      );
+      return r.rows.length > 0;
+    } catch (err) {
+      this.logger.warn(
+        `table existence check failed for ${schema}.${table}: ${err instanceof Error ? err.message : err}`,
+      );
+      return false;
+    }
+  }
+
+  /** Recent billing payments (admin subscriptions → Payments tab). Never 500s. */
+  async getSubscriptionPayments(limit = 50) {
+    if (!(await this.tableExists('billing', 'payments'))) {
+      return { items: [], note: 'No payments recorded' };
+    }
+    try {
+      const r = await this.pool.query(
+        `SELECT id, user_id, provider, amount, currency, payment_type, status, processed_at
+         FROM billing.payments
+         ORDER BY COALESCE(processed_at, created_at) DESC
+         LIMIT $1`,
+        [limit],
+      );
+      if (r.rows.length === 0) return { items: [], note: 'No payments recorded' };
+      return { items: r.rows };
+    } catch (err) {
+      this.logger.warn(`billing.payments read failed: ${err instanceof Error ? err.message : err}`);
+      return { items: [], note: 'No payments recorded' };
+    }
+  }
+
+  /** Refunds (admin subscriptions → Refunds tab). Returns real rows or an honest empty note. */
+  async getSubscriptionRefunds() {
+    if (!(await this.tableExists('billing', 'refunds'))) {
+      return { items: [], note: 'No refunds recorded' };
+    }
+    try {
+      const r = await this.pool.query(
+        `SELECT id, payment_id, amount, currency, reason, status, provider_refund_id, processed_at, created_at
+         FROM billing.refunds
+         ORDER BY COALESCE(processed_at, created_at) DESC
+         LIMIT 50`,
+      );
+      if (r.rows.length === 0) return { items: [], note: 'No refunds recorded' };
+      return { items: r.rows };
+    } catch (err) {
+      this.logger.warn(`billing.refunds read failed: ${err instanceof Error ? err.message : err}`);
+      return { items: [], note: 'No refunds recorded' };
+    }
+  }
+
+  /**
+   * Chargebacks (admin subscriptions → Chargebacks tab). There is no dedicated
+   * chargeback table; the canonical source is billing.payments rows flagged as
+   * CHARGED_BACK / CHARGEBACK by the provider webhook path (migration 003).
+   */
+  async getSubscriptionChargebacks() {
+    if (!(await this.tableExists('billing', 'payments'))) {
+      return { items: [], note: 'No chargebacks recorded' };
+    }
+    try {
+      const r = await this.pool.query(
+        `SELECT id, user_id, provider, amount, currency, payment_type, status, processed_at
+         FROM billing.payments
+         WHERE status = 'CHARGED_BACK' OR payment_type = 'CHARGEBACK'
+         ORDER BY COALESCE(processed_at, created_at) DESC
+         LIMIT 50`,
+      );
+      if (r.rows.length === 0) return { items: [], note: 'No chargebacks recorded' };
+      return { items: r.rows };
+    } catch (err) {
+      this.logger.warn(`chargeback read failed: ${err instanceof Error ? err.message : err}`);
+      return { items: [], note: 'No chargebacks recorded' };
+    }
+  }
+
+  /** Coupons (admin subscriptions → Coupons tab). Returns real rows or an honest empty note. */
+  async getSubscriptionCoupons() {
+    if (!(await this.tableExists('billing', 'coupons'))) {
+      return { items: [], note: 'No coupons configured' };
+    }
+    try {
+      const r = await this.pool.query(
+        `SELECT id, code, description, discount_type, discount_value, currency,
+                max_redemptions, redemption_count, active, valid_from, valid_until, created_at
+         FROM billing.coupons
+         ORDER BY created_at DESC
+         LIMIT 50`,
+      );
+      if (r.rows.length === 0) return { items: [], note: 'No coupons configured' };
+      return { items: r.rows };
+    } catch (err) {
+      this.logger.warn(`billing.coupons read failed: ${err instanceof Error ? err.message : err}`);
+      return { items: [], note: 'No coupons configured' };
+    }
+  }
+
+  /**
+   * Payment provider status (admin subscriptions → Provider tab).
+   * Never invents a provider name: the only accepted evidence of a configured
+   * provider is a real distinct `provider` value already recorded in
+   * billing.payments. Absent that, it reports honestly as unconfigured.
+   */
+  async getSubscriptionProvider() {
+    const unconfigured = {
+      provider: null as string | null,
+      configured: false,
+      providers: [] as Array<{ provider: string; payment_count: number; last_payment_at: string | null }>,
+      note: 'No payment provider configured',
+    };
+
+    if (!(await this.tableExists('billing', 'payments'))) return unconfigured;
+
+    try {
+      const r = await this.pool.query(
+        `SELECT provider,
+                count(*)::int AS payment_count,
+                max(COALESCE(processed_at, created_at)) AS last_payment_at
+         FROM billing.payments
+         WHERE provider IS NOT NULL AND provider <> ''
+         GROUP BY provider
+         ORDER BY count(*) DESC`,
+      );
+      if (r.rows.length === 0) return unconfigured;
+
+      const providers = r.rows.map((row) => ({
+        provider: row.provider as string,
+        payment_count: row.payment_count as number,
+        last_payment_at: row.last_payment_at ?? null,
+      }));
+
+      return {
+        provider: providers[0].provider,
+        configured: true,
+        providers,
+        note: 'Provider(s) derived from recorded payments.',
+      };
+    } catch (err) {
+      this.logger.warn(`provider read failed: ${err instanceof Error ? err.message : err}`);
+      return unconfigured;
+    }
+  }
+
   /** Trading report statistics - signal counts, strategy breakdown, hourly trends. */
   async getTradingReport() {
     const [

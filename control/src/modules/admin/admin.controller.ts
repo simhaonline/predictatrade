@@ -133,4 +133,29 @@ export class AdminController {
   async systemHealth() {
     return this.adminService.systemHealth();
   }
+
+  @Get('subscriptions/payments')
+  async subscriptionPayments() {
+    return this.adminService.getSubscriptionPayments();
+  }
+
+  @Get('subscriptions/refunds')
+  async subscriptionRefunds() {
+    return this.adminService.getSubscriptionRefunds();
+  }
+
+  @Get('subscriptions/chargebacks')
+  async subscriptionChargebacks() {
+    return this.adminService.getSubscriptionChargebacks();
+  }
+
+  @Get('subscriptions/coupons')
+  async subscriptionCoupons() {
+    return this.adminService.getSubscriptionCoupons();
+  }
+
+  @Get('subscriptions/provider')
+  async subscriptionProvider() {
+    return this.adminService.getSubscriptionProvider();
+  }
 }

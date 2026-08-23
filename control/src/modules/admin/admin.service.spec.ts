@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AdminService } from './admin.service';
 import { DB_POOL } from '../../common/database.module';
+import { CommissionsService } from '../commissions/commissions.service';
 
 // Integration-style tests that verify SQL queries match the actual schema.
 // These use a real connection to the test database if DATABASE_URL is set,
@@ -39,6 +40,7 @@ describe('AdminService', () => {
       providers: [
         AdminService,
         { provide: DB_POOL, useValue: pool },
+        { provide: CommissionsService, useValue: { getSummary: jest.fn() } },
       ],
     }).compile();
     service = module.get<AdminService>(AdminService);
@@ -236,6 +238,46 @@ describe('AdminService', () => {
       expect(detail.licenses.length).toBeGreaterThanOrEqual(1);
       expect(detail.devices.length).toBeGreaterThanOrEqual(1);
       expect(detail.activations.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  // Admin subscriptions financial tabs must always resolve (HTTP 200) and must
+  // never fabricate data. With no DB they degrade to honest empty payloads.
+  describe('subscription financial tabs (honest empty, never throws)', () => {
+    it('getSubscriptionPayments resolves to an items array', async () => {
+      const r: any = await service.getSubscriptionPayments();
+      expect(Array.isArray(r.items)).toBe(true);
+      if (r.items.length === 0) expect(typeof r.note).toBe('string');
+    });
+
+    it('getSubscriptionRefunds resolves to an items array', async () => {
+      const r: any = await service.getSubscriptionRefunds();
+      expect(Array.isArray(r.items)).toBe(true);
+      if (r.items.length === 0) expect(r.note).toBe('No refunds recorded');
+    });
+
+    it('getSubscriptionChargebacks resolves to an items array', async () => {
+      const r: any = await service.getSubscriptionChargebacks();
+      expect(Array.isArray(r.items)).toBe(true);
+      if (r.items.length === 0) expect(r.note).toBe('No chargebacks recorded');
+    });
+
+    it('getSubscriptionCoupons resolves to an items array', async () => {
+      const r: any = await service.getSubscriptionCoupons();
+      expect(Array.isArray(r.items)).toBe(true);
+      if (r.items.length === 0) expect(r.note).toBe('No coupons configured');
+    });
+
+    it('getSubscriptionProvider never invents a provider name', async () => {
+      const r: any = await service.getSubscriptionProvider();
+      expect(Array.isArray(r.providers)).toBe(true);
+      if (!r.configured) {
+        expect(r.provider).toBeNull();
+        expect(r.note).toBe('No payment provider configured');
+      } else {
+        // A provider may only be reported if it came from recorded payments.
+        expect(r.providers.map((p: any) => p.provider)).toContain(r.provider);
+      }
     });
   });
 
