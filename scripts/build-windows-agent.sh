@@ -97,7 +97,7 @@ cat > "$MANIFEST_FILE" << EOF
     "version": "$NEW_VERSION",
     "download_url": "https://downloads.predictatrade.com/windows-agent/pat-agent.exe",
     "checksum": "$CHECKSUM",
-    "min_version": "$NEW_VERSION",
+    "min_version": "1.0.0",
     "release_notes": "v$NEW_VERSION — FIX: MT client connection. The agent now discovers and uses the user's real MetaQuotes Common\\Files folder so it meets the EA (which uses MQL FILE_COMMON and never needed to change). Agent auto-removes orphaned IPC files from older versions, so subscribers only need to update the agent — no EA recompile required.",
     "timestamp": "$TIMESTAMP"
 }
