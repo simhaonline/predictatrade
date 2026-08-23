@@ -1,5 +1,6 @@
 import axios, { AxiosError, AxiosHeaders, InternalAxiosRequestConfig } from 'axios';
-import { getAccessToken, setAccessToken, clearAccessToken } from './auth';
+import { getAccessToken, clearAccessToken } from './auth';
+import { refreshSession } from './session-refresh';
 
 export const customInstance = axios.create({
   baseURL:
@@ -29,9 +30,6 @@ function shouldRetry(config: InternalAxiosRequestConfig): boolean {
   return !NO_REFRESH_PATHS.some((p) => config.url?.includes(p));
 }
 
-let isRefreshing = false;
-let refreshPromise: Promise<string | null> | null = null;
-
 customInstance.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
@@ -42,29 +40,9 @@ customInstance.interceptors.response.use(
     if (error.response?.status === 401 && shouldRetry(originalRequest) && !(originalRequest as InternalAxiosRequestConfig & { _retry?: boolean })._retry) {
       (originalRequest as InternalAxiosRequestConfig & { _retry?: boolean })._retry = true;
 
-      if (!isRefreshing) {
-        isRefreshing = true;
-        refreshPromise = (async (): Promise<string | null> => {
-          try {
-            const res = await axios.post<{ accessToken?: string }>(
-              `${customInstance.defaults.baseURL}/auth/refresh`,
-              {},
-              { withCredentials: true }
-            );
-            const token = res.data?.accessToken ?? null;
-            if (token) {
-              setAccessToken(token);
-            }
-            return token;
-          } catch {
-            return null;
-          }
-        })();
-      }
-
-      const newToken = await refreshPromise;
-      isRefreshing = false;
-      refreshPromise = null;
+      // Serialized, single-flight refresh shared with AuthProvider (prevents
+      // concurrent rotations across tabs).
+      const newToken = await refreshSession();
 
       if (newToken) {
         originalRequest.headers = AxiosHeaders.from(originalRequest.headers);

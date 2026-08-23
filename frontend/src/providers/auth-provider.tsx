@@ -2,9 +2,9 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
-import axios from 'axios';
 import { customInstance } from '@/lib/axios-instance';
 import { setAccessToken, clearAccessToken, getAccessToken, getRoleFromToken, getRoleFromTokenUnchecked } from '@/lib/auth';
+import { refreshSession } from '@/lib/session-refresh';
 import { homeRouteForRole, type Role } from '@/lib/roles';
 
 export interface User {
@@ -96,23 +96,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const token = getAccessToken();
     if (!token) {
+      // Public/auth pages never need session restoration — skip the refresh
+      // attempt there so anonymous visitors don't generate doomed 400s.
+      const path = typeof window !== 'undefined' ? window.location.pathname : '';
+      if (/^\/(login|register|verify-otp|forgot-password|reset-password|preview|unsubscribe|terms|privacy|complaints|cookies|sitemap|forbidden)(\/|$)/.test(path)) {
+        queueMicrotask(() => {
+          setSessionState('UNAUTHENTICATED');
+        });
+        return;
+      }
       // No access token in memory/cookie — but the refresh token cookie may still be valid.
-      // Try to refresh BEFORE declaring the user unauthenticated.
+      // Try to refresh BEFORE declaring the user unauthenticated. Serialized and
+      // single-flight across tabs via the shared helper.
       void (async () => {
-        try {
-          const res = await axios.post<{ accessToken?: string }>(
-            `${customInstance.defaults.baseURL}/auth/refresh`,
-            {},
-            { withCredentials: true }
-          );
-          const newToken = res.data?.accessToken;
-          if (newToken) {
-            setAccessToken(newToken);
-            await fetchMe();
-            return;
-          }
-        } catch {
-          // Refresh failed — user genuinely needs to log in again
+        const newToken = await refreshSession();
+        if (newToken) {
+          await fetchMe();
+          return;
         }
         queueMicrotask(() => {
           setSessionState('UNAUTHENTICATED');
@@ -141,19 +141,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (sessionState !== 'AUTHENTICATED') return;
     const interval = setInterval(async () => {
-      try {
-        const res = await axios.post<{ accessToken?: string }>(
-          `${customInstance.defaults.baseURL}/auth/refresh`,
-          {},
-          { withCredentials: true }
-        );
-        const newToken = res.data?.accessToken;
-        if (newToken) {
-          setAccessToken(newToken);
-        }
-      } catch {
-        // Silent fail — the axios interceptor will handle 401 on next request
-      }
+      // Shared, serialized refresh — silent on failure; the axios
+      // interceptor will handle 401 on the next request.
+      await refreshSession();
     }, 45 * 60 * 1000); // 45 minutes
     return () => clearInterval(interval);
   }, [sessionState]);
