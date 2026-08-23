@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   fetchOperationsState,
@@ -8,6 +8,8 @@ import {
   pauseSignals,
   resumeSignals,
   fetchMarketState,
+  fetchRiskConfig,
+  saveRiskConfig,
 } from "@/lib/admin-api";
 import ConfirmDialog from "@/components/admin/confirm-dialog";
 import StatusBadge from "@/components/ui/status-badge";
@@ -45,7 +47,7 @@ export default function AdminRiskCenterPage() {
   const [confirm, setConfirm] = useState<{ title: string; message: string; fn: () => Promise<void> } | null>(null);
   const [reason, setReason] = useState("");
 
-  // Local/optimistic risk configuration (config-pending — backend write pending)
+  // Persistent risk configuration (loaded from backend; seeded by migration defaults).
   const [killSwitches, setKillSwitches] = useState<Record<string, boolean>>({
     strategy: false,
     account: false,
@@ -61,6 +63,43 @@ export default function AdminRiskCenterPage() {
   });
   const [sessionBlackout, setSessionBlackout] = useState(false);
   const [newsBlackout, setNewsBlackout] = useState(false);
+  const [configLoaded, setConfigLoaded] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+
+  const riskConfigQuery = useQuery({
+    queryKey: ["risk-config"],
+    queryFn: async () => (await fetchRiskConfig()) as Awaited<ReturnType<typeof fetchRiskConfig>>,
+  });
+
+  useEffect(() => {
+    const data = riskConfigQuery.data;
+    if (!data) return;
+    // Seed editable form state from persisted config (legitimate one-time sync).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (data?.kill_switches) setKillSwitches(data.kill_switches);
+    if (data?.limits) {
+      const asStrings: Record<string, string> = {};
+      for (const [k, v] of Object.entries(data.limits)) {
+        asStrings[k] = v === null || v === undefined ? "" : String(v);
+      }
+      setLimits(asStrings);
+    }
+    setSessionBlackout(!!data?.session_blackout);
+    setNewsBlackout(!!data?.news_blackout);
+    setConfigLoaded(true);
+    setConfigError(null);
+  }, [riskConfigQuery.data]);
+
+  useEffect(() => {
+    if (riskConfigQuery.isError) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setConfigError(
+        riskConfigQuery.error instanceof Error
+          ? riskConfigQuery.error.message
+          : "Failed to load risk config",
+      );
+    }
+  }, [riskConfigQuery.isError, riskConfigQuery.error]);
 
   const { data: state } = useQuery<TradingState>({
     queryKey: ["ops-state-risk"],
@@ -119,14 +158,37 @@ export default function AdminRiskCenterPage() {
     },
   ];
 
+  const riskSaveMutation = useMutation({
+    mutationFn: async () => {
+      const numericLimits: Record<string, number> = {};
+      for (const [k, v] of Object.entries(limits)) {
+        const n = parseFloat(v);
+        numericLimits[k] = Number.isFinite(n) ? n : 0;
+      }
+      return saveRiskConfig({
+        kill_switches: killSwitches,
+        limits: numericLimits,
+        session_blackout: sessionBlackout,
+        news_blackout: newsBlackout,
+        blackout_reason: reason || undefined,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["risk-config"] });
+      toast.success("Risk configuration saved");
+    },
+    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Failed to save risk config"),
+  });
+
   const toggleKill = (k: string) => {
     setKillSwitches((p) => ({ ...p, [k]: !p[k] }));
-    toast.error(`${k} kill-switch is config-pending — backend risk rule-write endpoint not available`);
   };
   const changeLimit = (k: string, v: string) => {
     setLimits((p) => ({ ...p, [k]: v }));
   };
-  const saveConfig = () => toast.error("Risk configuration save pending backend — limits are local-only preview");
+  const saveConfig = () => {
+    riskSaveMutation.mutate();
+  };
 
   // Map market state fields to gates when available
   const marketGateStatus = (gate: string): "active" | "degraded" | "unknown" => {
@@ -199,9 +261,19 @@ export default function AdminRiskCenterPage() {
           <IconShield size={16} className="text-pat-info" />
           <h2 className="text-sm font-medium text-pat-text-primary">Risk Guardrail Configuration</h2>
         </div>
-        <div className="rounded-md bg-pat-warning/10 border border-pat-warning/20 px-3 py-2 text-[11px] text-pat-warning">
-          Configuration preview only — backend risk rule-write endpoint is pending. Toggles and limits are local/optimistic and not yet enforced server-side.
+        <div className="rounded-md bg-pat-info/10 border border-pat-info/20 px-3 py-2 text-[11px] text-pat-info">
+          Configuration is persisted to the control plane (control.risk_config). Toggles and limits are saved when you click “Save Risk Config”. Enforcement is wired but not yet applied server-side to live signals.
         </div>
+        {configError && (
+          <div className="rounded-md bg-pat-warning/10 border border-pat-warning/20 px-3 py-2 text-[11px] text-pat-warning">
+            Degraded — could not load saved risk config ({configError}). Showing local defaults; changes will still save when submitted.
+          </div>
+        )}
+        {!configLoaded && !configError && (
+          <div className="rounded-md bg-pat-bg-surface-secondary border border-pat-border px-3 py-2 text-[11px] text-pat-text-muted">
+            Loading saved risk configuration…
+          </div>
+        )}
 
         <div>
           <div className="text-xs text-pat-text-muted mb-2">Kill-Switch Toggles</div>
@@ -229,17 +301,17 @@ export default function AdminRiskCenterPage() {
         <div>
           <div className="text-xs text-pat-text-muted mb-2">Session & News Blackout</div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => { setSessionBlackout((p) => !p); toast.error("Session blackout config pending backend"); }} className={`px-3 py-2 text-xs rounded-md border transition-colors ${sessionBlackout ? "border-pat-danger text-pat-danger bg-pat-danger/10" : "border-pat-border text-pat-text-secondary bg-pat-bg-surface-secondary"}`}>
-              Session Blackout: {sessionBlackout ? "ENABLED" : "DISABLED"}
-            </button>
-            <button onClick={() => { setNewsBlackout((p) => !p); toast.error("News blackout config pending backend"); }} className={`px-3 py-2 text-xs rounded-md border transition-colors ${newsBlackout ? "border-pat-danger text-pat-danger bg-pat-danger/10" : "border-pat-border text-pat-text-secondary bg-pat-bg-surface-secondary"}`}>
-              News Blackout: {newsBlackout ? "ENABLED" : "DISABLED"}
-            </button>
+             <button onClick={() => setSessionBlackout((p) => !p)} className={`px-3 py-2 text-xs rounded-md border transition-colors ${sessionBlackout ? "border-pat-danger text-pat-danger bg-pat-danger/10" : "border-pat-border text-pat-text-secondary bg-pat-bg-surface-secondary"}`}>
+               Session Blackout: {sessionBlackout ? "ENABLED" : "DISABLED"}
+             </button>
+             <button onClick={() => setNewsBlackout((p) => !p)} className={`px-3 py-2 text-xs rounded-md border transition-colors ${newsBlackout ? "border-pat-danger text-pat-danger bg-pat-danger/10" : "border-pat-border text-pat-text-secondary bg-pat-bg-surface-secondary"}`}>
+               News Blackout: {newsBlackout ? "ENABLED" : "DISABLED"}
+             </button>
           </div>
         </div>
 
-        <button onClick={saveConfig} className="px-4 py-2 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded-md hover:bg-pat-bg-surface-secondary transition-colors">
-          Save Risk Config (pending backend)
+        <button onClick={saveConfig} disabled={riskSaveMutation.isPending} className="px-4 py-2 text-xs bg-pat-primary text-pat-primary-foreground rounded-md hover:bg-pat-primary-hover transition-colors disabled:opacity-50">
+          {riskSaveMutation.isPending ? "Saving…" : "Save Risk Config"}
         </button>
       </div>
 

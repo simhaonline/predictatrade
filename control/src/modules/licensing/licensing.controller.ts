@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Post, Put, Param, UseGuards } from '@nestjs/common';
 import { LicensingService } from './licensing.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { AdminGuard } from '../../common/guards/admin.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @Controller('licensing')
@@ -63,5 +64,74 @@ export class LicensingController {
   @Post('terminals/sync')
   async syncTerminalAccount(@CurrentUser('sub') userId: string, @Body() body: any) {
     return this.licensingService.syncTerminalAccount(userId, body);
+  }
+
+  // ============================================================
+  // Admin-only license lifecycle endpoints
+  // ============================================================
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('licenses')
+  async createLicense(@Body() body: {
+    user_id: string; plan_id: string; max_devices?: number; max_mt_accounts?: number;
+    allowed_strategies?: string[]; allowed_execution_modes?: string[]; valid_days?: number;
+  }) {
+    return this.licensingService.createLicense(body);
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('licenses/:id/suspend')
+  async suspendLicense(@Param('id') id: string, @Body() body: { reason?: string }) {
+    return this.licensingService.suspendLicense(id, body?.reason || 'Admin suspended');
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('licenses/:id/revoke')
+  async revokeLicense(@Param('id') id: string, @Body() body: { reason?: string }) {
+    return this.licensingService.revokeLicense(id, body?.reason || 'Admin revoked');
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('licenses/:id/renew')
+  async renewLicense(@Param('id') id: string, @Body() body: { valid_days?: number }) {
+    return this.licensingService.renewLicense(id, body?.valid_days);
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('licenses/:id/reset')
+  async resetLicense(@Param('id') id: string) {
+    return this.licensingService.resetLicense(id);
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('licenses/:id/force-logout')
+  async forceLogoutLicense(@Param('id') id: string) {
+    return this.licensingService.forceLogoutLicense(id);
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Get('licenses/:id/activations')
+  async fetchLicenseActivations(@Param('id') id: string) {
+    return this.licensingService.fetchLicenseActivations(id);
+  }
+
+  // ============================================================
+  // Admin-only device security-action endpoints
+  // ============================================================
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('devices/:id/reset')
+  async resetDevice(@Param('id') id: string) {
+    return this.licensingService.resetDevice(id);
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('devices/:id/force-upgrade')
+  async forceUpgradeDevice(@Param('id') id: string) {
+    return this.licensingService.forceUpgradeDevice(id);
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('devices/:id/disable-signal')
+  async disableDeviceSignal(@Param('id') id: string) {
+    return this.licensingService.disableDeviceSignal(id);
   }
 }

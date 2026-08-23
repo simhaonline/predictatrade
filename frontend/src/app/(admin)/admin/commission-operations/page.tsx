@@ -2,12 +2,20 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
-import { fetchCommissionsAdminAll, exportRowsToCsv } from "@/lib/admin-commercial-api";
+import {
+  fetchCommissionsAdminAll,
+  exportRowsToCsv,
+  holdCommission,
+  releaseCommission,
+  reverseCommission,
+  adjustCommission,
+  clearEligibleCommissions,
+} from "@/lib/admin-commercial-api";
 import DataTable, { DataTableColumn } from "@/components/ui/data-table";
 import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import { IconDownload, IconAlertTriangle, IconCoin } from "@tabler/icons-react";
+import { IconDownload, IconAlertTriangle, IconCoin, IconCheck } from "@tabler/icons-react";
 
 interface CommissionLedgerRow {
   id: string;
@@ -21,15 +29,13 @@ interface CommissionLedgerRow {
   billing_cycle?: string;
 }
 
-const PENDING_OPS: { label: string }[] = [
-  { label: "Hold" },
-  { label: "Release" },
-  { label: "Reverse" },
-  { label: "Adjust" },
-];
+const OPS = ["Hold", "Release", "Reverse", "Adjust"] as const;
+type Op = (typeof OPS)[number];
 
 export default function AdminCommissionOperationsPage() {
   const [page, setPage] = useState(1);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const ledgerQ = useQuery<{ items: CommissionLedgerRow[]; total: number; page: number; limit: number }>({
     queryKey: ["commission-ledger-admin", page],
@@ -47,9 +53,75 @@ export default function AdminCommissionOperationsPage() {
     { key: "plan_code", header: "Plan", cell: (row) => <span className="text-xs text-pat-text-secondary">{row.plan_code || "—"}</span> },
     { key: "status", header: "Status", cell: (row) => <StatusBadge status={row.status ?? "unknown"} /> },
     { key: "created_at", header: "Created", cell: (row) => <span className="text-xs text-pat-text-muted">{row.created_at ? format(new Date(row.created_at), "MMM d, yyyy") : "—"}</span> },
+    {
+      key: "select",
+      header: "Action",
+      cell: (row) => (
+        <button
+          onClick={(e) => { e.stopPropagation(); setSelectedId(row.id); }}
+          className={`px-2 py-1 text-xs rounded-md ${selectedId === row.id ? "bg-pat-primary text-white" : "bg-pat-bg-surface-secondary text-pat-text-primary hover:bg-pat-bg-surface-secondary"}`}
+        >
+          {selectedId === row.id ? "Selected" : "Select"}
+        </button>
+      ),
+    },
   ];
 
-  const pendingOp = (label: string) => toast.error(`${label} operation pending backend — no commission operation endpoint available`);
+  const runOp = async (op: Op) => {
+    if (!selectedId) {
+      toast.error("Select a commission row first");
+      return;
+    }
+    const reason = window.prompt(`Reason for ${op}:`);
+    if (reason === null) return;
+    const finalReason = reason.trim() || "Admin operation";
+    try {
+      setBusy(true);
+      if (op === "Hold") {
+        await holdCommission(selectedId, finalReason);
+      } else if (op === "Release") {
+        await releaseCommission(selectedId, finalReason);
+      } else if (op === "Reverse") {
+        const a = window.prompt("Reversal amount (optional, full commission if blank):");
+        if (a === null) return;
+        const amt = a.trim() ? Number(a) : undefined;
+        await reverseCommission(selectedId, finalReason, amt);
+      } else if (op === "Adjust") {
+        const a = window.prompt("Adjustment amount (signed, e.g. -5 or 5):");
+        if (a === null) return;
+        const amt = Number(a);
+        if (Number.isNaN(amt)) {
+          toast.error("Invalid adjustment amount");
+          return;
+        }
+        await adjustCommission(selectedId, amt, finalReason);
+      }
+      toast.success(`${op} applied`);
+      setSelectedId(null);
+      ledgerQ.refetch();
+    } catch (e) {
+      toast.error((e as Error).message || `${op} failed`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runClearEligible = async () => {
+    const confirm = window.confirm(
+      "Run clear-eligible? This moves PENDING→CLEARED (>=14d) and CLEARED→AVAILABLE (>=30d) in bulk.",
+    );
+    if (!confirm) return;
+    try {
+      setBusy(true);
+      const res = await clearEligibleCommissions();
+      toast.success(`Cleared ${res.cleared ?? 0}, made available ${res.available ?? 0}`);
+      ledgerQ.refetch();
+    } catch (e) {
+      toast.error((e as Error).message || "clear-eligible failed");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const totalPages = ledgerQ.data?.total ? Math.ceil(ledgerQ.data.total / 20) : 1;
 
@@ -79,15 +151,33 @@ export default function AdminCommissionOperationsPage() {
         <div className="flex items-center gap-2 mb-3">
           <IconCoin size={16} className="text-pat-info" />
           <h2 className="text-sm font-semibold text-pat-text-primary">Ledger Operations</h2>
+          <span className="text-[11px] text-pat-text-muted">
+            {selectedId ? `Selected: ${selectedId.slice(0, 8)}…` : "No row selected"}
+          </span>
         </div>
         <div className="flex flex-wrap gap-2">
-          {PENDING_OPS.map((op) => (
-            <button key={op.label} onClick={() => pendingOp(op.label)} disabled className="px-3 py-1.5 text-xs rounded-md bg-pat-bg-surface-secondary text-pat-text-muted cursor-not-allowed" title="Backend operation endpoint pending">
-              {op.label} (pending backend)
+          {OPS.map((op) => (
+            <button
+              key={op}
+              onClick={() => runOp(op)}
+              disabled={busy || !selectedId}
+              className="px-3 py-1.5 text-xs rounded-md bg-pat-bg-surface-secondary text-pat-text-primary hover:bg-pat-bg-surface-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+              title={selectedId ? `Apply ${op}` : "Select a row first"}
+            >
+              {op}
             </button>
           ))}
+          <button
+            onClick={runClearEligible}
+            disabled={busy}
+            className="px-3 py-1.5 text-xs rounded-md bg-pat-info/10 text-pat-info hover:bg-pat-info/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+          >
+            <IconCheck size={14} /> Clear Eligible
+          </button>
         </div>
-        <p className="text-[11px] text-pat-text-muted mt-2">These operations require backend commission lifecycle endpoints that are not yet available. They are disabled and non-functional to avoid fabricating financial state.</p>
+        <p className="text-[11px] text-pat-text-muted mt-2">
+          Select a ledger row, then apply a lifecycle operation. All operations are auditable and move amounts between wallet buckets (pending → cleared → available → paid, or hold/reverse). Clear Eligible is admin-bulk and not auto-run.
+        </p>
       </div>
 
       <DataTable data={ledgerQ.data?.items ?? []} columns={cols} loading={ledgerQ.isLoading} error={ledgerQ.error as Error | null} onRetry={() => ledgerQ.refetch()} />

@@ -36,7 +36,10 @@ export function collectClientTelemetry(): ClientTelemetryPayload | null {
   try {
     if (typeof window === 'undefined') return null;
 
-    const nav = navigator as any;
+    const nav = navigator as Navigator & {
+      userAgentData?: { platform?: string; mobile?: boolean };
+      maxTouchPoints?: number;
+    };
 
     // Collect Client Hints if available
     let clientHints: Record<string, string | boolean> | undefined;

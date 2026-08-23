@@ -1,7 +1,37 @@
-import { Injectable, Inject } from '@nestjs/common';
-import { Pool } from 'pg';
+import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Pool, PoolClient } from 'pg';
 import { DB_POOL } from '../../common/database.module';
 import { CommissionEngine } from './commission-engine';
+
+type CommissionStatus =
+  | 'PENDING' | 'CLEARED' | 'AVAILABLE' | 'PAID'
+  | 'CANCELLED' | 'REVERSED' | 'CHARGEBACK' | 'FRAUD_HOLD';
+
+// Allowed state-machine transitions. Terminal states have no outgoing edges.
+const TRANSITION_MATRIX: Record<string, string[]> = {
+  PENDING: ['CLEARED', 'FRAUD_HOLD', 'REVERSED', 'CANCELLED'],
+  CLEARED: ['AVAILABLE', 'FRAUD_HOLD', 'REVERSED', 'CANCELLED'],
+  AVAILABLE: ['PAID', 'FRAUD_HOLD', 'REVERSED', 'CANCELLED'],
+  FRAUD_HOLD: ['AVAILABLE', 'REVERSED', 'CANCELLED'],
+  PAID: [],
+  REVERSED: [],
+  CANCELLED: [],
+  CHARGEBACK: [],
+};
+
+// Maps a status to the wallet bucket that holds its balance.
+function bucketForStatus(status: string): string {
+  switch (status) {
+    case 'PENDING': return 'pending_balance';
+    case 'CLEARED': return 'cleared_balance';
+    case 'AVAILABLE': return 'available_balance';
+    case 'PAID': return 'paid_balance';
+    case 'FRAUD_HOLD': return 'on_hold_balance';
+    case 'REVERSED':
+    case 'CANCELLED': return 'reversed_balance';
+    default: return 'pending_balance';
+  }
+}
 
 @Injectable()
 export class CommissionsService {
@@ -186,5 +216,296 @@ export class CommissionsService {
        FROM referral.commission_ledger`,
     );
     return { ...r.rows[0], confirmed_count: r.rows[0]?.paid_count ?? 0, confirmed_amount: r.rows[0]?.paid_amount ?? 0 };
+  }
+
+  /**
+   * Core state-machine transition: validates the transition, moves the
+   * commission amount between affiliate_wallet buckets consistently, and
+   * stamps the relevant timestamp. Runs inside the supplied transaction client.
+   * `amountOverride` lets reversals move only a partial amount.
+   */
+  private async transitionLedgerAndWallet(
+    client: PoolClient,
+    id: string,
+    target: CommissionStatus,
+    actorId: string,
+    reason?: string,
+    amountOverride?: number,
+  ) {
+    const cur = await client.query(
+      'SELECT * FROM referral.commission_ledger WHERE id = $1 FOR UPDATE',
+      [id],
+    );
+    if (cur.rows.length === 0) throw new NotFoundException('Commission not found');
+    const row = cur.rows[0];
+    const oldStatus: string = row.status;
+    const allowed = TRANSITION_MATRIX[oldStatus] ?? [];
+    if (!allowed.includes(target)) {
+      throw new BadRequestException(`Illegal transition ${oldStatus} -> ${target}`);
+    }
+
+    const amt = amountOverride != null ? Number(amountOverride) : Number(row.commission_amount);
+    const srcBucket = bucketForStatus(oldStatus);
+    const destBucket =
+      target === 'FRAUD_HOLD' ? 'on_hold_balance'
+        : (target === 'REVERSED' || target === 'CANCELLED') ? 'reversed_balance'
+          : bucketForStatus(target);
+
+    await client.query(
+      `INSERT INTO referral.affiliate_wallets (user_id, currency)
+       VALUES ($1, $2) ON CONFLICT (user_id, currency) DO NOTHING`,
+      [row.recipient_user_id, row.currency],
+    );
+
+    const setParts = [`${srcBucket} = ${srcBucket} - $1`];
+    if (destBucket !== srcBucket) setParts.push(`${destBucket} = ${destBucket} + $1`);
+    setParts.push('updated_at = now()');
+    await client.query(
+      `UPDATE referral.affiliate_wallets SET ${setParts.join(', ')}
+       WHERE user_id = $2 AND currency = $3`,
+      [amt, row.recipient_user_id, row.currency],
+    );
+
+    const r = await client.query(
+      `UPDATE referral.commission_ledger
+       SET status = $1,
+           cleared_at   = CASE WHEN $1 = 'CLEARED'   THEN now() ELSE cleared_at END,
+           available_at = CASE WHEN $1 = 'AVAILABLE' THEN now() ELSE available_at END,
+           paid_at      = CASE WHEN $1 = 'PAID'      THEN now() ELSE paid_at END,
+           reversed_at  = CASE WHEN $1 = 'REVERSED'  THEN now() ELSE reversed_at END,
+           reversal_reason = CASE WHEN $1 = 'REVERSED' THEN $2 ELSE reversal_reason END,
+           reversed_by     = CASE WHEN $1 = 'REVERSED' THEN $3 ELSE reversed_by END,
+           updated_at = now()
+       WHERE id = $4
+       RETURNING *`,
+      [target, reason ?? null, actorId ?? null, id],
+    );
+    return r.rows[0];
+  }
+
+  /** Generic guarded transition used by the explicit lifecycle endpoints. */
+  async transitionCommission(id: string, target: CommissionStatus, actorId: string, reason?: string) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const row = await this.transitionLedgerAndWallet(client, id, target, actorId, reason);
+      await client.query('COMMIT');
+      return row;
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  async holdCommission(id: string, reason: string, actorId: string) {
+    return this.transitionCommission(id, 'FRAUD_HOLD', actorId, reason);
+  }
+
+  async releaseCommission(id: string, actorId: string) {
+    return this.transitionCommission(id, 'AVAILABLE', actorId);
+  }
+
+  async reverseCommission(id: string, reason: string, actorId: string, amount?: number) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const cur = await client.query(
+        'SELECT * FROM referral.commission_ledger WHERE id = $1 FOR UPDATE',
+        [id],
+      ) as { rows: any[] };
+      if (cur.rows.length === 0) throw new NotFoundException('Commission not found');
+      const row = cur.rows[0];
+      const full = Number(row.commission_amount);
+      const revAmount = amount != null ? Number(amount) : full;
+      if (!(revAmount > 0) || revAmount > full) {
+        throw new BadRequestException('Reversal amount must be > 0 and <= commission amount');
+      }
+      const type = revAmount < full ? 'PARTIAL_REVERSAL' : 'REVERSAL';
+      const updated = await this.transitionLedgerAndWallet(
+        client, id, 'REVERSED', actorId, reason, revAmount,
+      );
+      await client.query(
+        `INSERT INTO referral.commission_adjustments
+           (id, original_commission_id, adjustment_type, amount, currency, reason, adjusted_by, created_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, now())`,
+        [id, type, (-revAmount).toString(), row.currency, reason, actorId],
+      );
+      await client.query('COMMIT');
+      return updated;
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  async adjustCommission(id: string, amount: number, reason: string, actorId: string) {
+    const delta = Number(amount);
+    if (Number.isNaN(delta)) throw new BadRequestException('Invalid adjustment amount');
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const cur = await client.query(
+        'SELECT * FROM referral.commission_ledger WHERE id = $1 FOR UPDATE',
+        [id],
+      );
+      if (cur.rows.length === 0) throw new NotFoundException('Commission not found');
+      const row = cur.rows[0];
+      const newAmt = Number(row.commission_amount) + delta;
+      if (newAmt < 0) throw new BadRequestException('Adjustment would make commission negative');
+
+      await client.query(
+        `INSERT INTO referral.commission_adjustments
+           (id, original_commission_id, adjustment_type, amount, currency, reason, adjusted_by, created_at)
+         VALUES (gen_random_uuid(), $1, 'MANUAL_ADJUSTMENT', $2, $3, $4, $5, now())`,
+        [id, delta.toString(), row.currency, reason, actorId],
+      );
+      await client.query(
+        'UPDATE referral.commission_ledger SET commission_amount = $1, updated_at = now() WHERE id = $2',
+        [newAmt.toString(), id],
+      );
+
+      const bucket = bucketForStatus(row.status);
+      await client.query(
+        `INSERT INTO referral.affiliate_wallets (user_id, currency)
+         VALUES ($1, $2) ON CONFLICT (user_id, currency) DO NOTHING`,
+        [row.recipient_user_id, row.currency],
+      );
+      await client.query(
+        `UPDATE referral.affiliate_wallets SET ${bucket} = ${bucket} + $1, updated_at = now()
+         WHERE user_id = $2 AND currency = $3`,
+        [delta, row.recipient_user_id, row.currency],
+      );
+      await client.query('COMMIT');
+      return { id, new_amount: newAmt.toString() };
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** Admin-triggered bulk lifecycle. NOT auto-run. Returns transition counts. */
+  async clearEligible() {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const pend = await client.query(
+        `SELECT id, recipient_user_id, currency, commission_amount
+         FROM referral.commission_ledger
+         WHERE status = 'PENDING' AND created_at < now() - interval '14 days'
+         FOR UPDATE`,
+      );
+      const clearedIds = pend.rows.map((r) => r.id);
+      if (clearedIds.length) {
+        await client.query(
+          `UPDATE referral.commission_ledger
+           SET status = 'CLEARED', cleared_at = now(), updated_at = now()
+           WHERE id = ANY($1)`,
+          [clearedIds],
+        );
+        const agg = new Map<string, number>();
+        for (const r of pend.rows) {
+          const k = `${r.recipient_user_id}|${r.currency}`;
+          agg.set(k, (agg.get(k) ?? 0) + Number(r.commission_amount));
+        }
+        for (const [k, amt] of agg) {
+          const [uid, cur2] = k.split('|');
+          await client.query(
+            `INSERT INTO referral.affiliate_wallets (user_id, currency)
+             VALUES ($1, $2) ON CONFLICT (user_id, currency) DO NOTHING`,
+            [uid, cur2],
+          );
+          await client.query(
+            `UPDATE referral.affiliate_wallets
+             SET pending_balance = pending_balance - $1,
+                 cleared_balance = cleared_balance + $1,
+                 updated_at = now()
+             WHERE user_id = $2 AND currency = $3`,
+            [amt, uid, cur2],
+          );
+        }
+      }
+
+      const clr = await client.query(
+        `SELECT id, recipient_user_id, currency, commission_amount
+         FROM referral.commission_ledger
+         WHERE status = 'CLEARED' AND cleared_at < now() - interval '30 days'
+         FOR UPDATE`,
+      );
+      const availIds = clr.rows.map((r) => r.id);
+      if (availIds.length) {
+        await client.query(
+          `UPDATE referral.commission_ledger
+           SET status = 'AVAILABLE', available_at = now(), updated_at = now()
+           WHERE id = ANY($1)`,
+          [availIds],
+        );
+        const agg = new Map<string, number>();
+        for (const r of clr.rows) {
+          const k = `${r.recipient_user_id}|${r.currency}`;
+          agg.set(k, (agg.get(k) ?? 0) + Number(r.commission_amount));
+        }
+        for (const [k, amt] of agg) {
+          const [uid, cur2] = k.split('|');
+          await client.query(
+            `INSERT INTO referral.affiliate_wallets (user_id, currency)
+             VALUES ($1, $2) ON CONFLICT (user_id, currency) DO NOTHING`,
+            [uid, cur2],
+          );
+          await client.query(
+            `UPDATE referral.affiliate_wallets
+             SET cleared_balance = cleared_balance - $1,
+                 available_balance = available_balance + $1,
+                 updated_at = now()
+             WHERE user_id = $2 AND currency = $3`,
+            [amt, uid, cur2],
+          );
+        }
+      }
+
+      await client.query('COMMIT');
+      return { cleared: clearedIds.length, available: availIds.length };
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** Persist commission rule changes (base_rate, active, effective_until). */
+  async updateRule(
+    ruleId: string,
+    payload: { base_rate?: number; active?: boolean; effective_until?: string },
+  ) {
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+    if (payload.base_rate !== undefined) { sets.push(`base_rate = $${i++}`); params.push(payload.base_rate); }
+    if (payload.active !== undefined) { sets.push(`active = $${i++}`); params.push(payload.active); }
+    if (payload.effective_until !== undefined) { sets.push(`effective_until = $${i++}`); params.push(payload.effective_until); }
+    if (sets.length === 0) throw new BadRequestException('No rule fields to update');
+    params.push(ruleId);
+    const r = await this.pool.query(
+      `UPDATE referral.commission_rules SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
+      params,
+    );
+    if (r.rows.length === 0) throw new NotFoundException('Commission rule not found');
+    return r.rows[0];
+  }
+
+  /** List commission rules (admin). */
+  async listRules() {
+    const r = await this.pool.query(
+      `SELECT id, plan_id, level, base_rate, effective_from, effective_until, active, rule_version
+       FROM referral.commission_rules ORDER BY plan_id, level`,
+    );
+    return r.rows;
   }
 }

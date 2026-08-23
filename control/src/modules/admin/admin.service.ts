@@ -579,6 +579,121 @@ export class AdminService {
     return { services };
   }
 
+  /** Regime diagnostics — distribution of signal regimes plus the latest observed regime. */
+  async getRegimeDiagnostics() {
+    const [regimeStats, latest, sessionStats] = await Promise.all([
+      this.pool.query(`
+        SELECT regime, count(*) as count
+        FROM trading.signals WHERE regime IS NOT NULL
+        GROUP BY regime ORDER BY count DESC`),
+      this.pool.query(`
+        SELECT regime, session, created_at
+        FROM trading.signals
+        WHERE regime IS NOT NULL
+        ORDER BY created_at DESC LIMIT 1`),
+      this.pool.query(`
+        SELECT session, count(*) as count
+        FROM trading.signals WHERE session IS NOT NULL
+        GROUP BY session ORDER BY count DESC`),
+    ]);
+
+    const total = regimeStats.rows.reduce((acc, r) => acc + parseInt(r.count, 10), 0);
+    const current = latest.rows[0]?.regime ?? null;
+
+    return {
+      current_regime: current,
+      current_session: latest.rows[0]?.session ?? null,
+      last_signal_at: latest.rows[0]?.created_at ?? null,
+      by_regime: regimeStats.rows.map((r) => ({
+        regime: r.regime,
+        count: parseInt(r.count, 10),
+        share_pct: total > 0 ? Math.round((parseInt(r.count, 10) / total) * 1000) / 10 : 0,
+      })),
+      by_session: sessionStats.rows.map((r) => ({
+        session: r.session,
+        count: parseInt(r.count, 10),
+      })),
+      total_classified: total,
+    };
+  }
+
+  /** Get the global persistent risk configuration (defaults if no row exists). */
+  async getRiskConfig() {
+    const r = await this.pool.query(
+      `SELECT id, config_key, kill_switches, limits, session_blackout, news_blackout,
+              blackout_reason, updated_by, updated_at
+       FROM control.risk_config WHERE config_key = 'GLOBAL'`,
+    );
+    if (r.rows.length === 0) {
+      return {
+        config_key: 'GLOBAL',
+        kill_switches: {},
+        limits: {},
+        session_blackout: false,
+        news_blackout: false,
+        blackout_reason: null,
+        updated_by: null,
+        updated_at: null,
+      };
+    }
+    return r.rows[0];
+  }
+
+  /** Persist the global risk configuration (UPSERT merging JSONB fields). */
+  async saveRiskConfig(
+    payload: {
+      kill_switches?: Record<string, boolean>;
+      limits?: Record<string, number>;
+      session_blackout?: boolean;
+      news_blackout?: boolean;
+      blackout_reason?: string;
+    },
+    actorId?: string,
+  ) {
+    const killSwitches = payload.kill_switches ?? {};
+    const limits = payload.limits ?? {};
+    const sessionBlackout = payload.session_blackout ?? false;
+    const newsBlackout = payload.news_blackout ?? false;
+    const blackoutReason = payload.blackout_reason ?? null;
+
+    const r = await this.pool.query(
+      `INSERT INTO control.risk_config (config_key, kill_switches, limits, session_blackout, news_blackout, blackout_reason, updated_by, updated_at)
+       VALUES ('GLOBAL',
+               $1::jsonb,
+               $2::jsonb,
+               $3, $4, $5, $6, now())
+       ON CONFLICT (config_key) DO UPDATE SET
+         kill_switches = COALESCE(control.risk_config.kill_switches, '{}'::jsonb) || EXCLUDED.kill_switches,
+         limits        = COALESCE(control.risk_config.limits, '{}'::jsonb) || EXCLUDED.limits,
+         session_blackout = EXCLUDED.session_blackout,
+         news_blackout    = EXCLUDED.news_blackout,
+         blackout_reason  = EXCLUDED.blackout_reason,
+         updated_by = EXCLUDED.updated_by,
+         updated_at = now()
+       RETURNING id, config_key, kill_switches, limits, session_blackout, news_blackout, blackout_reason, updated_by, updated_at`,
+      [
+        JSON.stringify(killSwitches),
+        JSON.stringify(limits),
+        sessionBlackout,
+        newsBlackout,
+        blackoutReason,
+        actorId || null,
+      ],
+    );
+
+    try {
+      await this.pool.query(
+        `INSERT INTO audit.audit_events (id, event_id, actor_type, actor_id, action, entity_type, entity_id, new_value, reason, timestamp)
+         VALUES (gen_random_uuid(), gen_random_uuid(), 'USER', $1, 'RISK_CONFIG_SAVED', 'risk_config', 'GLOBAL', $2, $3, now())`,
+        [actorId || null, JSON.stringify(payload), `Admin saved global risk config`],
+      );
+    } catch {
+      this.logger.warn('Failed to write audit event for risk config save');
+    }
+
+    return r.rows[0];
+  }
+
   /** Trading report statistics - signal counts, strategy breakdown, hourly trends. */
   async getTradingReport() {
     const [

@@ -40,7 +40,7 @@ export default function AdminActivationsPage() {
 
   const revokeMutation = useMutation({
     mutationFn: async (deviceId: string) => {
-      await customInstance.post(`/devices/devices/${deviceId}/revoke`, { reason: "admin_revoke" });
+      await customInstance.post(`/licensing/devices/${deviceId}/revoke`, { reason: "admin_revoke" });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-device-sessions"] });

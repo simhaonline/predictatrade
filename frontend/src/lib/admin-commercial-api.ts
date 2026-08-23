@@ -33,6 +33,42 @@ export async function fetchCommissionAdminSummary() {
   return res.data;
 }
 
+export async function fetchCommissionRules() {
+  const res = await customInstance.get("/commissions/admin/rules");
+  return res.data;
+}
+
+// === Commissions (admin lifecycle mutations) ===
+export async function holdCommission(id: string, reason: string) {
+  const res = await customInstance.post(`/commissions/admin/${id}/hold`, { reason });
+  return res.data;
+}
+
+export async function releaseCommission(id: string, reason: string) {
+  const res = await customInstance.post(`/commissions/admin/${id}/release`, { reason });
+  return res.data;
+}
+
+export async function reverseCommission(id: string, reason: string, amount?: number) {
+  const res = await customInstance.post(`/commissions/admin/${id}/reverse`, { reason, amount });
+  return res.data;
+}
+
+export async function adjustCommission(id: string, amount: number, reason: string) {
+  const res = await customInstance.post(`/commissions/admin/${id}/adjust`, { amount, reason });
+  return res.data;
+}
+
+export async function clearEligibleCommissions() {
+  const res = await customInstance.post(`/commissions/admin/clear-eligible`);
+  return res.data;
+}
+
+export async function saveCommissionRule(id: string, payload: { base_rate?: number; active?: boolean; effective_until?: string }) {
+  const res = await customInstance.put(`/commissions/admin/rules/${id}`, payload);
+  return res.data;
+}
+
 // === Payouts (admin read) ===
 export async function fetchPayoutsAdminAll(page: number, limit: number) {
   const res = await customInstance.get(`/admin/payouts?page=${page}&limit=${limit}`);

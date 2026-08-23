@@ -26,15 +26,15 @@ export default function AdminLicensesPage() {
     },
   });
 
-  // All license management endpoints are pending backend — attempts degrade honestly.
+  // License management endpoints are implemented in the backend (/licensing/licenses/*).
   const mgmtMutation = useMutation({
     mutationFn: async (p: { action: string; fn: () => Promise<unknown> }) => { await p.fn(); },
     onSuccess: (_d, v) => {
       queryClient.invalidateQueries({ queryKey: ["admin-licenses", page] });
-      toast.success(`${v.action} succeeded (verify backend support)`);
+      toast.success(`${v.action} succeeded`);
     },
     onError: (err: unknown, v) => {
-      toast.error(`${v.action}: backend endpoint pending — ${err instanceof Error ? err.message : "not available"}`);
+      toast.error(`${v.action} failed — ${err instanceof Error ? err.message : "not available"}`);
     },
   });
 
@@ -49,7 +49,7 @@ export default function AdminLicensesPage() {
       const rows = Array.isArray(data) ? data : (data.items ?? data.activations ?? []);
       setHistory(rows);
     } catch (err) {
-      toast.error(`Activation history: backend endpoint pending — ${err instanceof Error ? err.message : "not available"}`);
+      toast.error(`Activation history failed — ${err instanceof Error ? err.message : "not available"}`);
       setHistory([]);
     }
   };
@@ -81,7 +81,7 @@ export default function AdminLicensesPage() {
       <div className="rounded-lg border border-pat-warning/30 bg-pat-warning/5 px-4 py-3 flex items-start gap-2">
         <IconAlertTriangle size={16} className="text-pat-warning shrink-0 mt-0.5" />
         <div className="text-xs text-pat-text-secondary">
-          License write/management endpoints (create, suspend, revoke, renew, reset, force-logout, activation-history) are not yet available in the backend. Action buttons below attempt the call and degrade honestly with a &quot;backend endpoint pending&quot; toast. The license list below is live.
+          License management actions (create, suspend, revoke, renew, reset, force-logout, activation-history) are wired to live backend endpoints under <span className="font-mono">/licensing/licenses/*</span>. Each action requires admin authorization and returns a real result from the licensing database. The license list below is live.
         </div>
       </div>
 
@@ -111,7 +111,7 @@ export default function AdminLicensesPage() {
           <div className="bg-pat-bg-surface border border-pat-border rounded-lg shadow-xl max-w-lg w-full mx-4 p-5" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-sm font-semibold text-pat-text-primary mb-3">Activation History — {selected?.user_email}</h3>
             {history.length === 0 ? (
-              <div className="text-xs text-pat-text-muted">No activation history returned (endpoint pending or empty).</div>
+              <div className="text-xs text-pat-text-muted">No activation history returned (empty or license not yet activated).</div>
             ) : (
               <div className="space-y-2 max-h-80 overflow-auto">
                 {history.map((a, i) => (

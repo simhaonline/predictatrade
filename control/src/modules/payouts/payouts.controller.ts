@@ -4,6 +4,9 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../common/guards/admin.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequestPayoutDto } from './dto/request-payout.dto';
+import { RejectPayoutDto } from './dto/reject-payout.dto';
+import { CancelPayoutDto } from './dto/reject-payout.dto';
+import { ReconcilePayoutDto } from './dto/reconcile-payout.dto';
 
 @Controller('payouts')
 @UseGuards(JwtAuthGuard)
@@ -34,4 +37,30 @@ export class PayoutsController {
   @UseGuards(AdminGuard)
   @Post(':id/approve')
   async approve(@Param('id') id: string) { return this.payoutsService.approvePayout(id); }
+
+  @UseGuards(AdminGuard)
+  @Post(':id/reject')
+  async reject(@Param('id') id: string, @Body() dto: RejectPayoutDto) {
+    return this.payoutsService.rejectPayout(id, dto.reason);
+  }
+
+  @UseGuards(AdminGuard)
+  @Post(':id/process')
+  async process(@Param('id') id: string) { return this.payoutsService.processPayout(id); }
+
+  @UseGuards(AdminGuard)
+  @Post(':id/reconcile')
+  async reconcile(@Param('id') id: string, @Body() dto: ReconcilePayoutDto) {
+    return this.payoutsService.reconcilePayout(id, dto);
+  }
+
+  @UseGuards(AdminGuard)
+  @Post(':id/retry')
+  async retry(@Param('id') id: string) { return this.payoutsService.retryPayout(id); }
+
+  @UseGuards(AdminGuard)
+  @Post(':id/cancel')
+  async cancel(@Param('id') id: string, @Body() dto: CancelPayoutDto) {
+    return this.payoutsService.cancelPayout(id, dto.reason);
+  }
 }

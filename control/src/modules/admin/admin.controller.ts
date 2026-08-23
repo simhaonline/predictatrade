@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Param, Query, Body, UseGuards, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Put, Param, Query, Body, UseGuards, BadRequestException } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../common/guards/admin.guard';
@@ -103,6 +103,30 @@ export class AdminController {
   @Get('trading-reports')
   async tradingReports() {
     return this.adminService.getTradingReport();
+  }
+
+  @Get('regime-diagnostics')
+  async regimeDiagnostics() {
+    return this.adminService.getRegimeDiagnostics();
+  }
+
+  @Get('risk-config')
+  async getRiskConfig() {
+    return this.adminService.getRiskConfig();
+  }
+
+  @Put('risk-config')
+  async saveRiskConfig(
+    @Body() body: {
+      kill_switches?: Record<string, boolean>;
+      limits?: Record<string, number>;
+      session_blackout?: boolean;
+      news_blackout?: boolean;
+      blackout_reason?: string;
+    },
+    @CurrentUser('sub') actorId: string,
+  ) {
+    return this.adminService.saveRiskConfig(body, actorId);
   }
 
   @Get('health')

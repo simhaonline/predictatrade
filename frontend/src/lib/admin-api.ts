@@ -138,6 +138,34 @@ export async function approvePayout(payoutId: string) {
   return res.data;
 }
 
+export async function rejectPayout(payoutId: string, reason: string) {
+  const res = await customInstance.post(`/payouts/${payoutId}/reject`, { reason });
+  return res.data;
+}
+
+export async function processPayout(payoutId: string) {
+  const res = await customInstance.post(`/payouts/${payoutId}/process`);
+  return res.data;
+}
+
+export async function reconcilePayout(
+  payoutId: string,
+  payload: { provider_reference?: string; net_amount?: number; fee_amount?: number },
+) {
+  const res = await customInstance.post(`/payouts/${payoutId}/reconcile`, payload);
+  return res.data;
+}
+
+export async function retryPayout(payoutId: string) {
+  const res = await customInstance.post(`/payouts/${payoutId}/retry`);
+  return res.data;
+}
+
+export async function cancelPayout(payoutId: string, reason: string) {
+  const res = await customInstance.post(`/payouts/${payoutId}/cancel`, { reason });
+  return res.data;
+}
+
 // === Licenses ===
 export async function fetchAdminLicenses(page: number, limit: number) {
   const res = await customInstance.get(`/admin/licenses?page=${page}&limit=${limit}`);
@@ -156,7 +184,7 @@ export async function fetchDeviceSessions() {
 }
 
 export async function revokeDevice(deviceId: string, reason: string) {
-  const res = await customInstance.post(`/devices/devices/${deviceId}/revoke`, { reason });
+  const res = await customInstance.post(`/licensing/devices/${deviceId}/revoke`, { reason });
   return res.data;
 }
 
@@ -192,5 +220,34 @@ export async function updateMyProfile(data: { displayName?: string; timezone?: s
 // === Phase 2: Regime Diagnostics (SOW Phase 2 Section 7) ===
 export async function fetchRegimeDiagnostics() {
   const res = await customInstance.get("/admin/regime-diagnostics");
+  return res.data;
+}
+
+// === Risk Config (persistent admin Risk Center) ===
+export interface RiskConfig {
+  id?: string;
+  config_key?: string;
+  kill_switches: Record<string, boolean>;
+  limits: Record<string, number>;
+  session_blackout: boolean;
+  news_blackout: boolean;
+  blackout_reason?: string | null;
+  updated_by?: string | null;
+  updated_at?: string | null;
+}
+
+export async function fetchRiskConfig(): Promise<RiskConfig> {
+  const res = await customInstance.get("/admin/risk-config");
+  return res.data;
+}
+
+export async function saveRiskConfig(payload: {
+  kill_switches?: Record<string, boolean>;
+  limits?: Record<string, number>;
+  session_blackout?: boolean;
+  news_blackout?: boolean;
+  blackout_reason?: string;
+}): Promise<RiskConfig> {
+  const res = await customInstance.put("/admin/risk-config", payload);
   return res.data;
 }

@@ -335,6 +335,228 @@ export class LicensingService {
     return { success: true, updated: result.rows[0] };
   }
 
+  /** Create a license (admin). Body fields validated by caller. */
+  async createLicense(body: {
+    user_id: string;
+    plan_id: string;
+    max_devices?: number;
+    max_mt_accounts?: number;
+    allowed_strategies?: string[];
+    allowed_execution_modes?: string[];
+    valid_days?: number;
+  }) {
+    if (!body.user_id || !body.plan_id) {
+      throw new BadRequestException('user_id and plan_id are required');
+    }
+    const validDays = Number.isFinite(body.valid_days) && body.valid_days! > 0 ? body.valid_days! : 365;
+
+    // Validate user + plan exist (clean errors instead of FK failures)
+    const user = await this.pool.query(`SELECT id FROM iam.users WHERE id = $1`, [body.user_id]);
+    if (user.rows.length === 0) {
+      throw new BadRequestException('user_id does not exist');
+    }
+    const plan = await this.pool.query(`SELECT id FROM control.plans WHERE id = $1`, [body.plan_id]);
+    if (plan.rows.length === 0) {
+      throw new BadRequestException('plan_id does not exist');
+    }
+
+    const licenseKey = `PAT-${crypto.randomUUID().replace(/-/g, '')}`;
+    const id = crypto.randomUUID();
+    const r = await this.pool.query(
+      `INSERT INTO licensing.licenses
+        (id, user_id, plan_id, license_key, status, issued_at, valid_from, expires_at,
+         max_devices, max_mt_accounts, allowed_strategies, allowed_execution_modes)
+       VALUES ($1, $2, $3, $4, 'ACTIVE', now(), now(), now() + ($5 || ' days')::interval,
+               $6, $7, $8, $9)
+       RETURNING *`,
+      [id, body.user_id, body.plan_id, licenseKey,
+       validDays,
+       body.max_devices ?? 1, body.max_mt_accounts ?? 1,
+       JSON.stringify(body.allowed_strategies || []),
+       JSON.stringify(body.allowed_execution_modes || [])],
+    );
+    return r.rows[0];
+  }
+
+  /** Suspend a license (admin). Soft state; reversible. */
+  async suspendLicense(id: string, reason: string) {
+    const r = await this.pool.query(
+      `UPDATE licensing.licenses
+       SET status = 'SUSPENDED', suspended_at = now(), updated_at = now()
+       WHERE id = $1 AND revoked_at IS NULL
+       RETURNING *`,
+      [id],
+    );
+    if (r.rows.length === 0) {
+      const exists = await this.pool.query(`SELECT id FROM licensing.licenses WHERE id = $1`, [id]);
+      if (exists.rows.length === 0) {
+        throw new NotFoundException('License not found');
+      }
+      throw new BadRequestException('License is revoked and cannot be suspended');
+    }
+    await this.logLicenseEvent(id, 'SUSPENDED', reason);
+    return r.rows[0];
+  }
+
+  /** Revoke a license (admin). Terminal. */
+  async revokeLicense(id: string, reason: string) {
+    const r = await this.pool.query(
+      `UPDATE licensing.licenses
+       SET status = 'REVOKED', revoked_at = now(), revocation_reason = $2, updated_at = now()
+       WHERE id = $1
+       RETURNING *`,
+      [id, reason || 'Admin revoked'],
+    );
+    if (r.rows.length === 0) {
+      throw new NotFoundException('License not found');
+    }
+    await this.logLicenseEvent(id, 'REVOKED', reason);
+    return r.rows[0];
+  }
+
+  /** Renew a license (admin). Extends expires_at; reactivates expired/revoked. */
+  async renewLicense(id: string, validDays?: number) {
+    const current = await this.pool.query(
+      `SELECT expires_at FROM licensing.licenses WHERE id = $1`,
+      [id],
+    );
+    if (current.rows.length === 0) {
+      throw new NotFoundException('License not found');
+    }
+    const days = Number.isFinite(validDays) && validDays! > 0 ? validDays! : 365;
+    const base = current.rows[0].expires_at && new Date(current.rows[0].expires_at) > new Date()
+      ? 'expires_at'
+      : 'now()';
+    const r = await this.pool.query(
+      `UPDATE licensing.licenses
+       SET expires_at = GREATEST(${base}, now()) + ($2 || ' days')::interval,
+           status = 'ACTIVE', revoked_at = NULL, revocation_reason = NULL,
+           suspended_at = NULL, updated_at = now()
+       WHERE id = $1
+       RETURNING *`,
+      [id, days],
+    );
+    await this.logLicenseEvent(id, 'RENEWED', `extended ${days} days`);
+    return r.rows[0];
+  }
+
+  /** Reset a license (admin). Soft-deactivate activations and clear device bindings; reversible. */
+  async resetLicense(id: string) {
+    const lic = await this.pool.query(`SELECT id FROM licensing.licenses WHERE id = $1`, [id]);
+    if (lic.rows.length === 0) {
+      throw new NotFoundException('License not found');
+    }
+    // Soft-deactivate activations bound to this license
+    await this.pool.query(
+      `UPDATE licensing.device_activations SET deactivated_at = now() WHERE license_id = $1 AND deactivated_at IS NULL`,
+      [id],
+    );
+    // Clear device bindings (mark for re-registration; do NOT delete)
+    await this.pool.query(
+      `UPDATE licensing.devices
+       SET bound_license_id = NULL, connection_status = 'OFFLINE', updated_at = now()
+       WHERE bound_license_id = $1`,
+      [id],
+    );
+    await this.logLicenseEvent(id, 'RESET', 'activations soft-deactivated, device bindings cleared');
+    return { success: true, license_id: id };
+  }
+
+  /** Force-logout all devices bound to a license (admin). Revokes devices. */
+  async forceLogoutLicense(id: string) {
+    const lic = await this.pool.query(`SELECT id FROM licensing.licenses WHERE id = $1`, [id]);
+    if (lic.rows.length === 0) {
+      throw new NotFoundException('License not found');
+    }
+    const r = await this.pool.query(
+      `UPDATE licensing.devices
+       SET revoked_at = now(), revocation_reason = 'Force logout by admin',
+           connection_status = 'REVOKED', updated_at = now()
+       WHERE bound_license_id = $1 AND deleted_at IS NULL
+       RETURNING id`,
+      [id],
+    );
+    await this.logLicenseEvent(id, 'FORCE_LOGOUT', `revoked ${r.rowCount} device(s)`);
+    return { success: true, license_id: id, devices_revoked: r.rowCount };
+  }
+
+  /** List activations for a license (admin). */
+  async fetchLicenseActivations(id: string) {
+    const lic = await this.pool.query(`SELECT id FROM licensing.licenses WHERE id = $1`, [id]);
+    if (lic.rows.length === 0) {
+      throw new NotFoundException('License not found');
+    }
+    const r = await this.pool.query(
+      `SELECT da.*, d.device_name, d.hostname, d.connection_status, d.revoked_at as device_revoked_at
+       FROM licensing.device_activations da
+       LEFT JOIN licensing.devices d ON da.device_id = d.id
+       WHERE da.license_id = $1
+       ORDER BY da.activated_at DESC`,
+      [id],
+    );
+    return { items: r.rows, total: r.rowCount };
+  }
+
+  /** Reset a device (admin). Clears fingerprint/session, restores SECURE/ONLINE. Reversible, no delete. */
+  async resetDevice(id: string) {
+    const r = await this.pool.query(
+      `UPDATE licensing.devices
+       SET fingerprint_hash = NULL, fingerprint_components = '{}', installation_id = NULL,
+           security_state = 'SECURE', connection_status = 'ONLINE',
+           last_reset_at = now(), updated_at = now()
+       WHERE id = $1 AND deleted_at IS NULL
+       RETURNING *`,
+      [id],
+    );
+    if (r.rows.length === 0) {
+      throw new NotFoundException('Device not found');
+    }
+    return r.rows[0];
+  }
+
+  /** Flag a device for forced upgrade (admin). Windows Agent must upgrade next lease. */
+  async forceUpgradeDevice(id: string) {
+    const r = await this.pool.query(
+      `UPDATE licensing.devices
+       SET force_upgrade_pending = TRUE, updated_at = now()
+       WHERE id = $1 AND deleted_at IS NULL
+       RETURNING *`,
+      [id],
+    );
+    if (r.rows.length === 0) {
+      throw new NotFoundException('Device not found');
+    }
+    return r.rows[0];
+  }
+
+  /** Disable signal delivery for a device (admin). */
+  async disableDeviceSignal(id: string) {
+    const r = await this.pool.query(
+      `UPDATE licensing.devices
+       SET signal_enabled = FALSE, updated_at = now()
+       WHERE id = $1 AND deleted_at IS NULL
+       RETURNING *`,
+      [id],
+    );
+    if (r.rows.length === 0) {
+      throw new NotFoundException('Device not found');
+    }
+    return r.rows[0];
+  }
+
+  /** Append a license lifecycle event (audit). Non-fatal if insert fails. */
+  private async logLicenseEvent(licenseId: string, eventType: string, reason?: string) {
+    try {
+      await this.pool.query(
+        `INSERT INTO licensing.license_events (license_id, event_type, reason, created_at)
+         VALUES ($1, $2, $3, now())`,
+        [licenseId, eventType, reason || null],
+      );
+    } catch {
+      // audit best-effort; never block the primary mutation
+    }
+  }
+
   /** Public license validation by license key (no JWT — used by Windows Agent) */
   async validateLicenseKey(licenseKey: string) {
     const r = await this.pool.query(

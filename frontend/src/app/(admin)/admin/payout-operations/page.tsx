@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
-import { approvePayout } from "@/lib/admin-api";
+import { approvePayout, rejectPayout, processPayout, reconcilePayout, retryPayout, cancelPayout } from "@/lib/admin-api";
 import { exportRowsToCsv } from "@/lib/admin-commercial-api";
 import DataTable, { DataTableColumn } from "@/components/ui/data-table";
 import StatusBadge from "@/components/ui/status-badge";
@@ -24,11 +24,10 @@ interface AdminPayout {
   notes?: string | null;
 }
 
-const PENDING_OPS = ["Reject", "Process", "Reconcile", "Retry", "Cancel"] as const;
-
 export default function AdminPayoutOperationsPage() {
   const [page, setPage] = useState(1);
   const [review, setReview] = useState<AdminPayout | null>(null);
+  const [providerRef, setProviderRef] = useState("");
   const queryClient = useQueryClient();
 
   const payoutsQ = useQuery<{ items: AdminPayout[]; total: number; page: number; limit: number }>({
@@ -44,18 +43,74 @@ export default function AdminPayoutOperationsPage() {
     queryFn: async () => (await customInstance.get("/admin/payouts/stats")).data,
   });
 
+  const invalidatePayouts = () => {
+    queryClient.invalidateQueries({ queryKey: ["admin-payouts-ops"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-payout-stats-ops"] });
+  };
+
   const approveMutation = useMutation({
     mutationFn: async (id: string) => approvePayout(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-payouts-ops"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-payout-stats-ops"] });
+      invalidatePayouts();
       toast.success("Payout approved");
       setReview(null);
     },
     onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Failed to approve payout"),
   });
 
-  const pendingOp = (label: string) => toast.error(`${label} endpoint pending backend — operation unavailable`);
+  const rejectMutation = useMutation({
+    mutationFn: async (id: string) => rejectPayout(id, window.prompt("Rejection reason:") ?? ""),
+    onSuccess: () => {
+      invalidatePayouts();
+      toast.success("Payout rejected");
+      setReview(null);
+    },
+    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Failed to reject payout"),
+  });
+
+  const processMutation = useMutation({
+    mutationFn: async (id: string) => processPayout(id),
+    onSuccess: () => {
+      invalidatePayouts();
+      toast.success("Payout marked processing");
+      setReview(null);
+    },
+    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Failed to process payout"),
+  });
+
+  const reconcileMutation = useMutation({
+    mutationFn: async (id: string) => reconcilePayout(id, { provider_reference: providerRef || undefined }),
+    onSuccess: () => {
+      invalidatePayouts();
+      toast.success("Payout reconciled and paid");
+      setReview(null);
+    },
+    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Failed to reconcile payout"),
+  });
+
+  const retryMutation = useMutation({
+    mutationFn: async (id: string) => retryPayout(id),
+    onSuccess: () => {
+      invalidatePayouts();
+      toast.success("Payout returned to review");
+      setReview(null);
+    },
+    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Failed to retry payout"),
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: async (id: string) => cancelPayout(id, window.prompt("Cancellation reason:") ?? ""),
+    onSuccess: () => {
+      invalidatePayouts();
+      toast.success("Payout cancelled");
+      setReview(null);
+    },
+    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Failed to cancel payout"),
+  });
+
+  const opsBusy =
+    rejectMutation.isPending || processMutation.isPending ||
+    reconcileMutation.isPending || retryMutation.isPending || cancelMutation.isPending;
 
   const cols: DataTableColumn<AdminPayout>[] = [
     { key: "user_email", header: "User", cell: (row) => <span className="text-sm text-pat-text-primary">{row.user_email || "—"}</span> },
@@ -165,13 +220,51 @@ export default function AdminPayoutOperationsPage() {
                 {approveMutation.isPending ? "Approving..." : "Approve Payout"}
               </button>
               <div className="flex flex-wrap gap-2">
-                {PENDING_OPS.map((op) => (
-                  <button key={op} onClick={() => pendingOp(op)} disabled title="Backend endpoint pending" className="flex-1 px-2 py-1.5 text-[11px] rounded-md bg-pat-bg-surface-secondary text-pat-text-muted cursor-not-allowed">
-                    {op}
-                  </button>
-                ))}
+                <button
+                  onClick={() => rejectMutation.mutate(review.id)}
+                  disabled={rejectMutation.isPending || !["REQUESTED", "UNDER_REVIEW", "APPROVED", "PROCESSING"].includes(review.status)}
+                  className="flex-1 px-2 py-1.5 text-[11px] rounded-md bg-pat-danger/10 text-pat-danger hover:bg-pat-danger/20 disabled:opacity-50 transition-colors"
+                >
+                  {rejectMutation.isPending ? "Rejecting..." : "Reject"}
+                </button>
+                <button
+                  onClick={() => processMutation.mutate(review.id)}
+                  disabled={processMutation.isPending || !["APPROVED", "UNDER_REVIEW", "FAILED"].includes(review.status)}
+                  className="flex-1 px-2 py-1.5 text-[11px] rounded-md bg-pat-bg-surface-secondary text-pat-text-primary hover:bg-pat-bg-surface-secondary disabled:opacity-50 transition-colors"
+                >
+                  {processMutation.isPending ? "Processing..." : "Process"}
+                </button>
+                <button
+                  onClick={() => reconcileMutation.mutate(review.id)}
+                  disabled={reconcileMutation.isPending || !["PROCESSING", "APPROVED", "UNDER_REVIEW", "FAILED"].includes(review.status)}
+                  className="flex-1 px-2 py-1.5 text-[11px] rounded-md bg-pat-success/10 text-pat-success hover:bg-pat-success/20 disabled:opacity-50 transition-colors"
+                >
+                  {reconcileMutation.isPending ? "Reconciling..." : "Reconcile"}
+                </button>
+                <button
+                  onClick={() => retryMutation.mutate(review.id)}
+                  disabled={retryMutation.isPending || review.status !== "FAILED"}
+                  className="flex-1 px-2 py-1.5 text-[11px] rounded-md bg-pat-warning/10 text-pat-warning hover:bg-pat-warning/20 disabled:opacity-50 transition-colors"
+                >
+                  {retryMutation.isPending ? "Retrying..." : "Retry"}
+                </button>
+                <button
+                  onClick={() => cancelMutation.mutate(review.id)}
+                  disabled={cancelMutation.isPending || !["REQUESTED", "UNDER_REVIEW", "APPROVED", "PROCESSING"].includes(review.status)}
+                  className="flex-1 px-2 py-1.5 text-[11px] rounded-md bg-pat-bg-surface-secondary text-pat-text-primary hover:bg-pat-bg-surface-secondary disabled:opacity-50 transition-colors"
+                >
+                  {cancelMutation.isPending ? "Cancelling..." : "Cancel"}
+                </button>
               </div>
-              <p className="text-[11px] text-pat-text-muted">Only Approve is wired (<code className="font-mono">POST /payouts/:id/approve</code>). Reject / Process / Reconcile / Retry / Cancel are pending backend endpoints and are disabled.</p>
+              <div className="mt-2">
+                <label className="text-[11px] text-pat-text-muted block mb-1">Provider reference (for Reconcile)</label>
+                <input
+                  value={providerRef}
+                  onChange={(e) => setProviderRef(e.target.value)}
+                  placeholder="e.g. TXN-12345"
+                  className="w-full px-2 py-1.5 text-xs rounded-md bg-pat-bg-surface-secondary border border-pat-border text-pat-text-primary"
+                />
+              </div>
             </div>
 
             <div className="flex justify-end mt-3">

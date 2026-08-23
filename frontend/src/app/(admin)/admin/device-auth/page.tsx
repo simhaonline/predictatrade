@@ -53,7 +53,7 @@ export default function AdminDeviceAuthPage() {
       toast.success(`${v.action} succeeded`);
     },
     onError: (err: unknown, v) => {
-      toast.error(`${v.action}: backend endpoint pending — ${err instanceof Error ? err.message : "not available"}`);
+      toast.error(`${v.action} failed — ${err instanceof Error ? err.message : "not available"}`);
     },
   });
 
@@ -203,7 +203,7 @@ export default function AdminDeviceAuthPage() {
         <div className="rounded-lg border border-pat-warning/30 bg-pat-warning/5 px-4 py-3 flex items-start gap-2 mb-3">
           <IconAlertTriangle size={16} className="text-pat-warning shrink-0 mt-0.5" />
           <div className="text-xs text-pat-text-secondary">
-            Device write actions: <strong>Revoke</strong> is wired via the licensing device-revoke endpoint. <strong>Reset / Force Upgrade / Disable Signal</strong> are pending backend endpoints and degrade honestly with a &quot;backend endpoint pending&quot; toast.
+            Device write actions are wired to live backend endpoints: <strong>Revoke</strong> (via <span className="font-mono">/licensing/devices/:id/revoke</span>), <strong>Reset</strong> (<span className="font-mono">/reset</span>), <strong>Force Upgrade</strong> (<span className="font-mono">/force-upgrade</span>) and <strong>Disable Signal</strong> (<span className="font-mono">/disable-signal</span>). All require admin authorization and mutate real device state without deleting rows.
           </div>
         </div>
 
