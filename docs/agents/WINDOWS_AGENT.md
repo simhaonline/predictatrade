@@ -40,7 +40,7 @@ irm "https://downloads.predictatrade.com/windows-agent/uninstall.ps1?Silent=true
 The installer self-elevates (UAC), downloads files, **interactively collects configuration**
 (notification type + health params; secrets entered via secure prompt; `settings.json` is
 backed up to `settings.json.bak` and ACL-restricted to Administrators + SYSTEM only), removes
-stale prior service names (`agent`, `PredictATradeAgent`, `PredictATradeXAUUSD`), installs the
+stale prior service names (`agent`, `pat-agent`, `PredictATradeXAUUSD`), installs the
 NSSM service with auto-restart (5s on crash), and registers a health-check Scheduled Task.
 
 ## Status & Health Endpoint
@@ -96,7 +96,7 @@ dashboard/logs never expose the full secret.
 |---------|-------|
 | Service won't start / blocked | Ensure binary is Authenticode-signed with a valid cert; check Event Log source `pat-agent`. |
 | `127.0.0.1:9000` not responding | Verify service running (`nssm status pat-agent`); check pipe connection; view dashboard `/status`. |
-| Stale `agent` service present | Installer removes `agent`/`PredictATradeAgent`/`PredictATradeXAUUSD`; if manual, `nssm remove <name> confirm`. |
+| Stale `agent` service present | Installer removes `agent`/`pat-agent`/`PredictATradeXAUUSD`; if manual, `nssm remove <name> confirm`. |
 | Secret exposed | License key is masked everywhere; `settings.json` ACL-restricted to Administrators + SYSTEM. |
 
 ## Deviation Notes (vs `go-prompt.md`)
@@ -108,5 +108,5 @@ dashboard/logs never expose the full secret.
 - **Resource tooling**: `winres` CLI was unavailable; version metadata is embedded via
   `goversioninfo` from `versioninfo.json` + `manifest.xml` (functionally equivalent). `winres.json`
   is retained as the canonical metadata source for operators who prefer `winres`.
-- **Service name**: kept as `pat-agent` per product requirement (overrides the `PredictATradeAgent`
+- **Service name**: kept as `pat-agent` per product requirement (overrides the `pat-agent`
   name referenced in `go-prompt.md`).

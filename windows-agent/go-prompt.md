@@ -1,1207 +1,1560 @@
-# Predict-A-Trade Windows Agent — Windows Termination Fix + Installer
+# Predict-A-Trade XAUUSD — Client Data Collection + Client Dashboard Rebuild
 
-You are working inside the existing **Predict-A-Trade XAUUSD** codebase.
+You are working inside the existing **Predict-A-Trade XAUUSD** production codebase.
 
-The Windows agent is currently being **terminated, quarantined, blocked, or failing to remain running on Windows**.
+The Windows Agent is responsible for connecting the client machine / MT4 / MT5 environment with the Predict-A-Trade backend.
 
-Your task is to diagnose and fix the **Windows agent, build process, Windows Service installation, signing/package metadata, installer, configuration collection, startup, logging, and health monitoring**.
+Your task is to **collect genuine client/device/trading-terminal data from the Windows Agent, persist it correctly in the existing backend/database, and rebuild/update the Client Dashboard pages and menu so each client sees only their own live/account-specific information.**
 
-## PRIMARY OBJECTIVE
+Keep this implementation **focused and minimal**.
 
-Make the existing Predict-A-Trade Windows agent install and run reliably on:
+Do not redesign the entire platform.
 
-* Windows 10 x64
-* Windows 11 x64
-* Windows Server 2019+
-* Windows Server 2022+
-* Windows Server 2025 where compatible
+Do not modify trading/scoring logic unless directly required to expose already-generated information.
 
-Do **not** redesign the application.
-
-Do **not** over-engineer.
-
-Do **not** weaken Windows Defender, SmartScreen, UAC, firewall, or other Windows security controls.
-
-Do **not** create antivirus exclusions or attempt to evade antivirus detection.
-
-Instead, determine **why Windows is terminating the agent and fix the legitimate underlying cause**.
+Do not create duplicate services, duplicate APIs, duplicate database tables, or parallel architecture when equivalent functionality already exists.
 
 ---
 
-# 1. AUDIT EXISTING WINDOWS IMPLEMENTATION FIRST
+# PRIMARY OBJECTIVE
 
-Before changing anything, inspect the existing codebase and identify:
-
-* Windows agent source
-* Go entry point
-* current `build.ps1`
-* installer scripts
-* service-installation scripts
-* `settings.json`
-* logging
-* health endpoint
-* Scheduled Tasks
-* startup logic
-* Windows Service implementation
-* notification implementation
-* version metadata
-* resource files
-* signing implementation
-* update/uninstall implementation
-
-Do not replace working functionality unnecessarily.
-
-Produce a short audit showing:
+Build the complete flow:
 
 ```text
-Existing Windows Agent:
-Existing Build Process:
-Existing Installer:
-Existing Service Mechanism:
-Existing Signing:
-Existing Configuration:
-Existing Logging:
-Likely Termination Cause:
-Changes Required:
+Windows Client Agent
+        ↓
+Authenticated API
+        ↓
+Predict-A-Trade Backend
+        ↓
+TimescaleDB / existing database
+        ↓
+Client-specific authorization
+        ↓
+Client Dashboard
 ```
 
-Then implement only the required fixes.
+Each logged-in client must see information belonging **only to their own account, subscription, license, activated devices and MT4/MT5 terminals**.
+
+Admin users may continue to see all clients through the existing Admin Dashboard.
 
 ---
 
-# 2. INVESTIGATE WHY WINDOWS TERMINATES THE AGENT
+# 1. AUDIT BEFORE MODIFYING
 
-Determine whether termination is caused by:
+First inspect the existing implementation for:
 
-* Windows Defender detection/quarantine
-* Microsoft Defender for Endpoint
-* SmartScreen
-* missing/invalid executable signature
-* unsigned binary reputation
-* malformed PE/resources
-* missing DLL/runtime dependency
-* Windows Service crash
-* service timeout
-* panic/unhandled exception
-* incorrect working directory
-* permissions problem
-* UAC requirement
-* file-access permissions
-* network-access failure
-* port conflict
-* duplicate process
-* application self-termination
-* watchdog
-* Scheduled Task conflict
-* installer problem
-* Windows Firewall
-* architecture mismatch
-* corrupted configuration
-* missing environment variables
-
-Add diagnostic collection where appropriate for:
-
-* Windows Event Viewer
-* Windows Service Control Manager
-* Application log
-* Defender operational log
-* agent logs
-* process exit code
-* service exit code
-
-The goal is to identify the actual reason rather than masking it.
-
----
-
-# 3. WINDOWS BUILD
-
-Create or repair:
-
-```text
-build.ps1
-```
-
-The build should produce a normal production Go executable.
-
-Example output:
-
-```text
-dist/
-  PredictATradeAgent.exe
-```
-
-Requirements:
-
-* `GOOS=windows`
-* `GOARCH=amd64`
-* production build
-* deterministic version injection where practical
-* proper Windows executable metadata
-* no unnecessary packers
-* no UPX
-* no obfuscation
-* no antivirus-evasion techniques
-* no strange runtime extraction
-* no hidden temporary executable generation
-
-Use normal Go compiler/linker options.
-
-Do not aggressively strip information purely to reduce antivirus detection.
-
----
-
-# 4. WINDOWS RESOURCE METADATA
-
-Create or repair:
-
-```text
-winres.json
-```
-
-Embed legitimate application metadata such as:
-
-```text
-CompanyName: Predict-A-Trade
-ProductName: Predict-A-Trade Windows Agent
-FileDescription: Predict-A-Trade Windows Agent
-InternalName: PredictATradeAgent
-OriginalFilename: PredictATradeAgent.exe
-LegalCopyright: Predict-A-Trade
-ProductVersion: <project version>
-FileVersion: <project version>
-```
-
-Use the existing project version automatically where possible.
-
-Include a legitimate application icon if one already exists in the repository.
-
-Do not fabricate Microsoft or third-party publisher information.
-
----
-
-# 5. CODE SIGNING
-
-Support proper Authenticode signing.
-
-Preferred production mechanism:
-
-```text
-signtool.exe
-```
-
-Support certificate configuration through environment variables or installer/build parameters.
-
-Example:
-
-```text
-PAT_SIGN_CERT
-PAT_SIGN_CERT_PASSWORD
-PAT_TIMESTAMP_URL
-```
-
-Use SHA-256.
-
-Use a trusted RFC3161 timestamp service configured by the operator.
-
-Example conceptual signing flow:
-
-```powershell
-signtool sign `
-  /fd SHA256 `
-  /tr $TimestampURL `
-  /td SHA256 `
-  /f $Certificate `
-  /p $CertificatePassword `
-  .\dist\PredictATradeAgent.exe
-```
-
-IMPORTANT:
-
-Do **not** automatically generate a self-signed certificate and present it as production signing.
-
-A self-signed certificate may be supported only for clearly labelled local development/testing.
-
-Production builds must support a legitimate organization code-signing certificate.
-
-After signing, verify with:
-
-```powershell
-Get-AuthenticodeSignature
-```
-
-and/or:
-
-```text
-signtool verify
-```
-
-Build must report:
-
-```text
-Unsigned
-Development Signed
-Production Signed
-```
-
-clearly.
-
----
-
-# 6. INSTALLER
-
-Create or repair a simple Windows installer script:
-
-```text
-install.ps1
-```
-
-The installer must be easy for a normal operator to execute.
-
-It should:
-
-1. verify Administrator privileges if required
-2. locate the agent executable
-3. create the application directory
-4. install/copy required files
-5. collect configuration interactively
-6. validate entered configuration
-7. save configuration
-8. restrict configuration-file permissions
-9. install the Windows Service
-10. start the service
-11. verify the health endpoint
-12. report success/failure clearly
-
-Recommended application directory:
-
-```text
-C:\Program Files\Predict-A-Trade\Agent\
-```
-
-Recommended configuration/data directory:
-
-```text
-C:\ProgramData\Predict-A-Trade\Agent\
-```
-
-Example:
-
-```text
-C:\ProgramData\Predict-A-Trade\Agent\settings.json
-C:\ProgramData\Predict-A-Trade\Agent\logs\
-```
-
-Do not store mutable configuration inside `Program Files` unless the current architecture specifically requires it.
-
----
-
-# 7. INTERACTIVE SETTINGS CONFIGURATION
-
-The installer must ask the user for notification and health-monitoring configuration instead of requiring manual editing of `settings.json`.
-
-Prompt:
-
-```text
-Predict-A-Trade Windows Agent Configuration
-```
-
-Ask:
-
-```text
-Notification Type:
-1. Telegram
-2. Discord
-3. Email
-4. None
-```
-
-Save one of:
-
-```json
-"notification_type": "telegram"
-```
-
-```json
-"notification_type": "discord"
-```
-
-```json
-"notification_type": "email"
-```
-
-or:
-
-```json
-"notification_type": "none"
-```
-
----
-
-## Telegram
-
-If Telegram is selected, ask:
-
-```text
-Telegram Bot Token:
-Telegram Chat ID:
-```
-
-Save:
-
-```json
-{
-  "telegram_bot_token": "...",
-  "telegram_chat_id": "..."
-}
-```
-
-Do not ask Discord or Email questions.
-
----
-
-## Discord
-
-If Discord is selected, ask:
-
-```text
-Discord Webhook URL:
-```
-
-Save:
-
-```json
-{
-  "discord_webhook": "..."
-}
-```
-
-Do not ask Telegram or Email questions.
-
----
-
-## Email
-
-If Email is selected, ask:
-
-```text
-SMTP Server:
-SMTP Port:
-SMTP Username:
-SMTP Password:
-From Email:
-To Email:
-```
-
-Save equivalent existing schema fields:
-
-```json
-{
-  "email_smtp": "...",
-  "email_to": "...",
-  "email_from": "...",
-  "email_port": 587,
-  "email_user": "...",
-  "email_password": "..."
-}
-```
-
-Use the project's existing field names if they already exist.
-
-Do not create duplicate configuration schemas.
-
-Passwords/tokens must not be printed back to the terminal after entry.
-
-Where practical use:
-
-```powershell
-Read-Host -AsSecureString
-```
-
-for secrets.
-
----
-
-# 8. HEALTH CHECK SETTINGS
-
-Ask:
-
-```text
-Health Check URL
-```
-
-Default:
-
-```text
-http://localhost:9000/health
-```
-
-Ask:
-
-```text
-Health Check Timeout Seconds
-```
-
-Default:
-
-```text
-5
-```
-
-Ask:
-
-```text
-Health Check Interval Minutes
-```
-
-Default:
-
-```text
-1
-```
-
-Save:
-
-```json
-{
-  "health_check_url": "http://localhost:9000/health",
-  "health_check_timeout_seconds": 5,
-  "health_check_interval_minutes": 1
-}
-```
-
-Pressing ENTER must accept the default.
-
-Validate:
-
-* URL format
-* timeout > 0
-* interval >= 1
-
----
-
-# 9. SETTINGS.JSON
-
-Generate the final file automatically.
-
-Example:
-
-```json
-{
-  "notification_type": "telegram",
-
-  "telegram_bot_token": "",
-  "telegram_chat_id": "",
-
-  "discord_webhook": "",
-
-  "email_smtp": "",
-  "email_to": "",
-  "email_from": "",
-  "email_port": 587,
-  "email_user": "",
-  "email_password": "",
-
-  "health_check_url": "http://localhost:9000/health",
-  "health_check_timeout_seconds": 5,
-  "health_check_interval_minutes": 1
-}
-```
-
-However:
-
-Preserve any additional existing Predict-A-Trade configuration fields.
-
-Do not overwrite unrelated configuration.
-
-If `settings.json` already exists:
-
-```text
-Existing Predict-A-Trade configuration detected.
-```
-
-Load it and use existing values as defaults.
-
-Ask before replacing changed values.
-
-Create a backup:
-
-```text
-settings.json.bak
-```
-
-before modifying an existing configuration.
-
----
-
-# 10. CONFIGURATION SECURITY
-
-Because the configuration can contain:
-
-* Telegram token
-* Discord webhook
-* SMTP credentials
-
-restrict access to the configuration file.
-
-At minimum ensure normal unrelated Windows users cannot freely read it.
-
-Prefer permissions appropriate for:
-
-* Administrators
-* SYSTEM
-* the actual Predict-A-Trade service account
-
-Do not unnecessarily expose secrets in:
-
-* logs
-* console output
-* Event Viewer
-* command-line arguments
-* process listings
-
-Never log:
-
-```text
-telegram_bot_token
-discord_webhook
-email_password
-```
-
----
-
-# 11. WINDOWS SERVICE
-
-The agent should operate as a proper Windows Service if its architecture is intended to run continuously.
-
-Service name:
-
-```text
-PredictATradeAgent
-```
-
-Display name:
-
-```text
-Predict-A-Trade Windows Agent
-```
-
-Use the existing Windows service library if one is already present.
-
-Do not introduce NSSM or another third-party wrapper unless absolutely necessary.
-
-Configure:
-
-```text
-Startup Type: Automatic
-```
-
-and sensible Windows Service recovery:
-
-```text
-First failure  -> Restart service
-Second failure -> Restart service
-Subsequent     -> Restart service
-```
-
-Avoid restart loops.
-
-The service must:
-
-* start
-* stop
-* restart
-* shutdown cleanly
-
-Example:
-
-```powershell
-Get-Service PredictATradeAgent
-```
-
-should return a normal Windows service.
-
----
-
-# 12. SERVICE WORKING DIRECTORY
-
-Ensure that when Windows starts the service it does **not** assume:
-
-```text
-C:\Windows\System32
-```
-
-as its application directory.
-
-Resolve paths relative to:
-
-* executable directory
-* ProgramData configuration directory
-
-as appropriate.
-
-This is a common Windows service failure and must be checked.
-
----
-
-# 13. AGENT LOGGING
-
-Create useful logs such as:
-
-```text
-C:\ProgramData\Predict-A-Trade\Agent\logs\agent.log
-```
-
-At startup log:
-
-```text
-Predict-A-Trade Windows Agent starting
-Version:
-Build:
-Windows Version:
-Architecture:
-Executable Path:
-Configuration Path:
-Service Mode:
-Health Endpoint:
-```
-
-Do not log secrets.
-
-On shutdown log:
-
-```text
-Agent stopping
-Shutdown reason:
-Exit code:
-```
-
-Add reasonable log rotation if the existing logging system already supports it.
-
-Do not add a complicated logging infrastructure solely for this task.
-
----
-
-# 14. CRASH PROTECTION
-
-Audit the Go agent for:
-
-* unhandled panic
-* nil pointer
-* fatal logging
-* goroutine panic
-* network timeout
-* file access failure
-* temporary API outage
-
-The agent must not unnecessarily terminate because a remote service is temporarily unavailable.
-
-Transient failures should normally:
-
-```text
-log -> retry/backoff -> continue
-```
-
-rather than:
-
-```text
-fatal -> exit
-```
-
-where safe.
-
-Do not hide genuine unrecoverable failures.
-
----
-
-# 15. HEALTH ENDPOINT
-
-Verify:
-
-```text
-http://localhost:9000/health
-```
-
-or the configured endpoint.
-
-Expected successful response should represent:
-
-```text
-HTTP 200
-```
-
-The health system should distinguish between:
-
-```text
-Agent process running
-Agent healthy
-Backend reachable
-MT4/MT5 connection healthy
-```
-
-if those states already exist in the current architecture.
-
-Do not invent fake healthy states.
-
----
-
-# 16. HEALTH MONITOR
-
-If the existing implementation uses a Windows Scheduled Task for health monitoring, repair it rather than inventing another monitoring system.
-
-Use:
-
-```text
-health_check_interval_minutes
-```
-
-Default:
-
-```text
-1 minute
-```
-
-The health monitor should:
-
-1. call configured health URL
-2. wait configured timeout
-3. record failure
-4. optionally trigger configured notification
-5. restart the service only when appropriate
-
-Prevent continuous restart loops.
-
----
-
-# 17. NOTIFICATION TEST DURING INSTALLATION
-
-After configuration, ask:
-
-```text
-Send a test notification now? [Y/n]
-```
-
-If Telegram:
-
-```text
-Predict-A-Trade Windows Agent
-Telegram notification test successful.
-```
-
-If Discord:
-
-```text
-Predict-A-Trade Windows Agent
-Discord notification test successful.
-```
-
-If Email:
-
-```text
-Predict-A-Trade Windows Agent
-Email notification test successful.
-```
-
-Clearly report API/authentication errors without exposing credentials.
-
-Notification failure should not corrupt or roll back an otherwise valid installation unless notification is mandatory in the existing specification.
-
----
-
-# 18. DEFENDER / SMARTSCREEN DIAGNOSTICS
-
-If the executable is being removed or terminated by Windows Security, gather legitimate diagnostic evidence.
-
-Inspect where available:
-
-```text
-Microsoft-Windows-Windows Defender/Operational
-Windows Event Viewer
-Protection History
-Get-MpThreatDetection
-Get-MpComputerStatus
-```
-
-Do not modify Defender configuration automatically.
-
-Do not add exclusion paths.
-
-Do not disable:
-
-```text
-Real-time protection
-Cloud-delivered protection
-Tamper protection
-SmartScreen
-Defender
-```
-
-If Defender identifies the program, report:
-
-```text
-Detection Name:
-Affected File:
-Timestamp:
-Action:
-Executable SHA256:
-Signature Status:
-```
-
-Then determine whether the cause appears to be:
-
-```text
-actual unsafe behavior
-unsigned/untrusted binary
-known false positive
-malformed packaging
-installer behavior
-runtime behavior
-```
-
-Fix the software where possible.
-
-For a suspected false positive, provide the binary hash and evidence needed for the operator to submit it through Microsoft's legitimate false-positive/submission process.
-
----
-
-# 19. REMOVE SUSPICIOUS BUILD BEHAVIOUR
-
-Audit the Windows executable and installer for behavior likely to cause legitimate endpoint-security concern, including unnecessary:
-
-* PowerShell spawning
-* cmd.exe spawning
-* temp executable creation
-* executable self-modification
-* registry persistence
-* scheduled-task persistence beyond required monitoring
-* hidden child processes
-* credential scraping
-* arbitrary process termination
-* downloading and executing binaries
-* shellcode
-* memory injection
-* DLL injection
-* process hollowing
-* obfuscation
-* packing
-* unsigned helper binaries
-
-If such functionality exists without being required by Predict-A-Trade, remove it.
-
-Do not attempt to disguise such behavior.
-
----
-
-# 20. FIREWALL
-
-If the agent only exposes:
-
-```text
-localhost:9000
-```
-
-do not create unnecessary inbound Windows Firewall rules.
-
-If external access is genuinely required, create the narrowest appropriate rule.
-
-Do not globally disable Windows Firewall.
-
----
-
-# 21. INSTALLER VALIDATION
-
-At the end of installation run:
-
-```powershell
-Get-Service PredictATradeAgent
-```
-
-Verify:
-
-```text
-STATUS = Running
-```
-
-Then check:
-
-```text
-configured health URL
-```
-
-Then verify:
-
-```text
-settings.json exists
-logs directory exists
-service exists
-service is running
-health endpoint returns HTTP 200
-binary signature status
-```
-
-Final output should look similar to:
-
-```text
-=================================================
- Predict-A-Trade Windows Agent Installation
-=================================================
-
-Executable:       OK
-Configuration:    OK
-Configuration ACL: OK
-Windows Service:  Installed
-Service Status:   Running
-Startup Type:     Automatic
-Health Check:     HTTP 200
-Notification:     Telegram / Discord / Email / None
-Code Signature:   Valid / Dev / Unsigned
-Logs:             C:\ProgramData\Predict-A-Trade\Agent\logs
-
-Installation completed successfully.
-=================================================
-```
-
----
-
-# 22. UNINSTALLER
-
-Provide a simple:
-
-```text
-uninstall.ps1
-```
-
-It should:
-
-* stop service
-* remove service
-* remove Predict-A-Trade Scheduled Tasks created by this installer
-* remove executable/application files
-
-Ask before deleting:
-
-```text
-settings.json
-logs
-```
-
-Never delete unrelated Predict-A-Trade files.
-
----
-
-# 23. BUILD SCRIPT OUTPUT
-
-`build.ps1` should perform only the necessary operations:
-
-```text
-1. validate Go
-2. determine version
-3. generate Windows resources
-4. compile Windows executable
-5. sign executable when certificate is configured
-6. verify executable signature
-7. calculate SHA256
-8. output build summary
-```
-
-Example:
-
-```text
-Predict-A-Trade Windows Build
-
-Version:          2.x.x
-Architecture:     windows/amd64
-Executable:       dist\PredictATradeAgent.exe
-Resource Metadata: OK
-Signature:        VALID / UNSIGNED
-SHA256:           ...
-Build:            SUCCESS
-```
-
-Do not make the build script install certificates or weaken local Windows security.
-
----
-
-# 24. FILES EXPECTED
-
-Where applicable, leave the project with:
-
-```text
-winres.json
-build.ps1
-install.ps1
-uninstall.ps1
-settings.example.json
-```
-
-Reuse existing equivalents instead of creating duplicates.
-
-Modify Go source only where required to fix:
-
-* Windows service lifecycle
-* configuration loading
-* clean shutdown
-* crash handling
-* health endpoint
-* notification support
-* Windows-specific path behavior
-
----
-
-# 25. DO NOT DAMAGE EXISTING PREDICT-A-TRADE FUNCTIONALITY
-
-This is critical.
-
-Do not modify unrelated:
-
-* XAUUSD signal engine
-* indicators
-* mathematical scoring
-* trade management
-* MT4 logic
-* MT5 logic
-* licensing
+* Windows Agent API calls
 * device activation
-* subscriptions
-* billing
-* referrals
+* license validation
+* device credentials
+* access tokens
+* heartbeat
+* MT4/MT5 connection
+* broker account mapping
+* user/account mapping
+* subscription mapping
+* client dashboard
 * admin dashboard
-* user dashboard
-* database schema
+* frontend routes
+* sidebar/menu
+* TimescaleDB schema
+* Valkey usage
+* WebSocket implementation
+* signal delivery
+* notification system
+* audit/event logs
 
-unless the Windows agent directly depends on something that is broken.
+Determine what already exists.
 
-Preserve existing:
+Do not rebuild existing working systems.
+
+Return a short initial audit:
 
 ```text
-API contracts
-ports
-configuration keys
-service communication
-MT4/MT5 bridge protocol
-licensing protocol
+CLIENT DATA FLOW AUDIT
+
+Windows Agent:
+Authentication:
+License Mapping:
+Device Mapping:
+Trading Account Mapping:
+Heartbeat:
+Database Persistence:
+WebSocket:
+Client Dashboard:
+Subscription Entitlements:
+Existing APIs:
+Missing Wiring:
+Required Changes:
+```
+
+Then implement only the missing wiring/features.
+
+---
+
+# 2. CLIENT IDENTITY MODEL
+
+Every incoming Windows Agent request must resolve to a genuine authenticated client.
+
+Use the existing Predict-A-Trade chain where available:
+
+```text
+User
+↓
+Subscription
+↓
+License
+↓
+Device Activation
+↓
+Device Credential
+↓
+Access Token
+↓
+Windows Agent
+↓
+MT4/MT5 Account
+```
+
+Never trust a client-provided:
+
+```text
+user_id
+client_id
+license_owner
+subscription_tier
+admin flag
+```
+
+without resolving it server-side from the authenticated credential/token.
+
+The backend must establish client ownership.
+
+A client must never be able to request another client's data by changing an ID in a URL or request body.
+
+---
+
+# 3. WINDOWS AGENT DATA COLLECTION
+
+Extend the existing Windows Agent heartbeat/status reporting only as needed.
+
+Collect useful operational information such as:
+
+## Agent
+
+```text
+agent_version
+agent_status
+agent_started_at
+agent_last_seen_at
+agent_uptime_seconds
+machine_name
+os_version
+architecture
+service_status
+health_status
+```
+
+Do not collect unnecessary private client information.
+
+---
+
+# 4. DEVICE INFORMATION
+
+Collect/map the existing activation/device information:
+
+```text
+device_id
+device_name
+device_fingerprint_hash
+device_activation_status
+activated_at
+last_seen_at
+device_credential_status
+```
+
+Do not expose raw hardware identifiers unnecessarily.
+
+Prefer already-generated Predict-A-Trade device identifiers or hashes.
+
+---
+
+# 5. MT4 / MT5 TERMINAL INFORMATION
+
+Where available from the existing bridge/agent collect:
+
+```text
+terminal_type
+terminal_version
+terminal_status
+terminal_connected
+terminal_last_seen
+```
+
+Example:
+
+```text
+MT4
+MT5
+```
+
+If both terminals are available, store them independently.
+
+Do not fabricate connection status.
+
+---
+
+# 6. TRADING ACCOUNT INFORMATION
+
+Collect genuine broker/trading-account information already available through MT4/MT5.
+
+Minimum useful fields:
+
+```text
+trading_account
+broker_name
+broker_server
+account_currency
+account_type
+leverage
+balance
+equity
+margin
+free_margin
+margin_level
+floating_profit_loss
+open_positions_count
+pending_orders_count
+```
+
+If the broker/terminal does not provide a field, return:
+
+```text
+null
+```
+
+Do not guess.
+
+---
+
+# 7. SYMBOL / XAUUSD STATUS
+
+Because this platform focuses on XAUUSD, collect relevant terminal information where already available:
+
+```text
+symbol
+symbol_available
+market_open
+bid
+ask
+spread
+digits
+last_tick_time
+```
+
+Do not turn the Windows Agent into a second market-data engine.
+
+Use the existing MT4/MT5 bridge/feed architecture.
+
+---
+
+# 8. HEARTBEAT PAYLOAD
+
+Reuse the existing heartbeat endpoint where possible.
+
+Do not create multiple heartbeat systems.
+
+Extend the payload only where appropriate.
+
+Conceptual example:
+
+```json
+{
+  "agent_version": "2.x.x",
+  "agent_status": "online",
+  "machine_name": "CLIENT-PC",
+
+  "terminal": {
+    "type": "MT5",
+    "version": "...",
+    "connected": true
+  },
+
+  "account": {
+    "number": "12345678",
+    "broker": "Broker Name",
+    "server": "Broker-Live",
+    "currency": "USD",
+    "balance": 10000.00,
+    "equity": 10025.45,
+    "margin": 125.00,
+    "free_margin": 9900.45,
+    "floating_profit_loss": 25.45
+  },
+
+  "xauusd": {
+    "available": true,
+    "bid": 0,
+    "ask": 0,
+    "spread": 0,
+    "last_tick_time": "..."
+  }
+}
+```
+
+Use the project's actual naming conventions.
+
+Do not unnecessarily break existing API contracts.
+
+---
+
+# 9. HEARTBEAT FREQUENCY
+
+Do not overload the API/database.
+
+Use the current heartbeat interval if already configured.
+
+If none exists, retain the existing Predict-A-Trade design target of approximately:
+
+```text
+15–30 seconds
+```
+
+for lightweight operational heartbeat.
+
+High-frequency market ticks must continue through the existing real-time market-data architecture, not through this general client heartbeat.
+
+---
+
+# 10. DATABASE PERSISTENCE
+
+Audit the existing database first.
+
+Reuse existing tables whenever possible.
+
+Persist the necessary current-state information for:
+
+```text
+client
+license
+device
+terminal
+trading account
+agent heartbeat
+connection health
+```
+
+Avoid creating a new table for every screen.
+
+Prefer normalized relationships such as:
+
+```text
+users
+subscriptions
+licenses
+device_activations
+devices
+trading_accounts
+agent_heartbeats / device_status
+```
+
+using existing schema names if already present.
+
+---
+
+# 11. CURRENT STATE VS HISTORY
+
+Separate current operational state from historical telemetry.
+
+The dashboard needs fast current-state retrieval.
+
+For example:
+
+```text
+last_seen_at
+current balance
+current equity
+connection status
+agent version
+terminal connection
+```
+
+should be easily retrievable without scanning millions of historical rows.
+
+Historical records should only be kept where actually required.
+
+Do not store every heartbeat forever if it provides no business value.
+
+Use existing retention policies if already configured.
+
+---
+
+# 12. CLIENT DASHBOARD AUTHORIZATION
+
+Every Client Dashboard API must enforce:
+
+```text
+authenticated user
++
+resource ownership
++
+subscription entitlement
+```
+
+Never depend only on frontend hiding.
+
+Backend authorization is mandatory.
+
+For example:
+
+```text
+GET /client/devices
+```
+
+must internally restrict the query to the authenticated client's devices.
+
+Not:
+
+```text
+GET /client/devices?user_id=123
+```
+
+where the client can change the user ID.
+
+---
+
+# 13. CLIENT DASHBOARD MENU
+
+Audit the existing user/client sidebar.
+
+Rebuild/update it into a clean professional structure.
+
+Recommended menu:
+
+```text
+Dashboard
+
+Trading
+ ├─ Live Signals
+ ├─ Signal History
+ └─ Performance
+
+My Trading Account
+ ├─ Account Overview
+ ├─ Open Positions
+ └─ Trade History
+
+Predict-A-Trade
+ ├─ Market Status
+ ├─ Indicator Analysis
+ └─ Scoring / Analysis
+
+Connections
+ ├─ Windows Agent
+ ├─ MT4 / MT5
+ └─ Devices
+
+Account
+ ├─ Subscription
+ ├─ License
+ ├─ Billing
+ ├─ Referrals
+ └─ Profile
+
+Support
+ ├─ Notifications
+ ├─ Help / Support
+ └─ System Status
+```
+
+Do not expose admin-only pages.
+
+The exact menu should reuse existing pages/routes where they already exist.
+
+Do not create empty pages just to match this menu.
+
+---
+
+# 14. MAIN CLIENT DASHBOARD
+
+Rebuild the primary Client Dashboard into a useful account-specific overview.
+
+Recommended top status cards:
+
+```text
+Agent Status
+MT4 / MT5 Status
+Trading Account
+Subscription
+License
+XAUUSD Market
+```
+
+Example:
+
+```text
+Agent
+ONLINE
+Last seen 6 sec ago
+
+MT5
+CONNECTED
+Broker-Live
+
+Account
+12345678
+USD
+
+Subscription
+PRO
+Active
+
+License
+ACTIVE
+1 / 1 device
+
+XAUUSD
+MARKET OPEN
+Spread: ...
+```
+
+All values must come from real backend data.
+
+No hardcoded placeholders.
+
+---
+
+# 15. ACCOUNT SUMMARY
+
+Display:
+
+```text
+Balance
+Equity
+Floating P/L
+Margin
+Free Margin
+Margin Level
+Open Positions
+Pending Orders
+```
+
+If the trading account is disconnected:
+
+Do not continue displaying stale data as if it is live.
+
+Clearly indicate:
+
+```text
+Last updated: <time>
+Terminal disconnected
 ```
 
 ---
 
-# 26. TEST
+# 16. CONNECTION STATUS PANEL
 
-Run all applicable existing tests.
-
-Also test:
-
-### Build
+Create a compact connection flow:
 
 ```text
-Windows binary builds successfully.
+Predict-A-Trade Cloud
+        ↕
+Windows Agent
+        ↕
+MT4 / MT5
+        ↕
+Broker
 ```
 
-### Installation
+Each should show:
 
 ```text
-Fresh installation works.
+CONNECTED
+DEGRADED
+DISCONNECTED
+UNKNOWN
 ```
 
-### Upgrade
+based on genuine state.
+
+Do not show fake green indicators.
+
+---
+
+# 17. WINDOWS AGENT PAGE
+
+Create/update:
 
 ```text
-Existing settings are preserved.
+/client/agent
 ```
 
-### Service
+or the project's existing equivalent.
+
+Show:
 
 ```text
-start
-stop
-restart
-automatic startup
+Agent Status
+Agent Version
+Installed Device
+Operating System
+Last Heartbeat
+Uptime
+Health Status
 ```
 
-### Configuration
+Optionally show:
 
-Test:
+```text
+Update Available
+```
+
+only if the project already has agent version/update infrastructure.
+
+Do not build an update platform solely for this task.
+
+---
+
+# 18. MT4 / MT5 PAGE
+
+Create/update the existing terminal page.
+
+Show:
+
+```text
+Terminal Type
+Connection Status
+Trading Account
+Broker
+Broker Server
+Account Type
+Currency
+Leverage
+Last Connected
+Last Data Received
+```
+
+If multiple terminals are activated, display each separately.
+
+---
+
+# 19. DEVICES PAGE
+
+Display only devices belonging to the logged-in client.
+
+Fields:
+
+```text
+Device Name
+Device ID
+Agent Version
+Terminal
+Activation Date
+Last Seen
+Status
+```
+
+Actions should depend on existing licensing rules.
+
+Possible action:
+
+```text
+Deactivate Device
+```
+
+only if the existing backend already allows it or it can be safely added to the current activation architecture.
+
+Do not permit clients to bypass device limits.
+
+---
+
+# 20. SIGNALS PAGE
+
+Use existing Predict-A-Trade signal data.
+
+Do not rewrite the signal engine.
+
+Client should see signals according to their subscription.
+
+Recommended tabs where already supported:
+
+```text
+All
+Standard Scalping
+Ultra Scalping
+Standard Swing
+Trend Swing
+```
+
+For each signal show existing fields such as:
+
+```text
+Signal Reference
+Strategy
+Action
+Entry
+Stop Loss
+TP1
+TP2
+TP3
+Score
+Confidence
+Risk
+Risk/Reward
+Timeframe
+Session
+Regime
+Status
+Generated At
+Expiry
+```
+
+Display only genuine stored/generated values.
+
+---
+
+# 21. SIGNAL ENTITLEMENTS
+
+This is mandatory.
+
+A client must only receive/view signals allowed by their subscription.
+
+Enforce in backend APIs, WebSocket subscriptions and frontend.
+
+Example concept:
+
+```text
+FREE
+limited monthly signals
+
+BASIC
+larger signal allowance
+selected strategies
+
+PRO
+higher limits
+additional strategies/features
+
+PREMIUM / ENTERPRISE
+full entitled functionality
+```
+
+Use the actual subscription definitions from the existing database/admin configuration.
+
+Do not hardcode plan limits in multiple places.
+
+Plan rules should come from the existing subscription/entitlement configuration.
+
+---
+
+# 22. FREE USER RESTRICTIONS
+
+Free users must not automatically see all generated signals.
+
+If the existing plan configuration limits free clients monthly, enforce that exact entitlement.
+
+Possible restricted UI:
+
+```text
+Signal unavailable on your current plan.
+Upgrade to access this signal.
+```
+
+But do not leak:
+
+```text
+entry
+SL
+TP
+direction
+confidence
+full reasoning
+```
+
+for signals the client is not entitled to view.
+
+The backend must remove restricted fields.
+
+Do not merely blur them with CSS while sending the data to the browser.
+
+---
+
+# 23. CLIENT PERFORMANCE
+
+Where existing execution/trade result data is genuinely available, show:
+
+```text
+Total Trades
+Wins
+Losses
+Win Rate
+Net P/L
+Average R:R
+Best Trade
+Worst Trade
+```
+
+Do not calculate fake strategy performance from signals unless the existing platform already has validated signal outcome tracking.
+
+Clearly distinguish:
+
+```text
+Signal Performance
+```
+
+from:
+
+```text
+Client Account Performance
+```
+
+They are not automatically the same.
+
+---
+
+# 24. OPEN POSITIONS
+
+If execution data is available from the client's terminal, show current positions:
+
+```text
+Ticket
+Symbol
+Buy / Sell
+Lot Size
+Entry
+Current Price
+SL
+TP
+Floating P/L
+Open Time
+```
+
+This page must be read-only unless Predict-A-Trade already explicitly supports remote trade management.
+
+Do not add remote order execution as part of this task.
+
+---
+
+# 25. TRADE HISTORY
+
+Where available from MT4/MT5/backend show:
+
+```text
+Ticket
+Symbol
+Direction
+Volume
+Open Price
+Close Price
+SL
+TP
+Opened At
+Closed At
+Profit/Loss
+Swap
+Commission
+```
+
+Use pagination.
+
+Do not load unlimited history into one request.
+
+---
+
+# 26. SUBSCRIPTION PAGE
+
+Use the existing billing/subscription architecture.
+
+Display:
+
+```text
+Current Plan
+Subscription Status
+Start Date
+Renewal Date
+Billing Cycle
+Signal Allowance
+Signals Used
+Signals Remaining
+Device Limit
+Active Devices
+Available Features
+```
+
+Do not duplicate subscription calculations in frontend JavaScript.
+
+Backend remains source of truth.
+
+---
+
+# 27. LICENSE PAGE
+
+Display client-owned licensing information:
+
+```text
+License Status
+License Reference
+Activated Devices
+Device Limit
+Issued Date
+Expiry Date
+Last Validation
+```
+
+Do not display sensitive license secrets or cryptographic material.
+
+Mask license keys if they must be shown.
+
+Example:
+
+```text
+PAT-XXXX-XXXX-7821
+```
+
+---
+
+# 28. REFERRALS
+
+Reuse the existing Predict-A-Trade referral system.
+
+Display:
+
+```text
+Referral Code
+Referral Link
+Total Referrals
+Active Referrals
+Pending Commission
+Approved Commission
+Paid Commission
+```
+
+Do not recalculate commission differently from the backend referral commission engine.
+
+The dashboard must display backend-calculated values.
+
+---
+
+# 29. BILLING
+
+Reuse current billing APIs.
+
+Display:
+
+```text
+Plan
+Amount
+Billing Period
+Payment Status
+Invoice
+Payment Date
+Next Billing Date
+```
+
+Never expose another client's billing information.
+
+---
+
+# 30. NOTIFICATIONS PAGE
+
+Allow the client to view/edit only supported notification preferences.
+
+Potential options:
+
+```text
+Signal Notifications
+Agent Offline
+MT4/MT5 Disconnected
+Subscription Expiry
+License Expiry
+Billing
+Security
+```
+
+Delivery channels may include:
 
 ```text
 Telegram
 Discord
 Email
-None
 ```
 
-### Health
+only where the backend already supports them.
 
-Test:
+Do not expose secrets after they are saved.
+
+Display:
 
 ```text
-healthy endpoint
-timeout
-connection refused
-HTTP 500
+Configured
 ```
 
-### Failure
+rather than the raw token/password.
 
-Temporarily simulate backend unavailability and confirm the agent does not unnecessarily crash.
+---
 
-### Security
+# 31. REAL-TIME DASHBOARD UPDATES
 
-Confirm secrets are not visible in:
+Use the existing WebSocket infrastructure where available.
+
+Do not implement aggressive browser polling if WebSockets already exist.
+
+Real-time candidates:
 
 ```text
-logs
-command-line arguments
-console
+Agent online/offline
+MT4/MT5 status
+Account balance/equity
+Open positions
+Market status
+New signals
+Signal status changes
+```
+
+Use REST APIs for normal static/history/account queries.
+
+Use WebSocket for live state.
+
+---
+
+# 32. ONLINE / OFFLINE RULE
+
+Use deterministic heartbeat status.
+
+Example:
+
+```text
+ONLINE
+heartbeat within expected window
+
+DEGRADED
+heartbeat delayed
+
+OFFLINE
+heartbeat exceeds timeout
+```
+
+Reuse existing timing rules where present.
+
+Do not mark a client online simply because they logged into the web dashboard.
+
+Agent connectivity and dashboard login are separate states.
+
+---
+
+# 33. TIME ZONES
+
+Store timestamps in UTC in backend/database.
+
+Display timestamps according to the client's configured timezone where supported.
+
+Show timezone clearly for signal times where confusion is possible.
+
+Do not mix:
+
+```text
+UTC
+server local time
+broker time
+browser time
+```
+
+without explicit conversion.
+
+---
+
+# 34. API DESIGN
+
+Prefer existing endpoints.
+
+Where missing, add a minimal client-specific API structure such as:
+
+```text
+GET /api/client/dashboard
+GET /api/client/agent
+GET /api/client/devices
+GET /api/client/terminal
+GET /api/client/account
+GET /api/client/positions
+GET /api/client/trades
+GET /api/client/signals
+GET /api/client/subscription
+GET /api/client/license
+GET /api/client/referrals
+GET /api/client/notifications
+```
+
+Do not require client ID in these endpoints.
+
+Resolve client identity from authentication.
+
+---
+
+# 35. DASHBOARD AGGREGATION ENDPOINT
+
+Avoid making the homepage issue 20 separate requests.
+
+Where appropriate create/reuse:
+
+```text
+GET /api/client/dashboard
+```
+
+returning a concise dashboard summary:
+
+```json
+{
+  "agent": {},
+  "terminal": {},
+  "account": {},
+  "subscription": {},
+  "license": {},
+  "market": {},
+  "signal_summary": {}
+}
+```
+
+Do not return huge historical datasets through this endpoint.
+
+---
+
+# 36. FRONTEND LOADING STATES
+
+Every client page must handle:
+
+```text
+Loading
+No Data
+Disconnected
+Permission Restricted
+API Error
+Healthy
+```
+
+Do not show:
+
+```text
+undefined
+NaN
+0
+```
+
+when the genuine state is unknown.
+
+Examples:
+
+```text
+Not Connected
+No trading account detected
+Waiting for Windows Agent
+No signals available under current plan
 ```
 
 ---
 
-# 27. FINAL REPORT
+# 37. FIRST-TIME CLIENT EXPERIENCE
 
-When complete, return:
+If a new client has:
 
 ```text
-PREDICT-A-TRADE WINDOWS AGENT — FINAL STATUS
+subscription
++
+license
+```
 
-Root Cause:
+but no Windows Agent/device connection, show a useful onboarding state.
+
+Example:
+
+```text
+Connect Your Trading Account
+
+1. Download/install Predict-A-Trade Windows Agent
+2. Activate your license
+3. Connect MT4/MT5
+4. Wait for connection verification
+```
+
+Once connected, automatically replace onboarding cards with live information.
+
+Do not require the client to manually refresh when WebSocket/live state already supports updates.
+
+---
+
+# 38. SUBSCRIPTION-BASED MENU ACCESS
+
+Client sidebar/menu must reflect entitlement.
+
+But backend authorization remains mandatory.
+
+Example:
+
+```text
+Available feature
+→ normal menu item
+
+Locked feature
+→ lock icon / upgrade indicator
+
+Admin feature
+→ completely hidden
+```
+
+Do not expose admin routes to clients.
+
+---
+
+# 39. ADMIN CONTROL
+
+Do not remove existing admin control.
+
+Admin should be able to manage:
+
+```text
+plan limits
+signal allowances
+feature access
+device limits
+license status
+subscription status
+client state
+```
+
+Client Dashboard must consume those backend policies dynamically.
+
+Do not hardcode plan rules into the frontend.
+
+---
+
+# 40. CLIENT DATA ISOLATION TESTS
+
+Test with at least:
+
+```text
+Client A
+Client B
+Admin
+```
+
+Verify:
+
+```text
+Client A cannot access Client B data.
+Client B cannot access Client A data.
+Client cannot access Admin APIs.
+Admin retains authorized visibility.
+```
+
+Test direct API manipulation.
+
+Do not rely only on UI testing.
+
+---
+
+# 41. SECURITY
+
+Ensure:
+
+* authenticated API calls
+* ownership checks
+* entitlement checks
+* rate limiting where existing
+* no secrets returned
+* no raw device credentials
+* no token leakage
+* no passwords in logs
+* no SQL/client-ID manipulation
+* no IDOR vulnerabilities
+
+Do not expose entire backend database objects directly.
+
+Use sanitized API responses.
+
+---
+
+# 42. DO NOT TOUCH TRADING LOGIC
+
+Do not modify:
+
+```text
+MasterScoring
+DynamicRegime
+EnterpriseRegime
+XAU2
+UMS2
+Vision AI
+Astro/KP
+Macro
+COT
+DXY
+Session Overlap
+indicator calculations
+mathematical scoring
+signal thresholds
+trade management
+risk management
+```
+
+unless an existing output field cannot be connected to the dashboard due to a genuine wiring bug.
+
+This task is:
+
+```text
+DATA COLLECTION
++
+BACKEND WIRING
++
+CLIENT AUTHORIZATION
++
+CLIENT DASHBOARD
+```
+
+not a signal-engine redesign.
+
+---
+
+# 43. DO NOT CREATE FAKE DATA
+
+Remove dashboard mock data wherever the real backend equivalent exists.
+
+Do not display fake:
+
+```text
+balances
+signals
+win rates
+connection statuses
+subscription data
+agent statuses
+prices
+performance
+```
+
+If data is unavailable:
+
+display:
+
+```text
+Unavailable
+Waiting for Agent
+Not Connected
+No Data
+```
+
+instead.
+
+---
+
+# 44. RESPONSIVE UI
+
+Preserve the existing Predict-A-Trade design system.
+
+Support:
+
+```text
+Desktop
+Laptop
+Tablet
+Mobile
+```
+
+Do not change branding unnecessarily.
+
+Preserve:
+
+```text
+light/dark/system theme
+existing logos
+existing colors
+existing component library
+```
+
+unless fixing a clear UI defect.
+
+---
+
+# 45. FINAL CLIENT MENU TARGET
+
+After implementation the Client Dashboard should approximately provide:
+
+```text
+OVERVIEW
+Dashboard
+
+TRADING
+Live Signals
+Signal History
+Performance
+
+MY TRADING ACCOUNT
+Account Overview
+Open Positions
+Trade History
+
+ANALYSIS
+Market Status
+Indicator Analysis
+Scoring / Analysis
+
+CONNECTIONS
+Windows Agent
+MT4 / MT5
+Devices
+
+ACCOUNT
+Subscription
+License
+Billing
+Referrals
+Profile
+
+SETTINGS
+Notifications
+Support
+System Status
+```
+
+Only retain entries supported by actual working functionality.
+
+Do not ship empty placeholder routes.
+
+---
+
+# 46. VALIDATION
+
+Run appropriate backend/frontend tests.
+
+Verify:
+
+```text
+Agent heartbeat reaches backend
+Client identity resolves correctly
+Device resolves correctly
+Trading account resolves correctly
+Data persists correctly
+Client dashboard reads correct account
+WebSocket updates function
+Subscription limits function
+Signal restrictions function
+Device limits function
+Admin remains unaffected
+Client isolation passes
+No mock data remains where live data exists
+```
+
+---
+
+# 47. FINAL REPORT
+
+Return:
+
+```text
+PREDICT-A-TRADE CLIENT DASHBOARD — FINAL STATUS
+
+Windows Agent Data Collection:
+PASS / FAIL
+
+Heartbeat:
+PASS / FAIL
+
+Client Mapping:
+PASS / FAIL
+
+License Mapping:
+PASS / FAIL
+
+Device Mapping:
+PASS / FAIL
+
+MT4/MT5 Mapping:
+PASS / FAIL
+
+Trading Account Data:
+PASS / FAIL
+
+Database Persistence:
+PASS / FAIL
+
+Dashboard API:
+PASS / FAIL
+
+WebSocket:
+PASS / FAIL
+
+Main Dashboard:
+PASS / FAIL
+
+Signals:
+PASS / FAIL
+
+Signal Entitlements:
+PASS / FAIL
+
+Account Overview:
+PASS / FAIL
+
+Open Positions:
+PASS / FAIL
+
+Trade History:
+PASS / FAIL
+
+Windows Agent Page:
+PASS / FAIL
+
+MT4/MT5 Page:
+PASS / FAIL
+
+Devices Page:
+PASS / FAIL
+
+Subscription:
+PASS / FAIL
+
+License:
+PASS / FAIL
+
+Billing:
+PASS / FAIL
+
+Referrals:
+PASS / FAIL
+
+Notifications:
+PASS / FAIL
+
+Client Data Isolation:
+PASS / FAIL
+
+Admin Isolation:
+PASS / FAIL
+
 Files Modified:
 Files Added:
+Database Changes:
+API Changes:
+Frontend Routes Changed:
 
-Windows Build: PASS / FAIL
-Windows Service: PASS / FAIL
-Installer: PASS / FAIL
-Configuration Wizard: PASS / FAIL
-Telegram: PASS / FAIL / NOT TESTED
-Discord: PASS / FAIL / NOT TESTED
-Email: PASS / FAIL / NOT TESTED
-Health Monitor: PASS / FAIL
-Automatic Startup: PASS / FAIL
-Logging: PASS / FAIL
-Crash Recovery: PASS / FAIL
-Authenticode Signing Support: PASS / FAIL
-Signature Verification: PASS / FAIL
-Defender Diagnostics: PASS / FAIL
-Secrets Protection: PASS / FAIL
-Uninstaller: PASS / FAIL
+Remaining External Dependencies:
 
-Windows Defender Evidence:
-SmartScreen Evidence:
-Service Exit/Error Evidence:
-
-Remaining External Requirements:
 1.
 2.
+3.
 
 FINAL DECISION:
 GO / CONDITIONAL GO / NO-GO
 ```
 
-## MOST IMPORTANT RULE
+# MOST IMPORTANT RULES
 
-The objective is **not to bypass Windows Defender**.
-
-The objective is to make Predict-A-Trade behave like a legitimate, correctly packaged, correctly signed, stable Windows application and to identify the exact reason Windows currently terminates it.
-
-Keep the solution focused, maintainable, and production-ready.
-
-Do not redesign the platform.
-Do not over-engineer.
-Fix the Windows agent and installer only.
+1. **Collect genuine client/agent/MT4/MT5 information and display it to the correct authenticated client.**
+2. **Every client sees only their own information.**
+3. **Subscription and license restrictions must be enforced in the backend, not merely hidden in the frontend.**
+4. **Admin retains complete control through the existing Admin Dashboard.**
+5. **Reuse existing Predict-A-Trade architecture before creating anything new.**
+6. **Do not create fake dashboard data.**
+7. **Do not modify signal mathematics or trading logic unnecessarily.**
+8. **Do not over-engineer.**
+9. **Fix wiring first, then UI.**
+10. **Leave the existing working Predict-A-Trade platform intact.**

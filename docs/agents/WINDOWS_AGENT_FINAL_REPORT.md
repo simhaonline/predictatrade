@@ -11,7 +11,7 @@ likely causes of silent termination / "not working" were:
   3. No embedded Windows version metadata / manifest → unsigned binary with no CompanyName
      triggers SmartScreen/Defender blocking. (Now fixed: goversioninfo embeds version info
      + pat-agent manifest; build.ps1 supports Authenticode signing.)
-  4. Service-name confusion left stale "agent"/"PredictATradeAgent"/"PredictATradeXAUUSD"
+  4. Service-name confusion left stale "agent"/"pat-agent"/"PredictATradeXAUUSD"
      services overlapping the pipe. (Now removed on install/uninstall; canonical name pat-agent.)
 The exact Defender trigger (if any) is still UNPROVEN and requires signed-binary validation
 on Windows.

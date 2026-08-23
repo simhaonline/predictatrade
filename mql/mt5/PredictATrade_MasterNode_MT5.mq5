@@ -141,7 +141,7 @@ int OnInit()
     {
         g_connection = "OFFLINE";
         Print("WARNING: Windows Agent not detected.");
-        Print("Ensure PredictATradeAgent.exe is running on this machine.");
+        Print("Ensure pat-agent.exe is running on this machine.");
         Print("Agent writes heartbeat to FILE_COMMON folder.");
     }
 
