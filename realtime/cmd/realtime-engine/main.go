@@ -939,7 +939,7 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		row := persister.GetDB().QueryRowContext(ctx, `
-			SELECT l.status, p.code, l.max_devices, l.max_mt_accounts, l.allowed_strategies::text
+			SELECT l.status, p.code, l.max_devices, l.max_mt_accounts, l.allowed_strategies::text, l.user_id
 			FROM licensing.licenses l
 			LEFT JOIN control.plans p ON l.plan_id = p.id
 			WHERE l.license_key = $1 AND l.revoked_at IS NULL
@@ -948,7 +948,8 @@ func main() {
 		var status, planCode string
 		var maxDev, maxMT int
 		var strategiesStr string
-		if err := row.Scan(&status, &planCode, &maxDev, &maxMT, &strategiesStr); err != nil {
+		var ownerUserID string
+		if err := row.Scan(&status, &planCode, &maxDev, &maxMT, &strategiesStr, &ownerUserID); err != nil {
 			observability.Log.Warn().Str("license_key", licenseKey).Msg("License key not found in DB")
 			result.Error = "license key not found"
 			agentHub.SendToAgent(agentID, "LICENSE_STATUS", result)
@@ -966,6 +967,18 @@ func main() {
 		}
 		if status == "ACTIVE" {
 			result.Valid = true
+			// Bind agent WS id -> owning user so trade_results (account_id =
+			// 'agent:'+agentID) can be attributed per-subscriber for reports.
+			if ownerUserID != "" {
+				if _, err := persister.GetDB().ExecContext(ctx, `
+					INSERT INTO trading.agent_user_bindings (agent_id, license_key, user_id)
+					VALUES ($1, $2, $3)
+					ON CONFLICT (agent_id) DO UPDATE
+					SET last_seen_at = now(), license_key = EXCLUDED.license_key, user_id = EXCLUDED.user_id
+				`, agentID, licenseKey, ownerUserID); err != nil {
+					observability.Log.Warn().Err(err).Str("agent_id", agentID).Msg("agent_user_bindings upsert failed")
+				}
+			}
 			observability.Log.Info().Str("license_key", licenseKey).Str("plan", planCode).Msg("License validated — ACTIVE")
 		} else {
 			result.Error = "license is " + status

@@ -16,7 +16,7 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
   --bg:#0a0e17;--panel:#0f1520;--panel2:#131a28;--border:#1e2738;--border2:#2a3548;
-  --text:#c5cad6;--text-dim:#6b7384;--text-bright:#e8eaf0;
+  --text:#c5cad6;--text-dim:#9ba3b4;--text-bright:#e8eaf0;
   --green:#00c853;--green-dim:#00a844;--green-bg:rgba(0,200,83,.08);
   --red:#ff1744;--red-dim:#c01030;--red-bg:rgba(255,23,68,.08);
   --blue:#2962ff;--blue-dim:#1e4dd8;--blue-bg:rgba(41,98,255,.08);
@@ -240,7 +240,7 @@ body.light .dom-table{border-left:1px solid #d5dce5}
 body.light .dom-row{color:#5b677a}
 body.light .dom-row.ask{color:#b4232d}
 body.light .dom-row.bid{color:#0b7a4c}
-body.light .dom-spread{background:#f0f2f6;color:#8691a3;border-color:#d5dce5}
+body.light .dom-spread{background:#f0f2f6;color:#a0a8b8;border-color:#d5dce5}
 body.light .spark-col{border-right:1px solid #d5dce5;background:#ffffff}
 body.light .active-mkts{border-left:1px solid #d5dce5;background:#ffffff}
 body.light .net-area{background:#ffffff}
@@ -274,7 +274,7 @@ body.light .regime-RANGE{background:#e0eaff;color:#1d4ed8}
 body.light .regime-MR{background:#e0eaff;color:#1d4ed8}
 body.light .regime-HV{background:#fff0d6;color:#b45309}
 body.light .regime-BK{background:#fbe3e5;color:#b4232d}
-body.light .regime-WAIT{background:#f0f2f6;color:#8691a3}
+body.light .regime-WAIT{background:#f0f2f6;color:#a0a8b8}
 body.light .big-price{color:#172033}
 body.light .kpi .v{color:#172033}
 body.light .kpi .v.g{color:#0b7a4c}
@@ -285,7 +285,7 @@ body.light .ind-name{color:#5b677a}
 body.light .ind-val{color:#172033}
 body.light .ind-bar{background:#e0e4ec}
 body.light .eng-name{color:#172033}
-body.light .eng-stats{color:#8691a3}
+body.light .eng-stats{color:#a0a8b8}
 body.light .eng-tf{color:#1d4ed8}
 body.light .eng-bar{background:#e0e4ec}
 body.light .rc-tf{color:#172033}
@@ -299,7 +299,7 @@ body.light .agent-card.warn{border-left-color:#d97706}
 body.light .agent-name{color:#172033}
 body.light .agent-status{color:#5b677a}
 body.light .si-name{color:#172033}
-body.light .si-sub{color:#8691a3}
+body.light .si-sub{color:#a0a8b8}
 body.light .spark-val{color:#172033}
 body.light .am-label{color:#172033}
 body.light .am-head{color:#5b677a}
@@ -307,7 +307,7 @@ body.light .cm-name{color:#5b677a}
 body.light .cm-dir{color:#172033}
 body.light .cm-impact{background:#e0e4ec}
 body.light .core-badge{background:rgba(255,255,255,.9);border-color:#d5dce5}
-body.light .cb-lbl{color:#8691a3}
+body.light .cb-lbl{color:#a0a8b8}
 body.light .cb-val{color:#172033}
 body.light .cb-bar{background:#e0e4ec}
 body.light .pl-sym{color:#172033}
@@ -507,7 +507,7 @@ const INDICATOR_DEFS=[
   {n:'StochRSI',f:'stoch_rsi',c:'#7c3aed',min:0,max:1},{n:'StochRSI K',f:'stoch_rsi_k',c:'#2962ff',min:0,max:1},
   {n:'StochRSI D',f:'stoch_rsi_d',c:'#ffa726',min:0,max:1},
   {n:'CCI',f:'cci',c:'#7c3aed',min:-300,max:300},{n:'ATR',f:'atr',c:'#ffa726'},
-  {n:'BB Upper',f:'boll_upper',c:'#ff1744'},{n:'BB Mid',f:'boll_middle',c:'#6b7384'},
+  {n:'BB Upper',f:'boll_upper',c:'#ff1744'},{n:'BB Mid',f:'boll_middle',c:'#9ba3b4'},
   {n:'BB Lower',f:'boll_lower',c:'#00c853'},{n:'BB Width',f:'boll_width',c:'#ffa726'},
   {n:'OBV',f:'obv',c:'#00bcd4'},{n:'OBV Z',f:'obv_z_score',c:'#ffa726',min:-3,max:3},
   {n:'SAR',f:'psar',c:'#ffa726'},{n:'SAR Long',f:'psar_long',c:'#00c853',bool:true},
@@ -576,7 +576,7 @@ function computeEMA(data,period){
 
 function priceOption(){
   if(!STATE.candles||!STATE.candles.length){
-    return{animation:false,backgroundColor:'transparent',graphic:[{type:'text',left:'center',top:'middle',style:{text:'Loading chart data...',fill:'rgba(128,128,128,0.5)',font:'11px monospace'}}]};
+    return{animation:false,backgroundColor:'transparent',graphic:[{type:'text',left:'center',top:'middle',style:{text:'Loading chart data...',fill:'rgba(180,188,200,0.5)',font:'11px monospace'}}]};
   }
   var d=STATE.digits;
   var cd=STATE.candles.map(c=>[c.t,c.o,c.c,c.l,c.h]);
@@ -594,7 +594,7 @@ function priceOption(){
     xAxis:{
       type:'time',
       axisLine:{lineStyle:{color:'rgba(128,128,128,0.2)'}},
-      axisLabel:{color:'rgba(128,128,128,0.6)',fontFamily:'monospace',fontSize:8,
+      axisLabel:{color:'rgba(180,188,200,0.7)',fontFamily:'monospace',fontSize:8,
         formatter:function(v){var dt=new Date(v);return dt.getHours()+':'+String(dt.getMinutes()).padStart(2,'0');}},
       splitLine:{show:false},
       axisTick:{show:false}
@@ -602,7 +602,7 @@ function priceOption(){
     yAxis:{
       scale:true,position:'left',
       axisLine:{show:false},axisTick:{show:false},
-      axisLabel:{color:'rgba(128,128,128,0.6)',fontFamily:'monospace',fontSize:8,formatter:function(v){return v.toFixed(d);},margin:4},
+      axisLabel:{color:'rgba(180,188,200,0.7)',fontFamily:'monospace',fontSize:8,formatter:function(v){return v.toFixed(d);},margin:4},
       splitLine:{show:true,lineStyle:{color:'rgba(128,128,128,0.15)',type:'dashed'}},
       splitNumber:8
     },
@@ -638,7 +638,7 @@ function priceOption(){
         STATE.low>0?{coord:[cd[0][0],STATE.low],label:{formatter:'LO '+fmt(STATE.low,d),color:'#ff1744',fontFamily:'monospace',fontSize:8,position:'insideEndBottom'},lineStyle:{color:'#ff1744'}}:[],
       ]
     },
-    graphic:[{type:'text',left:60,top:2,style:{text:(STATE.candleSource||'—')+' · '+STATE.candles.length+' bars',fill:'rgba(128,128,128,0.5)',font:'7px monospace'}}]
+    graphic:[{type:'text',left:60,top:2,style:{text:(STATE.candleSource||'—')+' · '+STATE.candles.length+' bars',fill:'rgba(180,188,200,0.5)',font:'7px monospace'}}]
   };
 }
 
@@ -933,7 +933,7 @@ function buildSparklines(){
     {key:'ema9',name:'EMA9',sub:'',field:'ema9',color:'#2962ff',min:0,max:0},
     {key:'ema21',name:'EMA21',sub:'',field:'ema21',color:'#7c3aed',min:0,max:0},
     {key:'ema50',name:'EMA50',sub:'',field:'ema50',color:'#00bcd4',min:0,max:0},
-    {key:'sma200',name:'SMA200',sub:'',field:'sma200',color:'#6b7384',min:0,max:0},
+    {key:'sma200',name:'SMA200',sub:'',field:'sma200',color:'#9ba3b4',min:0,max:0},
     {key:'adx',name:'ADX',sub:'14',field:'adx',color:'#2962ff',min:0,max:100},
     {key:'boll_u',name:'BB Up',sub:'20·2',field:'boll_upper',color:'#ff1744',min:0,max:0},
     {key:'macd',name:'MACD',sub:'12/26/9',field:'macd_main',color:'#00c853',min:-20,max:20},
