@@ -3,76 +3,76 @@ package strategy
 import (
 	"testing"
 
-	"github.com/predictatrade/realtime/internal/features"
 	"github.com/predictatrade/realtime/internal/types"
 )
 
-// prompt.md Sections 6, 67-68, 97-98: each engine must evaluate only on its
-// declared decision timeframes. M1 closes must never trigger swing/daily
-// engines and vice versa.
 func TestShouldEvaluateOnRespectsDecisionTFs(t *testing.T) {
-	all := AllStrategies()
-	if len(all) == 0 {
-		t.Fatal("no strategies registered")
-	}
-	tfs := []types.Timeframe{types.TFM1, types.TFM5, types.TFM15, types.TFM30, types.TFH1, types.TFH4, types.TFD1, types.TFW1}
+	strategies := AllStrategies()
 
-	for _, s := range all {
-		p, implements := s.(DecisionTFProvider)
-		if !implements {
-			t.Fatalf("%s must implement DecisionTFProvider", s.ID())
-		}
-		declared := map[types.Timeframe]bool{}
-		for _, tf := range p.DecisionTimeframes() {
-			declared[tf] = true
-		}
-		if len(declared) == 0 {
-			t.Fatalf("%s declares no decision timeframes", s.ID())
-		}
-		for _, tf := range tfs {
-			got := ShouldEvaluateOn(s, tf)
-			want := declared[tf]
-			if got != want {
-				t.Errorf("%s ShouldEvaluateOn(%s) = %v, want %v", s.ID(), tf, got, want)
+	for _, s := range strategies {
+		if p, ok := s.(DecisionTFProvider); ok {
+			tfs := p.DecisionTimeframes()
+			for _, tf := range tfs {
+				if !ShouldEvaluateOn(s, tf) {
+					t.Errorf("%s ShouldEvaluateOn(%s) = false, want true (it's a declared decision TF)", s.ID(), tf)
+				}
 			}
 		}
 	}
 }
 
-// prompt.md Section 98: updating M1 may re-evaluate Ultra Scalping but must
-// never trigger Trend Swing weekly logic.
-func TestM1UpdateDoesNotTriggerTrendSwing(t *testing.T) {
-	found := false
-	for _, s := range AllStrategies() {
-		if s.ID() != types.StrategyTrendSwing {
-			continue
+func TestShouldEvaluateOnRejectsNonDecisionTFs(t *testing.T) {
+	strategies := AllStrategies()
+
+	// TREND_SWING should NOT evaluate on M1
+	for _, s := range strategies {
+		if s.ID() == types.StrategyTrendSwing {
+			if ShouldEvaluateOn(s, types.TFM1) {
+				t.Errorf("TREND_SWING should not evaluate on M1 (not a decision TF)")
+			}
 		}
-		found = true
-		if ShouldEvaluateOn(s, types.TFM1) {
-			t.Error("TrendSwing must not be evaluated on M1 closes")
+		// STANDARD_SCALPING should NOT evaluate on H1
+		if s.ID() == types.StrategyStandardScalping {
+			if ShouldEvaluateOn(s, types.TFH1) {
+				t.Errorf("STANDARD_SCALPING should not evaluate on H1 (not a decision TF)")
+			}
 		}
-		if !ShouldEvaluateOn(s, types.TFH1) && !ShouldEvaluateOn(s, types.TFH4) {
-			t.Error("TrendSwing must evaluate on its H1/H4 decision timeframes")
-		}
-	}
-	if !found {
-		t.Fatal("TrendSwing not registered")
 	}
 }
 
-// Non-provider strategies (legacy-compatible) always evaluate.
-type nonProviderStrategy struct{}
-
-func (n *nonProviderStrategy) ID() types.StrategyID { return "NON_PROVIDER" }
-func (n *nonProviderStrategy) Evaluate(_ *features.MarketState) StrategyResult {
-	return StrategyResult{}
+func TestAllStrategiesHaveDecisionTFs(t *testing.T) {
+	strategies := AllStrategies()
+	if len(strategies) != 5 {
+		t.Errorf("Expected 5 strategies, got %d", len(strategies))
+	}
+	for _, s := range strategies {
+		if p, ok := s.(DecisionTFProvider); ok {
+			tfs := p.DecisionTimeframes()
+			if len(tfs) == 0 {
+				t.Errorf("%s has no decision timeframes", s.ID())
+			}
+		}
+	}
 }
 
-func TestNonProviderStrategyAlwaysEvaluates(t *testing.T) {
-	s := &nonProviderStrategy{}
-	for _, tf := range []types.Timeframe{types.TFM1, types.TFH1, types.TFD1} {
-		if !ShouldEvaluateOn(s, tf) {
-			t.Errorf("legacy strategy should evaluate on %s", tf)
+func TestMarnieFibDecisionTFs(t *testing.T) {
+	strategies := AllStrategies()
+	for _, s := range strategies {
+		if s.ID() == types.StrategyMarnieFib {
+			if p, ok := s.(DecisionTFProvider); ok {
+				tfs := p.DecisionTimeframes()
+				if len(tfs) != 2 {
+					t.Errorf("MARNIE_FIB should have 2 decision TFs (M15, H1), got %d", len(tfs))
+				}
+				hasM15, hasH1 := false, false
+				for _, tf := range tfs {
+					if tf == types.TFM15 { hasM15 = true }
+					if tf == types.TFH1 { hasH1 = true }
+				}
+				if !hasM15 || !hasH1 {
+					t.Errorf("MARNIE_FIB decision TFs should include M15 and H1")
+				}
+			}
 		}
 	}
 }

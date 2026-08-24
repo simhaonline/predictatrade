@@ -3,9 +3,11 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"database/sql"
 	"context"
+	"sync"
 	"flag"
 	"encoding/json"
 	"fmt"
@@ -83,6 +85,34 @@ func (a stateAdapter) Update(symbol string, update func(any)) {
 var globalAgentProvider *marketdata.AgentProvider
 var globalCrossMarketEngine *crossmarket.Engine
 var globalCrossMarketPersister *crossmarket.Persister
+
+// ─── Per-strategy+bar dedup (prompt.md Sections 13, 23, 40) ───
+// Prevents re-evaluation of the same strategy+symbol+timeframe+bar combination.
+var processedBarKeys = make(map[string]bool)
+var processedBarKeysMu sync.Mutex
+
+// markBarProcessed returns true if this strategy+bar combination has already been evaluated.
+func markBarProcessed(strategyID, symbol string, tf types.Timeframe, barOpenTime time.Time) bool {
+	key := fmt.Sprintf("%s:%s:%s:%d", strategyID, symbol, string(tf), barOpenTime.Unix())
+	processedBarKeysMu.Lock()
+	defer processedBarKeysMu.Unlock()
+	if processedBarKeys[key] {
+		return true
+	}
+	processedBarKeys[key] = true
+	if len(processedBarKeys) > 10000 {
+		cutoff := time.Now().Add(-time.Hour).Unix()
+		for k := range processedBarKeys {
+			parts := strings.Split(k, ":")
+			if len(parts) == 4 {
+				if ts, err := strconv.ParseInt(parts[3], 10, 64); err == nil && ts < cutoff {
+					delete(processedBarKeys, k)
+				}
+			}
+		}
+	}
+	return false
+}
 
 
 // broadcastSignalToAll sends a signal to both the frontend dashboard (WebSocketHub)
@@ -1410,6 +1440,27 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 		if !strategy.ShouldEvaluateOn(strat, candle.Timeframe) {
 			continue
 		}
+
+		// ─── Per-strategy+bar idempotency (prompt.md Sections 13, 23, 40) ───
+		// Prevents re-evaluation of the same strategy+symbol+TF+bar combination.
+		// A duplicate candle from the aggregator or a retransmitted bar_closed event
+		// must NOT trigger a second strategy evaluation or duplicate signal.
+		barKey := fmt.Sprintf("%s:%s:%s:%d", string(strat.ID()), string(candle.Symbol), string(candle.Timeframe), candle.Time.Unix())
+		if markBarProcessed(string(strat.ID()), string(candle.Symbol), candle.Timeframe, candle.Time) {
+			observability.Log.Debug().
+				Str("strategy", string(strat.ID())).
+				Str("timeframe", string(candle.Timeframe)).
+				Str("bar_key", barKey).
+				Msg("[SIGNAL][SKIP_DUPLICATE] strategy+bar already evaluated")
+			continue
+		}
+
+		observability.Log.Debug().
+			Str("strategy", string(strat.ID())).
+			Str("timeframe", string(candle.Timeframe)).
+			Str("bar_key", barKey).
+			Msg("[SIGNAL][EVALUATE] strategy evaluation triggered by closed bar")
+
 		stratResult := strat.Evaluate(mergedState)
 
 		// ─── Audit: Start pipeline execution (prompt.md audit logging) ───
