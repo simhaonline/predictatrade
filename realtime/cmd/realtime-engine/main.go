@@ -2292,6 +2292,23 @@ func refreshGateStates(reg *gates.Registry, stateMgr *features.StateManager, age
 	for range ticker.C {
 		now := time.Now().UTC()
 
+		// B-04: Hydrate MinATR and StopHuntFilter gates with PASS state.
+		// These gates are self-evaluating (they check input.ATR and input.StructuralLow/High
+		// directly from GateInput), so they just need to be initialized to PASS
+		// so EvaluateAll doesn't fail with GATE_NOT_INITIALIZED.
+		reg.UpdateState(types.GateMinATR, gates.GateState{
+			GateID:        types.GateMinATR,
+			State:         types.GatePass,
+			EvaluatedAt:   now,
+			SourceVersion: "1.0",
+		})
+		reg.UpdateState(types.GateStopHuntFilter, gates.GateState{
+			GateID:        types.GateStopHuntFilter,
+			State:         types.GatePass,
+			EvaluatedAt:   now,
+			SourceVersion: "1.0",
+		})
+
 		// Refresh market-data gates from live market state
 		state := stateMgr.Get("XAUUSD")
 		if state != nil {
