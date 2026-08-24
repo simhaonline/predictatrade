@@ -57,6 +57,19 @@ type DecisionInput struct {
 	// Phase 3: Structural levels for StopHuntFilterGate
 	StructuralLow  float64
 	StructuralHigh float64
+
+	// Capital protection (R1-R7): broker snapshot + sizing inputs
+	AccountEquity    float64
+	AccountFreeMargin float64
+	AccountLeverage  float64
+	SymbolTickValue  float64
+	SymbolTickSize   float64
+	LotStep          float64
+	RequestedLot     float64
+	PositionsKnown   bool
+	OpenBuyPositions int
+	OpenSellPositions int
+	StrategyOpenPositions int
 }
 
 // DecisionResult is the final output of the master decision hierarchy.
@@ -132,6 +145,7 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 	gateInput := gates.GateInput{
 		Tick:            input.Tick,
 		StrategyID:      input.StrategyID,
+		Direction:       input.Direction,
 		Regime:          input.Regime,
 		Spread:          spread,
 		ATR:             atr,
@@ -148,6 +162,18 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 		ExecutionPermitted: input.ExecutionPermitted,
 		StructuralLow:  input.StructuralLow,
 		StructuralHigh: input.StructuralHigh,
+		// Capital protection (R1-R7)
+		AccountEquity:    input.AccountEquity,
+		AccountFreeMargin: input.AccountFreeMargin,
+		AccountLeverage:  input.AccountLeverage,
+		SymbolTickValue:  input.SymbolTickValue,
+		SymbolTickSize:   input.SymbolTickSize,
+		LotStep:          input.LotStep,
+		RequestedLot:     input.RequestedLot,
+		PositionsKnown:   input.PositionsKnown,
+		OpenBuyPositions: input.OpenBuyPositions,
+		OpenSellPositions: input.OpenSellPositions,
+		StrategyOpenPositions: input.StrategyOpenPositions,
 	}
 
 	allPass, gateEvals, firstVeto := e.gateRegistry.EvaluateAll(gateInput)

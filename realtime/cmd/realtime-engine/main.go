@@ -693,8 +693,17 @@ func main() {
 
 	// Risk gates — seeded conservatively (fail-closed for safety-critical gates)
 	gateRegistry := gates.NewRegistry()
-	registerGates(gateRegistry, cfg)
+	posCaps := registerGates(gateRegistry, cfg)
 	gates.SeedConservativeGateStates(gateRegistry)
+	// Capital-protection seeds: position caps DEGRADED until broker positions
+	// arrive; P&L gates veto pnl_state_unknown until anchors hydrate;
+	// edge validation DEGRADED (advisory) until forward-test edge is proven.
+	gates.SeedCapitalProtectionGateStates(gateRegistry)
+
+	// Broker snapshot cache — latest MT5 account/symbol/positions data used
+	// by capital-protection gates and sizing annotations.
+	broker := &brokerAccountState{}
+	posCapsRef = posCaps
 	// B-04: Initialize MinATR and StopHuntFilter gates with PASS state at startup.
 	// These gates are self-evaluating from GateInput (ATR, StructuralLow/High),
 	// so they just need to be initialized to PASS so the first signal doesn't
@@ -725,6 +734,9 @@ func main() {
 	agentProvider.SetBrokerAccountHydrateFn(func(account *marketdata.SnapshotAccount, positions *marketdata.SnapshotPositions) {
 		now := time.Now().UTC()
 		fresh := now.Add(30 * time.Second) // Account data is valid for 30s
+
+		// Cache the snapshot for capital-protection gates + sizing annotations.
+		broker.Update(account, positions, now)
 
 		// Exposure gate: current open positions from broker
 		openPositions := 0
@@ -2432,7 +2444,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 	}
 }
 
-func registerGates(reg *gates.Registry, cfg *config.Config) {
+func registerGates(reg *gates.Registry, cfg *config.Config) *gates.PositionCapsGate {
 	reg.Register(&gates.DataQualityGate{})
 	reg.Register(&gates.SessionGate{})
 	reg.Register(&gates.NewsGate{})
@@ -2441,13 +2453,56 @@ func registerGates(reg *gates.Registry, cfg *config.Config) {
 	reg.Register(&gates.StopHuntFilterGate{MinDistanceATR: 1.5})
 	reg.Register(&gates.MinAbsoluteATRGate{MinATR: 2.0}) // Global minimum; per-strategy overrides via engine
 	reg.Register(&gates.SlippageGate{MaxSlippage: 0.10})
-	reg.Register(&gates.TotalCostGate{MaxCostToTarget: cfg.MaxCostToTarget})
+	logCopy := observability.Log
+	// Bug 6: scalping strategies get strict cost-to-TP1 enforcement using the
+	// real round-trip cost (spread + slippage + commission), veto `total_cost`.
+	reg.Register(&gates.TotalCostGate{
+		MaxCostToTarget: cfg.MaxCostToTarget,
+		CostToTP1MaxPct: cfg.CostToTP1MaxPct,
+		ScalpingStrategies: map[types.StrategyID]bool{
+			types.StrategyID("STANDARD_SCALPING"): true,
+			types.StrategyID("ULTRA_SCALPING"):    true,
+		},
+		Logger: &logCopy,
+	})
 	reg.Register(&gates.ExposureGate{MaxExposure: cfg.MaxExposure})
 	reg.Register(&gates.MarginGate{})
 	reg.Register(&gates.RRNetExpectancyGate{MinGrossRR: cfg.MinRR})
 	reg.Register(&gates.EntitlementGate{})
 	reg.Register(&gates.LicenseGate{})
 	reg.Register(&gates.ExecutionPermissionGate{})
+
+	// ─── Capital-protection gates (R1-R7, EV1-EV3, PT/P&L) ───
+	// R2: head-of-order right after DataQuality — a wrong-side stop must
+	// never survive to later gates.
+	reg.RegisterOrdered(&gates.WrongSideSLGate{}, types.GateDataQuality)
+	posCaps := &gates.PositionCapsGate{
+		MaxSameDirection: cfg.MaxSameDirectionPositions,
+		MaxTotal:         cfg.MaxTotalPositions,
+		MaxPerStrategy:   cfg.MaxPerStrategyPositions,
+	}
+	reg.RegisterOrdered(&gates.RiskOversizeGate{MaxRiskPerTradePct: cfg.MaxRiskPerTradePct}, types.GateMargin)
+	reg.RegisterOrdered(posCaps, types.GateRiskOversize)
+	reg.RegisterOrdered(&gates.DailyLossGate{
+		MaxDailyLossPct:   cfg.MaxDailyLossPct,
+		MaxWeeklyLossPct:  cfg.MaxWeeklyLossPct,
+		MaxMonthlyLossPct: cfg.MaxMonthlyLossPct,
+	}, types.GatePositionCaps)
+	reg.RegisterOrdered(&gates.ProfitTargetGate{
+		MaxDailyProfitPct:  cfg.MaxDailyProfitPct,
+		MaxWeeklyProfitPct: cfg.MaxWeeklyProfitPct,
+	}, types.GateDailyLoss)
+	baseLots := make(map[types.StrategyID]float64, len(cfg.BaseLots))
+	for id, lot := range cfg.BaseLots {
+		baseLots[types.StrategyID(id)] = lot
+	}
+	reg.RegisterOrdered(&gates.MartingaleBanGate{
+		MaxLotRatio: cfg.MartingaleMaxLotRatio,
+		BaseLots:    baseLots,
+	}, types.GateProfitTarget)
+	reg.RegisterOrdered(&gates.EdgeValidationGate{}, types.GateExecutionPermit)
+
+	return posCaps
 }
 // refreshGateStates periodically refreshes gate state from live market/broker data.
 // This runs as a background goroutine to keep gate states fresh.

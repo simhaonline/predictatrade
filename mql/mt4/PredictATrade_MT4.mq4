@@ -122,6 +122,13 @@ string  g_signalStrategy   = "";
 string  g_signalClass       = "";
 string  g_lastExecutedSignalID = "";
 datetime g_signalTime      = 0;
+double  g_entry  = 0;
+double  g_sl     = 0;
+double  g_tp1    = 0;
+double  g_tp2    = 0;
+double  g_tp3    = 0;
+double  g_rawScore = 0;
+double  g_calibProb = 0;
 uint    g_lastTickSend     = 0;
 int     g_tickCount        = 0;
 int     g_signalsReceived = 0;
@@ -537,7 +544,7 @@ int PAT_LoadStage(int magic)
 //+------------------------------------------------------------------+
 //| Trade result reporting (TRADE_RESULT + CLOSE_ACK via IPC file)    |
 //+------------------------------------------------------------------+
-void PAT_ReportResult(int magic, string signalID, string strategyID, string exitReason,
+void PAT_ReportResult(int magic, int ticket, string signalID, string strategyID, string exitReason,
                       double entry, double exitPx, double lots, double realizedPnl,
                       bool slCorrect)
 {
@@ -551,6 +558,7 @@ void PAT_ReportResult(int magic, string signalID, string strategyID, string exit
     msg += ",\"signal_id\":\"" + signalID + "\"";
     msg += ",\"strategy_id\":\"" + strategyID + "\"";
     msg += ",\"magic\":" + IntegerToString(magic);
+    msg += ",\"ticket\":" + IntegerToString(ticket);
     msg += ",\"exit_reason\":\"" + exitReason + "\"";
     msg += ",\"entry\":" + DoubleToString(entry, _Digits);
     msg += ",\"exit\":" + DoubleToString(exitPx, _Digits);
@@ -563,7 +571,7 @@ void PAT_ReportResult(int magic, string signalID, string strategyID, string exit
     // CLOSE_ACK is already parsed/forwarded by the Windows Agent
     // (windows-agent/internal/pipe.go) — sent for pipeline compatibility.
     string ack = "CLOSE_ACK|{";
-    ack += "\"ticket\":" + IntegerToString(magic); // magic uniquely identifies the PAT trade chain
+    ack += "\"ticket\":" + IntegerToString(ticket);
     ack += ",\"reason\":\"" + exitReason + "\"";
     ack += ",\"net_pnl\":" + DoubleToString(realizedPnl, 2);
     ack += ",\"signal_id\":\"" + signalID + "\"";
@@ -577,10 +585,10 @@ void PAT_ReportResult(int magic, string signalID, string strategyID, string exit
 }
 
 // Mark an EA-initiated close so the history poller attributes the reason.
-void PAT_SetForcedReason(int magic, string reason)
+// Keyed by TICKET (partial chunks of one magic each get their own ticket).
+void PAT_SetForcedReason(int ticket, string reason)
 {
-    GlobalVariableSet(PAT_GVName(magic, "FR"),
-                      HashCode(reason));
+    GlobalVariableSet("PAT_FR_" + IntegerToString(ticket), HashCode(reason));
 }
 
 int HashCode(string s)
@@ -649,10 +657,13 @@ void PAT_HistoryPoll()
         if(GlobalVariableCheck(rptName)) continue;
 
         int magic = OrderMagicNumber();
-        int frCode = 0;
-        string frName = PAT_GVName(magic, "FR");
-        if(GlobalVariableCheck(frName)) frCode = (int)GlobalVariableGet(frName);
-        string forced = PAT_ForcedReasonFromCode(frCode);
+        string forced = "";
+        string frName = "PAT_FR_" + IntegerToString(ticket);
+        if(GlobalVariableCheck(frName))
+        {
+            forced = PAT_ForcedReasonFromCode((int)GlobalVariableGet(frName));
+            GlobalVariableDel(frName);
+        }
 
         // Direction/type from the closed order itself
         bool isBuy = (OrderType() == OP_BUY);
@@ -681,7 +692,7 @@ void PAT_HistoryPoll()
             sig = PAT_SignalIDFromComment(OrderComment());
             strat = PAT_StrategyFromMagic(magic);
         }
-        PAT_ReportResult(magic, sig, strat, reason, entry, OrderClosePrice(),
+        PAT_ReportResult(magic, ticket, sig, strat, reason, entry, OrderClosePrice(),
                          OrderLots(), pnl, true);
         GlobalVariableSet(rptName, 1);
     }
@@ -924,7 +935,7 @@ void PAT_ManagePositions()
             if(holdSec >= MaxHoldHours * 3600)
             {
                 Print("MAX HOLD TIME reached: ticket=", ticket, " held=", holdSec/3600, "h | Closing...");
-                PAT_SetForcedReason(magic, "MAX_HOLD_TIME");
+                PAT_SetForcedReason(ticket, "MAX_HOLD_TIME");
                 ClosePosition(ticket, "MAX_HOLD_TIME");
                 continue;
             }
@@ -934,7 +945,7 @@ void PAT_ManagePositions()
         if(AvoidSwapCharges && IsNearSwapTime())
         {
             Print("SWAP CUTOFF: closing ticket=", ticket, " before swap charge");
-            PAT_SetForcedReason(magic, "SWAP_AVOIDANCE");
+            PAT_SetForcedReason(ticket, "SWAP_AVOIDANCE");
             ClosePosition(ticket, "SWAP_AVOIDANCE");
             continue;
         }
@@ -950,27 +961,33 @@ void PAT_ManagePositions()
         double origLot = (idx >= 0) ? g_regOrigLot[idx] : curLots;
         double sl0 = (idx >= 0) ? g_regSL0[idx] : 0;
 
-        // ── STAGE 0 -> 1: TP1 hit — partial close + breakeven ──
+        // ── STAGE 0 -> 1: TP1 hit — partial close ──
         if(UsePartialClose && stage == 0 && tp1 > 0)
         {
             bool tp1Hit = isBuy ? (Bid >= tp1) : (Ask <= tp1);
             if(tp1Hit)
             {
-                if(PAT_DoPartial(ticket, magic, isBuy, origLot, TP1ClosePct, "tp1", tp))
+                if(PAT_DoPartial(ticket, magic, isBuy, origLot, TP1ClosePct, "tp1"))
                 {
                     PAT_SaveStage(magic, 1);
                     stage = 1;
-                    if(UseBreakEven && sl0 > 0)
-                    {
-                        double spread = MarketInfo(g_symbol, MODE_SPREAD) * point;
-                        double beSL = isBuy ? NormalizeDouble(openPx + spread, digits)
-                                            : NormalizeDouble(openPx - spread, digits);
-                        bool beSideOk = isBuy ? (beSL < Bid) : (beSL > Ask); // must be valid vs current price
-                        if(beSideOk && OrderSelect(ticket, SELECT_BY_TICKET))
-                            OrderModify(ticket, openPx, beSL, tp, 0, clrYellow);
-                        // if remainder ticket changed, retry below via stage>=1 maintenance
-                    }
                 }
+            }
+        }
+
+        // ── Breakeven maintenance (stage >= 1): SL to entry +/- spread. ──
+        // Runs every tick until applied, so it also covers the MT4 remainder
+        // ticket created after a partial close (new ticket, same magic).
+        if(stage >= 1 && UseBreakEven && sl0 > 0 && (sl == 0 || MathAbs(sl - sl0) < point))
+        {
+            double spread = MarketInfo(g_symbol, MODE_SPREAD) * point;
+            double beSL = isBuy ? NormalizeDouble(openPx + spread, digits)
+                                : NormalizeDouble(openPx - spread, digits);
+            bool beSideOk = isBuy ? (beSL < Bid) : (beSL > Ask);
+            if(beSideOk)
+            {
+                if(OrderModify(ticket, openPx, beSL, tp, 0, clrYellow))
+                    Print("BREAK-EVEN: ticket=", ticket, " SL=", DoubleToString(beSL, digits));
             }
         }
 
@@ -980,7 +997,7 @@ void PAT_ManagePositions()
             bool tp2Hit = isBuy ? (Bid >= tp2) : (Ask <= tp2);
             if(tp2Hit)
             {
-                if(PAT_DoPartial(ticket, magic, isBuy, origLot, TP2ClosePct, "tp2", tp))
+                if(PAT_DoPartial(ticket, magic, isBuy, origLot, TP2ClosePct, "tp2"))
                 {
                     PAT_SaveStage(magic, 2);
                     stage = 2;
@@ -991,13 +1008,6 @@ void PAT_ManagePositions()
         // ── STAGE >= 2: ATR trail the remainder (monotonic) ──
         if(stage >= 2 && UseTrailingStop)
             PAT_TrailRemainder(ticket, isBuy, openPx, tp, digits, point);
-
-        // ── TP3 backup close (in case position TP was rejected/removed) ──
-        if(tp > 0 && ((isBuy && Bid >= tp) || (!isBuy && Ask <= tp)))
-        {
-            // Broker-side TP should fill this; defensive close if it did not.
-            PAT_SetForcedReason(magic, ""); // let proximity classify as tp3
-        }
     }
 }
 
@@ -1007,12 +1017,13 @@ void PAT_ManagePositions()
 //| If broker minimums prevent a sane split, closes FULL remainder.   |
 //+------------------------------------------------------------------+
 bool PAT_DoPartial(int ticket, int magic, bool isBuy, double origLot,
-                   double pct, string reason, double posTP)
+                   double pct, string reason)
 {
     if(!OrderSelect(ticket, SELECT_BY_TICKET)) return false;
     if(OrderCloseTime() != 0) return false;
 
     double curLots = OrderLots();
+    double openPx  = OrderOpenPrice();
     double minLot  = MarketInfo(g_symbol, MODE_MINLOT);
     double step    = MarketInfo(g_symbol, MODE_LOTSTEP);
     double closeLots = origLot * (pct / 100.0);
@@ -1030,7 +1041,6 @@ bool PAT_DoPartial(int ticket, int magic, bool isBuy, double origLot,
     {
         Print("PARTIAL(", reason, "): remainder ", DoubleToString(curLots, 2),
               " too small to split — closing FULL at TP level");
-        PAT_SetForcedReason(magic, "");
         ClosePosition(ticket, reason);
         return false;
     }
@@ -1038,17 +1048,21 @@ bool PAT_DoPartial(int ticket, int magic, bool isBuy, double origLot,
     bool ok = OrderClose(ticket, closeLots, px, PAT_GetMaxSlippage(""), clrOrange);
     if(ok)
     {
-        double estPnl = (isBuy ? (px - OrderOpenPrice()) : (OrderOpenPrice() - px))
+        double estPnl = (isBuy ? (px - openPx) : (openPx - px))
                         * PAT_PointValue() * closeLots;
         Print("PARTIAL ", reason, ": closed ", DoubleToString(closeLots, 2),
               " of ", DoubleToString(origLot, 2), " @ ", DoubleToString(px, _Digits));
         int idx = PAT_RegFind(magic);
         string sig = (idx >= 0) ? g_regSig[idx] : "";
         string strat = (idx >= 0) ? g_regStrat[idx] : "";
-        PAT_ReportResult(magic, sig, strat, reason, OrderOpenPrice(), px, closeLots, estPnl, true);
+        PAT_ReportResult(magic, ticket, sig, strat, reason, openPx, px, closeLots, estPnl, true);
 
-        // MT4 partial close: remainder continues under a NEW ticket with the
-        // SAME magic. Nothing to re-key (state is keyed by magic).
+        // MT4 partial close: the closed chunk goes to history under a NEW
+        // ticket; mark it reported so PAT_HistoryPoll does not double-report.
+        GlobalVariableSet("PAT_RPT_" + IntegerToString(ticket), 1);
+
+        // The remainder continues under a NEW ticket with the SAME magic.
+        // State is keyed by magic, so nothing to re-key.
     }
     else
         Print("PARTIAL ", reason, " FAILED: ticket=", ticket, " err=", GetLastError());

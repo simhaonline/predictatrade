@@ -5,6 +5,7 @@ package gates
 import (
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/predictatrade/realtime/internal/types"
 )
 
@@ -165,8 +166,15 @@ func (g *SlippageGate) Evaluate(input GateInput, state GateState) GateEvaluation
 }
 
 // TotalCostGate checks cost-to-target ratio (fast, <1ms).
+// Bug 6: scalping strategies (STANDARD_SCALPING, ULTRA_SCALPING) get a
+// stricter cap — (spread+slippage+commission) must be ≤ CostToTP1MaxPct of
+// the TP1 distance; violations veto with `total_cost` and log arithmetic.
 type TotalCostGate struct {
 	MaxCostToTarget float64
+	// Scalping strictness (Bug 6):
+	CostToTP1MaxPct    float64                   // e.g. 0.30 → cost must be ≤ 30% of TP1 distance
+	ScalpingStrategies map[types.StrategyID]bool // strategies subject to the strict cap
+	Logger             *zerolog.Logger           // optional; used for arithmetic audit log
 }
 
 func (g *TotalCostGate) ID() types.GateID { return types.GateTotalCost }
@@ -183,6 +191,25 @@ func (g *TotalCostGate) Evaluate(input GateInput, state GateState) GateEvaluatio
 		targetDist := abs(input.TakeProfit1 - input.EntryPrice)
 		if targetDist > 0 && input.RoundTripCost > 0 {
 			costToTarget := input.RoundTripCost / targetDist
+
+			// Bug 6: scalping cost strictness — veto `total_cost` when the
+			// actual round-trip cost exceeds CostToTP1MaxPct of TP1 distance.
+			if g.CostToTP1MaxPct > 0 && g.ScalpingStrategies[input.StrategyID] &&
+				costToTarget > g.CostToTP1MaxPct {
+				if g.Logger != nil {
+					g.Logger.Warn().
+						Str("strategy", string(input.StrategyID)).
+						Float64("round_trip_cost", input.RoundTripCost).
+						Float64("tp1_distance", targetDist).
+						Float64("cost_to_tp1_ratio", costToTarget).
+						Float64("max_cost_to_tp1_pct", g.CostToTP1MaxPct).
+						Msg("[TOTAL_COST] scalping candidate rejected — cost arithmetic")
+				}
+				eval.Result = types.GateVeto
+				eval.ReasonCodes = []string{"total_cost"}
+				return eval
+			}
+
 			if g.MaxCostToTarget > 0 && costToTarget > g.MaxCostToTarget {
 				eval.Result = types.GateVeto
 				eval.ReasonCodes = []string{string(types.NTTotalCostExceeded)}
