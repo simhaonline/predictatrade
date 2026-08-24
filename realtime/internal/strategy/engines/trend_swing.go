@@ -10,7 +10,8 @@ import (
 // Key differences from legacy:
 //   - MinAbsATR = 12.0
 //   - IgnoreStructure = true (W1/D1 structure too wide, pure ATR SL better)
-//   - Only TREND/BREAKOUT regimes
+//   - Regime handled by scoring thresholds (engine-level gate removed; legacy
+//     strategy layer still enforces TrendSwing/range separation)
 //   - MinGrade = A only
 type TrendSwingEngine struct {
 	cfg EngineConfig

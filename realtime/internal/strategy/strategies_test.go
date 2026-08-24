@@ -363,7 +363,9 @@ func TestSessionAllowed_Weekend(t *testing.T) {
 }
 
 // === STAGE 4: WAIT STATE TEST ===
-// Stage 4 Section 42: A setup exists but entry confirmation has not completed → WAIT
+// Stage 4 Section 42 (updated): MTF conflict is a soft score penalty; WAIT is
+// reserved for severe conflicts. A mild H1/H4 conflict must NOT produce WAIT
+// nor attach the CONFLICTING_TIMEFRAMES no-trade reason.
 func TestStandardScalping_ConflictNoLongerProducesWAIT(t *testing.T) {
 	s := NewStandardScalping()
 	state := makeBullishState()
@@ -372,17 +374,12 @@ func TestStandardScalping_ConflictNoLongerProducesWAIT(t *testing.T) {
 	state.MTF.States[types.TFH4] = -1
 	result := s.Evaluate(state)
 	if result.Direction == types.DirectionWait {
-		t.Errorf("Expected WAIT for high score with MTF conflict, got %s (reasons=%v)", result.Direction, result.ReasonCodes)
+		t.Errorf("Did not expect WAIT for mild MTF conflict, got %s (reasons=%v)", result.Direction, result.ReasonCodes)
 	}
-	// Verify the reason code indicates conflict
-	found := false
 	for _, r := range result.ReasonCodes {
 		if r == types.NTConflictingTimeframes {
-			found = true
+			t.Error("CONFLICTING_TIMEFRAMES should not be attached for a mild conflict that does not produce WAIT")
 		}
-	}
-	if !found {
-		t.Error("Expected CONFLICTING_TIMEFRAMES reason for WAIT state")
 	}
 }
 

@@ -610,10 +610,12 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 	var evidence []types.EvidenceContribution
 	q := state.Quality
 
-	// EMA 9/21 alignment — primary trend filter for scalping
+	// EMA 9/21 alignment — primary trend filter for scalping.
+	// Equality = no information: emit NO evidence rather than tie-breaking
+	// into a fabricated one-sided signal (SOW Section 49 — no forced signals).
 	if state.Indicators.EMA9.GreaterThan(state.Indicators.EMA21) {
 		addEvidence(&evidence, "TREND", "EMA9_ABOVE_EMA21", types.DirectionBuy, 15, 0.12, q, "")
-	} else {
+	} else if state.Indicators.EMA9.LessThan(state.Indicators.EMA21) {
 		addEvidence(&evidence, "TREND", "EMA9_BELOW_EMA21", types.DirectionSell, 15, 0.12, q, "")
 	}
 
@@ -621,7 +623,7 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 	if !state.VWAP.SessionVWAP.IsZero() {
 		if state.CurrentPrice.GreaterThan(state.VWAP.SessionVWAP) {
 			addEvidence(&evidence, "VWAP", "ABOVE_VWAP", types.DirectionBuy, 12, 0.08, q, "")
-		} else {
+		} else if state.CurrentPrice.LessThan(state.VWAP.SessionVWAP) {
 			addEvidence(&evidence, "VWAP", "BELOW_VWAP", types.DirectionSell, 12, 0.08, q, "")
 		}
 	}
@@ -649,15 +651,15 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 		addEvidence(&evidence, "CANDLE", "BEARISH_REJECTION", types.DirectionSell, 12, 0.08, q, "")
 	}
 
-	// MACD/OsMA momentum
+	// MACD/OsMA momentum — equal/zero values carry no directional evidence.
 	if state.Indicators.MACDMain.GreaterThan(state.Indicators.MACDSignal) {
 		addEvidence(&evidence, "MOMENTUM", "MACD_BULLISH", types.DirectionBuy, 10, 0.06, q, "")
-	} else {
+	} else if state.Indicators.MACDMain.LessThan(state.Indicators.MACDSignal) {
 		addEvidence(&evidence, "MOMENTUM", "MACD_BEARISH", types.DirectionSell, 10, 0.06, q, "")
 	}
 	if state.Indicators.OsMA.GreaterThan(decimal.Zero) {
 		addEvidence(&evidence, "MOMENTUM", "OSMA_POSITIVE", types.DirectionBuy, 8, 0.05, q, "")
-	} else {
+	} else if state.Indicators.OsMA.LessThan(decimal.Zero) {
 		addEvidence(&evidence, "MOMENTUM", "OSMA_NEGATIVE", types.DirectionSell, 8, 0.05, q, "")
 	}
 
@@ -822,7 +824,7 @@ func (s *UltraScalping) Evaluate(state *features.MarketState) StrategyResult {
 	// EMA 9/21 — immediate momentum direction
 	if state.Indicators.EMA9.GreaterThan(state.Indicators.EMA21) {
 		addEvidence(&evidence, "TREND", "EMA9_ABOVE_EMA21", types.DirectionBuy, 20, 0.15, q, "")
-	} else {
+	} else if state.Indicators.EMA9.LessThan(state.Indicators.EMA21) {
 		addEvidence(&evidence, "TREND", "EMA9_BELOW_EMA21", types.DirectionSell, 20, 0.15, q, "")
 	}
 
@@ -838,7 +840,7 @@ func (s *UltraScalping) Evaluate(state *features.MarketState) StrategyResult {
 	if !state.VWAP.SessionVWAP.IsZero() {
 		if state.CurrentPrice.GreaterThan(state.VWAP.SessionVWAP) {
 			addEvidence(&evidence, "VWAP", "ABOVE_VWAP", types.DirectionBuy, 15, 0.10, q, "")
-		} else {
+		} else if state.CurrentPrice.LessThan(state.VWAP.SessionVWAP) {
 			addEvidence(&evidence, "VWAP", "BELOW_VWAP", types.DirectionSell, 15, 0.10, q, "")
 		}
 	}
@@ -1046,15 +1048,15 @@ func (s *StandardSwing) Evaluate(state *features.MarketState) StrategyResult {
 	// MACD
 	if state.Indicators.MACDMain.GreaterThan(state.Indicators.MACDSignal) {
 		addEvidence(&evidence, "MOMENTUM", "MACD_BULLISH", types.DirectionBuy, 10, 0.06, q, "")
-	} else {
+	} else if state.Indicators.MACDMain.LessThan(state.Indicators.MACDSignal) {
 		addEvidence(&evidence, "MOMENTUM", "MACD_BEARISH", types.DirectionSell, 10, 0.06, q, "")
 	}
 
-	// RSI
+	// RSI — exactly 50 is neutral: no directional evidence.
 	rsi, _ := state.Indicators.RSI.Float64()
 	if rsi > 50 {
 		addEvidence(&evidence, "MOMENTUM", "RSI_ABOVE_50", types.DirectionBuy, 8, 0.05, q, "")
-	} else {
+	} else if rsi < 50 {
 		addEvidence(&evidence, "MOMENTUM", "RSI_BELOW_50", types.DirectionSell, 8, 0.05, q, "")
 	}
 
@@ -1336,14 +1338,14 @@ func (s *TrendSwing) Evaluate(state *features.MarketState) StrategyResult {
 	// MACD — trend continuation
 	if state.Indicators.MACDMain.GreaterThan(state.Indicators.MACDSignal) {
 		addEvidence(&evidence, "MOMENTUM", "MACD_BULLISH_CONTINUATION", types.DirectionBuy, 10, 0.06, q, "")
-	} else {
+	} else if state.Indicators.MACDMain.LessThan(state.Indicators.MACDSignal) {
 		addEvidence(&evidence, "MOMENTUM", "MACD_BEARISH_CONTINUATION", types.DirectionSell, 10, 0.06, q, "")
 	}
 
 	// CCI — momentum confirmation
 	if state.Indicators.CCI.GreaterThan(decimal.Zero) {
 		addEvidence(&evidence, "MOMENTUM", "CCI_BULLISH", types.DirectionBuy, 8, 0.05, q, "")
-	} else {
+	} else if state.Indicators.CCI.LessThan(decimal.Zero) {
 		addEvidence(&evidence, "MOMENTUM", "CCI_BEARISH", types.DirectionSell, 8, 0.05, q, "")
 	}
 

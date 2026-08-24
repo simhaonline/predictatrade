@@ -130,12 +130,16 @@ func TestStdScalp_AllRegimesAllowed(t *testing.T) {
 	}
 }
 
-func TestTrendSwing_RangeRegime_Rejects(t *testing.T) {
+// Regime gate was deliberately removed from engines (commit 52063c1): scoring
+// thresholds handle regime filtering. The pipeline-level TrendSwing/range
+// separation is enforced by the legacy strategy layer (AcceptedRegimes +
+// TestTrendSwing_RangeRejected), so the engine must not double-reject here.
+func TestTrendSwing_RegimeGateRemoved_NoEngineRejection(t *testing.T) {
 	engine, _ := GetEngine(types.StrategyTrendSwing)
 	state := makeTestState(15.0, 4600, types.RegimeRange)
 	result := engine.Evaluate(makeBuyResult(70, 4600), state)
-	if result.RejectReason == "" {
-		t.Error("TrendSwing should reject RANGE regime")
+	if result.RejectReason != "" {
+		t.Errorf("expected no engine-level rejection for RANGE (gate removed), got: %s", result.RejectReason)
 	}
 }
 

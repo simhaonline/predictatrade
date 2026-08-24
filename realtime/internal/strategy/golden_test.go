@@ -271,8 +271,9 @@ func TestGolden_NO_TRADE_RangeMarket(t *testing.T) {
 	if result.Direction != types.DirectionNoTrade && result.Direction != types.DirectionBuy && result.Direction != types.DirectionSell {
 		t.Errorf("Expected NO-TRADE or directional candidate for range market, got %s", result.Direction)
 	}
-	// NO_TRADE due to regime should have a reason code
-	if len(result.ReasonCodes) == 0 {
+	// A NO_TRADE result must always explain itself (SOW: NO-TRADE is first-class
+	// and auditable); directional candidates in range may carry no reasons.
+	if result.Direction == types.DirectionNoTrade && len(result.ReasonCodes) == 0 {
 		t.Error("Expected reason codes for NO_TRADE")
 	}
 }

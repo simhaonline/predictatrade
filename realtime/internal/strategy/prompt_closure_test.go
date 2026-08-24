@@ -1044,6 +1044,9 @@ func TestFeatureContribution_TraceAvailable(t *testing.T) {
 	state.CurrentPrice = decimal.NewFromFloat(4410.0)
 	state.VWAP.SessionVWAP = decimal.NewFromFloat(4395.0)
 	state.MTF.Score = 50
+	// Bearish BOS gives the trace a genuine SELL contribution (the fixture's
+	// indicators are otherwise uniformly bullish).
+	state.Structure.LastBOS = &features.StructureEvent{Direction: "bearish", Price: decimal.NewFromFloat(4380), Time: time.Now()}
 
 	result := s.Evaluate(state)
 
