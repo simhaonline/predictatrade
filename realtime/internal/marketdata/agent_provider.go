@@ -242,6 +242,17 @@ type AgentProvider struct {
 	// LicenseValidateFn — validates a license key against the DB and sends
 	// a LICENSE_STATUS response back to the agent. Set by main.go.
 	licenseValidateFn func(agentID, licenseKey string) LicenseValidationResult
+
+	// TradeResultFn — receives EA exit-reconciliation records (TRADE_RESULT)
+	// for persistence into the expected-vs-actual outcome table. Set by main.go.
+	tradeResultFn func(agentID string, data []byte)
+}
+
+func truncateForLog(data []byte) string {
+	if len(data) > 300 {
+		return string(data[:300]) + "...(truncated)"
+	}
+	return string(data)
 }
 
 // LicenseValidationResult holds the result of license key validation.
@@ -290,6 +301,11 @@ func (p *AgentProvider) SetAgentConnectFn(fn func(agentID string, msgType string
 // SetLicenseValidateFn sets the license validation callback.
 func (p *AgentProvider) SetLicenseValidateFn(fn func(agentID, licenseKey string) LicenseValidationResult) {
 	p.licenseValidateFn = fn
+}
+
+// SetTradeResultFn registers the exit-reconciliation callback (TRADE_RESULT).
+func (p *AgentProvider) SetTradeResultFn(fn func(agentID string, data []byte)) {
+	p.tradeResultFn = fn
 }
 
 func NewAgentProvider() *AgentProvider {
@@ -569,6 +585,15 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 	case "CLOSE_ACK":
 		// NEW v1.06: Position close acknowledgement from EA
 		log.Printf("[AGENT] Close ACK from %s: type=%s", agentID, msgType)
+
+	case "TRADE_RESULT":
+		// EA v1.08 exit reconciliation (prompt.md Bug 5). Persist the outcome
+		// so expected-vs-actual can be measured per strategy. Must be handled
+		// explicitly — the default branch would otherwise parse it as a tick.
+		log.Printf("[AGENT] Trade result from %s: %s", agentID, truncateForLog(data))
+		if p.tradeResultFn != nil {
+			p.tradeResultFn(agentID, data)
+		}
 
 	default:
 		// Unknown message type — try to parse as tick (backward compatibility)

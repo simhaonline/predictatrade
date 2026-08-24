@@ -371,8 +371,8 @@ body.light .focus-layer{background:#f5f7fb}
         </div>
         <div class="kpi-row" style="margin-top:2px">
           <div class="kpi"><div class="k">SYMBOL</div><div class="v" id="kSymbol" style="font-size:8px">—</div></div>
-          <div class="kpi"><div class="k">SOURCE</div><div class="v" id="kSource" style="font-size:8px">—</div></div>
           <div class="kpi"><div class="k">VOLUME</div><div class="v" id="kVol">—</div></div>
+          <div class="kpi"><div class="k">REGIME</div><div class="v" id="kRegime" style="font-size:8px">—</div></div>
         </div>
         <div class="section-divider"></div>
         <div class="acc-row"><span class="acc-label">REGIME</span><span class="regime-tag regime-WAIT" id="regimeTag">—</span></div>
@@ -382,9 +382,7 @@ body.light .focus-layer{background:#f5f7fb}
         <div class="acc-row"><span class="acc-label">CONFIDENCE</span><span class="acc-val" id="confVal">—</span></div>
         <div class="bar-track"><div class="bar-fill green" id="confBar" style="width:0%"></div></div>
         <div class="section-divider"></div>
-        <div class="acc-row"><span class="acc-label">SNAPSHOTS</span><span class="acc-val" id="snapCount">0</span></div>
-        <div class="acc-row"><span class="acc-label">AGENTS</span><span class="acc-val" id="agentCount">0</span></div>
-        <div class="acc-row"><span class="acc-label">WS STATE</span><span class="acc-val" id="wsState">OFFLINE</span></div>
+
       </div>
     </section>
 
@@ -985,11 +983,9 @@ function buildTicker(){
     ['SYM',STATE.symbol,'b'],['PRICE',fmt(STATE.price,STATE.digits),'g'],
     ['SPREAD',fmt(STATE.spread,STATE.digits),''],['SESSION',STATE.session||'—','b'],
     ['REGIME',STATE.regime||'—','g'],['MTF',(STATE.mtfScore>=0?'+':'')+Math.round(STATE.mtfScore),STATE.mtfScore>=0?'g':'r'],
-    ['AGENTS',STATE.agentsConnected+' connected',STATE.masterNode?'g':'r'],
-    ['SNAPS',fmtI(STATE.snapshotCount),'b'],['RSI',fmt(STATE.indicators.rsi||0,1),''],
-    ['ATR',fmt(STATE.indicators.atr||0,1),''],['ADX',fmt(STATE.indicators.adx||0,1),''],
-    ['WS',STATE.wsState||'OFFLINE',STATE.wsState==='LIVE'?'g':STATE.wsState==='STALE'?'a':'r'],
-    ['SOURCE',STATE.source||'—',''],
+    ['RSI',fmt(STATE.indicators.rsi||0,1),''],['ATR',fmt(STATE.indicators.atr||0,1),''],
+    ['ADX',fmt(STATE.indicators.adx||0,1),''],['MACD',fmt(STATE.indicators.macd_main||0,2),''],
+    ['CCI',fmt(STATE.indicators.cci||0,1),''],['VWAP',fmt(STATE.vwap,STATE.digits),''],
   ];
   track.innerHTML=items.concat(items).map(it=>'<span class="t-item"><span class="fk">'+it[0]+'</span> <span class="tv t-'+it[2]+'">'+it[1]+'</span></span>').join('');
 }
@@ -1003,8 +999,7 @@ function buildFooter(){
     ['MACD',fmt(STATE.indicators.macd_main||0,2)],['CCI',fmt(STATE.indicators.cci||0,1)],
     ['VWAP',fmt(STATE.vwap,STATE.digits)],['REGIME',STATE.regime||'—'],
     ['SESSION',STATE.session||'—'],['MTF',(STATE.mtfScore>=0?'+':'')+Math.round(STATE.mtfScore)],
-    ['AGENTS',STATE.agentsConnected+' connected'],['SNAPS',fmtI(STATE.snapshotCount)],
-    ['WS',STATE.wsState||'OFFLINE'],['QUALITY',STATE.apiConnected?'AUTH':'OFFLINE'],
+    ['QUALITY',STATE.apiConnected?'AUTHORITATIVE':'OFFLINE'],
   ];
   track.innerHTML=items.concat(items).map(it=>'<span><span class="fk">'+it[0]+'</span><span class="fv">'+it[1]+'</span></span>').join('');
 }
@@ -1155,7 +1150,7 @@ function handleWS(m){
 var recoveryDebounceTimer=null;
 function triggerRecovery(){
   if(recoveryDebounceTimer){clearTimeout(recoveryDebounceTimer);recoveryDebounceTimer=null;}
-  recoveryDebounceTimer=setTimeout(function(){recoveryDebounceTimer=null;recoverRealtimeSession();},300);
+  recoveryDebounceTimer=setTimeout(function(){recoveryDebounceTimer=null;recoverRealtimeSession();},500);
 }
 function recoverRealtimeSession(){
   if(STATE.recoveryInProgress)return;STATE.recoveryInProgress=true;STATE.wsState='RECOVERING';
@@ -1263,7 +1258,16 @@ function initCharts(){
 }
 
 window.addEventListener('load',init);
-document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')triggerRecovery();});
+document.addEventListener('visibilitychange',function(){
+  if(document.visibilityState==='visible'){
+    // Tab is now visible — resume updates and reconnect WS
+    triggerRecovery();
+  } else {
+    // Tab is hidden — close WS to prevent browser from killing it
+    if(ws){try{ws.onopen=null;ws.onmessage=null;ws.onclose=null;ws.onerror=null;ws.close();}catch(e){}ws=null;}
+    STATE.wsState='OFFLINE';
+  }
+});
 window.addEventListener('focus',function(){if(!document.hidden)triggerRecovery();});
 window.addEventListener('online',triggerRecovery);
 </script>

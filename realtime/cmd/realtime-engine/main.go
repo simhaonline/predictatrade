@@ -873,6 +873,56 @@ func main() {
 		go agentHub.Run()
 	}
 
+	// Exit reconciliation (prompt.md Bug 5 / mql-fix.md): EA sends TRADE_RESULT
+	// with signal_id, strategy_id, magic, exit_reason, realized_pnl — persist
+	// into trading.trade_results so edge-validation and expected-vs-actual
+	// reporting run on REAL broker outcomes.
+	agentProvider.SetTradeResultFn(func(agentID string, data []byte) {
+		if persister == nil {
+			return
+		}
+		var tr struct {
+			SignalID    string  `json:"signal_id"`
+			StrategyID  string  `json:"strategy_id"`
+			Magic       int64   `json:"magic"`
+			Ticket      int64   `json:"ticket"`
+			ExitReason  string  `json:"exit_reason"`
+			Entry       float64 `json:"entry"`
+			Exit        float64 `json:"exit"`
+			Lot         float64 `json:"lot"`
+			RealizedPnL float64 `json:"realized_pnl"`
+			SLCorrect   bool    `json:"sl_correct"`
+		}
+		if err := json.Unmarshal(data, &tr); err != nil {
+			log.Warn().Err(err).Str("agent_id", agentID).Msg("TRADE_RESULT parse failed")
+			return
+		}
+		ctxTR, cancelTR := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelTR()
+		isWin := tr.RealizedPnL > 0
+		isLoss := tr.RealizedPnL < 0
+		reason := tr.ExitReason
+		if reason == "" {
+			reason = "manual"
+		}
+		_, err := persister.GetDB().ExecContext(ctxTR, `
+			INSERT INTO trading.trade_results
+				(signal_id, account_id, strategy_id, symbol, direction,
+				 broker_ticket, entry_price, exit_price, lot_size, pnl, close_reason, is_win, is_loss)
+			VALUES ($1,$2,$3,'XAUUSD','',
+				 $4,$5,$6,$7,$8,$9,$10,$11)`,
+			tr.SignalID, "agent:"+agentID, tr.StrategyID,
+			fmt.Sprintf("%d", tr.Ticket), tr.Entry, tr.Exit, tr.Lot,
+			tr.RealizedPnL, reason, isWin, isLoss)
+		if err != nil {
+			log.Warn().Err(err).Str("signal_id", tr.SignalID).Msg("TRADE_RESULT persist failed")
+		} else {
+			log.Info().Str("signal_id", tr.SignalID).Str("strategy_id", tr.StrategyID).
+				Str("exit", reason).Float64("pnl", tr.RealizedPnL).
+				Bool("sl_correct", tr.SLCorrect).Msg("Trade outcome reconciled")
+		}
+	})
+
 	// License validation: when MASTER_INIT arrives, validate the license key
 	// against the control plane DB and send a LICENSE_STATUS response to the EA.
 	agentProvider.SetLicenseValidateFn(func(agentID, licenseKey string) marketdata.LicenseValidationResult {

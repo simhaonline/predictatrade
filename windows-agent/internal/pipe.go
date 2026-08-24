@@ -561,6 +561,17 @@ func (pm *PipeManager) processMessage(line string) {
 			pm.wsSender([]byte(payload))
 		}
 
+	case "TRADE_RESULT":
+		// EA v1.08 exit reconciliation (mql-fix.md Bug 5): forward the full
+		// outcome record — signal_id, strategy_id, magic, exit_reason,
+		// realized_pnl, sl_correct — to the Go RT server for the
+		// expected-vs-actual reconciliation table.
+		log.Printf("Trade result: %s", payload)
+		wrapped := fmt.Sprintf(`{"type":"TRADE_RESULT","payload":%s}`, payload)
+		if pm.wsSender != nil {
+			pm.wsSender([]byte(wrapped))
+		}
+
 	case "DEINIT":
 		log.Printf("EA deinit: %s", payload)
 	}
