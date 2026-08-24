@@ -1044,6 +1044,37 @@ async function loadCandles(){
 }
 
 /* ============ LOAD MARKET STATE ============ */
+// Normalize engine PascalCase indicator keys (MARKET_STATE) to the lowercase
+// snake_case schema the dashboard renders (snapshot format). Without this the
+// 3s poll overwrites STATE.indicators with mismatched keys and every
+// indicator panel degrades to "—"/0.0 about a second after load.
+function normIndicators(src){
+  if(!src) return null;
+  var MAP={
+    ADX:'adx',ADXMinusDI:'adx_minus_di',ADXPlusDI:'adx_plus_di',ATR:'atr',
+    BBWidthZScore:'bb_width_z_score',
+    BollBearRev:'boll_bear_rev',BollBullRev:'boll_bull_rev',
+    BollLower:'boll_lower',BollMiddle:'boll_middle',BollUpper:'boll_upper',BollWidth:'boll_width',
+    CCI:'cci',
+    EMA9:'ema9',EMA21:'ema21',EMA50:'ema50',EMA100:'ema100',EMA200:'ema200',EMACross921:'ema_cross_9_21',
+    IchimokuAboveCloud:'ichimoku_above_cloud',IchimokuBelowCloud:'ichimoku_below_cloud',
+    IchimokuChikou:'ichimoku_chikou',IchimokuCloudBot:'ichimoku_cloud_bot',IchimokuCloudTop:'ichimoku_cloud_top',
+    IchimokuInCloud:'ichimoku_in_cloud',IchimokuKijun:'ichimoku_kijun',
+    IchimokuSenkouA:'ichimoku_senkou_a',IchimokuSenkouB:'ichimoku_senkou_b',IchimokuTenkan:'ichimoku_tenkan',
+    MACDBearCross:'macd_bear_cross',MACDBullCross:'macd_bull_cross',
+    MACDHistogram:'macd_histogram',MACDMain:'macd_main',MACDSignal:'macd_signal',
+    Momentum:'momentum',OBV:'obv',OBVZScore:'obv_z_score',OsMA:'osma',
+    ParabolicSAR:'psar',ParabolicSARLong:'psar_long',
+    RSI:'rsi',SMA100:'sma100',SMA200:'sma200',SMA50:'sma50',
+    StochMain:'stoch_main',StochRSI:'stoch_rsi',StochRSID:'stoch_rsi_d',StochRSIK:'stoch_rsi_k',StochSignal:'stoch_signal',
+    TickVolumeZScore:'tick_volume_z_score',VWAP:'vwap'
+  };
+  var out={};
+  for(var k in src){
+    out[MAP.hasOwnProperty(k)?MAP[k]:k]=src[k];
+  }
+  return Object.keys(out).length?out:null;
+}
 async function loadMarketState(){
   const d=await fetchJSON(API_BASE+'/api/v1/market/state');
   if(!d)return false;
@@ -1068,7 +1099,8 @@ async function loadMarketState(){
   if(s.MTF){STATE.mtfScore=Number(s.MTF.Score)||0;STATE.mtfStates=s.MTF.States||{};}
   if(s.Session){STATE.session=s.Session.CurrentSession||STATE.session;STATE.isOverlap=!!s.Session.IsOverlap;STATE.isWeekend=!!s.Session.IsWeekend;STATE.newsRisk=s.Session.NewsRisk||'NONE';}
   if(s.VWAP)STATE.vwap=Number(s.VWAP.SessionVWAP)||STATE.vwap;
-  if(s.Indicators&&Object.keys(s.Indicators).length)STATE.indicators=s.Indicators;
+  var normed=normIndicators(s.Indicators);
+  if(normed)STATE.indicators=normed;
   // Real aggregated candles (always available, even without a master node)
   if(s.Candles)buildCandlesFromMarketState(s.Candles);
   return true;
