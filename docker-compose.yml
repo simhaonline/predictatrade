@@ -217,6 +217,7 @@ services:
       - "8091:80"
     volumes:
       - pat-ntfy:/var/lib/ntfy
+      - ./infra/ntfy/server.yml:/etc/ntfy/server.yml:ro
     networks:
       - pat-net
     restart: always

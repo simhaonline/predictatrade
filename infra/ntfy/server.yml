@@ -1,0 +1,15 @@
+# ntfy server configuration
+# https://github.com/binwiederhier/ntfy
+
+# Listen on all interfaces
+listen: ":80"
+
+# Base URL (used for web app)
+base-url: "http://ntfy:80"
+
+# Enable authentication
+auth-file: "/var/lib/ntfy/user.db"
+auth-default-access: "write-only"
+
+# Logging
+log-level: "info"
