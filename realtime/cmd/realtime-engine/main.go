@@ -1046,9 +1046,16 @@ func main() {
 		if ptbEngine != nil {
 			ptbEngine.Correlation().AddDXYObservation(value, ts)
 		}
+		// Wire DXY success → macro health monitor (fixes MACRO_DATA_UNAVAILABLE false alarm)
+		if macroHealth != nil {
+			macroHealth.OnDXYFetchSuccess(value)
+		}
 	}, func(msg string, err error) {
 		if err != nil {
 			log.Warn().Err(err).Str("component", "dxy_provider").Msg(msg)
+			if macroHealth != nil {
+				macroHealth.OnDXYFetchFailure()
+			}
 		} else {
 			log.Info().Str("component", "dxy_provider").Msg(msg)
 		}

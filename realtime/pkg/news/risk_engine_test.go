@@ -28,7 +28,7 @@ func TestRiskEngine_NoProvider_ReturnsNone(t *testing.T) {
 	engine := NewRiskEngine(cfg, nil)
 	result := engine.ComputeRisk(time.Now().UTC())
 	if result.Level != NewsRiskNone {
-		t.Fatalf("expected DATA_UNAVAILABLE, got %s", result.Level)
+		t.Fatalf("expected NONE when no provider is configured, got %s", result.Level)
 	}
 	if result.ReasonCode != "NEWS_PROVIDER_NOT_CONFIGURED" {
 		t.Fatalf("expected NEWS_PROVIDER_NOT_CONFIGURED, got %s", result.ReasonCode)
@@ -42,8 +42,11 @@ func TestRiskEngine_ProviderStale_FailSafe(t *testing.T) {
 	p := &mockProvider{healthy: false, name: "test"}
 	engine := NewRiskEngine(cfg, p)
 	result := engine.ComputeRisk(time.Now().UTC())
-	if result.Level != NewsRiskNone {
-		t.Fatalf("expected DATA_UNAVAILABLE for stale provider, got %s", result.Level)
+	if result.Level != NewsRiskDataUnavailable {
+		t.Fatalf("expected DATA_UNAVAILABLE for stale provider under block policy, got %s", result.Level)
+	}
+	if result.ReasonCode != "NEWS_PROVIDER_STALE" {
+		t.Fatalf("expected NEWS_PROVIDER_STALE, got %s", result.ReasonCode)
 	}
 }
 
@@ -192,7 +195,7 @@ func TestRiskEngine_ShouldBlock(t *testing.T) {
 		{NewsRiskMedium, false},
 		{NewsRiskHigh, true},
 		{NewsRiskExtreme, true},
-		{NewsRiskNone, true},
+		{NewsRiskDataUnavailable, true},
 	}
 	for _, tt := range tests {
 		if tt.level.ShouldBlock() != tt.expected {
