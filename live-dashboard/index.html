@@ -1771,6 +1771,15 @@ function updateAllDisplay(){
   }
   setInterval(loadNews, 120000);
   loadNews();
+  // News load guard — prevent concurrent news fetches
+  var _newsLoading = false;
+  var _originalLoadNews = loadNews;
+  loadNews = async function(){
+    if(_newsLoading) return;
+    _newsLoading = true;
+    try { await _originalLoadNews(); } catch(e) {}
+    _newsLoading = false;
+  };
 
   if(typeof CLOCK_DRIFT_MS === 'undefined') CLOCK_DRIFT_MS = 0;
   var now = new Date(Date.now() + CLOCK_DRIFT_MS);

@@ -1,7 +1,7 @@
 // Predict-A-Trade Service Worker
 // Caches static assets for offline use, network-first for API/WS
 
-var CACHE_NAME = 'pat-dashboard-v4';
+var CACHE_NAME = 'pat-dashboard-v5';
 var STATIC_ASSETS = [
   '/',
   '/index.html',
