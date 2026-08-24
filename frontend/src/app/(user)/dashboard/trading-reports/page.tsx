@@ -142,6 +142,27 @@ export default function UserTradingReportsPage() {
         <p className="text-sm text-pat-text-secondary mt-1">Your XAUUSD trading performance and connected terminals.</p>
       </div>
 
+      {/* Personal trading report download — reports module (self-scoped) */}
+      <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-4 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <div className="text-sm font-medium text-pat-text-primary flex items-center gap-1.5"><IconChartBar size={16} /> Download your trading report</div>
+          <p className="text-xs text-pat-text-secondary mt-0.5">Realized trades recorded from your connected MT4/MT5 terminals. 404 if none yet.</p>
+        </div>
+        <div className="flex gap-2">
+          {(["pdf", "xlsx", "csv"] as const).map((fmt) => (
+            <a
+              key={fmt}
+              href={`${process.env.NEXT_PUBLIC_API_BASE_URL || "/api/v1"}/reports/trading/self?format=${fmt}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs px-3 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity uppercase font-medium"
+            >
+              {fmt}
+            </a>
+          ))}
+        </div>
+      </div>
+
       {/* MT Client Connection status — no Master Node info shown to users */}
       <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-4">
         <div className="flex items-center justify-between flex-wrap gap-3">

@@ -23,6 +23,15 @@ interface Plan {
   status?: string;
   is_active?: boolean;
   referral_rates?: Record<string, string | number>;
+  // Tier-limit columns (migration 067)
+  max_signals_per_day?: number | null;
+  max_active_strategy_slots?: number | null;
+  feature_access_level?: string | null;
+  per_trade_risk_pct?: string | number | null;
+  daily_loss_cap_pct?: string | number | null;
+  weekly_loss_cap_pct?: string | number | null;
+  monthly_loss_cap_pct?: string | number | null;
+  monthly_profit_target_pct?: string | number | null;
 }
 
 interface Entitlement {
@@ -32,6 +41,18 @@ interface Entitlement {
   feature?: string;
   enabled?: boolean;
   limit?: number | string | null;
+}
+
+// Shape returned by GET /subscriptions/entitlements (caller-scoped object)
+interface EntitlementsContext {
+  code?: string;
+  name?: string;
+  max_active_strategy_slots?: number | null;
+  max_signals_per_day?: number | null;
+  feature_access_level?: string | null;
+  allowed_strategies?: string[];
+  selected_strategies?: string[];
+  entitlements?: Record<string, unknown>;
 }
 
 export default function AdminPlansEntitlementsPage() {
@@ -47,7 +68,7 @@ export default function AdminPlansEntitlementsPage() {
     enabled: tab === "plans",
   });
 
-  const entitlementsQ = useQuery<{ items?: Entitlement[]; entitlements?: Entitlement[] } | Entitlement[]>({
+  const entitlementsQ = useQuery<EntitlementsContext | Entitlement[]>({
     queryKey: ["entitlements"],
     queryFn: async () => (await customInstance.get("/subscriptions/entitlements")).data,
     enabled: tab === "entitlements",
@@ -92,6 +113,10 @@ export default function AdminPlansEntitlementsPage() {
       </div>
     )},
     { key: "status", header: "Status", cell: (row) => <StatusBadge status={row.status ?? (row.is_active ? "active" : "inactive")} /> },
+    { key: "slots", header: "Strategy Slots", cell: (row) => <span className="text-xs text-pat-text-secondary">{row.max_active_strategy_slots ?? "—"}</span> },
+    { key: "signals_day", header: "Signals/Day", cell: (row) => <span className="text-xs text-pat-text-secondary">{row.max_signals_per_day ?? "unlimited"}</span> },
+    { key: "features", header: "Feature Tier", cell: (row) => <span className="text-xs font-mono text-pat-text-muted">{row.feature_access_level ?? "core"}</span> },
+    { key: "risk", header: "Risk/Trade", cell: (row) => <span className="text-xs text-pat-text-secondary">{row.per_trade_risk_pct != null ? `${Number(row.per_trade_risk_pct).toFixed(2)}%` : "—"}</span> },
     { key: "actions", header: "Actions", cell: (row) => (
       <button onClick={() => openEdit(row)} className="text-xs bg-pat-bg-surface-secondary text-pat-text-primary hover:bg-pat-bg-surface-secondary px-2 py-1 rounded transition-colors">
         Edit
@@ -99,12 +124,24 @@ export default function AdminPlansEntitlementsPage() {
     )},
   ];
 
+  // GET /subscriptions/entitlements returns a SINGLE OBJECT for the calling
+  // admin (their own entitlement context), not an array. Flatten its
+  // `entitlements` map into display rows and show tier limits as a card.
+  const ent = entitlementsQ.data && !Array.isArray(entitlementsQ.data) ? entitlementsQ.data : null;
   const entitlementRows: Entitlement[] = Array.isArray(entitlementsQ.data)
-    ? entitlementsQ.data
-    : (entitlementsQ.data?.items ?? entitlementsQ.data?.entitlements ?? []);
+    ? (entitlementsQ.data as Entitlement[])
+    : ent?.entitlements
+      ? Object.entries(ent.entitlements).map(([featureKey, value]) => {
+          const v = value as { enabled?: boolean; limit?: number | string | null } | string | number | boolean | null;
+          if (v && typeof v === "object") {
+            return { feature_key: featureKey, enabled: Boolean(v.enabled), limit: v.limit ?? null };
+          }
+          return { feature_key: featureKey, enabled: Boolean(v), limit: typeof v === "number" ? v : null };
+        })
+      : [];
 
   const entitlementCols: DataTableColumn<Entitlement>[] = [
-    { key: "plan", header: "Plan", cell: (row) => <span className="text-sm text-pat-text-primary">{row.plan_code ?? row.plan_name ?? "—"}</span> },
+    { key: "plan", header: "Plan", cell: () => <span className="text-sm text-pat-text-primary">{ent?.code ?? "—"}</span> },
     { key: "feature", header: "Feature", cell: (row) => <span className="text-xs text-pat-text-secondary">{row.feature_key ?? row.feature ?? "—"}</span> },
     { key: "enabled", header: "Enabled", cell: (row) => <StatusBadge status={row.enabled ? "active" : "inactive"} /> },
     { key: "limit", header: "Limit", cell: (row) => <span className="text-xs text-pat-text-muted">{row.limit ?? "—"}</span> },
@@ -148,6 +185,23 @@ export default function AdminPlansEntitlementsPage() {
               <div className="text-xs text-pat-text-secondary">
                 Degraded — entitlement endpoint (<code className="font-mono">GET /subscriptions/entitlements</code>) returned an error or is pending. Showing no data rather than fabricating entitlements.
                 <div className="mt-1 text-pat-text-muted">{(entitlementsQ.error as Error).message}</div>
+              </div>
+            </div>
+          )}
+          {/* Caller's own entitlement context — tier limits from migration 067 */}
+          {ent && (
+            <div className="rounded-lg border border-pat-card-border bg-pat-card-bg p-4">
+              <div className="text-sm font-medium text-pat-text-primary mb-2">
+                Calling admin context — plan: <span className="font-mono">{ent.code ?? "—"}</span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                <div><span className="text-pat-text-muted">Strategy slots:</span> <b className="text-pat-text-primary">{ent.max_active_strategy_slots ?? "—"}</b></div>
+                <div><span className="text-pat-text-muted">Signals/day:</span> <b className="text-pat-text-primary">{ent.max_signals_per_day ?? "unlimited"}</b></div>
+                <div><span className="text-pat-text-muted">Feature tier:</span> <b className="text-pat-text-primary font-mono">{ent.feature_access_level ?? "core"}</b></div>
+                <div>
+                  <span className="text-pat-text-muted">Allowed strategies:</span>{" "}
+                  <span className="text-pat-text-secondary">{(ent.allowed_strategies ?? []).join(", ") || "—"}</span>
+                </div>
               </div>
             </div>
           )}

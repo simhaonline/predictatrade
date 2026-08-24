@@ -32,6 +32,11 @@ interface EngineSignal {
   PillarContributions?: Record<string, number>;
   AiVerification?: string;
   RiskDecision?: string;
+  // Capital-protection sizing (engine-annotated; 0/absent = not yet computed)
+  SuggestedLot?: string | number;
+  RiskDollars?: string | number;
+  RiskPctOfEquity?: string | number;
+  SLDistancePoints?: string | number;
 }
 
 const STRATEGIES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING"];
@@ -110,7 +115,7 @@ export default function UserSignalsPage() {
     return "text-pat-text-secondary";
   };
 
-  const num = (v: string) => parseFloat(v || "0");
+  const num = (v: string | number | undefined | null) => parseFloat(String(v ?? "0")) || 0;
 
   return (
     <div className="space-y-6">
@@ -198,7 +203,21 @@ export default function UserSignalsPage() {
                     </tr>
                     {isOpen && (
                       <tr className="bg-pat-bg-surface-secondary/30">
-                        <td colSpan={11} className="px-4 py-4">
+                        <td colSpan={11} className="px-4 py-4 space-y-3">
+                          <div className="flex flex-wrap gap-4 text-xs text-pat-text-secondary">
+                            <span title="Engine-recommended lot (risk-capped, margin-aware)">
+                              Lot: <b className="text-pat-text-primary">{num(row.SuggestedLot) > 0 ? Number(row.SuggestedLot).toFixed(2) : "—"}</b>
+                            </span>
+                            <span title="Risk at stop distance, USD">
+                              Risk: <b className="text-pat-text-primary">{num(row.RiskDollars) > 0 ? `$${Number(row.RiskDollars).toFixed(2)}` : "—"}</b>
+                            </span>
+                            <span title="Risk as % of account equity">
+                              Equity %: <b className="text-pat-text-primary">{num(row.RiskPctOfEquity) > 0 ? `${Number(row.RiskPctOfEquity).toFixed(2)}%` : "—"}</b>
+                            </span>
+                            <span title="Stop distance in points">
+                              SL pts: <b className="text-pat-text-primary">{num(row.SLDistancePoints) > 0 ? Number(row.SLDistancePoints).toFixed(0) : "—"}</b>
+                            </span>
+                          </div>
                           <SignalEvidencePanel sig={row} />
                         </td>
                       </tr>

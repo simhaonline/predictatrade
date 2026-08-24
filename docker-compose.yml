@@ -68,6 +68,9 @@ services:
       - JWT_SECRET=lyFoqwbIPuflF/6PjNtrZXCM1wXGVfYJhj7ZxDAWKYA=
       - HTTP_PORT=13081
       - WS_PORT=13081
+    extra_hosts:
+      # Host Ollama AI proxy (sentiment) — iptables restricts 11434 to docker nets
+      - "host.docker.internal:host-gateway"
     ports:
       - "13081:13081"
     depends_on:

@@ -7,7 +7,7 @@ import StatusBadge from "@/components/ui/status-badge";
 import ConfirmDialog from "@/components/admin/confirm-dialog";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import { IconEye, IconKey } from "@tabler/icons-react";
+import { IconEye, IconKey, IconDownload } from "@tabler/icons-react";
 
 interface User {
   id: string;
@@ -157,6 +157,26 @@ export default function AdminUsersPage() {
               <div className="flex justify-between"><span className="text-pat-text-muted">User ID</span><span className="text-pat-text-muted font-mono">{selectedUser.id.slice(0, 12)}...</span></div>
               <div className="flex justify-between"><span className="text-pat-text-muted">Registered</span><span className="text-pat-text-primary">{selectedUser.created_at ? format(new Date(selectedUser.created_at), "MMM d, yyyy") : "—"}</span></div>
               <div className="flex justify-between"><span className="text-pat-text-muted">Last Login</span><span className="text-pat-text-primary">{selectedUser.last_login_at ? format(new Date(selectedUser.last_login_at), "MMM d, yyyy HH:mm") : "Never"}</span></div>
+            </div>
+
+            {/* Trading report downloads (reports module: /reports/admin/reports/trading/:id) */}
+            <div className="mt-4 pt-4 border-t border-pat-border">
+              <h3 className="text-xs font-semibold text-pat-text-primary mb-2 flex items-center gap-1"><IconDownload size={12} /> Trading Report</h3>
+              <div className="flex gap-2">
+                {(["pdf", "xlsx", "csv"] as const).map((fmt) => (
+                  <a
+                    key={fmt}
+                    href={`${process.env.NEXT_PUBLIC_API_BASE_URL || "/api/v1"}/reports/admin/reports/trading/${selectedUser.id}?format=${fmt}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs px-2 py-1 rounded bg-pat-bg-surface-secondary text-pat-text-primary hover:bg-pat-bg-surface-secondary transition-colors uppercase"
+                    title={`Download ${fmt.toUpperCase()} trading report`}
+                  >
+                    {fmt}
+                  </a>
+                ))}
+              </div>
+              <p className="text-[10px] text-pat-text-muted mt-1">Requires a linked MT5 agent binding; 404 if the subscriber has no recorded trades.</p>
             </div>
 
             {/* Subscription */}

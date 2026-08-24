@@ -33,6 +33,11 @@ interface GoSignal {
   GateResults: DiagnosticRecord[] | null;
   CreatedAt: string;
   ExpiresAt: string;
+  // Capital-protection sizing annotations
+  SuggestedLot?: string | number;
+  RiskDollars?: string | number;
+  RiskPctOfEquity?: string | number;
+  SLDistancePoints?: string | number;
 }
 
 type DiagnosticRecord = Record<string, string | number | string[] | null | undefined>;
@@ -227,7 +232,21 @@ export default function AdminSignalsPage() {
                     </tr>
                     {isOpen && (
                       <tr className="bg-pat-bg-surface-secondary/30">
-                        <td colSpan={15} className="px-4 py-4">
+                        <td colSpan={15} className="px-4 py-4 space-y-3">
+                          <div className="flex flex-wrap gap-4 text-xs text-pat-text-secondary">
+                            <span title="Engine-recommended lot (risk-capped, margin-aware)">
+                              Lot: <b className="text-pat-text-primary">{Number(row.SuggestedLot || 0) > 0 ? Number(row.SuggestedLot).toFixed(2) : "—"}</b>
+                            </span>
+                            <span title="Risk at stop distance, USD">
+                              Risk: <b className="text-pat-text-primary">{Number(row.RiskDollars || 0) > 0 ? `$${Number(row.RiskDollars).toFixed(2)}` : "—"}</b>
+                            </span>
+                            <span title="Risk as % of account equity">
+                              Equity %: <b className="text-pat-text-primary">{Number(row.RiskPctOfEquity || 0) > 0 ? `${Number(row.RiskPctOfEquity).toFixed(2)}%` : "—"}</b>
+                            </span>
+                            <span title="Stop distance in points">
+                              SL pts: <b className="text-pat-text-primary">{Number(row.SLDistancePoints || 0) > 0 ? Number(row.SLDistancePoints).toFixed(0) : "—"}</b>
+                            </span>
+                          </div>
                           <SignalEvidencePanel sig={row} />
                         </td>
                       </tr>
