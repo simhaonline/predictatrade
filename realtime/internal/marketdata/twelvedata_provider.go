@@ -65,7 +65,7 @@ func NewTwelveDataProvider(apiKey string) *TwelveDataProvider {
 		apiBase: "https://api.twelvedata.com",
 		client:  &http.Client{Timeout: 15 * time.Second},
 		symbols: map[string]string{
-			"VIX":    "VIX",
+			"VIX":    "UVXY", // VIX proxy — ProShares Ultra VIX Short-Term Futures ETF
 			"BTCUSD": "BTC/USD",
 			"WTI":    "WTI",
 			"EURUSD": "EUR/USD",
