@@ -215,27 +215,52 @@ body.light{background:#f5f7fb;color:#172033}
 .cm-dir{font-weight:700;text-align:right;font-size:8px}
 
 
-/* ═══ LIGHT MODE (original color scheme) ═══ */
+/* ═══ LIGHT MODE (exact old version colors) ═══ */
 body.light{
-  --bg:#f5f7fb;--panel:#ffffff;--panel2:#eef2f7;--border:#d5dce5;--border2:#aeb8c5;
+  --bg:#f5f7fb;--panel:#ffffff;--panel2:#f0f2f6;--border:#d5dce5;--border2:#aeb8c5;
   --text:#172033;--text-dim:#5b677a;--text-bright:#172033;
   --green:#16a36a;--green-dim:#0b7a4c;--green-bg:#ddf5ea;
   --red:#d64550;--red-dim:#b4232d;--red-bg:#fbe3e5;
   --blue:#2563eb;--blue-dim:#1d4ed8;--blue-bg:#e0eaff;
   --amber:#d97706;--amber-bg:#fff0d6;
 }
+/* Light mode: white panels, cream header/footer, warm tones — NOT blue */
 body.light #header{background:linear-gradient(180deg,#efeade 0%,#e5ddcc 100%) !important;border-bottom:1px solid #d0c8b6}
 body.light #footer{background:linear-gradient(180deg,#e5ddcc,#d9cfba) !important;border-top:1px solid #c0b6a0}
-body.light .panel-head{background:#eef2f7 !important;border-bottom:1px solid #d5dce5}
+body.light .panel-head{background:#efeade !important;border-bottom:1px solid #d5dce5;color:#5b677a}
 body.light .panel{background:#ffffff !important;border:1px solid #d5dce5}
-body.light .ind-cell{background:#eef2f7}
-body.light .eng-card{background:#eef2f7}
-body.light .res-cell{background:#eef2f7}
-body.light .gate-cell{background:#eef2f7}
+body.light .panel-body{background:#ffffff}
+/* Cells: white not blue-tinted #eef2f7 */
+body.light .ind-cell{background:#f8f9fb}
+body.light .eng-card{background:#f8f9fb}
+body.light .res-cell{background:#f8f9fb}
+body.light .gate-cell{background:#f8f9fb}
+body.light .spark-item{background:transparent}
 body.light .dom-table{border-left:1px solid #d5dce5}
-body.light .spark-col{border-right:1px solid #d5dce5}
-body.light .active-mkts{border-left:1px solid #d5dce5}
+body.light .dom-row{color:#5b677a}
+body.light .dom-row.ask{color:#b4232d}
+body.light .dom-row.bid{color:#0b7a4c}
+body.light .dom-spread{background:#f0f2f6;color:#8691a3;border-color:#d5dce5}
+body.light .spark-col{border-right:1px solid #d5dce5;background:#ffffff}
+body.light .active-mkts{border-left:1px solid #d5dce5;background:#ffffff}
 body.light .net-area{background:#ffffff}
+body.light .gantt-track{background:#f0f2f6}
+body.light .gantt-bar.open{background:rgba(37,99,235,.2)}
+body.light .gantt-bar.hold{background:rgba(22,163,106,.15)}
+body.light .gantt-bar.resolve{background:rgba(22,163,106,.3)}
+body.light .am-track{background:#f0f2f6}
+body.light .bar-track{background:#e0e4ec}
+body.light .cm-driver{border-bottom:1px solid #d5dce5}
+body.light .section-divider{background:#d5dce5}
+body.light ::-webkit-scrollbar-thumb{background:#aeb8c5}
+body.light ::-webkit-scrollbar-track{background:transparent}
+body.light .news-strip{background:#efeade !important;border-bottom:1px solid #d0c8b6;color:#5b677a}
+body.light .theme-toggle{background:#efeade;border:1px solid #d0c8b6;color:#5b677a}
+body.light .ticker-track{color:#5b677a}
+body.light .pipe-node{background:#f8f9fb;border:1px solid #d5dce5;color:#5b677a}
+body.light .pipe-node.active{background:#e0eaff;border-color:#2563eb;color:#1d4ed8}
+body.light .pipe-node.done{background:#ddf5ea;border-color:#16a36a;color:#0b7a4c}
+body.light .pipe-arrow{color:#aeb8c5}
 body.light .live-pill.pill-live{background:#ddf5ea;color:#0b7a4c;border:1px solid #16a36a}
 body.light .live-pill.pill-off{background:#fbe3e5;color:#b4232d;border:1px solid #d64550}
 body.light .logo-img-light{display:block}
@@ -246,16 +271,51 @@ body.light .mode-banner.down{background:#fbe3e5;color:#b4232d;border-bottom:1px 
 body.light .regime-TB{background:#ddf5ea;color:#0b7a4c}
 body.light .regime-TBR{background:#fbe3e5;color:#b4232d}
 body.light .regime-RANGE{background:#e0eaff;color:#1d4ed8}
-body.light .gantt-track{background:#eef2f7}
-body.light .am-track{background:#eef2f7}
-body.light .bar-track{background:#eef2f7}
-body.light .cm-driver{border-bottom:1px solid #d5dce5}
-body.light .section-divider{background:#d5dce5}
-body.light ::-webkit-scrollbar-thumb{background:#aeb8c5}
-body.light .news-strip{background:#eef2f7 !important;border-bottom:1px solid #d5dce5}
-body.light .theme-toggle{background:#eef2f7;border:1px solid #d5dce5;color:#5b677a}
-body.light .ticker-track{color:#5b677a}
-body.light .pipe-node{background:#eef2f7;border:1px solid #d5dce5;color:#5b677a}
+body.light .regime-MR{background:#e0eaff;color:#1d4ed8}
+body.light .regime-HV{background:#fff0d6;color:#b45309}
+body.light .regime-BK{background:#fbe3e5;color:#b4232d}
+body.light .regime-WAIT{background:#f0f2f6;color:#8691a3}
+body.light .big-price{color:#172033}
+body.light .kpi .v{color:#172033}
+body.light .kpi .v.g{color:#0b7a4c}
+body.light .kpi .v.r{color:#b4232d}
+body.light .acc-label{color:#5b677a}
+body.light .acc-val{color:#172033}
+body.light .ind-name{color:#5b677a}
+body.light .ind-val{color:#172033}
+body.light .ind-bar{background:#e0e4ec}
+body.light .eng-name{color:#172033}
+body.light .eng-stats{color:#8691a3}
+body.light .eng-tf{color:#1d4ed8}
+body.light .eng-bar{background:#e0e4ec}
+body.light .rc-tf{color:#172033}
+body.light .rc-lbl{color:#5b677a}
+body.light .rc-bar{background:#e0e4ec}
+body.light .gate-name{color:#5b677a}
+body.light .agent-card{background:#f8f9fb;border-left:2px solid #d5dce5}
+body.light .agent-card.ok{border-left-color:#16a36a}
+body.light .agent-card.err{border-left-color:#d64550}
+body.light .agent-card.warn{border-left-color:#d97706}
+body.light .agent-name{color:#172033}
+body.light .agent-status{color:#5b677a}
+body.light .si-name{color:#172033}
+body.light .si-sub{color:#8691a3}
+body.light .spark-val{color:#172033}
+body.light .am-label{color:#172033}
+body.light .am-head{color:#5b677a}
+body.light .cm-name{color:#5b677a}
+body.light .cm-dir{color:#172033}
+body.light .cm-impact{background:#e0e4ec}
+body.light .core-badge{background:rgba(255,255,255,.9);border-color:#d5dce5}
+body.light .cb-lbl{color:#8691a3}
+body.light .cb-val{color:#172033}
+body.light .cb-bar{background:#e0e4ec}
+body.light .pl-sym{color:#172033}
+body.light .pl-price{color:#0b7a4c}
+body.light .phb-right{color:#5b677a}
+body.light .phb-right b{color:#172033}
+body.light .news-label{color:#b45309}
+body.light .clock{color:#172033}
 
 /* ═══ RESPONSIVE ═══ */
 @media(max-width:1200px){
