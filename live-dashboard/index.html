@@ -583,33 +583,69 @@ function computeEMA(data,period){
 
 function priceOption(){
   if(!STATE.candles||!STATE.candles.length){
-    return{animation:false,backgroundColor:'transparent',graphic:[{type:'text',left:'center',top:'middle',style:{text:'Loading chart...',fill:'#6b7384',font:'11px monospace'}}]};
+    return{animation:false,backgroundColor:'transparent',graphic:[{type:'text',left:'center',top:'middle',style:{text:'Loading chart data...',fill:'#6b7384',font:'11px monospace'}}]};
   }
   var d=STATE.digits;
   var cd=STATE.candles.map(c=>[c.t,c.o,c.c,c.l,c.h]);
-  var e9=computeEMA(STATE.candles,9),e21=computeEMA(STATE.candles,21),e50=computeEMA(STATE.candles,50);
+  var e9=computeEMA(STATE.candles,9);
+  var e21=computeEMA(STATE.candles,21);
+  var e50=computeEMA(STATE.candles,50);
+  var volData=STATE.candles.map(c=>[c.t,c.v||0]);
+  var vwapData=[];
+  if(STATE.vwap>0)vwapData=STATE.candles.map(c=>[c.t,STATE.vwap]);
+  
   return{
-    animation:false,backgroundColor:'transparent',
-    grid:{left:90,right:8,top:4,bottom:4,containLabel:false,borderWidth:0},
-    xAxis:{type:'time',axisLine:{lineStyle:{color:'#2a3548'}},axisLabel:{color:'#6b7384',fontFamily:'monospace',fontSize:8},splitLine:{show:false},axisTick:{show:false}},
-    yAxis:{scale:true,position:'left',axisLine:{show:false},axisTick:{show:false},axisLabel:{color:'#6b7384',fontFamily:'monospace',fontSize:8,formatter:v=>v.toFixed(d),margin:8},splitLine:{show:true,lineStyle:{color:'#1e2738',type:'dashed'}},splitNumber:6},
+    animation:false,
+    backgroundColor:'transparent',
+    grid:{left:58,right:4,top:4,bottom:20,containLabel:false,borderWidth:0},
+    xAxis:{
+      type:'time',
+      axisLine:{lineStyle:{color:'#2a3548'}},
+      axisLabel:{color:'#6b7384',fontFamily:'monospace',fontSize:8,
+        formatter:function(v){var dt=new Date(v);return dt.getHours()+':'+String(dt.getMinutes()).padStart(2,'0');}},
+      splitLine:{show:false},
+      axisTick:{show:false}
+    },
+    yAxis:{
+      scale:true,position:'left',
+      axisLine:{show:false},axisTick:{show:false},
+      axisLabel:{color:'#6b7384',fontFamily:'monospace',fontSize:8,formatter:function(v){return v.toFixed(d);},margin:4},
+      splitLine:{show:true,lineStyle:{color:'#1e2738',type:'dashed'}},
+      splitNumber:8
+    },
+    tooltip:{
+      trigger:'axis',
+      axisPointer:{type:'cross',lineStyle:{color:'#2a3548'}},
+      backgroundColor:'rgba(10,14,23,.9)',
+      borderColor:'#2a3548',
+      textStyle:{color:'#c5cad6',fontFamily:'monospace',fontSize:10},
+      formatter:function(params){
+        if(!params||!params[0])return'';
+        var dt=new Date(params[0].value[0]);
+        var ts=dt.getHours()+':'+String(dt.getMinutes()).padStart(2,'0');
+        var h='<div style="font-size:9px">'+ts+'</div>';
+        return h;
+      }
+    },
+    dataZoom:[{type:'inside',xAxisIndex:0,start:0,end:100,minSpan:5}],
     series:[
-      // Candlestick — keep but make thinner
-      {type:'candlestick',data:cd,clip:true,barMaxWidth:10,itemStyle:{color:'#00c853',color0:'#ff1744',borderColor:'#00c853',borderColor0:'#ff1744',borderWidth:1}},
-      // EMA lines
-      {type:'line',data:e9,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#2962ff',width:1.2}},
-      {type:'line',data:e21,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#7c3aed',width:1.2}},
-      {type:'line',data:e50,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#00bcd4',width:1.5}},
-      // HI/LO/VWAP mark lines
-      {type:'line',markLine:{symbol:'none',silent:true,clip:true,lineStyle:{type:'dashed',width:1},data:[
-          STATE.high>0?[{coord:[cd[0][0],STATE.high]},{coord:[cd[cd.length-1][0],STATE.high],label:{formatter:'HI '+fmt(STATE.high,d),color:'#00c853',fontFamily:'monospace',fontSize:8,position:'insideEndTop'},lineStyle:{color:'#00c853'}}]:[],
-          STATE.low>0?[{coord:[cd[0][0],STATE.low]},{coord:[cd[cd.length-1][0],STATE.low],label:{formatter:'LO '+fmt(STATE.low,d),color:'#ff1744',fontFamily:'monospace',fontSize:8,position:'insideEndBottom'},lineStyle:{color:'#ff1744'}}]:[],
-          STATE.vwap>0?[{coord:[cd[0][0],STATE.vwap]},{coord:[cd[cd.length-1][0],STATE.vwap],label:{formatter:'VWAP '+fmt(STATE.vwap,d),color:'#ffa726',fontFamily:'monospace',fontSize:8},lineStyle:{color:'#ffa726',type:'dotted'}}]:[],
-        ]},data:[]},
-      // Volume bars at bottom
-      {type:'bar',xAxisIndex:0,yAxisIndex:0,data:STATE.candles.map(c=>[c.t,c.v]),itemStyle:{color:'rgba(41,98,255,.1)'},barMaxWidth:10,z:-1,silent:true},
+      {type:'candlestick',data:cd,clip:true,barMaxWidth:8,
+        itemStyle:{color:'#00c853',color0:'#ff1744',borderColor:'#00c853',borderColor0:'#ff1744',borderWidth:1}},
+      {type:'line',data:e9,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#2962ff',width:1.2},z:5},
+      {type:'line',data:e21,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#7c3aed',width:1.2},z:5},
+      {type:'line',data:e50,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#00bcd4',width:1.5},z:5},
+      {type:'line',data:vwapData,smooth:false,showSymbol:false,clip:true,lineStyle:{color:'#ffa726',width:1,type:'dotted'},z:4,silent:true},
+      {type:'bar',data:volData,xAxisIndex:0,yAxisIndex:0,barMaxWidth:8,
+        itemStyle:{color:'rgba(41,98,255,.08)'},z:-1,silent:true},
     ],
-    graphic:[{type:'text',right:6,top:1,style:{text:'SRC: '+(STATE.candleSource||'—'),fill:'#6b7384',font:'7px monospace'}}]
+    markLine:{
+      symbol:'none',silent:true,clip:true,lineStyle:{type:'dashed',width:1},
+      data:[
+        STATE.high>0?{coord:[cd[0][0],STATE.high],label:{formatter:'HI '+fmt(STATE.high,d),color:'#00c853',fontFamily:'monospace',fontSize:8,position:'insideEndTop'},lineStyle:{color:'#00c853'}}:[],
+        STATE.low>0?{coord:[cd[0][0],STATE.low],label:{formatter:'LO '+fmt(STATE.low,d),color:'#ff1744',fontFamily:'monospace',fontSize:8,position:'insideEndBottom'},lineStyle:{color:'#ff1744'}}:[],
+      ]
+    },
+    graphic:[{type:'text',left:60,top:2,style:{text:(STATE.candleSource||'—')+' · '+STATE.candles.length+' bars',fill:'#6b7384',font:'7px monospace'}}]
   };
 }
 
