@@ -148,7 +148,7 @@ body{
 /* ============ APP GRID ============ */
 #app{
   display:grid;
-  grid-template-rows:30px 1fr 22px;
+  grid-template-rows:30px auto 1fr 22px;
   height:100vh;
   width:100%;
   max-width:100vw;
@@ -510,7 +510,7 @@ body{
 /* Tablet portrait */
 @media screen and (max-width:900px){
   html,body{overflow:auto}
-  #app{grid-template-rows:30px auto 22px;height:auto;min-height:100vh}
+  #app{grid-template-rows:30px auto auto 22px;height:auto;min-height:100vh}
   #main{
     grid-template-columns:minmax(0,1fr);
     grid-template-rows:auto auto auto auto auto auto auto auto;
@@ -670,6 +670,10 @@ body.dark .focus-layer{background:var(--bg)}
       <div class="clock" id="clock">--:--:--</div>
     </div>
   </header>
+  <!-- Live News Feed (sourced from configured economic calendar provider) -->
+  <div id="newsStrip" class="news-strip" style="border-bottom:1px solid var(--border);padding:2px 8px;font-size:9px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:var(--panel)">
+    <span style="color:var(--text);font-weight:700">NEWS</span> <span id="newsText">Loading economic calendar…</span>
+  </div>
 
   <!-- ===================== MAIN ===================== -->
   <main id="main">
@@ -722,10 +726,6 @@ body.dark .focus-layer{background:var(--bg)}
         <div class="ph-left"><span class="diamond">◆</span> XAUUSD · M5 · CANDLES + EMA9/21/50 · VWAP · BB</div>
         <div class="ph-right" id="priceTime">● -- --- ---- --:--:-- MT<button class="expand-btn" onclick="toggleExpand('p-price')" aria-label="Expand XAUUSD chart" title="Expand panel">⛶</button></div>
       </div>
-        <!-- Live News Feed (sourced from configured economic calendar provider) -->
-  <div id="newsStrip" class="news-strip" style="border:1px solid var(--border);border-radius:3px;margin:4px 6px;padding:4px 8px;font-size:9px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-    <span style="color:var(--text);font-weight:700">NEWS</span> <span id="newsText">Loading economic calendar…</span>
-  </div>
 <div class="panel-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden">
         <div class="price-header-bar">
           <div class="phb-left">
