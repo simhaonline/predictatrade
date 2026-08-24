@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { Fragment } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/providers/auth-provider";
 import { useState } from "react";
@@ -61,18 +62,23 @@ export default function Sidebar() {
           </Link>
         </div>
         <nav className="flex-1 overflow-y-auto p-3 space-y-1" aria-label="Main navigation">
-          {items.map((item) => {
+          {items.map((item, idx) => {
             const active = pathname === item.href || pathname.startsWith(item.href + "/");
+            const showSection = !!item.section && (idx === 0 || items[idx - 1].section !== item.section);
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setOpen(false)}
-                className={"flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors " + (active ? "bg-pat-bg-sidebar-active text-pat-text-sidebar-active" : "text-pat-text-sidebar hover:bg-pat-bg-sidebar-hover hover:text-pat-text-sidebar-active")}
-              >
-                <item.icon size={18} />
-                {item.label}
-              </Link>
+              <Fragment key={item.href}>
+                {showSection && (
+                  <div className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-pat-text-sidebar-muted">{item.section}</div>
+                )}
+                <Link
+                  href={item.href}
+                  onClick={() => setOpen(false)}
+                  className={"flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors " + (active ? "bg-pat-bg-sidebar-active text-pat-text-sidebar-active" : "text-pat-text-sidebar hover:bg-pat-bg-sidebar-hover hover:text-pat-text-sidebar-active")}
+                >
+                  <item.icon size={18} />
+                  {item.label}
+                </Link>
+              </Fragment>
             );
           })}
           {items.length === 0 && sessionState === 'LOADING' && (

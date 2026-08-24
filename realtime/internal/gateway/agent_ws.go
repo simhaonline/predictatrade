@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"log"
 	"encoding/json"
 	"net/http"
 	"sync"
@@ -251,12 +252,29 @@ func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) 
 				return
 			}
 			// Track live MT4/MT5 terminal link state from agent heartbeats.
-			var hb struct {
-				MT4Connected bool `json:"mt4_connected"`
-				MT5Connected bool `json:"mt5_connected"`
+			// BUG FIX: Only update terminal state from actual heartbeat messages.
+			// Previously, every incoming message (TICK, MARKET_SNAPSHOT, etc.) was
+			// unmarshaled into a fresh hb struct with zero-value false fields, then
+			// updateAgentTerminals was called — overwriting the true values set by
+			// the real heartbeat. Since the Master Node sends snapshots every ~1s
+			// but heartbeats only every 30s, the terminal status was reset to false
+			// ~30 times between heartbeats, making the dashboard always show
+			// mt4_connected: 0, mt5_connected: 0 even when terminals were connected.
+			var typeCheck struct {
+				Type          string `json:"type"`
+				AgentID       string `json:"agent_id"`
+				MT4Connected  bool   `json:"mt4_connected"`
+				MT5Connected  bool   `json:"mt5_connected"`
 			}
-			if json.Unmarshal(data, &hb) == nil {
-				h.updateAgentTerminals(agentID, hb.MT4Connected, hb.MT5Connected)
+			if json.Unmarshal(data, &typeCheck) == nil {
+				// Heartbeat messages have an "agent_id" field but NO "type" field.
+				// TICK and MARKET_SNAPSHOT messages have "type" but no "agent_id".
+				// Only update terminal state from heartbeat messages to avoid
+				// zero-value overwrites from tick/snapshot messages.
+				if typeCheck.AgentID != "" {
+					log.Printf("[AGENT-WS] Heartbeat from %s: mt4=%v mt5=%v", agentID, typeCheck.MT4Connected, typeCheck.MT5Connected)
+					h.updateAgentTerminals(agentID, typeCheck.MT4Connected, typeCheck.MT5Connected)
+				}
 			}
 			if h.provider != nil {
 				h.provider.HandleAgentMessage(agentID, data)

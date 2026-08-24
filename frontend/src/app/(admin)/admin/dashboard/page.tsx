@@ -154,7 +154,7 @@ export default function AdminDashboardPage() {
   if (isLoading) {
     return (
       <div className="space-y-4">
-        <h1 className="text-xl font-bold text-pat-text-primary">Live Dashboard</h1>
+        <h1 className="text-xl font-bold text-pat-text-primary">Real-Time Console</h1>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="bg-pat-card-bg border border-pat-card-border rounded-lg p-4 animate-pulse">
@@ -170,7 +170,7 @@ export default function AdminDashboardPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-pat-text-primary">Live Dashboard</h1>
+        <h1 className="text-xl font-bold text-pat-text-primary">Real-Time Console</h1>
         <div className="flex items-center gap-2 text-xs">
           <span className={`inline-block h-2 w-2 rounded-full ${wsConnected ? "bg-pat-success" : wsState === 'RECONNECTING' ? "bg-pat-warning" : "bg-pat-text-muted"}`} />
           <span className="text-pat-text-muted">{wsState}</span>

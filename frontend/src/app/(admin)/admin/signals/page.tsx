@@ -1,7 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
+import React from "react";
 import { customInstance } from "@/lib/axios-instance";
-import DataTable, { DataTableColumn } from "@/components/ui/data-table";
 import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
 import { useState, useEffect, useRef } from "react";
@@ -112,37 +112,13 @@ export default function AdminSignalsPage() {
     return `${(n * 100).toFixed(1)}%`;
   };
 
-  const columns: DataTableColumn<GoSignal>[] = [
-    { key: "CreatedAt", header: "Time", sortable: true, cell: (row) => (
-      <span className="text-xs text-pat-text-muted whitespace-nowrap">{row.CreatedAt ? format(new Date(row.CreatedAt), "MMM d, HH:mm:ss") : "—"}</span>
-    )},
-    { key: "Direction", header: "Direction", sortable: true, cell: (row) => (
-      <span className={`text-xs font-bold ${
-              row.Direction === "BUY" ? "text-pat-success" :
-              row.Direction === "SELL" ? "text-pat-danger" :
-              row.Direction === "BUY_CANDIDATE" ? "text-pat-warning" :
-              row.Direction === "SELL_CANDIDATE" ? "text-pat-candidate-sell" :
-              "text-pat-text-secondary"
-            }`}>{row.Direction}</span>
-    )},
-    { key: "StrategyID", header: "Strategy", sortable: true, cell: (row) => <span className="text-xs text-pat-text-secondary whitespace-nowrap">{row.StrategyID}</span> },
-    { key: "Symbol", header: "Symbol", cell: (row) => <span className="text-xs text-pat-text-primary">{row.Symbol}</span> },
-    { key: "CalibratedProbability", header: "Prob", sortable: true, cell: (row) => <span className="text-xs text-pat-text-primary">{fmtProb(row.CalibratedProbability)}</span> },
-    { key: "RawScore", header: "Score", sortable: true, cell: (row) => <span className="text-xs text-pat-text-secondary">{fmtScore(row.RawScore)}</span> },
-    { key: "EntryPrice", header: "Entry", cell: (row) => <span className="text-xs text-pat-text-primary">{fmtPrice(row.EntryPrice)}</span> },
-    { key: "StopLoss", header: "SL", cell: (row) => <span className="text-xs text-pat-danger">{fmtPrice(row.StopLoss)}</span> },
-    { key: "TP1", header: "TP1", cell: (row) => <span className="text-xs text-pat-success">{fmtPrice(row.TP1)}</span> },
-    { key: "TP2", header: "TP2", cell: (row) => <span className="text-xs text-pat-success">{fmtPrice(row.TP2)}</span> },
-    { key: "TP3", header: "TP3", cell: (row) => <span className="text-xs text-pat-success">{fmtPrice(row.TP3)}</span> },
-    { key: "Regime", header: "Regime", cell: (row) => <span className="text-xs text-pat-text-muted">{row.Regime || "—"}</span> },
-    { key: "Session", header: "Session", cell: (row) => <span className="text-xs text-pat-text-muted">{row.Session || "—"}</span> },
-    { key: "Status", header: "Status", cell: (row) => <StatusBadge status={row.Status} size="sm" /> },
-    { key: "expand", header: "", cell: (row) => (
-      <button onClick={() => setExpandedRow(expandedRow === row.ID ? null : row.ID)} className="text-pat-text-muted hover:text-pat-text-primary">
-        {expandedRow === row.ID ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
-      </button>
-    )},
-  ];
+  const dirClass = (dir: string) => (
+    dir === "BUY" ? "text-pat-success" :
+    dir === "SELL" ? "text-pat-danger" :
+    dir === "BUY_CANDIDATE" ? "text-pat-warning" :
+    dir === "SELL_CANDIDATE" ? "text-pat-candidate-sell" :
+    "text-pat-text-secondary"
+  );
 
   return (
     <div className="space-y-4">
@@ -182,17 +158,87 @@ export default function AdminSignalsPage() {
         <span className="text-xs text-pat-text-muted ml-auto self-center">{filteredSignals.length} signals</span>
       </div>
 
-      <DataTable data={filteredSignals} columns={columns} loading={isLoading} error={error as Error | null} onRetry={refetch} />
-
-      {/* Expanded Row Details */}
-      {expandedRow && (() => {
-        const sig = filteredSignals.find((s) => s.ID === expandedRow);
-        return sig ? (
-          <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-4">
-            <SignalEvidencePanel sig={sig} />
-          </div>
-        ) : null;
-      })()}
+      {isLoading ? (
+        <div className="space-y-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-10 bg-pat-bg-surface-secondary/50 rounded animate-pulse" />
+          ))}
+        </div>
+      ) : error ? (
+        <div className="text-center py-12 border border-pat-border rounded-lg bg-pat-bg-surface/50">
+          <div className="text-pat-danger text-sm mb-2">Failed to load data</div>
+          <div className="text-pat-text-muted text-xs mb-4">{(error as Error).message}</div>
+          <button onClick={() => refetch()} className="text-xs bg-pat-bg-surface-secondary hover:bg-pat-bg-surface-secondary px-3 py-1.5 rounded">Retry</button>
+        </div>
+      ) : filteredSignals.length === 0 ? (
+        <div className="text-center py-12 border border-pat-border rounded-lg bg-pat-bg-surface/50">
+          <div className="text-pat-text-muted text-sm">No signals match the current filters</div>
+        </div>
+      ) : (
+        <div className="overflow-x-auto border border-pat-border rounded-lg">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-pat-bg-surface text-pat-text-secondary uppercase text-xs">
+              <tr>
+                <th className="px-3 py-3"></th>
+                <th className="px-3 py-3 font-medium">Time</th>
+                <th className="px-3 py-3 font-medium">Direction</th>
+                <th className="px-3 py-3 font-medium">Strategy</th>
+                <th className="px-3 py-3 font-medium">Symbol</th>
+                <th className="px-3 py-3 font-medium">Prob</th>
+                <th className="px-3 py-3 font-medium">Score</th>
+                <th className="px-3 py-3 font-medium">Entry</th>
+                <th className="px-3 py-3 font-medium">SL</th>
+                <th className="px-3 py-3 font-medium">TP1</th>
+                <th className="px-3 py-3 font-medium">TP2</th>
+                <th className="px-3 py-3 font-medium">TP3</th>
+                <th className="px-3 py-3 font-medium">Regime</th>
+                <th className="px-3 py-3 font-medium">Session</th>
+                <th className="px-3 py-3 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-800">
+              {filteredSignals.map((row) => {
+                const isOpen = expandedRow === row.ID;
+                return (
+                  <React.Fragment key={row.ID}>
+                    <tr
+                      className="hover:bg-pat-table-hover transition-colors cursor-pointer"
+                      onClick={() => setExpandedRow(isOpen ? null : row.ID)}
+                    >
+                      <td className="px-3 py-3">
+                        {isOpen ? <IconChevronUp size={14} className="text-pat-text-muted" /> : <IconChevronDown size={14} className="text-pat-text-muted" />}
+                      </td>
+                      <td className="px-3 py-3 text-xs text-pat-text-muted whitespace-nowrap">{row.CreatedAt ? format(new Date(row.CreatedAt), "MMM d, HH:mm:ss") : "—"}</td>
+                      <td className="px-3 py-3">
+                        <span className={`text-xs font-bold ${dirClass(row.Direction)}`}>{row.Direction}</span>
+                      </td>
+                      <td className="px-3 py-3 text-xs text-pat-text-secondary whitespace-nowrap">{row.StrategyID}</td>
+                      <td className="px-3 py-3 text-xs text-pat-text-primary">{row.Symbol}</td>
+                      <td className="px-3 py-3 text-xs text-pat-text-primary">{fmtProb(row.CalibratedProbability)}</td>
+                      <td className="px-3 py-3 text-xs text-pat-text-secondary">{fmtScore(row.RawScore)}</td>
+                      <td className="px-3 py-3 text-xs text-pat-text-primary">{fmtPrice(row.EntryPrice)}</td>
+                      <td className="px-3 py-3 text-xs text-pat-danger">{fmtPrice(row.StopLoss)}</td>
+                      <td className="px-3 py-3 text-xs text-pat-success">{fmtPrice(row.TP1)}</td>
+                      <td className="px-3 py-3 text-xs text-pat-success">{fmtPrice(row.TP2)}</td>
+                      <td className="px-3 py-3 text-xs text-pat-success">{fmtPrice(row.TP3)}</td>
+                      <td className="px-3 py-3 text-xs text-pat-text-muted">{row.Regime || "—"}</td>
+                      <td className="px-3 py-3 text-xs text-pat-text-muted">{row.Session || "—"}</td>
+                      <td className="px-3 py-3"><StatusBadge status={row.Status} size="sm" /></td>
+                    </tr>
+                    {isOpen && (
+                      <tr className="bg-pat-bg-surface-secondary/30">
+                        <td colSpan={15} className="px-4 py-4">
+                          <SignalEvidencePanel sig={row} />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

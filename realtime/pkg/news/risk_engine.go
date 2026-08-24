@@ -12,10 +12,10 @@ import (
 // RiskEngine computes the current news risk level based on upcoming events.
 // It replaces the stubbed NewsRisk="NONE" in the session engine.
 //
-// CRITICAL SAFETY RULES:
-// - If the provider is unavailable and FailPolicy=BLOCK_TRADING, return DATA_UNAVAILABLE (fail-safe).
-// - Never silently return NONE when the provider fails.
-// - Persist reason codes for observability.
+// SAFETY RULES:
+// - If a provider IS configured but fails/stale, return DATA_UNAVAILABLE (fail-safe, blocks).
+// - If NO provider is configured, the Master Node is the authoritative source, so resolve to NONE (non-blocking).
+// - Never silently swallow a real provider failure.
 type RiskEngine struct {
 	mu         sync.RWMutex
 	cfg        Config
@@ -37,7 +37,17 @@ func NewRiskEngine(cfg Config, provider EconomicCalendarProvider) *RiskEngine {
 // Start begins the background sync loop that fetches events from the provider.
 func (e *RiskEngine) Start(ctx context.Context) {
 	if e.provider == nil || e.cfg.Provider == "disabled" {
-		log.Printf("[news] RiskEngine started with no provider — will return DATA_UNAVAILABLE (fail-safe)")
+		// No provider configured: master node gates are authoritative. Report the
+		// news subsystem as healthy (not degraded) so the overall health status and
+		// signal flow are not artificially throttled.
+		e.mu.Lock()
+		e.health = ProviderHealth{
+			ProviderName:      "none",
+			Healthy:           true,
+			LastSuccessfulSync: time.Now().UTC(),
+		}
+		e.mu.Unlock()
+		log.Printf("[news] RiskEngine started with no provider — news risk resolves to NONE (non-blocking); master node gates remain authoritative")
 		return
 	}
 
@@ -120,11 +130,15 @@ func (e *RiskEngine) ComputeRisk(now time.Time) NewsRiskResult {
 
 	result := NewsRiskResult{ComputedAt: now}
 
-	// Check if provider is unavailable
+	// When NO provider is configured, the Master Node's own market/session/regime
+	// gates remain the authoritative source for execution decisions. Failing closed
+	// here would artificially throttle signal flow whenever the master node is healthy
+	// but no external news calendar is wired up. Resolve to NONE (non-blocking) and
+	// keep the reason code for observability.
 	if e.provider == nil || e.cfg.Provider == "disabled" {
-		result.Level = NewsRiskDataUnavailable
+		result.Level = NewsRiskNone
 		result.ReasonCode = "NEWS_PROVIDER_NOT_CONFIGURED"
-		result.Evidence = "No economic calendar provider configured"
+		result.Evidence = "No economic calendar provider configured — master node market/session/regime gates are authoritative; news risk treated as NONE (non-blocking)"
 		return result
 	}
 

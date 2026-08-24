@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover"/>
-<meta name="description" content="Predict-A-Trade XAUUSD Live Dashboard — real-time MT5 broker data observation portal by Simha Online"/>
+<meta name="description" content="Predict-A-Trade XAUUSD Real-Time Console — live trading intelligence terminal"/>
 <meta name="author" content="Simha Online"/>
 <meta name="theme-color" content="#f5f7fb"/>
 <meta name="mobile-web-app-capable" content="yes"/>
@@ -20,7 +20,7 @@
 <link rel="apple-touch-icon" sizes="256x256" href="/icon-256.png"/>
 <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png"/>
 <meta property="og:title" content="Predict-A-Trade by Simha Online"/>
-<meta property="og:description" content="XAUUSD Live Dashboard — real-time MT5 broker data"/>
+<meta property="og:description" content="XAUUSD Real-Time Console — live trading intelligence"/>
 <meta property="og:type" content="website"/>
 <meta property="og:site_name" content="Predict-A-Trade by Simha Online"/>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
@@ -896,6 +896,7 @@ async function loadSnapshot(){
   STATE.symbol = d.symbol||'XAUUSD';
   STATE.broker = d.broker||'';
   STATE.source = d.source||'';
+  STATE.masterTime = d.timestamp||'';  // Master Node authoritative UTC time (GMT)
   STATE.brokerTime = d.timestamp||'';
   // Sync clock with server_time from API response
   if(d.server_time){
@@ -1556,7 +1557,7 @@ function buildFooter(){
     ['AGENTS',STATE.agentsConnected+' connected'],['SNAPS',STATE.snapshotCount.toLocaleString()],
     ['WS',STATE.wsState||'OFFLINE'],['QUALITY',STATE.apiConnected?'AUTHORITATIVE':'OFFLINE'],
   ];
-  if(STATE.brokerTime){var bt=STATE.brokerTime.split(' ');if(bt.length>=2)items.push(['MT-TIME',bt[bt.length-1]]);}
+  if(STATE.brokerTime){var bt=STATE.brokerTime.split(' ');if(bt.length>=2)items.push(['NODE-TIME',bt[bt.length-1]]);}
   track.innerHTML=items.concat(items).map(function(it){return '<span class="footer-item"><span class="fk">'+it[0]+'</span><span class="fv">'+it[1]+'</span></span>';}).join('');
 }
 
@@ -1671,7 +1672,8 @@ function updateAllDisplay(){
   if($('kAsk'))$('kAsk').textContent=fmt(STATE.ask,d);
   if($('kSpread'))$('kSpread').textContent=fmt(STATE.spread,d);
   if($('kSymbol'))$('kSymbol').textContent=STATE.symbol;
-  if($('kBroker'))$('kBroker').textContent=STATE.broker?STATE.broker.substring(0,15):'—';
+  // Broker brand is intentionally not displayed (legal/branding). Show a neutral status only.
+  if($('kBroker'))$('kBroker').textContent = STATE.broker ? 'Authorized' : '—';
   if($('kVol'))$('kVol').textContent=STATE.volume>0?STATE.volume.toLocaleString():'—';
   if($('accQuality')){if(!STATE.apiConnected){$('accQuality').textContent='OFFLINE';$('accQuality').style.color='var(--red)';}else if(STATE.masterNode&&/MASTER|LIVE/.test(STATE.source||'')){$('accQuality').textContent='LIVE FEED';$('accQuality').style.color='var(--green-deep)';}else{$('accQuality').textContent='AGGREGATE';$('accQuality').style.color='#9a5b00';}}
   if($('dataSource'))$('dataSource').textContent=STATE.source||'—';
@@ -1712,10 +1714,14 @@ function updateAllDisplay(){
   var utcStr = now.toLocaleTimeString('en-GB', {timeZone:'UTC', hour12:false}) + ' UTC';
   if($('clock'))$('clock').textContent = utcStr;
   // Also show broker time from snapshot if available (for reference)
-  if(STATE.brokerTime){
-    var bt = STATE.brokerTime.split(' ');
+  if(STATE.masterTime){
+    var bt = STATE.masterTime.split(' ');
     var timeStr = bt[bt.length-1];
-    if($('priceTime')){$('priceTime').childNodes[0].textContent='● '+timeStr+' MT';}
+    if($('priceTime')){$('priceTime').childNodes[0].textContent='● '+timeStr+' NODE';}
+  } else if(STATE.brokerTime){
+    var bt2 = STATE.brokerTime.split(' ');
+    var timeStr2 = bt2[bt2.length-1];
+    if($('priceTime')){$('priceTime').childNodes[0].textContent='● '+timeStr2+' MT';}
   } else {
     if($('priceTime')){$('priceTime').childNodes[0].textContent='● '+utcStr;}
   }

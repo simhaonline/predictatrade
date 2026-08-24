@@ -12,7 +12,7 @@ export interface NavItem {
 }
 
 export const userNavigation: NavItem[] = [
-  { label: 'Live Dashboard', href: '/dashboard/live', icon: IconDashboard },
+  { label: 'Real-Time Console', href: '/dashboard/live', icon: IconDashboard },
   { label: 'Signals', href: '/dashboard/signals', icon: IconChartLine },
   { label: 'MetaTrader Client', href: '/dashboard/mt4-mt5-client', icon: IconDeviceDesktop },
   { label: 'Strategy Preferences', href: '/dashboard/strategies', icon: IconBolt },

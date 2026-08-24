@@ -352,8 +352,36 @@ func (pm *PipeManager) processMessage(line string) {
 		// The INIT message does not carry a platform tag, but every TICK does
 		// ("source":"MT4"|"MT5"). Reclassify the terminal so MT4/MT5 detection
 		// is correct without requiring an EA recompile.
+		clientType := "MT5"
 		if src := strings.ToUpper(tick.Source); src == "MT4" || src == "MT5" {
+			clientType = src
 			pm.setTerminalClientType(tick.Account, src)
+		}
+		// Auto-register terminal from TICK data so the agent recovers terminal
+		// state after an agent restart without requiring the EA to re-send INIT.
+		// The EA only sends INIT in OnInit(); if the agent restarts while the EA
+		// is already running, pm.terminals would stay empty and the heartbeat
+		// would report mt4_connected: false / mt5_connected: false even though
+		// the terminal IS connected and sending ticks.
+		if tick.Account != "" {
+			terminalKey := clientType + ":" + tick.Account
+			pm.mu.Lock()
+			if existing := pm.terminals[terminalKey]; existing == nil {
+				pm.terminals[terminalKey] = &TerminalInfo{
+					ClientType: clientType, Account: tick.Account,
+					Broker: tick.Broker, Symbol: tick.Symbol,
+					ConnectedAt: time.Now(),
+				}
+				pm.mu.Unlock()
+				log.Printf("Terminal auto-registered from tick: %s account=%s broker=%s", clientType, tick.Account, tick.Broker)
+				if pm.onTerminalConnect != nil {
+					go pm.onTerminalConnect(*pm.terminals[terminalKey])
+				}
+			} else {
+				existing.Broker = tick.Broker
+				existing.Symbol = tick.Symbol
+				pm.mu.Unlock()
+			}
 		}
 		if pm.onTick != nil {
 			pm.onTick(tick)
