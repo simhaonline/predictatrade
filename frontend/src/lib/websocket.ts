@@ -4,9 +4,11 @@ export type WsMessage =
   | { type: 'agent'; payload: AgentStatusEvent }
   | { type: 'gate'; payload: GateRiskEvent };
 
+export type SignalDirection = 'BUY' | 'SELL' | 'NO_TRADE';
+
 export interface SignalEvent {
   id: string;
-  direction: 'BUY' | 'SELL';
+  direction: SignalDirection;
   probability: number;
   entryPrice: number;
   stopLoss: number;
@@ -74,11 +76,14 @@ export function normalizeWsMessage(input: unknown): WsMessage | null {
     const direction = p.Direction || p.direction;
     const ts = p.CreatedAt || p.created_at || p.timestamp;
     if (!ts) return null; // no trustworthy timestamp — do not fabricate "now"
+    if (direction !== 'BUY' && direction !== 'SELL' && direction !== 'NO_TRADE') {
+      return null; // unknown direction — never guess
+    }
     return {
       type: 'signal',
       payload: {
         id: String(p.ID || p.id || ''),
-        direction: (direction === 'BUY' ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
+        direction,
         probability: Number(p.CalibratedProbability || p.calibratedProbability || p.probability || 0),
         entryPrice: Number(p.EntryPrice || p.entryPrice || 0),
         stopLoss: Number(p.StopLoss || p.stopLoss || 0),
@@ -258,9 +263,22 @@ export class WebSocketManager {
 
 let globalWs: WebSocketManager | null = null;
 
+/**
+ * Resolve the realtime WS URL:
+ *  1. NEXT_PUBLIC_WS_URL (inlined at build time — set it in the Docker build args)
+ *  2. same-origin wss/ws + /ws/v1 (works when the host proxies /ws to the engine)
+ */
+export function defaultWsUrl(): string {
+  const fromEnv = process.env.NEXT_PUBLIC_WS_URL;
+  if (fromEnv) return fromEnv;
+  if (typeof window === 'undefined') return '';
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${window.location.host}/ws/v1`;
+}
+
 export function getGlobalWs(url?: string): WebSocketManager {
   if (!globalWs) {
-    globalWs = new WebSocketManager(url || (typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_WS_URL || '') : ''));
+    globalWs = new WebSocketManager(url || defaultWsUrl());
   }
   return globalWs;
 }
