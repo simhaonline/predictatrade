@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Inject, NotFoundException, Logger } fr
 import { Pool } from 'pg';
 import { DB_POOL } from '../../common/database.module';
 import { planPolicyFromRow, validateStrategySelection } from './entitlement-policy';
+import { visibleFeatureGroups } from '../../common/feature-access';
 import { BillingService } from '../billing/billing.service';
 
 interface ProviderConfig {
@@ -73,17 +74,32 @@ export class SubscriptionsService {
   async getEntitlements(userId: string) {
     const r = await this.pool.query(
       `SELECT p.code, p.name, p.annual_price, p.monthly_price, p.visible,
-              p.max_active_strategy_slots, p.allowed_strategies, COALESCE(NULLIF(s.selected_strategies, '[]'::jsonb), p.allowed_strategies) as selected_strategies,
+              p.max_active_strategy_slots, p.allowed_strategies,
+              p.max_signals_per_day, p.feature_access_level,
+              COALESCE(NULLIF(s.selected_strategies, '[]'::jsonb), p.allowed_strategies) as selected_strategies,
               COALESCE(jsonb_object_agg(pe.entitlement_key, pe.entitlement_value)
                 FILTER (WHERE pe.entitlement_key IS NOT NULL), '{}'::jsonb) AS entitlements
        FROM billing.subscriptions s JOIN control.plans p ON p.id = s.plan_id
        LEFT JOIN control.plan_entitlements pe ON pe.plan_id = p.id
        WHERE s.user_id = $1 AND s.status IN ('ACTIVE','TRIAL','GRACE','CANCEL_AT_PERIOD_END')
        GROUP BY p.code, p.name, p.annual_price, p.monthly_price, p.visible,
-                p.max_active_strategy_slots, p.allowed_strategies, COALESCE(NULLIF(s.selected_strategies, '[]'::jsonb), p.allowed_strategies)
+                p.max_active_strategy_slots, p.allowed_strategies, p.max_signals_per_day,
+                p.feature_access_level, COALESCE(NULLIF(s.selected_strategies, '[]'::jsonb), p.allowed_strategies)
        ORDER BY MAX(s.created_at) DESC LIMIT 1`, [userId],
     );
-    return r.rows[0] ?? { code: 'FREE', selected_strategies: ['STANDARD_SCALPING'], entitlements: {} };
+    if (!r.rows[0]) {
+      return {
+        code: 'FREE',
+        selected_strategies: ['STANDARD_SWING'],
+        max_signals_per_day: 3,
+        feature_access_level: 'core',
+        feature_access: { level: 'core', features: visibleFeatureGroups('core') },
+        entitlements: {},
+      };
+    }
+    const row = r.rows[0];
+    row.feature_access = { level: row.feature_access_level, features: visibleFeatureGroups(row.feature_access_level) };
+    return row;
   }
 
   async updateStrategyPreferences(userId: string, selectedStrategies: string[]) {

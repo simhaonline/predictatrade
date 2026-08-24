@@ -35,14 +35,9 @@ export function validateStrategySelection(
   if (selected.some((s) => !policy.allowedStrategies.includes(s))) {
     return { allowed: false, selected: [], reason: 'STRATEGY_NOT_ENTITLED' };
   }
+  // Bug 7: enforce BOTH allowed_strategies and max_active_strategies.
   if (selected.length > policy.maxActiveStrategies) {
-    return { allowed: false, selected: [], reason: 'STRATEGY_LIMIT_EXCEEDED' };
-  }
-  if (policy.code === 'FREE' && selected[0] !== 'STANDARD_SCALPING') {
-    return { allowed: false, selected: [], reason: 'FREE_STANDARD_SCALPING_ONLY' };
-  }
-  if (policy.code === 'STANDARD' && selected.some((s) => !['STANDARD_SCALPING', 'STANDARD_SWING'].includes(s))) {
-    return { allowed: false, selected: [], reason: 'STANDARD_STRATEGY_NOT_ALLOWED' };
+    return { allowed: false, selected: [], reason: 'plan_strategy_limit' };
   }
   return { allowed: true, selected: selected as Strategy[] };
 }

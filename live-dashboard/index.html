@@ -148,13 +148,19 @@ body{
 /* ============ APP GRID ============ */
 #app{
   display:grid;
-  grid-template-rows:30px auto 1fr 22px;
+  grid-template-rows:30px 30px auto 1fr 22px;
   height:100vh;
   width:100%;
   max-width:100vw;
   overflow:hidden;
   gap:0;
 }
+/* Explicit grid placement to prevent auto-flow issues */
+#modeBanner{grid-row:1}
+#header{grid-row:2}
+#newsStrip{grid-row:3}
+#main{grid-row:4}
+#footer{grid-row:5}
 
 /* ============ HEADER ============ */
 #header{
@@ -510,7 +516,7 @@ body{
 /* Tablet portrait */
 @media screen and (max-width:900px){
   html,body{overflow:auto}
-  #app{grid-template-rows:30px auto auto 22px;height:auto;min-height:100vh}
+  #app{grid-template-rows:30px 30px auto auto 22px;height:auto;min-height:100vh}
   #main{
     grid-template-columns:minmax(0,1fr);
     grid-template-rows:auto auto auto auto auto auto auto auto;
