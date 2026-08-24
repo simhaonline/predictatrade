@@ -59,7 +59,7 @@ body.light{background:#f5f7fb;color:#172033}
 #newsStrip .news-label{color:var(--amber);font-weight:700}
 
 /* ═══ MAIN GRID ═══ */
-#main{display:grid;grid-template-columns:220px 1fr 260px;grid-template-rows:minmax(0,1.2fr) minmax(0,1.3fr) minmax(0,.6fr);gap:2px;padding:2px;overflow:hidden;background:var(--bg)}
+#main{display:grid;grid-template-columns:240px 1fr 280px;grid-template-rows:minmax(0,1fr) minmax(0,1.3fr) minmax(0,.7fr);gap:2px;padding:2px;overflow:hidden;background:var(--bg)}
 #modeBanner{grid-row:1}#header{grid-row:2}#newsStrip{grid-row:3}#main{grid-row:4}#footer{grid-row:5}
 
 /* ═══ PANEL ═══ */
@@ -71,9 +71,9 @@ body.light{background:#f5f7fb;color:#172033}
 
 /* ═══ GRID PLACEMENT ═══ */
 .p-account{grid-column:1;grid-row:1}
-.p-price{grid-column:2;grid-row:1/span 2}
+.p-price{grid-column:2;grid-row:1}
 .p-lifecycle{grid-column:3;grid-row:1}
-.p-neural{grid-column:1;grid-row:2}
+.p-neural{grid-column:1/span 2;grid-row:2}
 .p-resolution{grid-column:3;grid-row:2}
 .p-indicators{grid-column:1;grid-row:3}
 .p-engines{grid-column:2;grid-row:3}
@@ -389,11 +389,18 @@ body.light .focus-layer{background:#f5f7fb}
     <!-- PRICE CHART -->
     <section class="panel p-price">
       <div class="panel-head">
-        <span><span class="diamond">◆</span> <span id="plSym">XAUUSD</span> · <span id="chartTF">M5</span> · <span class="pl-price" id="plPrice">—</span> <span class="pl-chg" id="plChg">—</span></span>
-        <span><span style="font-size:7px">H:<b id="plHi">—</b></span> <span style="font-size:7px">L:<b id="plLo">—</b></span> <span style="font-size:7px">VOL:<b id="plVol">—</b></span> <span id="priceTime">—</span><button class="expand-btn" onclick="toggleExpand('p-price')">⛶</button></span>
+        <span><span class="diamond">◆</span> XAUUSD · <span id="chartTF">M5</span> · PRICE + EMA9/21/50 + VWAP</span>
+        <span><span id="priceTime">—</span><button class="expand-btn" onclick="toggleExpand('p-price')">⛶</button></span>
       </div>
       <div class="panel-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden">
-        <div id="priceChart" style="flex:1;min-width:0;min-height:0;width:100%"></div>
+        <div class="price-header-bar">
+          <div><span class="pl-sym" id="plSym">XAUUSD</span><span class="pl-price" id="plPrice">—</span><span class="pl-chg" id="plChg">—</span></div>
+          <div class="phb-right"><span>H<b id="plHi">—</b></span><span>L<b id="plLo">—</b></span><span>VOL<b id="plVol">—</b></span></div>
+        </div>
+        <div class="chart-ladder-wrap">
+          <div id="priceChart" style="flex:1;min-width:0;min-height:0"></div>
+          <div class="dom-table" id="domTable"></div>
+        </div>
       </div>
     </section>
 
@@ -622,14 +629,28 @@ function priceOption(){
     },
     dataZoom:[{type:'inside',xAxisIndex:0,start:0,end:100,minSpan:5}],
     series:[
-      {type:'candlestick',data:cd,clip:true,barMaxWidth:8,
-        itemStyle:{color:'#00c853',color0:'#ff1744',borderColor:'#00c853',borderColor0:'#ff1744',borderWidth:1}},
-      {type:'line',data:e9,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#2962ff',width:1.2},z:5},
-      {type:'line',data:e21,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#7c3aed',width:1.2},z:5},
-      {type:'line',data:e50,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#00bcd4',width:1.5},z:5},
-      {type:'line',data:vwapData,smooth:false,showSymbol:false,clip:true,lineStyle:{color:'#ffa726',width:1,type:'dotted'},z:4,silent:true},
-      {type:'bar',data:volData,xAxisIndex:0,yAxisIndex:0,barMaxWidth:8,
-        itemStyle:{color:'rgba(41,98,255,.08)'},z:-1,silent:true},
+      // Price area chart (smooth, filled — easy to read)
+      {type:'line',data:STATE.candles.map(c=>[c.t,c.c]),smooth:true,showSymbol:false,clip:true,
+        lineStyle:{color:'#2962ff',width:2},
+        areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[
+          {offset:0,color:'rgba(41,98,255,0.25)'},
+          {offset:1,color:'rgba(41,98,255,0.02)'}
+        ]}},
+        z:3,name:'Price'},
+      // EMA 9
+      {type:'line',data:e9,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#00c853',width:1.2},z:5,name:'EMA9'},
+      // EMA 21
+      {type:'line',data:e21,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#ffa726',width:1.2},z:5,name:'EMA21'},
+      // EMA 50
+      {type:'line',data:e50,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#7c3aed',width:1.5},z:5,name:'EMA50'},
+      // VWAP
+      {type:'line',data:vwapData,smooth:false,showSymbol:false,clip:true,lineStyle:{color:'#ff1744',width:1,type:'dotted'},z:4,silent:true,name:'VWAP'},
+      // High line (green dashed)
+      {type:'line',data:STATE.candles.map(c=>[c.t,c.h]),smooth:true,showSymbol:false,clip:true,
+        lineStyle:{color:'rgba(0,200,83,0.3)',width:0.8,type:'dashed'},z:2,silent:true,name:'High'},
+      // Low line (red dashed)
+      {type:'line',data:STATE.candles.map(c=>[c.t,c.l]),smooth:true,showSymbol:false,clip:true,
+        lineStyle:{color:'rgba(255,23,68,0.3)',width:0.8,type:'dashed'},z:2,silent:true,name:'Low'},
     ],
     markLine:{
       symbol:'none',silent:true,clip:true,lineStyle:{type:'dashed',width:1},
@@ -990,14 +1011,13 @@ function buildActiveMarkets(){
 function buildAgents(){
   var wrap=$('agentCards');if(!wrap)return;wrap.innerHTML='';
   var agents=[
-    {name:'MT5 Master Node',status:STATE.masterNode?'CONNECTED':'DISCONNECTED',cls:STATE.masterNode?'ok':'err'},
+    {name:'Live Data',status:STATE.masterNode?'CONNECTED':'DISCONNECTED',cls:STATE.masterNode?'ok':'err'},
     {name:'Agents Connected',status:STATE.agentsConnected+' agent(s)',cls:STATE.agentsConnected>0?'ok':'warn'},
     {name:'MT5 Terminals',status:STATE.mt5Connected+' connected',cls:STATE.mt5Connected>0?'ok':'warn'},
     {name:'Snapshots Received',status:fmtI(STATE.snapshotCount)+' total',cls:'ok'},
     {name:'Data Quality',status:STATE.apiConnected?'AUTHORITATIVE':'OFFLINE',cls:STATE.apiConnected?'ok':'err'},
     {name:'WebSocket',status:STATE.wsState||'OFFLINE',cls:STATE.wsState==='LIVE'?'ok':STATE.wsState==='STALE'?'warn':'err'},
     {name:'Positions',status:STATE.positions.total+' open ('+STATE.positions.buy+'B/'+STATE.positions.sell+'S)',cls:'ok'},
-    {name:'Floating P&L',status:fmt(STATE.positions.profit,2),cls:STATE.positions.profit>=0?'ok':'err'},
   ];
   agents.forEach(function(a){
     var c=document.createElement('div');c.className='agent-card '+a.cls;
