@@ -1197,7 +1197,18 @@ func processTick(tick *types.Tick, validator *marketdata.TickValidator, staleDet
 	if valkeyCache != nil {
 		mid, _ := tick.Mid.Float64()
 		valkeyCache.AddPricePoint(mid, tick.GatewayTimestamp)
-		valkeyCache.SetMarketState(stateMgr.Get(tick.Symbol))
+		// Clone state before marshaling to prevent concurrent map iteration/write panic.
+		// json.Marshal iterates the Candles map while processCandle may write to it concurrently.
+		rawState := stateMgr.Get(tick.Symbol)
+		clone := *rawState
+		if rawState.Candles != nil {
+			clone.Candles = make(map[types.Timeframe]*types.Candle, len(rawState.Candles))
+			for k, v := range rawState.Candles {
+				clone.Candles[k] = v
+			}
+		}
+		clone.PTB = nil // nil out interface{} to avoid marshaling issues
+		valkeyCache.SetMarketState(&clone)
 	}
 
 	if persister != nil {
