@@ -24,19 +24,15 @@ func (e *TrendSwingEngine) Evaluate(legacyResult strategy.StrategyResult, state 
 		return EngineResult{Result: legacyResult, Fallback: true}
 	}
 
-	// Gate 1: Min ATR
+	// Gate 1: Min ATR (lowered threshold)
 	if err := checkMinATR(state, e.cfg.MinAbsATR); err != nil {
 		legacyResult.Direction = types.DirectionNoTrade
 		legacyResult.ReasonCodes = append(legacyResult.ReasonCodes, types.NTLowATR)
 		return EngineResult{Result: legacyResult, RejectReason: err.Error()}
 	}
 
-	// Gate 2: Regime — only TREND and BREAKOUT
-	if err := checkRegime(state, e.cfg.AllowedRegimes); err != nil {
-		legacyResult.Direction = types.DirectionNoTrade
-		legacyResult.ReasonCodes = append(legacyResult.ReasonCodes, types.NTRegimeMismatchNew)
-		return EngineResult{Result: legacyResult, RejectReason: err.Error()}
-	}
+	// Regime gate removed — scoring system handles regime filtering via thresholds.
+	// Hard-blocking on regime prevents valid pullback entries in mixed conditions.
 
 	// Apply overrides (bypass structure, pure ATR SL)
 	modified := applyOverrides(legacyResult, state, e.cfg)

@@ -293,14 +293,9 @@ func (e *RegimeEngine) classifyRaw(candle *types.Candle, ind IndicatorFeatures) 
 	var reason string
 
 	switch {
-	case overbought:
-		regime = types.RegimeMeanReversion
-		confidence = 0.7
-		reason = "RSI_OVERBOUGHT"
-	case oversold:
-		regime = types.RegimeMeanReversion
-		confidence = 0.7
-		reason = "RSI_OVERSOLD"
+	// PRIORITY 1: Strong trend (ADX>25 + EMA alignment) — even if RSI is extreme,
+	// a trending market with aligned EMAs is TRENDING, not mean-reverting.
+	// RSI>70 in a trend = strong momentum, not a reversal signal.
 	case trending && bullish:
 		regime = types.RegimeTrendingBullish
 		confidence = 0.8
@@ -309,14 +304,35 @@ func (e *RegimeEngine) classifyRaw(candle *types.Candle, ind IndicatorFeatures) 
 		regime = types.RegimeTrendingBearish
 		confidence = 0.8
 		reason = "ADX>25_BEARISH_EMA_ALIGNMENT"
+	// PRIORITY 2: Mean reversion — only when NOT trending (ADX<25) and RSI is extreme.
+	// This prevents RSI>70 in a strong uptrend from being misclassified as mean reversion.
+	case overbought && !trending:
+		regime = types.RegimeMeanReversion
+		confidence = 0.7
+		reason = "RSI_OVERBOUGHT_NO_TREND"
+	case oversold && !trending:
+		regime = types.RegimeMeanReversion
+		confidence = 0.7
+		reason = "RSI_OVERSOLD_NO_TREND"
+	// PRIORITY 3: Range — ADX<20, no clear trend
 	case ranging:
 		regime = types.RegimeRange
 		confidence = 0.6
 		reason = "ADX<20"
+	// PRIORITY 4: High volatility — ATR percentage elevated
 	case highVol:
 		regime = types.RegimeHighVolatility
 		confidence = 0.5
 		reason = "ATR_PCT>0.2%"
+	// PRIORITY 5: Bullish/bearish EMA alignment without strong ADX — still directional
+	case bullish:
+		regime = types.RegimeTrendingBullish
+		confidence = 0.55
+		reason = "BULLISH_EMA_ALIGNMENT_LOW_ADX"
+	case bearish:
+		regime = types.RegimeTrendingBearish
+		confidence = 0.55
+		reason = "BEARISH_EMA_ALIGNMENT_LOW_ADX"
 	default:
 		regime = types.RegimeRange
 		confidence = 0.4

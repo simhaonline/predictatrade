@@ -27,28 +27,16 @@ func (e *UltraScalpEngine) Evaluate(legacyResult strategy.StrategyResult, state 
 		return EngineResult{Result: legacyResult, Fallback: true}
 	}
 
-	// Gate 1: Min ATR
+	// Gate 1: Min ATR (lowered threshold — only reject dead-flat markets)
 	if err := checkMinATR(state, e.cfg.MinAbsATR); err != nil {
 		legacyResult.Direction = types.DirectionNoTrade
 		legacyResult.ReasonCodes = append(legacyResult.ReasonCodes, types.NTLowATR)
 		return EngineResult{Result: legacyResult, RejectReason: err.Error()}
 	}
 
-	// Gate 2: Regime
-	if err := checkRegime(state, e.cfg.AllowedRegimes); err != nil {
-		legacyResult.Direction = types.DirectionNoTrade
-		legacyResult.ReasonCodes = append(legacyResult.ReasonCodes, types.NTRegimeMismatchNew)
-		return EngineResult{Result: legacyResult, RejectReason: err.Error()}
-	}
-
-	// Gate 3: Grade (Ultra only accepts A grade — score >= 65 in TREND)
-	// The legacy strategies.go already computes the grade; we check via score
-	score, _ := legacyResult.RawScore.Float64()
-	if e.cfg.MinGrade == "A" && score < 65 {
-		legacyResult.Direction = types.DirectionNoTrade
-		legacyResult.ReasonCodes = append(legacyResult.ReasonCodes, types.NTInsufficientScore)
-		return EngineResult{Result: legacyResult, RejectReason: "ERR_GRADE_BELOW_A: score=%.1f"}
-	}
+	// Regime and grade gates removed — the scoring system + hard gates handle quality.
+	// Blocking based on regime prevents valid signals in mixed-regime conditions.
+	// The score itself already reflects evidence quality.
 
 	// Apply overrides (SL bypass structure, custom TPs, expiry)
 	modified := applyOverrides(legacyResult, state, e.cfg)

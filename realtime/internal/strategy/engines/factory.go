@@ -11,42 +11,42 @@ import (
 var defaultConfigs = map[EngineType]EngineConfig{
 	UltraScalp: {
 		Type:            UltraScalp,
-		MinAbsATR:       12.0,
+		MinAbsATR:       3.0,  // Lowered from 12.0 — XAUUSD ATR can be 3-8 during quiet hours
 		IgnoreStructure: true, // Bypass structural low — prevents stop hunt
-		AllowedRegimes:  []string{"TREND", "BREAKOUT"},
+		AllowedRegimes:  []string{}, // ALL regimes — don't restrict, let scoring handle it
 		MinGrade:        "A",
 		OverrideSL:      1.0,
-		OverrideTPs:     [3]float64{2.0, 3.0, 4.0}, // TP1 raised from 1.5 to 2.0
-		OverrideExpiry:  5,                        // Increased from 3 to 5 minutes
+		OverrideTPs:     [3]float64{2.0, 3.0, 4.0},
+		OverrideExpiry:  5,
 	},
 	StdScalp: {
 		Type:            StdScalp,
-		MinAbsATR:       8.0,
-		IgnoreStructure: false, // Keep structural lows
-		AllowedRegimes:  []string{}, // ALL regimes
-		MinGrade:        "A",     // Accept A or B
-		OverrideSL:      1.5,
-		OverrideTPs:     [3]float64{2.5, 4.0, 6.0}, // Unchanged
+		MinAbsATR:       2.0,
+		IgnoreStructure: true,  // Pure ATR SL — consistent R:R
+		AllowedRegimes:  []string{},
+		MinGrade:        "A",
+		OverrideSL:      1.2,
+		OverrideTPs:     [3]float64{2.5, 4.0, 6.0},  // R:R = 2.5/1.2 = 2.08 > 2.0
 		OverrideExpiry:  10,
 	},
 	StdSwing: {
 		Type:            StdSwing,
-		MinAbsATR:       10.0,
-		IgnoreStructure: false, // Keep structure
-		AllowedRegimes:  []string{}, // ALL regimes
-		MinGrade:        "A",     // Accept A or B
-		OverrideSL:      2.0,
-		OverrideTPs:     [3]float64{3.0, 5.0, 8.0}, // Unchanged
+		MinAbsATR:       2.0,
+		IgnoreStructure: true,  // Pure ATR SL — structural low makes R:R inconsistent
+		AllowedRegimes:  []string{},
+		MinGrade:        "A",
+		OverrideSL:      1.5,   // Reduced from 2.0 to improve R:R ratio
+		OverrideTPs:     [3]float64{3.5, 6.0, 10.0},  // TP1 raised to ensure R:R > 2.0
 		OverrideExpiry:  60,
 	},
 	TrendSwng: {
 		Type:            TrendSwng,
-		MinAbsATR:       12.0,
-		IgnoreStructure: true, // W1/D1 structure too wide, pure ATR better
-		AllowedRegimes:  []string{"TREND", "BREAKOUT"},
+		MinAbsATR:       3.0,  // Lowered from 12.0 — allow trend trades in moderate vol
+		IgnoreStructure: true,
+		AllowedRegimes:  []string{}, // ALL regimes — let scoring handle regime filtering
 		MinGrade:        "A",
 		OverrideSL:      2.5,
-		OverrideTPs:     [3]float64{4.0, 6.5, 10.0}, // Unchanged
+		OverrideTPs:     [3]float64{4.0, 6.5, 10.0},
 		OverrideExpiry:  240,
 	},
 }

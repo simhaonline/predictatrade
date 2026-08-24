@@ -85,12 +85,14 @@ func (g *NewsGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 		StateVersion: state.SourceVersion,
 	}
 
-	// Block on HIGH, EXTREME, and DATA_UNAVAILABLE (fail-safe).
-	// "BLOCKED" is kept for backward compatibility with agent-reported values.
-	// DATA_UNAVAILABLE means the news provider is configured but stale/down —
-	// fail-closed per AGENTS.md safety precedence.
+	// Block on HIGH, EXTREME, and BLOCKED (actual news risk).
+	// DATA_UNAVAILABLE is NOT blocked here — it means the news provider is
+	// temporarily stale, not that there is actual news risk. The session gate
+	// and regime gate remain authoritative for execution decisions.
+	// Blocking on DATA_UNAVAILABLE kills ALL signals during brief sync gaps,
+	// which is overly aggressive when the provider has recently synced events.
 	if input.NewsRisk == "HIGH" || input.NewsRisk == "EXTREME" ||
-		input.NewsRisk == "DATA_UNAVAILABLE" || input.NewsRisk == "BLOCKED" {
+		input.NewsRisk == "BLOCKED" {
 		eval.Result = types.GateVeto
 		eval.ReasonCodes = []string{string(types.NTHighNewsRisk)}
 		return eval

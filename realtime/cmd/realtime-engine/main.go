@@ -2214,7 +2214,7 @@ func registerGates(reg *gates.Registry, cfg *config.Config) {
 	reg.Register(&gates.SpreadGate{MaxSpreadAbsolute: 0.50, MaxSpreadToATR: 0.30})
 	// Phase 3: New precision gates
 	reg.Register(&gates.StopHuntFilterGate{MinDistanceATR: 1.5})
-	reg.Register(&gates.MinAbsoluteATRGate{MinATR: 8.0}) // Global minimum; per-strategy overrides via engine
+	reg.Register(&gates.MinAbsoluteATRGate{MinATR: 2.0}) // Global minimum; per-strategy overrides via engine
 	reg.Register(&gates.SlippageGate{MaxSlippage: 0.10})
 	reg.Register(&gates.TotalCostGate{MaxCostToTarget: cfg.MaxCostToTarget})
 	reg.Register(&gates.ExposureGate{MaxExposure: cfg.MaxExposure})

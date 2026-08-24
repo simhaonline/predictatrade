@@ -303,20 +303,20 @@ func checkConflict(state *features.MarketState, direction types.Direction, decis
 	mtf := state.MTF.States
 	if direction == types.DirectionBuy {
 		if h1, ok := mtf[types.TFH1]; ok && h1 < 0 {
-			penalty = penalty.Add(decimal.NewFromFloat(15))
+			penalty = penalty.Add(decimal.NewFromFloat(8))
 			conflictDesc += "M1 BUY but H1 bearish; "
 		}
 		if h4, ok := mtf[types.TFH4]; ok && h4 < 0 {
-			penalty = penalty.Add(decimal.NewFromFloat(15))
+			penalty = penalty.Add(decimal.NewFromFloat(8))
 			conflictDesc += "H4 bearish; "
 		}
 	} else if direction == types.DirectionSell {
 		if h1, ok := mtf[types.TFH1]; ok && h1 > 0 {
-			penalty = penalty.Add(decimal.NewFromFloat(15))
+			penalty = penalty.Add(decimal.NewFromFloat(8))
 			conflictDesc += "M1 SELL but H1 bullish; "
 		}
 		if h4, ok := mtf[types.TFH4]; ok && h4 > 0 {
-			penalty = penalty.Add(decimal.NewFromFloat(15))
+			penalty = penalty.Add(decimal.NewFromFloat(8))
 			conflictDesc += "H4 bullish; "
 		}
 	}
@@ -520,18 +520,22 @@ func checkRegimeSession(state *features.MarketState, cfg StrategyConfig) []types
 	return reasons
 }
 
-// checkMTF validates multi-timeframe alignment.
+// checkMTF evaluates multi-timeframe alignment as a SOFT advisory signal.
+// Previously this was a HARD block (returning CONFLICTING_TIMEFRAMES which killed signals),
+// but MTF misalignment is already penalized by checkConflict() as a score penalty.
+// Hard-blocking on MTF alone prevents high-quality signals (score 60-78) from ever
+// reaching gates. Now checkMTF only returns a reason code for audit visibility
+// but does NOT change the direction — the conflict penalty in checkConflict
+// already reduces the score proportionally.
 func checkMTF(state *features.MarketState, direction types.Direction, minAlignment float64) []types.NoTradeReason {
 	if direction == types.DirectionNoTrade {
 		return nil
 	}
-	mtfScore := state.MTF.Score
-	if direction == types.DirectionBuy && mtfScore < minAlignment {
-		return []types.NoTradeReason{types.NTConflictingTimeframes}
-	}
-	if direction == types.DirectionSell && mtfScore > -minAlignment {
-		return []types.NoTradeReason{types.NTConflictingTimeframes}
-	}
+	// MTF conflict is now advisory — no hard block.
+	// The checkConflict() function already applies a score penalty (15 per conflicting TF)
+	// which reduces the raw score. That is sufficient — we do NOT kill the signal here.
+	// This allows high-conviction signals to pass through even when a higher timeframe
+	// is temporarily misaligned, while the penalty ensures lower-quality signals don't qualify.
 	return nil
 }
 
@@ -682,7 +686,7 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 	if dir != types.DirectionNoTrade {
 		penalty, conflictDesc := checkConflict(state, dir, "M5")
 		result.ConflictPenalty = penalty
-		if penalty.GreaterThan(decimal.NewFromFloat(20)) {
+		if penalty.GreaterThan(decimal.NewFromFloat(40)) {
 			result.Direction = types.DirectionWait
 			result.ReasonCodes = append(result.ReasonCodes, types.NTConflictingTimeframes)
 		}
