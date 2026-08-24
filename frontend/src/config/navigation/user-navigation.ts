@@ -1,5 +1,5 @@
 import {
-  IconDashboard, IconChartLine, IconDeviceDesktop, IconBolt,
+  IconDashboard, IconChartLine, IconChartBar, IconDeviceDesktop, IconBolt,
   IconFileAnalytics, IconTestPipe, IconUsers, IconCreditCard, IconSettings,
   IconShieldLock, IconBell, IconLifebuoy, IconWallet, IconCertificate,
   IconHistory,
@@ -13,6 +13,7 @@ export interface NavItem {
 
 export const userNavigation: NavItem[] = [
   { label: 'Real-Time Console', href: '/dashboard/live', icon: IconDashboard },
+  { label: 'Signal Accuracy', href: '/dashboard/signal-accuracy', icon: IconChartBar },
   { label: 'Signals', href: '/dashboard/signals', icon: IconChartLine },
   { label: 'MetaTrader Client', href: '/dashboard/mt4-mt5-client', icon: IconDeviceDesktop },
   { label: 'Strategy Preferences', href: '/dashboard/strategies', icon: IconBolt },

@@ -48,6 +48,7 @@ export const adminNavigation: NavItem[] = [
   { label: 'Broker Qualification', href: '/admin/broker-qualification', icon: IconBuildingBank, section: 'Market & Intelligence' },
 
   // ── Platform & System ──
+  { label: 'Signal Accuracy', href: '/admin/signal-accuracy', icon: IconChartBar, section: 'Market & Intelligence' },
   { label: 'Releases', href: '/admin/releases', icon: IconRocket, section: 'Platform & System' },
   { label: 'Backup & DR', href: '/admin/backup-dr', icon: IconDatabase, section: 'Platform & System' },
   { label: 'Feature Flags', href: '/admin/feature-flags', icon: IconFlag, section: 'Platform & System' },
