@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/predictatrade/realtime/internal/cache"
+	"github.com/predictatrade/realtime/internal/crossmarket"
 	"github.com/predictatrade/realtime/internal/features"
 	"github.com/predictatrade/realtime/internal/marketdata"
 	"github.com/predictatrade/realtime/internal/types"
@@ -26,15 +27,17 @@ type HTTPServer struct {
 	agentHub  *AgentHub
 	agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool }
 	valkeyCache *cache.ValkeyCache
+	crossMarketEngine *crossmarket.Engine
 	mux       *http.ServeMux
 	server    *http.Server
 }
 
-func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool }, valkeyCache *cache.ValkeyCache) *HTTPServer {
+func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine) *HTTPServer {
 	h := &HTTPServer{
 		agentHub: agentHub,
 		agentProvider: agentProvider,
 		valkeyCache: valkeyCache,
+		crossMarketEngine: xmEngine,
 		hub:       hub,
 		persister: persister,
 		states:    states,
@@ -73,6 +76,12 @@ func (h *HTTPServer) registerRoutes() {
 	h.mux.HandleFunc("/api/v1/signals/resume", h.handleSignalResume)
 	h.mux.HandleFunc("/api/v1/admin/regime-diagnostics", h.handleRegimeDiagnostics)
 	h.mux.HandleFunc("/api/v1/system-health", h.handleSystemHealth)
+
+	// Cross-Market Confluence Engine API
+	if h.crossMarketEngine != nil {
+		h.mux.HandleFunc("/api/v1/cross-market/current", crossmarket.HandleCurrent(h.crossMarketEngine))
+		h.mux.HandleFunc("/api/v1/cross-market/health", crossmarket.HandleHealth(h.crossMarketEngine))
+	}
 }
 
 func (h *HTTPServer) Start(host string, port int) error {

@@ -73,10 +73,11 @@ type COTSnapshot struct {
 
 // COTProvider fetches and processes COT data from FMP API.
 type COTProvider struct {
-	config   COTProviderConfig
-	mu       sync.RWMutex
-	lastSnap *COTSnapshot
-	client   *http.Client
+	config         COTProviderConfig
+	mu             sync.RWMutex
+	lastSnap       *COTSnapshot
+	client         *http.Client
+	snapshotCallbacks []func(netPosition float64, percentile float64, ts time.Time)
 }
 
 // NewCOTProvider creates a new COT provider.
@@ -253,6 +254,13 @@ func (p *COTProvider) processReport(latest COTReport, history []COTReport) *COTS
 }
 
 // GetSnapshot returns the latest cached COT snapshot (thread-safe).
+// OnSnapshot registers a callback for cross-market engine integration.
+func (p *COTProvider) OnSnapshot(cb func(netPosition float64, percentile float64, ts time.Time)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.snapshotCallbacks = append(p.snapshotCallbacks, cb)
+}
+
 func (p *COTProvider) GetSnapshot() *COTSnapshot {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -271,7 +279,16 @@ func (p *COTProvider) Update(ctx context.Context) error {
 
 	p.mu.Lock()
 	p.lastSnap = snap
+	callbacks := make([]func(float64, float64, time.Time), len(p.snapshotCallbacks))
+	copy(callbacks, p.snapshotCallbacks)
 	p.mu.Unlock()
+
+	// Fire snapshot callbacks for cross-market engine
+	if snap.Status == "AVAILABLE" {
+		for _, cb := range callbacks {
+			cb(float64(snap.NetPosition), snap.NetPercentile, snap.ReportDate)
+		}
+	}
 	return nil
 }
 

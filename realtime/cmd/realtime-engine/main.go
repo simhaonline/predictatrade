@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/predictatrade/realtime/internal/cache"
+	"github.com/predictatrade/realtime/internal/crossmarket"
 	"github.com/predictatrade/realtime/internal/calibration"
 	"github.com/predictatrade/realtime/pkg/health"
 	"github.com/predictatrade/realtime/pkg/macro"
@@ -79,6 +80,8 @@ func (a stateAdapter) Update(symbol string, update func(any)) {
 
 // Package-level for processCandle access
 var globalAgentProvider *marketdata.AgentProvider
+var globalCrossMarketEngine *crossmarket.Engine
+var globalCrossMarketPersister *crossmarket.Persister
 
 
 // broadcastSignalToAll sends a signal to both the frontend dashboard (WebSocketHub)
@@ -756,17 +759,9 @@ func main() {
 	})
 
 	// HTTP server
-	httpServer := gateway.NewHTTPServer(wsHub, persister, stateMgr, agentHub, agentProvider, valkeyCache)
-	go func() {
-		addr := fmt.Sprintf("%s:%d", cfg.HTTPHost, cfg.HTTPPort)
-		log.Info().Str("addr", addr).Msg("HTTP server starting")
-		if err := httpServer.Start(cfg.HTTPHost, cfg.HTTPPort); err != nil {
-			log.Error().Err(err).Msg("HTTP server failed")
-		}
-	}()
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
 	// COT (Commitment of Traders) provider — optional macro/positioning data.
 	// FMP API key from FMP_API_KEY env var. Fails safe if not configured or restricted.
 	// COT is an optional pillar (weight=0 by default) — does not block signal generation.
@@ -815,6 +810,60 @@ func main() {
 			log.Info().Str("component", "dxy_provider").Msg(msg)
 		}
 	})
+
+	// ─── Cross-Market Confluence Engine ───
+	// Shadow mode by default — calculates scores but does NOT modify production signals.
+	// Reuses existing DXY/COT providers as driver inputs.
+	// Mode is controlled by CROSS_MARKET_MODE env var (disabled|shadow|active).
+	xmConfig := crossmarket.DefaultConfig()
+	xmMode := os.Getenv("CROSS_MARKET_MODE")
+	if xmMode != "" {
+		xmConfig.Mode = crossmarket.Mode(xmMode)
+	}
+	if os.Getenv("CROSS_MARKET_ENABLED") == "false" {
+		xmConfig.Mode = crossmarket.ModeDisabled
+	}
+	// Cross-market persister (best-effort, never blocks)
+	var xmPersister *crossmarket.Persister
+	if cfg.DBURL != "" {
+		xmp, err := crossmarket.NewPersisterFromURL(cfg.DBURL)
+		if err == nil {
+			xmPersister = xmp
+			defer xmPersister.Close()
+		}
+	}
+
+	xmEngine := crossmarket.NewEngine(xmConfig)
+	globalCrossMarketEngine = xmEngine
+	globalCrossMarketPersister = xmPersister
+	log.Info().Str("mode", string(xmConfig.Mode)).Msg("Cross-Market Confluence Engine initialized")
+
+	// Wire DXY provider → cross-market engine
+	if dxyProvider.IsConfigured() {
+		dxyProvider.OnSnapshot(func(value, prevValue float64, ts time.Time) {
+			snap := crossmarket.NormalizeDXY(value, prevValue, ts)
+			xmEngine.UpdateDriver(snap)
+			xmEngine.Correlation().AddDXY(value)
+		})
+	}
+
+	// Wire COT provider → cross-market engine
+	if cotProvider.IsConfigured() {
+		cotProvider.OnSnapshot(func(netPosition float64, percentile float64, ts time.Time) {
+			snap := crossmarket.NormalizeCOT(netPosition, percentile, ts)
+			xmEngine.UpdateDriver(snap)
+		})
+	}
+
+
+	httpServer := gateway.NewHTTPServer(wsHub, persister, stateMgr, agentHub, agentProvider, valkeyCache, xmEngine)
+	go func() {
+		addr := fmt.Sprintf("%s:%d", cfg.HTTPHost, cfg.HTTPPort)
+		log.Info().Str("addr", addr).Msg("HTTP server starting")
+		if err := httpServer.Start(cfg.HTTPHost, cfg.HTTPPort); err != nil {
+			log.Error().Err(err).Msg("HTTP server failed")
+		}
+	}()
 
 	go aggregator.FlushClosedCandles(ctx)
 

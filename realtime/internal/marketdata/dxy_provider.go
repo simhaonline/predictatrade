@@ -70,10 +70,12 @@ const dxyBaseFactor = 50.14348112
 
 // DXYProvider fetches currency data from Twelve Data and computes DXY.
 type DXYProvider struct {
-	config DXYProviderConfig
-	mu     sync.RWMutex
-	last   *DXYSnapshot
-	client *http.Client
+	config            DXYProviderConfig
+	mu                sync.RWMutex
+	last              *DXYSnapshot
+	client            *http.Client
+	prevValue         float64
+	snapshotCallbacks []func(value, prevValue float64, ts time.Time)
 }
 
 // NewDXYProvider creates a new DXY provider.
@@ -237,6 +239,14 @@ func (p *DXYProvider) Update(ctx context.Context) error {
 	return nil
 }
 
+// OnSnapshot registers a callback that fires when a new DXY snapshot is available.
+// The callback receives the current and previous DXY values.
+func (p *DXYProvider) OnSnapshot(cb func(value, prevValue float64, ts time.Time)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.snapshotCallbacks = append(p.snapshotCallbacks, cb)
+}
+
 // StartRefreshLoop runs a background goroutine that periodically fetches DXY data.
 // On each successful fetch, it calls the onUpdate callback with the DXY value
 // and timestamp — this is used to feed the CorrelationEngine.
@@ -262,6 +272,18 @@ func (p *DXYProvider) StartRefreshLoop(ctx context.Context, onUpdate func(value 
 			if onUpdate != nil {
 				onUpdate(snap.Value, snap.FetchedAt)
 			}
+			// Fire snapshot callbacks for cross-market engine
+			p.mu.RLock()
+			prev := p.prevValue
+			callbacks := make([]func(float64, float64, time.Time), len(p.snapshotCallbacks))
+			copy(callbacks, p.snapshotCallbacks)
+			p.mu.RUnlock()
+			for _, cb := range callbacks {
+				cb(snap.Value, prev, snap.FetchedAt)
+			}
+			p.mu.Lock()
+			p.prevValue = snap.Value
+			p.mu.Unlock()
 		} else if snap != nil {
 			if logFn != nil {
 				logFn(fmt.Sprintf("DXY fetch returned %s: %s", snap.Status, snap.ErrorMessage), nil)
