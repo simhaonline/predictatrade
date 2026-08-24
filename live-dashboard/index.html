@@ -317,6 +317,18 @@ body.light .phb-right b{color:#172033}
 body.light .news-label{color:#b45309}
 body.light .clock{color:#172033}
 
+
+.expand-btn{background:transparent;border:1px solid var(--border2);color:var(--text-dim);font-size:11px;cursor:pointer;padding:0 4px;border-radius:2px;line-height:1.2;margin-left:4px}
+.expand-btn:hover{background:var(--blue);color:#fff;border-color:var(--blue)}
+.expand-btn.restore::before{content:'✕'}
+.expand-btn.restore{font-size:11px}
+.focus-layer{display:none;position:fixed;left:0;right:0;top:30px;bottom:22px;z-index:1000;background:var(--bg);padding:3px;max-width:100vw;overflow:hidden;box-sizing:border-box}
+.focus-layer.active{display:flex;flex-direction:column}
+.focus-layer .panel{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;border-radius:3px}
+.focus-layer .panel .panel-body{flex:1;min-height:0;min-width:0;overflow:hidden}
+.focus-hidden{display:none !important}
+body.light .focus-layer{background:#f5f7fb}
+
 /* ═══ RESPONSIVE ═══ */
 @media(max-width:1200px){
   #main{grid-template-columns:200px 1fr 240px}
@@ -349,7 +361,7 @@ body.light .clock{color:#172033}
   <main id="main">
     <!-- SYSTEM STATUS -->
     <section class="panel p-account">
-      <div class="panel-head"><span><span class="diamond">◆</span> SYSTEM STATUS</span><span id="accQuality">—</span></div>
+      <div class="panel-head"><span><span class="diamond">◆</span> SYSTEM STATUS</span><span><span id="accQuality">—</span><button class="expand-btn" onclick="toggleExpand('p-account')">⛶</button></span></div>
       <div class="panel-body pad-sm" style="overflow-y:auto">
         <div class="big-price" id="bigPrice">—</div>
         <div class="kpi-row">
@@ -380,7 +392,7 @@ body.light .clock{color:#172033}
     <section class="panel p-price">
       <div class="panel-head">
         <span><span class="diamond">◆</span> XAUUSD · <span id="chartTF">M5</span> · CANDLES + EMA9/21/50 + VWAP + BB</span>
-        <span id="priceTime">—</span>
+        <span><span id="priceTime">—</span><button class="expand-btn" onclick="toggleExpand('p-price')">⛶</button></span>
       </div>
       <div class="panel-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden">
         <div class="price-header-bar">
@@ -396,7 +408,7 @@ body.light .clock{color:#172033}
 
     <!-- TRADE LIFECYCLE -->
     <section class="panel p-lifecycle">
-      <div class="panel-head"><span><span class="diamond">◆</span> SIGNAL FEED</span><span id="sigCount">0 signals</span></div>
+      <div class="panel-head"><span><span class="diamond">◆</span> SIGNAL FEED</span><span><span id="sigCount">0 signals</span><button class="expand-btn" onclick="toggleExpand('p-lifecycle')">⛶</button></span></div>
       <div class="panel-body pad-sm" style="display:flex;flex-direction:column;overflow:hidden">
         <div id="sigFeed" style="flex:1;overflow-y:auto;min-height:0"></div>
       </div>
@@ -404,7 +416,7 @@ body.light .clock{color:#172033}
 
     <!-- NEURAL SHELL / INDICATORS -->
     <section class="panel p-neural">
-      <div class="panel-head"><span><span class="diamond">◆</span> NEURAL SHELL · <span style="color:var(--blue)">42 INDICATORS · 7 TIMEFRAMES · 5 ENGINES</span></span><span>FEED <b style="color:var(--green)" id="feedCount">—</b></span></div>
+      <div class="panel-head"><span><span class="diamond">◆</span> NEURAL SHELL · <span style="color:var(--blue)">42 INDICATORS · 7 TIMEFRAMES · 5 ENGINES</span></span><span>FEED <b style="color:var(--green)" id="feedCount">—</b><button class="expand-btn" onclick="toggleExpand('p-neural')">⛶</button></span></div>
       <div class="panel-body neural-body">
         <div class="spark-col" id="sparkCol"></div>
         <div class="net-area">
@@ -428,7 +440,7 @@ body.light .clock{color:#172033}
 
     <!-- SIGNAL GRID / GATES -->
     <section class="panel p-resolution">
-      <div class="panel-head"><span><span class="diamond">◆</span> MTF GRID + HARD GATES</span><span id="mtfScore">—</span></div>
+      <div class="panel-head"><span><span class="diamond">◆</span> MTF GRID + HARD GATES</span><span><span id="mtfScore">—</span><button class="expand-btn" onclick="toggleExpand('p-resolution')">⛶</button></span></div>
       <div class="panel-body" style="display:flex;flex-direction:column;overflow:hidden">
         <div class="res-grid" id="resGrid"></div>
         <div class="section-divider"></div>
@@ -439,7 +451,7 @@ body.light .clock{color:#172033}
 
     <!-- ALL INDICATORS -->
     <section class="panel p-indicators">
-      <div class="panel-head"><span><span class="diamond">◆</span> ALL INDICATORS · 42+</span></div>
+      <div class="panel-head"><span><span class="diamond">◆</span> ALL INDICATORS · 42+</span><span><button class="expand-btn" onclick="toggleExpand('p-indicators')">⛶</button></span></div>
       <div class="panel-body" style="padding:2px;overflow:hidden">
         <div class="ind-grid" id="indGrid"></div>
       </div>
@@ -447,7 +459,7 @@ body.light .clock{color:#172033}
 
     <!-- ENGINES -->
     <section class="panel p-engines">
-      <div class="panel-head"><span><span class="diamond">◆</span> STRATEGY ENGINES · 5 STRATEGIES</span></div>
+      <div class="panel-head"><span><span class="diamond">◆</span> STRATEGY ENGINES · 5 STRATEGIES</span><span><button class="expand-btn" onclick="toggleExpand('p-engines')">⛶</button></span></div>
       <div class="panel-body" style="padding:2px;overflow:hidden">
         <!-- PIPELINE -->
         <div class="pipeline" id="pipeline"></div>
@@ -458,7 +470,7 @@ body.light .clock{color:#172033}
 
     <!-- AGENTS -->
     <section class="panel p-agents">
-      <div class="panel-head"><span><span class="diamond">◆</span> AGENTS + CONNECTIVITY</span></div>
+      <div class="panel-head"><span><span class="diamond">◆</span> AGENTS + CONNECTIVITY</span><span><button class="expand-btn" onclick="toggleExpand('p-agents')">⛶</button></span></div>
       <div class="panel-body">
         <div class="agent-list" id="agentCards"></div>
       </div>
@@ -1174,6 +1186,38 @@ function buildAll(){
   try{buildGates();}catch(e){console.error('buildGates:',e);}
   if(priceChart)try{priceChart.setOption(priceOption());}catch(e){console.error('priceChart:',e);}
 }
+
+
+/* ═══ EXPAND PANEL ═══ */
+var expandedPanel=null,focusLayer=null;
+function toggleExpand(c){if(expandedPanel===c){restorePanel();}else{expandPanel(c);}}
+function expandPanel(c){
+  if(expandedPanel)restorePanel();
+  var p=document.querySelector('.'+c);
+  if(!p)return;
+  if(!focusLayer){focusLayer=document.createElement('div');focusLayer.className='focus-layer';focusLayer.id='focusLayer';document.getElementById('app').appendChild(focusLayer);}
+  expandedPanel=c;
+  focusLayer.innerHTML='';
+  focusLayer.appendChild(p);
+  var btn=p.querySelector('.expand-btn');
+  if(btn)btn.classList.add('restore');
+  focusLayer.classList.add('active');
+  document.getElementById('main').classList.add('focus-hidden');
+  setTimeout(function(){if(priceChart)priceChart.resize();initNet();},50);
+}
+function restorePanel(){
+  if(!expandedPanel)return;
+  var p=document.querySelector('.focus-layer .'+expandedPanel);
+  if(!p){expandedPanel=null;return;}
+  focusLayer.classList.remove('active');
+  document.getElementById('main').classList.remove('focus-hidden');
+  document.getElementById('main').appendChild(p);
+  var btn=p.querySelector('.expand-btn');
+  if(btn)btn.classList.remove('restore');
+  expandedPanel=null;
+  setTimeout(function(){if(priceChart)priceChart.resize();initNet();},50);
+}
+document.addEventListener('keydown',function(e){if(e.key==='Escape'&&expandedPanel)restorePanel();});
 
 /* ═══ INIT ═══ */
 async function init(){
