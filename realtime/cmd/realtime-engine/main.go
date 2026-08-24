@@ -821,7 +821,7 @@ func main() {
 		xmConfig.Mode = crossmarket.ModeDisabled
 	}
 
-	// Cross-market persister + validation persister
+	// Cross-market persister + validation persister (separate connections)
 	var xmPersister *crossmarket.Persister
 	var xmValidation *crossmarket.ValidationPersister
 	if cfg.DBURL != "" {
@@ -829,7 +829,11 @@ func main() {
 		if err == nil {
 			xmPersister = xmp
 			defer xmPersister.Close()
-			xmValidation = crossmarket.NewValidationPersister(xmp.GetDB())
+		}
+		xvp, err2 := crossmarket.NewPersisterFromURL(cfg.DBURL)
+		if err2 == nil {
+			xmValidation = crossmarket.NewValidationPersister(xvp.GetDB())
+			defer xvp.Close()
 		}
 	}
 
@@ -1394,6 +1398,36 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 				xmCtx, xmCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 				_ = xmPersister.SaveConfluenceResult(xmCtx, &xmResult, "")
 				xmCancel()
+			}
+
+			// Persist shadow snapshot for later validation
+			if xmValidation != nil {
+				shadowCtx, shadowCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+				entryF, _ := stratResult.EntryPrice.Float64()
+				slF, _ := stratResult.StopLoss.Float64()
+				tp1F, _ := stratResult.TP1.Float64()
+				tp2F, _ := stratResult.TP2.Float64()
+				tp3F, _ := stratResult.TP3.Float64()
+				rawScoreF, _ := stratResult.RawScore.Float64()
+				_ = xmValidation.SaveShadowSnapshot(shadowCtx, &crossmarket.ShadowSignalSnapshot{
+					Timestamp:         time.Now().UTC(),
+					Strategy:          string(strat.ID()),
+					Direction:         string(stratResult.Direction),
+					TechnicalScore:     rawScoreF,
+					CrossMarketScore:  xmResult.Score,
+					CrossMarketConf:   xmResult.Confidence,
+					CrossMarketRegime: string(xmResult.Regime),
+					DriverHealth:      string(xmResult.DataQuality),
+					DriverQuality:     string(xmResult.DataQuality),
+					CandidateDecision: string(stratResult.Direction),
+					SignalDecision:    string(stratResult.Direction),
+					Entry:             entryF,
+					StopLoss:          slF,
+					TP1:               tp1F,
+					TP2:               tp2F,
+					TP3:               tp3F,
+				})
+				shadowCancel()
 			}
 
 			// Add cross-market evidence to strategy result

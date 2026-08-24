@@ -99,3 +99,68 @@ func HandleValidationStatus(e *Engine) http.HandlerFunc {
 		})
 	}
 }
+
+// HandleHealthExtended serves GET /api/v1/cross-market/health with full driver status
+func HandleHealthExtended(e *Engine) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if e == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status":  "disabled",
+				"enabled": false,
+				"drivers": map[string]string{},
+			})
+			return
+		}
+
+		e.mu.RLock()
+		driverCount := len(e.drivers)
+		enabledCount := 0
+		for name := range e.cfg.Weights {
+			if e.driverEnabled(name) {
+				enabledCount++
+			}
+		}
+		mode := e.cfg.Mode
+
+		// Build driver health map
+		driverHealth := make(map[string]string)
+		for name := range e.cfg.Weights {
+			if !e.driverEnabled(name) {
+				driverHealth[string(name)] = "DISABLED"
+				continue
+			}
+			if snap, ok := e.drivers[name]; ok {
+				driverHealth[string(name)] = string(snap.Quality)
+			} else {
+				driverHealth[string(name)] = "NOT_CONFIGURED"
+			}
+		}
+		e.mu.RUnlock()
+
+		// Engine health: don't mark degraded just because optional drivers are missing
+		engineHealth := "healthy"
+		criticalDown := false
+		for name, health := range driverHealth {
+			if health == "ERROR" || health == "UNAVAILABLE" {
+				// Only mark degraded if a HIGH-weight driver is down
+				if name == "dxy" || name == "cot" {
+					criticalDown = true
+				}
+			}
+		}
+		if criticalDown {
+			engineHealth = "degraded"
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":         engineHealth,
+			"enabled":        true,
+			"mode":           mode,
+			"active_drivers": driverCount,
+			"enabled_drivers": enabledCount,
+			"drivers":        driverHealth,
+		})
+	}
+}

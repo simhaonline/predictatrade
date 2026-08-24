@@ -44,6 +44,7 @@ export const adminNavigation: NavItem[] = [
   // ── Market & Intelligence ──
   { label: 'Market Data', href: '/admin/market-data', icon: IconBroadcast, section: 'Market & Intelligence' },
   { label: 'Macro & News', href: '/admin/macro-news', icon: IconWorld, section: 'Market & Intelligence' },
+  { label: 'Macro Intelligence', href: '/admin/macro-intelligence', icon: IconActivity, section: 'Market & Intelligence' },
   { label: 'AI Providers', href: '/admin/ai-providers', icon: IconBrain, section: 'Market & Intelligence' },
   { label: 'Broker Qualification', href: '/admin/broker-qualification', icon: IconBuildingBank, section: 'Market & Intelligence' },
 

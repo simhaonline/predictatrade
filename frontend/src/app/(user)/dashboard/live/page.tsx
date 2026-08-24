@@ -7,6 +7,7 @@ import { MtfPulse } from "@/components/user-command-center/mtf-pulse";
 import { IndicatorCards } from "@/components/user-command-center/indicator-cards";
 import { SignalPipeline } from "@/components/user-command-center/signal-pipeline";
 import { GrowthPanel } from "@/components/user-command-center/growth-panel";
+import { MarketContextPanel } from "@/components/market-context/market-context-panel";
 import { IconChartLine, IconActivity, IconTrendingUp, IconLayoutGrid } from "@tabler/icons-react";
 
 type Mode = "MARKET" | "TRADING" | "GROWTH" | "COMMAND_CENTER";
@@ -150,6 +151,7 @@ export default function UserLiveDashboardPage() {
         Server-authoritative data from Go engine · No browser-side indicator computation
         {snapshot?.source && <span> · Source: {snapshot.source}</span>}
       </div>
+      <MarketContextPanel />
     </div>
   );
 }
