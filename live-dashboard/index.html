@@ -108,7 +108,8 @@ body.light{background:#f5f7fb;color:#172033}
 .pl-chg{margin-left:6px;font-size:9px}.chg-up{color:var(--green)}.chg-dn{color:var(--red)}
 .phb-right{color:var(--text-dim);font-size:8px}.phb-right span{margin-left:6px}.phb-right b{color:var(--text)}
 .chart-ladder-wrap{display:flex;flex:1;min-height:0;overflow:hidden}
-#priceChart{flex:1;min-width:0;min-height:0}
+#priceChart{flex:1;min-width:0;min-height:0;background:transparent}
+#priceChart canvas{background:transparent !important}
 .dom-table{width:90px;flex-shrink:0;overflow:hidden;border-left:1px solid var(--border);font-size:8px}
 .dom-row{display:grid;grid-template-columns:18px 1fr;padding:1px 3px;align-items:center}
 .dom-row.ask{color:var(--red)}.dom-row.bid{color:var(--green)}
@@ -230,6 +231,10 @@ body.light #footer{background:linear-gradient(180deg,#e5ddcc,#d9cfba) !important
 body.light .panel-head{background:#efeade !important;border-bottom:1px solid #d5dce5;color:#5b677a}
 body.light .panel{background:#ffffff !important;border:1px solid #d5dce5}
 body.light .panel-body{background:#ffffff}
+body.light #priceChart{background:#ffffff !important}
+body.light #priceChart canvas{background:#ffffff !important}
+body.light .chart-ladder-wrap{background:#ffffff}
+body.light .dom-table{background:#ffffff}
 /* Cells: white not blue-tinted #eef2f7 */
 body.light .ind-cell{background:#f8f9fb}
 body.light .eng-card{background:#f8f9fb}
@@ -583,7 +588,7 @@ function computeEMA(data,period){
 
 function priceOption(){
   if(!STATE.candles||!STATE.candles.length){
-    return{animation:false,backgroundColor:'transparent',graphic:[{type:'text',left:'center',top:'middle',style:{text:'Loading chart data...',fill:'rgba(180,188,200,0.5)',font:'11px monospace'}}]};
+    return{animation:false,backgroundColor:document.body.classList.contains('light')?'#ffffff':'transparent',graphic:[{type:'text',left:'center',top:'middle',style:{text:'Loading chart data...',fill:'rgba(180,188,200,0.5)',font:'11px monospace'}}]};
   }
   var d=STATE.digits;
   var cd=STATE.candles.map(c=>[c.t,c.o,c.c,c.l,c.h]);
@@ -596,7 +601,7 @@ function priceOption(){
   
   return{
     animation:true,animationDuration:300,animationDurationUpdate:300,animationEasing:'cubicOut',
-    backgroundColor:'transparent',
+    backgroundColor:document.body.classList.contains('light')?'#ffffff':'transparent',
     grid:{left:50,right:4,top:4,bottom:20,containLabel:false,borderWidth:0},
     xAxis:{
       type:'time',
