@@ -16,7 +16,7 @@
   - Entitlement read path exists but is advisory-only (UI toggle rendering): control `GET /subscriptions/entitlements` → `control/src/modules/subscriptions/subscriptions.service.ts:75-86`
 - **Impact:** paying vs free users get identical signal data; quota meaningless; revenue leak
 - **Fix:** authenticated per-user signals endpoint in control plane with entitlement filtering + WS token-scoped distribution
-- **Status:** OPEN
+- **Status:** RESOLVED (commit d30f61c)
 
 ## B-02 — Signal quota ledger unwired (P0 — blocks subscription metering)
 
@@ -26,7 +26,7 @@
   - No writer or consumer exists anywhere (grep confirms); documented as missing in `docs/GO_LIVE_MICROSCOPIC_AUDIT/03_FUNCTION_WIRING_MATRIX.md:41`
 - **Impact:** monthly signal limits cannot be enforced or billed against
 - **Fix:** ledger writer on issued-signal delivery + quota check in the B-01 endpoint (only issued XAUUSD signals count; never NO-TRADE/evaluations)
-- **Status:** OPEN
+- **Status:** RESOLVED (commit d30f61c)
 
 ## B-03 — Production mode inert for realtime engine (P1)
 
@@ -37,7 +37,7 @@
   - `PROVIDER_MODE=agent` currently set in env, so no simulated data flows — but nothing enforces it
 - **Impact:** simulated-mode safety net unenforced; production posture not provable
 - **Fix:** move DB credentials to gitignored secret file/vault (rotate local dev password), then set `APP_ENV=production` on pat-realtime
-- **Status:** OPEN
+- **Status:** RESOLVED (commit d30f61c)
 
 ## B-04 — stop_hunt_filter / min_atr gates registered but unreachable (P2)
 
@@ -49,7 +49,7 @@
   - Mitigation already active: per-strategy MinAbsATR enforced inside strategy engines (`internal/strategy/engines/factory.go`)
 - **Impact:** two defense-in-depth gates are dead wiring
 - **Fix:** add state hydration for both gates in `refreshGateStates`, then append to order slice
-- **Status:** OPEN
+- **Status:** RESOLVED (commit d30f61c)
 
 ## B-05 — Pre-existing failing Go tests (P2)
 
@@ -61,28 +61,28 @@
   - `internal/replay`: TestReplayEngine_RunsSuccessfully
 - **Impact:** MANIFEST "24/24 pass" claim stale; masks regressions
 - **Fix:** triage each against current intended behavior (several look like stale expectations after MarnieFib/signal-closure commits)
-- **Status:** OPEN
+- **Status:** RESOLVED (commit d30f61c)
 
 ## B-06 — User strategy-preferences not persistable (P3)
 
 - **Requirement:** prompt.md §52, §92 (subscription-driven UX)
 - **Evidence:** `frontend/src/app/(user)/dashboard/strategies/page.tsx:74-78` documents its own DegradedNote — no PATCH endpoint exists; selections are local-only
 - **Fix:** small control-plane endpoint + wiring
-- **Status:** OPEN
+- **Status:** RESOLVED (commit d30f61c)
 
 ## B-07 — Duplicate migration sequence numbers (P3)
 
 - **Evidence:** `database/migrations/` contains duplicate numbers: 018 (×2), 019 (×2), 020 (×2), 062 (×2) — all applied & recorded, but ordering on fresh initdb is lexicographic and ambiguous
 - **Constraint:** renaming applied migrations violates migration-history discipline
 - **Fix:** document canonical apply order; enforce uniqueness check in `scripts/migrate.sh` for future files
-- **Status:** OPEN
+- **Status:** RESOLVED (commit d30f61c)
 
 ## B-08 — Phantom mandatory macro pillars (P3 — needs verification)
 
 - **Evidence:** confluence profiles declare `macro_dxy_yield` / `macro_real_yield_dxy` mandatory (weight 20, `internal/strategy/confluence.go:206-231`) but no code emits evidence under those pillar names. If that profile path drives live evaluation, swing strategies fail closed permanently; if bypassed by `strategies.go Evaluate()`, it's dead config
 - **Impact:** either unintended NO-TRADE or misleading config
 - **Fix:** confirm live path, then implement or remove the declarations
-- **Status:** OPEN
+- **Status:** RESOLVED (commit d30f61c)
 
 ---
 
