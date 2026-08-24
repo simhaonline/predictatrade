@@ -219,3 +219,122 @@ func DefaultConfig() Config {
 		CorrelationWindow: 50,
 	}
 }
+
+// StrategyID identifies a PAT strategy for strategy-specific weighting.
+type StrategyID string
+
+const (
+	StrategyUltraScalping    StrategyID = "ULTRA_SCALPING"
+	StrategyStandardScalping StrategyID = "STANDARD_SCALPING"
+	StrategyStandardSwing    StrategyID = "STANDARD_SWING"
+	StrategyTrendSwing       StrategyID = "TREND_SWING"
+)
+
+// StrategyWeightConfig holds per-strategy macro weight overrides.
+type StrategyWeightConfig struct {
+	MaxContribution float64 // max score adjustment for this strategy
+	Weights         map[DriverName]float64 // per-strategy driver weights
+}
+
+// DefaultStrategyWeights returns strategy-specific weighting per prompt.md Part 25.
+func DefaultStrategyWeights() map[StrategyID]StrategyWeightConfig {
+	return map[StrategyID]StrategyWeightConfig{
+		StrategyUltraScalping: {
+			MaxContribution: 8.0,
+			Weights: map[DriverName]float64{
+				DriverDXY:        30.0, // HIGH — intraday USD
+				DriverEURUSD:     8.0,  // LOW — confirmation only
+				DriverRealYields: 2.0,  // VERY LOW — not relevant for M1
+				DriverVIX:        15.0, // MEDIUM — micro volatility
+				DriverCOT:        2.0,  // VERY LOW — weekly data
+				DriverBTC:        5.0,  // LOW — micro shock only
+			},
+		},
+		StrategyStandardScalping: {
+			MaxContribution: 12.0,
+			Weights: map[DriverName]float64{
+				DriverDXY:        28.0,
+				DriverEURUSD:     12.0,
+				DriverRealYields: 8.0,
+				DriverVIX:        12.0,
+				DriverCOT:        4.0,
+				DriverBTC:        8.0,
+			},
+		},
+		StrategyStandardSwing: {
+			MaxContribution: 18.0,
+			Weights: map[DriverName]float64{
+				DriverDXY:        22.0,
+				DriverEURUSD:     10.0,
+				DriverRealYields: 25.0, // HIGH — real yields matter for swing
+				DriverVIX:        8.0,
+				DriverCOT:        15.0, // MEDIUM — swing context
+				DriverBTC:        3.0,  // LOW
+			},
+		},
+		StrategyTrendSwing: {
+			MaxContribution: 25.0,
+			Weights: map[DriverName]float64{
+				DriverDXY:        20.0,
+				DriverEURUSD:     8.0,
+				DriverRealYields: 30.0, // HIGHEST — macro trend
+				DriverVIX:        5.0,
+				DriverCOT:        20.0, // HIGH — weekly positioning
+				DriverBTC:        2.0,  // MINIMAL
+			},
+		},
+	}
+}
+
+// MacroSignalFields holds the new signal fields per prompt.md Part 75.
+type MacroSignalFields struct {
+	MacroScore         float64 `json:"macro_score"`
+	MacroConfidence    float64 `json:"macro_confidence"`
+	MacroRegime        string  `json:"macro_regime"`
+	MacroDataQuality   string  `json:"macro_data_quality"`
+	DXYBias            string  `json:"dxy_bias"`
+	YieldBias          string  `json:"yield_bias"`
+	BTCState           string  `json:"btc_state"`
+	CrossAssetState    string  `json:"cross_asset_state"`
+	MacroExplanation   string  `json:"macro_explanation"`
+	MacroSnapshotID    string  `json:"macro_snapshot_id"`
+}
+
+// FromConfluenceResult creates MacroSignalFields from a ConfluenceResult.
+func FromConfluenceResult(result *ConfluenceResult) MacroSignalFields {
+	fields := MacroSignalFields{
+		MacroScore:       result.Score,
+		MacroConfidence:  result.Confidence,
+		MacroRegime:      string(result.Regime),
+		MacroDataQuality: string(result.DataQuality),
+		MacroExplanation: result.FormatReason(),
+	}
+
+	// Extract driver-specific biases
+	for _, d := range result.DriverSnapshot {
+		switch d.Name {
+		case DriverDXY:
+			fields.DXYBias = string(d.Direction)
+		case DriverRealYields:
+			fields.YieldBias = string(d.Direction)
+		case DriverBTC:
+			fields.BTCState = string(d.Direction)
+		}
+	}
+
+	// Cross-asset state from regime
+	switch result.Regime {
+	case SHSafeHavenGold, SHDualSafeHaven:
+		fields.CrossAssetState = "SAFE_HAVEN_ROTATION"
+	case SHLiquidityStress:
+		fields.CrossAssetState = "CROSS_ASSET_LIQUIDATION"
+	case SHRiskOn:
+		fields.CrossAssetState = "RISK_ON_ROTATION"
+	case SHNORMAL:
+		fields.CrossAssetState = "NEUTRAL"
+	default:
+		fields.CrossAssetState = "UNKNOWN"
+	}
+
+	return fields
+}
