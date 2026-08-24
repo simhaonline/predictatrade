@@ -41,11 +41,11 @@ func setAllGateStatesPass(r *Registry) {
 			val = any(0.05) // low slippage
 		}
 		r.UpdateState(gid, GateState{
-			GateID:       gid,
-			State:        types.GatePass,
-			Value:        val,
-			EvaluatedAt:  now,
-			ValidUntil:   validUntil,
+			GateID:        gid,
+			State:         types.GatePass,
+			Value:         val,
+			EvaluatedAt:   now,
+			ValidUntil:    validUntil,
 			SourceVersion: "v1",
 		})
 	}
@@ -61,19 +61,19 @@ func TestGateAllPass(t *testing.T) {
 			Symbol:  "XAUUSD",
 			Quality: types.QualityAuthoritative,
 		},
-		SessionAllowed:      true,
-		NewsRisk:            "LOW",
-		Spread:              0.20,
-		ATR:                 3.0,
-		EntryPrice:          2430,
-		StopLoss:            2426,
-		TakeProfit1:         2435,
-		RoundTripCost:       0.50,
-		CurrentExposure:     1,
-		MaxExposure:         5,
-		EntitlementOK:       true,
-		LicenseActive:       true,
-		ExecutionPermitted:  true,
+		SessionAllowed:     true,
+		NewsRisk:           "LOW",
+		Spread:             0.20,
+		ATR:                3.0,
+		EntryPrice:         2430,
+		StopLoss:           2426,
+		TakeProfit1:        2435,
+		RoundTripCost:      0.50,
+		CurrentExposure:    1,
+		MaxExposure:        5,
+		EntitlementOK:      true,
+		LicenseActive:      true,
+		ExecutionPermitted: true,
 	}
 
 	allPass, evals, veto := registry.EvaluateAll(input)
@@ -102,9 +102,9 @@ func TestGateVetoStopsEvaluation(t *testing.T) {
 	})
 
 	input := GateInput{
-		Tick: &types.Tick{Quality: types.QualityAuthoritative},
+		Tick:           &types.Tick{Quality: types.QualityAuthoritative},
 		SessionAllowed: true,
-		NewsRisk: "HIGH", // This should trigger news veto
+		NewsRisk:       "HIGH", // This should trigger news veto
 	}
 
 	allPass, _, veto := registry.EvaluateAll(input)

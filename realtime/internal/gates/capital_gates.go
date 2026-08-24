@@ -118,8 +118,8 @@ type PositionCapsGate struct {
 	MaxTotal         int
 	MaxPerStrategy   int
 
-	mu      sync.Mutex
-	issued  map[string][]time.Time // strategyID → issuance timestamps
+	mu     sync.Mutex
+	issued map[string][]time.Time // strategyID → issuance timestamps
 }
 
 func (g *PositionCapsGate) ID() types.GateID { return types.GatePositionCaps }
@@ -367,12 +367,12 @@ func SeedCapitalProtectionGateStates(reg *Registry) {
 	}
 }
 
-func (g *WrongSideSLGate) base(state GateState) GateEvaluation   { return baseEval(g.ID(), state) }
-func (g *RiskOversizeGate) base(state GateState) GateEvaluation  { return baseEval(g.ID(), state) }
-func (g *PositionCapsGate) base(state GateState) GateEvaluation  { return baseEval(g.ID(), state) }
-func (g *DailyLossGate) base(state GateState) GateEvaluation     { return baseEval(g.ID(), state) }
-func (g *ProfitTargetGate) base(state GateState) GateEvaluation  { return baseEval(g.ID(), state) }
-func (g *MartingaleBanGate) base(state GateState) GateEvaluation { return baseEval(g.ID(), state) }
+func (g *WrongSideSLGate) base(state GateState) GateEvaluation    { return baseEval(g.ID(), state) }
+func (g *RiskOversizeGate) base(state GateState) GateEvaluation   { return baseEval(g.ID(), state) }
+func (g *PositionCapsGate) base(state GateState) GateEvaluation   { return baseEval(g.ID(), state) }
+func (g *DailyLossGate) base(state GateState) GateEvaluation      { return baseEval(g.ID(), state) }
+func (g *ProfitTargetGate) base(state GateState) GateEvaluation   { return baseEval(g.ID(), state) }
+func (g *MartingaleBanGate) base(state GateState) GateEvaluation  { return baseEval(g.ID(), state) }
 func (g *EdgeValidationGate) base(state GateState) GateEvaluation { return baseEval(g.ID(), state) }
 
 func baseEval(id types.GateID, state GateState) GateEvaluation {

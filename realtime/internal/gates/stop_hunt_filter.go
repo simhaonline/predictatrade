@@ -39,7 +39,7 @@ func (g *StopHuntFilterGate) Evaluate(input GateInput, state GateState) GateEval
 
 	// Get structural levels from gate state (passed by the engine)
 	// GateState.Value can carry a struct with StructuralLow/StructuralHigh
-// Use structural data from GateInput (populated by the signal pipeline)
+	// Use structural data from GateInput (populated by the signal pipeline)
 	swingLow := input.StructuralLow
 	swingHigh := input.StructuralHigh
 

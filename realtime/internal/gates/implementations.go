@@ -5,8 +5,8 @@ package gates
 import (
 	"time"
 
-	"github.com/rs/zerolog"
 	"github.com/predictatrade/realtime/internal/types"
+	"github.com/rs/zerolog"
 )
 
 // DataQualityGate checks feed freshness and quality (SOW Section 131.3: fast, <1ms).
@@ -16,9 +16,9 @@ func (g *DataQualityGate) ID() types.GateID { return types.GateDataQuality }
 
 func (g *DataQualityGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := GateEvaluation{
-		GateID:      g.ID(),
-		EvaluatedAt: time.Now(),
-		FreshnessMs: state.FreshnessMs,
+		GateID:       g.ID(),
+		EvaluatedAt:  time.Now(),
+		FreshnessMs:  state.FreshnessMs,
 		StateVersion: state.SourceVersion,
 	}
 
@@ -57,9 +57,9 @@ func (g *SessionGate) ID() types.GateID { return types.GateSession }
 
 func (g *SessionGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := GateEvaluation{
-		GateID:      g.ID(),
-		EvaluatedAt: time.Now(),
-		FreshnessMs: state.FreshnessMs,
+		GateID:       g.ID(),
+		EvaluatedAt:  time.Now(),
+		FreshnessMs:  state.FreshnessMs,
 		StateVersion: state.SourceVersion,
 	}
 
@@ -80,9 +80,9 @@ func (g *NewsGate) ID() types.GateID { return types.GateNews }
 
 func (g *NewsGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := GateEvaluation{
-		GateID:      g.ID(),
-		EvaluatedAt: time.Now(),
-		FreshnessMs: state.FreshnessMs,
+		GateID:       g.ID(),
+		EvaluatedAt:  time.Now(),
+		FreshnessMs:  state.FreshnessMs,
 		StateVersion: state.SourceVersion,
 	}
 
@@ -113,9 +113,9 @@ func (g *SpreadGate) ID() types.GateID { return types.GateSpread }
 
 func (g *SpreadGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := GateEvaluation{
-		GateID:      g.ID(),
-		EvaluatedAt: time.Now(),
-		FreshnessMs: state.FreshnessMs,
+		GateID:       g.ID(),
+		EvaluatedAt:  time.Now(),
+		FreshnessMs:  state.FreshnessMs,
 		StateVersion: state.SourceVersion,
 	}
 
@@ -147,9 +147,9 @@ func (g *SlippageGate) ID() types.GateID { return types.GateSlippage }
 
 func (g *SlippageGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := GateEvaluation{
-		GateID:      g.ID(),
-		EvaluatedAt: time.Now(),
-		FreshnessMs: state.FreshnessMs,
+		GateID:       g.ID(),
+		EvaluatedAt:  time.Now(),
+		FreshnessMs:  state.FreshnessMs,
 		StateVersion: state.SourceVersion,
 	}
 
@@ -181,9 +181,9 @@ func (g *TotalCostGate) ID() types.GateID { return types.GateTotalCost }
 
 func (g *TotalCostGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := GateEvaluation{
-		GateID:      g.ID(),
-		EvaluatedAt: time.Now(),
-		FreshnessMs: state.FreshnessMs,
+		GateID:       g.ID(),
+		EvaluatedAt:  time.Now(),
+		FreshnessMs:  state.FreshnessMs,
 		StateVersion: state.SourceVersion,
 	}
 
@@ -231,9 +231,9 @@ func (g *ExposureGate) ID() types.GateID { return types.GateExposure }
 
 func (g *ExposureGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := GateEvaluation{
-		GateID:      g.ID(),
-		EvaluatedAt: time.Now(),
-		FreshnessMs: state.FreshnessMs,
+		GateID:       g.ID(),
+		EvaluatedAt:  time.Now(),
+		FreshnessMs:  state.FreshnessMs,
 		StateVersion: state.SourceVersion,
 	}
 
@@ -254,9 +254,9 @@ func (g *MarginGate) ID() types.GateID { return types.GateMargin }
 
 func (g *MarginGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := GateEvaluation{
-		GateID:      g.ID(),
-		EvaluatedAt: time.Now(),
-		FreshnessMs: state.FreshnessMs,
+		GateID:       g.ID(),
+		EvaluatedAt:  time.Now(),
+		FreshnessMs:  state.FreshnessMs,
 		StateVersion: state.SourceVersion,
 	}
 
@@ -281,9 +281,9 @@ func (g *RRNetExpectancyGate) ID() types.GateID { return types.GateRRNetExpectan
 
 func (g *RRNetExpectancyGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := GateEvaluation{
-		GateID:      g.ID(),
-		EvaluatedAt: time.Now(),
-		FreshnessMs: state.FreshnessMs,
+		GateID:       g.ID(),
+		EvaluatedAt:  time.Now(),
+		FreshnessMs:  state.FreshnessMs,
 		StateVersion: state.SourceVersion,
 	}
 
@@ -307,9 +307,9 @@ func (g *EntitlementGate) ID() types.GateID { return types.GateEntitlement }
 
 func (g *EntitlementGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := GateEvaluation{
-		GateID:      g.ID(),
-		EvaluatedAt: time.Now(),
-		FreshnessMs: state.FreshnessMs,
+		GateID:       g.ID(),
+		EvaluatedAt:  time.Now(),
+		FreshnessMs:  state.FreshnessMs,
 		StateVersion: state.SourceVersion,
 	}
 
@@ -330,9 +330,9 @@ func (g *LicenseGate) ID() types.GateID { return types.GateLicense }
 
 func (g *LicenseGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := GateEvaluation{
-		GateID:      g.ID(),
-		EvaluatedAt: time.Now(),
-		FreshnessMs: state.FreshnessMs,
+		GateID:       g.ID(),
+		EvaluatedAt:  time.Now(),
+		FreshnessMs:  state.FreshnessMs,
 		StateVersion: state.SourceVersion,
 	}
 
@@ -353,9 +353,9 @@ func (g *ExecutionPermissionGate) ID() types.GateID { return types.GateExecution
 
 func (g *ExecutionPermissionGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := GateEvaluation{
-		GateID:      g.ID(),
-		EvaluatedAt: time.Now(),
-		FreshnessMs: state.FreshnessMs,
+		GateID:       g.ID(),
+		EvaluatedAt:  time.Now(),
+		FreshnessMs:  state.FreshnessMs,
 		StateVersion: state.SourceVersion,
 	}
 

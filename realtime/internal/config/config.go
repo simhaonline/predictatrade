@@ -22,10 +22,10 @@ type Config struct {
 	WSPort   int
 
 	// Market data
-	ProviderMode   string
-	ReplayFile     string
-	Symbols        []string
-	BasePrice      float64
+	ProviderMode string
+	ReplayFile   string
+	Symbols      []string
+	BasePrice    float64
 
 	// Engine
 	TickRateMs     int
@@ -38,27 +38,27 @@ type Config struct {
 	MaxExposure     float64
 
 	// Capital protection (R1-R7, EV1-EV3, PT/P&L)
-	EnableShorts              bool             // ENABLE_SHORTS — false suppresses SELL at generation
-	MaxRiskPerTradePct        float64          // MAX_RISK_PER_TRADE_PCT (default 1.5% of equity)
-	MaxSameDirectionPositions int              // MAX_SAME_DIRECTION_POSITIONS
-	MaxTotalPositions         int              // MAX_TOTAL_POSITIONS
-	MaxPerStrategyPositions   int              // MAX_PER_STRATEGY_POSITIONS
-	MaxDailyLossPct           float64          // MAX_DAILY_LOSS_PCT (negative halt threshold magnitude)
-	MaxWeeklyLossPct          float64          // MAX_WEEKLY_LOSS_PCT
-	MaxMonthlyLossPct         float64          // MAX_MONTHLY_LOSS_PCT
-	MaxDailyProfitPct         float64          // MAX_DAILY_PROFIT_PCT profit lock
-	MaxWeeklyProfitPct        float64          // MAX_WEEKLY_PROFIT_PCT profit lock
-	MartingaleMaxLotRatio     float64          // MARTINGALE_MAX_LOT_RATIO vs per-strategy base lot
+	EnableShorts              bool               // ENABLE_SHORTS — false suppresses SELL at generation
+	MaxRiskPerTradePct        float64            // MAX_RISK_PER_TRADE_PCT (default 1.5% of equity)
+	MaxSameDirectionPositions int                // MAX_SAME_DIRECTION_POSITIONS
+	MaxTotalPositions         int                // MAX_TOTAL_POSITIONS
+	MaxPerStrategyPositions   int                // MAX_PER_STRATEGY_POSITIONS
+	MaxDailyLossPct           float64            // MAX_DAILY_LOSS_PCT (negative halt threshold magnitude)
+	MaxWeeklyLossPct          float64            // MAX_WEEKLY_LOSS_PCT
+	MaxMonthlyLossPct         float64            // MAX_MONTHLY_LOSS_PCT
+	MaxDailyProfitPct         float64            // MAX_DAILY_PROFIT_PCT profit lock
+	MaxWeeklyProfitPct        float64            // MAX_WEEKLY_PROFIT_PCT profit lock
+	MartingaleMaxLotRatio     float64            // MARTINGALE_MAX_LOT_RATIO vs per-strategy base lot
 	BaseLots                  map[string]float64 // BASE_LOT_{STRATEGY}
-	EdgeMinProfitFactor       float64          // EDGE_MIN_PROFIT_FACTOR
-	EdgeMinExpectancyR        float64          // EDGE_MIN_EXPECTANCY_R
-	EdgeMinSampleSize         int              // EDGE_MIN_SAMPLE_SIZE
-	EdgeLookbackTrades        int              // EDGE_LOOKBACK_TRADES
-	MaxMarginUsagePct         float64          // MAX_MARGIN_USAGE_PCT of free margin
-	DefaultLeverage           int              // DEFAULT_LEVERAGE when broker snapshot lacks leverage
-	CostToTP1MaxPct           float64          // COST_TO_TP1_MAX_PCT for scalping strategies
-	SlippageCostPoints        float64          // SLIPPAGE_COST_POINTS (price units) added to round-trip cost
-	CommissionCostPoints      float64          // COMMISSION_COST_POINTS (price units) added to round-trip cost
+	EdgeMinProfitFactor       float64            // EDGE_MIN_PROFIT_FACTOR
+	EdgeMinExpectancyR        float64            // EDGE_MIN_EXPECTANCY_R
+	EdgeMinSampleSize         int                // EDGE_MIN_SAMPLE_SIZE
+	EdgeLookbackTrades        int                // EDGE_LOOKBACK_TRADES
+	MaxMarginUsagePct         float64            // MAX_MARGIN_USAGE_PCT of free margin
+	DefaultLeverage           int                // DEFAULT_LEVERAGE when broker snapshot lacks leverage
+	CostToTP1MaxPct           float64            // COST_TO_TP1_MAX_PCT for scalping strategies
+	SlippageCostPoints        float64            // SLIPPAGE_COST_POINTS (price units) added to round-trip cost
+	CommissionCostPoints      float64            // COMMISSION_COST_POINTS (price units) added to round-trip cost
 
 	// CORS/origin validation
 	AllowedOrigins []string
@@ -67,28 +67,28 @@ type Config struct {
 	LogLevel string
 
 	// COT (Commitment of Traders) — optional macro/positioning data
-	FMPAPIKey   string
-	COTSymbol   string
-	COTEnabled  bool
+	FMPAPIKey  string
+	COTSymbol  string
+	COTEnabled bool
 
 	// DXY (US Dollar Index) — Twelve Data API
 	TwelveDataAPIKey string
 	DXYEnabled       bool
 
 	// ML Inference Engine
-	MLEnabled   bool
-	ModelsDir    string
+	MLEnabled bool
+	ModelsDir string
 
 	// Cross-Market Macro Engine
-	CrossMarketMode      string // disabled|shadow|active
-	CrossMarketEnabled   bool
-	EURUSDEnabled        bool
-	RealYieldEnabled     bool
-	RealYieldProvider    string // fmp|fred|disabled
-	FREDAPIKey           string // FRED API key for real yield data
-	VIXEnabled           bool
-	BTCEnabled           bool
-	OilEnabled           bool
+	CrossMarketMode    string // disabled|shadow|active
+	CrossMarketEnabled bool
+	EURUSDEnabled      bool
+	RealYieldEnabled   bool
+	RealYieldProvider  string // fmp|fred|disabled
+	FREDAPIKey         string // FRED API key for real yield data
+	VIXEnabled         bool
+	BTCEnabled         bool
+	OilEnabled         bool
 
 	// News / Economic Calendar
 	NewsProvider            string // disabled|fmp|...
@@ -102,14 +102,14 @@ type Config struct {
 	NewsProviderAPIKey      string
 
 	// News Breakout
-	NewsBreakoutEnabled     bool
-	NewsBreakoutPrepareSec  int
-	NewsBreakoutExpirySec   int
-	NewsBreakoutEntryATR    float64
-	NewsBreakoutMaxSpread   float64
-	NewsBreakoutMaxRiskPct  float64
-	NewsBreakoutSLATR       float64
-	NewsBreakoutTPATR       float64
+	NewsBreakoutEnabled    bool
+	NewsBreakoutPrepareSec int
+	NewsBreakoutExpirySec  int
+	NewsBreakoutEntryATR   float64
+	NewsBreakoutMaxSpread  float64
+	NewsBreakoutMaxRiskPct float64
+	NewsBreakoutSLATR      float64
+	NewsBreakoutTPATR      float64
 
 	// Notifications
 	NotifyEmailEnabled    bool
@@ -135,14 +135,14 @@ type Config struct {
 	OllamaEnabled bool
 	OllamaHost    string
 	OllamaModel   string
-	OllamaTimeout  string
+	OllamaTimeout string
 }
 
 // Default returns a config suitable for local development/testing.
 // Production values come from environment variables.
 func Default() *Config {
 	return &Config{
-		DBURL:           func() string {
+		DBURL: func() string {
 			url := getEnv("DATABASE_URL", "")
 			if url == "" {
 				url = loadDatabaseURLFromFile()
@@ -165,17 +165,17 @@ func Default() *Config {
 		MaxExposure:     getEnvFloat("MAX_EXPOSURE", 5.0),
 
 		// Capital protection — fail-safe defaults; nesting validated at startup.
-		EnableShorts:             getEnvBoolDefaultTrue("ENABLE_SHORTS"),
-		MaxRiskPerTradePct:       getEnvFloat("MAX_RISK_PER_TRADE_PCT", 1.5),
+		EnableShorts:              getEnvBoolDefaultTrue("ENABLE_SHORTS"),
+		MaxRiskPerTradePct:        getEnvFloat("MAX_RISK_PER_TRADE_PCT", 1.5),
 		MaxSameDirectionPositions: getEnvInt("MAX_SAME_DIRECTION_POSITIONS", 1),
-		MaxTotalPositions:        getEnvInt("MAX_TOTAL_POSITIONS", 2),
-		MaxPerStrategyPositions:  getEnvInt("MAX_PER_STRATEGY_POSITIONS", 1),
-		MaxDailyLossPct:          getEnvFloat("MAX_DAILY_LOSS_PCT", 2.0),
-		MaxWeeklyLossPct:         getEnvFloat("MAX_WEEKLY_LOSS_PCT", 4.0),
-		MaxMonthlyLossPct:        getEnvFloat("MAX_MONTHLY_LOSS_PCT", 5.0),
-		MaxDailyProfitPct:        getEnvFloat("MAX_DAILY_PROFIT_PCT", 5.0),
-		MaxWeeklyProfitPct:       getEnvFloat("MAX_WEEKLY_PROFIT_PCT", 12.0),
-		MartingaleMaxLotRatio:    getEnvFloat("MARTINGALE_MAX_LOT_RATIO", 1.0),
+		MaxTotalPositions:         getEnvInt("MAX_TOTAL_POSITIONS", 2),
+		MaxPerStrategyPositions:   getEnvInt("MAX_PER_STRATEGY_POSITIONS", 1),
+		MaxDailyLossPct:           getEnvFloat("MAX_DAILY_LOSS_PCT", 2.0),
+		MaxWeeklyLossPct:          getEnvFloat("MAX_WEEKLY_LOSS_PCT", 4.0),
+		MaxMonthlyLossPct:         getEnvFloat("MAX_MONTHLY_LOSS_PCT", 5.0),
+		MaxDailyProfitPct:         getEnvFloat("MAX_DAILY_PROFIT_PCT", 5.0),
+		MaxWeeklyProfitPct:        getEnvFloat("MAX_WEEKLY_PROFIT_PCT", 12.0),
+		MartingaleMaxLotRatio:     getEnvFloat("MARTINGALE_MAX_LOT_RATIO", 1.0),
 		BaseLots: map[string]float64{
 			"STANDARD_SCALPING": getEnvFloat("BASE_LOT_STANDARD_SCALPING", 0.01),
 			"ULTRA_SCALPING":    getEnvFloat("BASE_LOT_ULTRA_SCALPING", 0.01),
@@ -183,28 +183,28 @@ func Default() *Config {
 			"TREND_SWING":       getEnvFloat("BASE_LOT_TREND_SWING", 0.01),
 			"MARNIE_FIB":        getEnvFloat("BASE_LOT_MARNIE_FIB", 0.01),
 		},
-		EdgeMinProfitFactor: getEnvFloat("EDGE_MIN_PROFIT_FACTOR", 1.2),
-		EdgeMinExpectancyR:  getEnvFloat("EDGE_MIN_EXPECTANCY_R", 0.2),
-		EdgeMinSampleSize:   getEnvInt("EDGE_MIN_SAMPLE_SIZE", 50),
-		EdgeLookbackTrades:  getEnvInt("EDGE_LOOKBACK_TRADES", 50),
-		MaxMarginUsagePct:   getEnvFloat("MAX_MARGIN_USAGE_PCT", 30.0),
-		DefaultLeverage:     getEnvInt("DEFAULT_LEVERAGE", 500),
-		CostToTP1MaxPct:     getEnvFloat("COST_TO_TP1_MAX_PCT", 0.30),
-		SlippageCostPoints:  getEnvFloat("SLIPPAGE_COST_POINTS", 0.10),
+		EdgeMinProfitFactor:  getEnvFloat("EDGE_MIN_PROFIT_FACTOR", 1.2),
+		EdgeMinExpectancyR:   getEnvFloat("EDGE_MIN_EXPECTANCY_R", 0.2),
+		EdgeMinSampleSize:    getEnvInt("EDGE_MIN_SAMPLE_SIZE", 50),
+		EdgeLookbackTrades:   getEnvInt("EDGE_LOOKBACK_TRADES", 50),
+		MaxMarginUsagePct:    getEnvFloat("MAX_MARGIN_USAGE_PCT", 30.0),
+		DefaultLeverage:      getEnvInt("DEFAULT_LEVERAGE", 500),
+		CostToTP1MaxPct:      getEnvFloat("COST_TO_TP1_MAX_PCT", 0.30),
+		SlippageCostPoints:   getEnvFloat("SLIPPAGE_COST_POINTS", 0.10),
 		CommissionCostPoints: getEnvFloat("COMMISSION_COST_POINTS", 0.06),
-		AllowedOrigins:  strings.Split(getEnv("ALLOWED_ORIGINS", "https://platform.predictatrade.com,https://predictatrade.com"), ","),
-		LogLevel:        getEnv("LOG_LEVEL", "info"),
+		AllowedOrigins:       strings.Split(getEnv("ALLOWED_ORIGINS", "https://platform.predictatrade.com,https://predictatrade.com"), ","),
+		LogLevel:             getEnv("LOG_LEVEL", "info"),
 
 		// Cross-Market Macro Engine
-		CrossMarketMode:      getEnv("CROSS_MARKET_MODE", "shadow"),
-		CrossMarketEnabled:   getEnvBool("CROSS_MARKET_ENABLED", true),
-		EURUSDEnabled:        getEnvBool("EURUSD_ENABLED", true),
-		RealYieldEnabled:     getEnvBool("REAL_YIELD_ENABLED", false),
-		RealYieldProvider:    getEnv("REAL_YIELD_PROVIDER", "disabled"),
-		FREDAPIKey:           getEnv("FRED_API_KEY", ""),
-		VIXEnabled:           getEnvBool("VIX_ENABLED", false),
-		BTCEnabled:           getEnvBool("BTC_ENABLED", false),
-		OilEnabled:           getEnvBool("OIL_ENABLED", false),
+		CrossMarketMode:    getEnv("CROSS_MARKET_MODE", "shadow"),
+		CrossMarketEnabled: getEnvBool("CROSS_MARKET_ENABLED", true),
+		EURUSDEnabled:      getEnvBool("EURUSD_ENABLED", true),
+		RealYieldEnabled:   getEnvBool("REAL_YIELD_ENABLED", false),
+		RealYieldProvider:  getEnv("REAL_YIELD_PROVIDER", "disabled"),
+		FREDAPIKey:         getEnv("FRED_API_KEY", ""),
+		VIXEnabled:         getEnvBool("VIX_ENABLED", false),
+		BTCEnabled:         getEnvBool("BTC_ENABLED", false),
+		OilEnabled:         getEnvBool("OIL_ENABLED", false),
 
 		// COT provider — optional, fails safe if not configured
 		FMPAPIKey:  getEnv("FMP_API_KEY", ""),
@@ -213,9 +213,9 @@ func Default() *Config {
 
 		// DXY provider — Twelve Data API for DXY computation
 		TwelveDataAPIKey: getEnv("TWELVEDATA_API_KEY", ""),
-		DXYEnabled:      getEnvBool("DXY_ENABLED", false),
-		MLEnabled:       getEnvBool("ML_ENABLED", false),
-		ModelsDir:       getEnv("MODELS_DIR", "models"),
+		DXYEnabled:       getEnvBool("DXY_ENABLED", false),
+		MLEnabled:        getEnvBool("ML_ENABLED", false),
+		ModelsDir:        getEnv("MODELS_DIR", "models"),
 
 		// News / Economic Calendar — PROTECT_ONLY by default, disabled provider
 		NewsProvider:            getEnv("NEWS_PROVIDER", "disabled"),
@@ -229,14 +229,14 @@ func Default() *Config {
 		NewsProviderAPIKey:      getEnv("NEWS_PROVIDER_API_KEY", ""),
 
 		// News Breakout — DISABLED BY DEFAULT
-		NewsBreakoutEnabled:     getEnvBool("NEWS_BREAKOUT_ENABLED", false),
-		NewsBreakoutPrepareSec:  getEnvInt("NEWS_BREAKOUT_PREPARE_SECONDS", 120),
-		NewsBreakoutExpirySec:   getEnvInt("NEWS_BREAKOUT_EXPIRY_SECONDS", 300),
-		NewsBreakoutEntryATR:    getEnvFloat("NEWS_BREAKOUT_ENTRY_ATR_MULTIPLIER", 0.5),
-		NewsBreakoutMaxSpread:   getEnvFloat("NEWS_BREAKOUT_MAX_SPREAD", 3.0),
-		NewsBreakoutMaxRiskPct:  getEnvFloat("NEWS_BREAKOUT_MAX_RISK_PCT", 1.0),
-		NewsBreakoutSLATR:       getEnvFloat("NEWS_BREAKOUT_SL_ATR_MULTIPLIER", 1.0),
-		NewsBreakoutTPATR:       getEnvFloat("NEWS_BREAKOUT_TP_ATR_MULTIPLIER", 2.0),
+		NewsBreakoutEnabled:    getEnvBool("NEWS_BREAKOUT_ENABLED", false),
+		NewsBreakoutPrepareSec: getEnvInt("NEWS_BREAKOUT_PREPARE_SECONDS", 120),
+		NewsBreakoutExpirySec:  getEnvInt("NEWS_BREAKOUT_EXPIRY_SECONDS", 300),
+		NewsBreakoutEntryATR:   getEnvFloat("NEWS_BREAKOUT_ENTRY_ATR_MULTIPLIER", 0.5),
+		NewsBreakoutMaxSpread:  getEnvFloat("NEWS_BREAKOUT_MAX_SPREAD", 3.0),
+		NewsBreakoutMaxRiskPct: getEnvFloat("NEWS_BREAKOUT_MAX_RISK_PCT", 1.0),
+		NewsBreakoutSLATR:      getEnvFloat("NEWS_BREAKOUT_SL_ATR_MULTIPLIER", 1.0),
+		NewsBreakoutTPATR:      getEnvFloat("NEWS_BREAKOUT_TP_ATR_MULTIPLIER", 2.0),
 
 		// Notifications — all DISABLED BY DEFAULT
 		NotifyEmailEnabled:    getEnvBool("NOTIFICATION_EMAIL_ENABLED", false),
@@ -251,9 +251,9 @@ func Default() *Config {
 		TelegramBotToken:      getEnv("TELEGRAM_BOT_TOKEN", ""),
 		TelegramChatID:        getEnv("TELEGRAM_CHAT_ID", ""),
 		// Push (self-hosted ntfy)
-		NtfyServerURL:         getEnv("NTFY_SERVER_URL", ""),
-		NtfyTopic:             getEnv("NTFY_TOPIC", ""),
-		NtfyAccessToken:       getEnv("NTFY_ACCESS_TOKEN", ""),
+		NtfyServerURL:   getEnv("NTFY_SERVER_URL", ""),
+		NtfyTopic:       getEnv("NTFY_TOPIC", ""),
+		NtfyAccessToken: getEnv("NTFY_ACCESS_TOKEN", ""),
 
 		// Ollama (LLM Sentiment Analysis)
 		OllamaEnabled: getEnvBool("OLLAMA_ENABLED", false),
@@ -271,14 +271,14 @@ func (c *Config) IsProduction() bool {
 // KnownInsecureSecrets are placeholder values that must never be accepted in production.
 var knownInsecureSecrets = map[string]bool{
 	"CHANGE_ME_IN_PRODUCTION":                   true,
-	"CHANGE_ME_IN_PRODUCTION_USE_SECRET_FILE":    true,
-	"pat_local_dev_secret_change_in_production":  true,
-	"change_this_to_a_long_random_secret":         true,
-	"changeme":                                    true,
-	"placeholder":                                 true,
-	"development":                                true,
-	"secret":                                      true,
-	"":                                            true,
+	"CHANGE_ME_IN_PRODUCTION_USE_SECRET_FILE":   true,
+	"pat_local_dev_secret_change_in_production": true,
+	"change_this_to_a_long_random_secret":       true,
+	"changeme":                                  true,
+	"placeholder":                               true,
+	"development":                               true,
+	"secret":                                    true,
+	"":                                          true,
 }
 
 // IsInsecureSecret returns true if the value is empty or a known placeholder.
@@ -334,22 +334,29 @@ func (c *Config) Validate() error {
 	// Capital-protection nesting validation (R4): loss caps must nest
 	// daily < weekly < monthly, and profit locks must be >= loss magnitudes.
 	// Unsafe config refuses to start (fail-closed at boot).
-	if c.MaxDailyLossPct <= 0 || c.MaxWeeklyLossPct <= 0 || c.MaxMonthlyLossPct <= 0 {
-		return fmt.Errorf("capital protection: MAX_DAILY_LOSS_PCT/MAX_WEEKLY_LOSS_PCT/MAX_MONTHLY_LOSS_PCT must be > 0 (got %v/%v/%v)", c.MaxDailyLossPct, c.MaxWeeklyLossPct, c.MaxMonthlyLossPct)
+	// An entirely-unset block (all zeros — legacy/manual Config literals)
+	// skips these checks; any partial configuration is validated strictly.
+	capitalConfigured := c.MaxDailyLossPct > 0 || c.MaxWeeklyLossPct > 0 ||
+		c.MaxMonthlyLossPct > 0 || c.MaxDailyProfitPct > 0 || c.MaxWeeklyProfitPct > 0 ||
+		c.MaxRiskPerTradePct > 0
+	if capitalConfigured {
+		if c.MaxDailyLossPct <= 0 || c.MaxWeeklyLossPct <= 0 || c.MaxMonthlyLossPct <= 0 {
+			return fmt.Errorf("capital protection: MAX_DAILY_LOSS_PCT/MAX_WEEKLY_LOSS_PCT/MAX_MONTHLY_LOSS_PCT must be > 0 (got %v/%v/%v)", c.MaxDailyLossPct, c.MaxWeeklyLossPct, c.MaxMonthlyLossPct)
+		}
+		if !(c.MaxDailyLossPct < c.MaxWeeklyLossPct && c.MaxWeeklyLossPct < c.MaxMonthlyLossPct) {
+			return fmt.Errorf("capital protection: loss caps must nest daily < weekly < monthly (got daily=%v weekly=%v monthly=%v)", c.MaxDailyLossPct, c.MaxWeeklyLossPct, c.MaxMonthlyLossPct)
+		}
+		if c.MaxDailyProfitPct <= 0 || c.MaxWeeklyProfitPct <= 0 {
+			return fmt.Errorf("capital protection: MAX_DAILY_PROFIT_PCT/MAX_WEEKLY_PROFIT_PCT must be > 0 (got %v/%v)", c.MaxDailyProfitPct, c.MaxWeeklyProfitPct)
+		}
+		if !(c.MaxDailyProfitPct >= c.MaxDailyLossPct && c.MaxWeeklyProfitPct >= c.MaxWeeklyLossPct) {
+			return fmt.Errorf("capital protection: profit locks must be >= loss magnitudes (daily %v>=%v, weekly %v>=%v)", c.MaxDailyProfitPct, c.MaxDailyLossPct, c.MaxWeeklyProfitPct, c.MaxWeeklyLossPct)
+		}
+		if c.MaxRiskPerTradePct <= 0 || c.MaxRiskPerTradePct > 100 {
+			return fmt.Errorf("capital protection: MAX_RISK_PER_TRADE_PCT must be in (0,100], got %v", c.MaxRiskPerTradePct)
+		}
 	}
-	if !(c.MaxDailyLossPct < c.MaxWeeklyLossPct && c.MaxWeeklyLossPct < c.MaxMonthlyLossPct) {
-		return fmt.Errorf("capital protection: loss caps must nest daily < weekly < monthly (got daily=%v weekly=%v monthly=%v)", c.MaxDailyLossPct, c.MaxWeeklyLossPct, c.MaxMonthlyLossPct)
-	}
-	if c.MaxDailyProfitPct <= 0 || c.MaxWeeklyProfitPct <= 0 {
-		return fmt.Errorf("capital protection: MAX_DAILY_PROFIT_PCT/MAX_WEEKLY_PROFIT_PCT must be > 0 (got %v/%v)", c.MaxDailyProfitPct, c.MaxWeeklyProfitPct)
-	}
-	if !(c.MaxDailyProfitPct >= c.MaxDailyLossPct && c.MaxWeeklyProfitPct >= c.MaxWeeklyLossPct) {
-		return fmt.Errorf("capital protection: profit locks must be >= loss magnitudes (daily %v>=%v, weekly %v>=%v)", c.MaxDailyProfitPct, c.MaxDailyLossPct, c.MaxWeeklyProfitPct, c.MaxWeeklyLossPct)
-	}
-	if c.MaxRiskPerTradePct <= 0 || c.MaxRiskPerTradePct > 100 {
-		return fmt.Errorf("capital protection: MAX_RISK_PER_TRADE_PCT must be in (0,100], got %v", c.MaxRiskPerTradePct)
-	}
-	if c.MartingaleMaxLotRatio < 1.0 {
+	if c.MartingaleMaxLotRatio != 0 && c.MartingaleMaxLotRatio < 1.0 {
 		return fmt.Errorf("capital protection: MARTINGALE_MAX_LOT_RATIO must be >= 1.0 (anti-martingale), got %v", c.MartingaleMaxLotRatio)
 	}
 
@@ -400,8 +407,8 @@ type lossRecoveryConfig struct {
 	MaxConsecutiveLosses    int
 	RecoverySizeMultiplier  float64
 	RecoveryMinConfluence   float64
-	RecoveryMinSetupGrade    string
-	RecoveryMinConfidence    float64
+	RecoveryMinSetupGrade   string
+	RecoveryMinConfidence   float64
 	RecoveryMaxTrades       int
 	RecoveryExitAfterWins   int
 	NormalCooldownMinutes   int
@@ -410,9 +417,9 @@ type lossRecoveryConfig struct {
 }
 
 type adaptationConfig struct {
-	Enabled                bool
-	MaxRiskMultiplier      float64
-	GlobalHardMaxRisk      float64
+	Enabled           bool
+	MaxRiskMultiplier float64
+	GlobalHardMaxRisk float64
 }
 
 type hedgingConfig struct {
@@ -439,18 +446,18 @@ type mlAdaptationConfig struct {
 type rlStrategyConfig struct {
 	Mode                 string // disabled, shadow, filter_only, live_approved
 	MinConfidence        float64
-	MaxDrawdownPct        float64
+	MaxDrawdownPct       float64
 	MinProfitFactor      float64
 	MinTradeCount        int
 	RequireOOSValidation bool
 }
 
 type sentimentConfig struct {
-	Enabled             bool
-	RefreshIntervalSec   int
-	TimeoutSec           int
-	MaxRetries           int
-	StaleThresholdSec    int
+	Enabled                bool
+	RefreshIntervalSec     int
+	TimeoutSec             int
+	MaxRetries             int
+	StaleThresholdSec      int
 	MinConfidenceThreshold float64
 }
 

@@ -22,15 +22,15 @@ type TradeRecord struct {
 
 // EdgeStats is the computed forward-test edge summary for one strategy.
 type EdgeStats struct {
-	SampleSize        int     `json:"sample_size"`
-	Wins              int     `json:"wins"`
-	Losses            int     `json:"losses"`
-	ProfitFactor      float64 `json:"profit_factor"`      // grossWin / |grossLoss|
-	ExpectancyR       float64 `json:"expectancy_r"`       // mean R over R-computable trades
-	RComputableCount  int     `json:"r_computable_count"` // trades with entry/sl/lot data
-	ShortExpectancyR  float64 `json:"short_expectancy_r"` // expectancy over SELL trades only
-	ShortSampleSize   int     `json:"short_sample_size"`
-	Proven            bool    `json:"proven"`
+	SampleSize       int     `json:"sample_size"`
+	Wins             int     `json:"wins"`
+	Losses           int     `json:"losses"`
+	ProfitFactor     float64 `json:"profit_factor"`      // grossWin / |grossLoss|
+	ExpectancyR      float64 `json:"expectancy_r"`       // mean R over R-computable trades
+	RComputableCount int     `json:"r_computable_count"` // trades with entry/sl/lot data
+	ShortExpectancyR float64 `json:"short_expectancy_r"` // expectancy over SELL trades only
+	ShortSampleSize  int     `json:"short_sample_size"`
+	Proven           bool    `json:"proven"`
 }
 
 // ComputeEdgeStats derives EdgeStats from closed-trade records.

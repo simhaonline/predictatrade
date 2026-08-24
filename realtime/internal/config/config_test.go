@@ -11,8 +11,8 @@ func TestValidateRejectsSimulatedInProduction(t *testing.T) {
 	defer os.Unsetenv("NODE_ENV")
 
 	cfg := &Config{
-		DBURL:       "postgres://user:securepass@db.example.com:5432/predictatrade",
-		WSPort:      13081,
+		DBURL:        "postgres://user:securepass@db.example.com:5432/predictatrade",
+		WSPort:       13081,
 		ProviderMode: "simulated",
 	}
 	err := cfg.Validate()
@@ -27,8 +27,8 @@ func TestValidateAllowsAgentInProduction(t *testing.T) {
 	defer os.Unsetenv("NODE_ENV")
 
 	cfg := &Config{
-		DBURL:       "postgres://user:securepass@db.example.com:5432/predictatrade",
-		WSPort:      13081,
+		DBURL:        "postgres://user:securepass@db.example.com:5432/predictatrade",
+		WSPort:       13081,
 		ProviderMode: "agent",
 	}
 	err := cfg.Validate()
@@ -43,8 +43,8 @@ func TestValidateAllowsSimulatedInDevelopment(t *testing.T) {
 	os.Unsetenv("APP_ENV")
 
 	cfg := &Config{
-		DBURL:       "postgres://user:pass@localhost:5432/predictatrade",
-		WSPort:      13081,
+		DBURL:        "postgres://user:pass@localhost:5432/predictatrade",
+		WSPort:       13081,
 		ProviderMode: "simulated",
 	}
 	err := cfg.Validate()
@@ -59,8 +59,8 @@ func TestValidateRejectsInsecureDBPasswordInProduction(t *testing.T) {
 	defer os.Unsetenv("NODE_ENV")
 
 	cfg := &Config{
-		DBURL:       "postgres://pat_admin:pat_local_dev_only@127.0.0.1:5432/predictatrade",
-		WSPort:      13081,
+		DBURL:        "postgres://pat_admin:pat_local_dev_only@127.0.0.1:5432/predictatrade",
+		WSPort:       13081,
 		ProviderMode: "agent",
 	}
 	err := cfg.Validate()
@@ -75,8 +75,8 @@ func TestValidateAllowsSecureDBInProduction(t *testing.T) {
 	defer os.Unsetenv("NODE_ENV")
 
 	cfg := &Config{
-		DBURL:       "postgres://app_user:SecureR4nd0mP@ss!@db.internal:5432/predictatrade",
-		WSPort:      13081,
+		DBURL:        "postgres://app_user:SecureR4nd0mP@ss!@db.internal:5432/predictatrade",
+		WSPort:       13081,
 		ProviderMode: "agent",
 	}
 	err := cfg.Validate()
@@ -91,8 +91,8 @@ func TestValidateAllowsInsecureDBInDevelopment(t *testing.T) {
 	os.Unsetenv("APP_ENV")
 
 	cfg := &Config{
-		DBURL:       "postgres://pat_admin:pat_local_dev_only@127.0.0.1:5432/predictatrade",
-		WSPort:      13081,
+		DBURL:        "postgres://pat_admin:pat_local_dev_only@127.0.0.1:5432/predictatrade",
+		WSPort:       13081,
 		ProviderMode: "agent",
 	}
 	err := cfg.Validate()

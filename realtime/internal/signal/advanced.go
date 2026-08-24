@@ -17,22 +17,22 @@ import (
 // AdvancedManagers holds the optional advanced intelligence managers.
 // Any nil manager means that subsystem is disabled — the signal engine continues safely.
 type AdvancedManagers struct {
-	Recovery  *recovery.Manager
+	Recovery   *recovery.Manager
 	Adaptation *adaptation.Manager
-	Hedging   *hedging.Manager
-	ML        *ml.AdaptationManager
-	RL        *rl.Manager
-	Sentiment *sentiment.Engine
+	Hedging    *hedging.Manager
+	ML         *ml.AdaptationManager
+	RL         *rl.Manager
+	Sentiment  *sentiment.Engine
 }
 
 // AdvancedDecisionInput extends DecisionInput with advanced context.
 type AdvancedDecisionInput struct {
 	DecisionInput
 	// Recovery context
-	AccountID     string
-	Confluence    float64
-	SetupGrade    string
-	Confidence    float64
+	AccountID  string
+	Confluence float64
+	SetupGrade string
+	Confidence float64
 	// Adaptation context
 	MarketContext adaptation.ContextInput
 	// RL context (for filter mode)
@@ -44,9 +44,9 @@ type AdvancedDecisionInput struct {
 type AdvancedDecisionResult struct {
 	DecisionResult
 	// Recovery fields (additive, backward-compatible)
-	RecoveryState    recovery.RecoveryState
+	RecoveryState       recovery.RecoveryState
 	RecoveryBlockReason recovery.BlockReason
-	SizeMultiplier   float64
+	SizeMultiplier      float64
 	// Adaptation fields
 	AdaptationPhase  adaptation.MarketPhase
 	AdaptationResult *adaptation.AdaptationResult
@@ -57,7 +57,7 @@ type AdvancedDecisionResult struct {
 	// Sentiment
 	SentimentScore float64
 	// Blocked by advanced gates
-	BlockedByAdvanced bool
+	BlockedByAdvanced   bool
 	AdvancedBlockReason string
 }
 

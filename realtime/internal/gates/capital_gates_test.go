@@ -152,9 +152,9 @@ func TestDailyLossGate(t *testing.T) {
 		}}
 	}
 	cases := []struct {
-		name  string
-		state GateState
-		want  types.GateResult
+		name   string
+		state  GateState
+		want   types.GateResult
 		reason string
 	}{
 		{"healthy", snap(-0.5, -1, -2, true), types.GatePass, ""},
@@ -323,19 +323,19 @@ func TestSeedCapitalProtectionGateStates(t *testing.T) {
 	SeedCapitalProtectionGateStates(reg)
 
 	input := GateInput{
-		Tick:            &types.Tick{Quality: types.QualityAuthoritative},
-		SessionAllowed:  true,
-		NewsRisk:        "LOW",
-		Spread:          0.20,
-		ATR:             3.0,
-		Direction:       types.DirectionBuy,
-		EntryPrice:      2430,
-		StopLoss:        2426,
-		AccountEquity:   10000,
-		RequestedLot:    0.01,
-		PositionsKnown:  false,
-		EntitlementOK:   true,
-		LicenseActive:   true,
+		Tick:               &types.Tick{Quality: types.QualityAuthoritative},
+		SessionAllowed:     true,
+		NewsRisk:           "LOW",
+		Spread:             0.20,
+		ATR:                3.0,
+		Direction:          types.DirectionBuy,
+		EntryPrice:         2430,
+		StopLoss:           2426,
+		AccountEquity:      10000,
+		RequestedLot:       0.01,
+		PositionsKnown:     false,
+		EntitlementOK:      true,
+		LicenseActive:      true,
 		ExecutionPermitted: true,
 	}
 	allPass, evals, firstVeto := reg.EvaluateAll(input)

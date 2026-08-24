@@ -10,10 +10,10 @@
 //
 // This does NOT duplicate EA-side trailing logic — the EAs own the actual
 // broker OrderModify/PositionModify calls. This file provides:
-//   1. Server-side validation invariants for SL proposals
-//   2. A state machine for tracking management lifecycle
-//   3. R calculation helpers
-//   4. Persistence models for audit trail
+//  1. Server-side validation invariants for SL proposals
+//  2. A state machine for tracking management lifecycle
+//  3. R calculation helpers
+//  4. Persistence models for audit trail
 package gates
 
 import (
@@ -24,7 +24,7 @@ import (
 type ManagementStage string
 
 const (
-	StageOpenInitialRisk     ManagementStage = "OPEN_INITIAL_RISK"
+	StageOpenInitialRisk    ManagementStage = "OPEN_INITIAL_RISK"
 	StageProfitDeveloping   ManagementStage = "PROFIT_DEVELOPING"
 	StageBreakEvenEligible  ManagementStage = "BREAK_EVEN_ELIGIBLE"
 	StageBreakEvenProtected ManagementStage = "BREAK_EVEN_PROTECTED"
@@ -45,17 +45,17 @@ const (
 
 // TradeManagementConfig defines strategy-specific trade management profiles.
 type TradeManagementConfig struct {
-	StrategyID           string
-	Enabled              bool
-	BreakEvenTriggerR    float64 // R multiples to trigger break-even
-	ProfitLockTriggerR   float64 // R multiples to trigger profit lock
-	ProfitLockR          float64 // R multiple to lock as guaranteed profit
-	TrailingActivationR  float64 // R multiples to activate trailing
-	TrailingMethod       string  // "ATR", "STRUCTURE", "ATR_STRUCTURE", "HYBRID"
-	ATRMultiplier        float64 // ATR multiplier for trailing distance
-	StructureBuffer      float64 // buffer for structure-based stops
-	MinImprovement       float64 // minimum SL improvement to warrant broker modification
-	MaxHoldSeconds       int     // max holding time (0 = unlimited)
+	StrategyID          string
+	Enabled             bool
+	BreakEvenTriggerR   float64 // R multiples to trigger break-even
+	ProfitLockTriggerR  float64 // R multiples to trigger profit lock
+	ProfitLockR         float64 // R multiple to lock as guaranteed profit
+	TrailingActivationR float64 // R multiples to activate trailing
+	TrailingMethod      string  // "ATR", "STRUCTURE", "ATR_STRUCTURE", "HYBRID"
+	ATRMultiplier       float64 // ATR multiplier for trailing distance
+	StructureBuffer     float64 // buffer for structure-based stops
+	MinImprovement      float64 // minimum SL improvement to warrant broker modification
+	MaxHoldSeconds      int     // max holding time (0 = unlimited)
 }
 
 // DefaultTradeManagementConfigs returns per-strategy management profiles.
@@ -93,18 +93,18 @@ func DefaultTradeManagementConfigs() map[string]TradeManagementConfig {
 
 // SLProposal represents a proposed SL modification with validation.
 type SLProposal struct {
-	Direction       string  // "BUY" or "SELL"
-	EntryPrice      decimal.Decimal
-	InitialSL       decimal.Decimal // immutable original SL (1R reference)
-	ConfirmedSL     decimal.Decimal // broker-confirmed current SL
-	ProposedSL      decimal.Decimal // new proposed SL
-	CurrentBid      decimal.Decimal
-	CurrentAsk      decimal.Decimal
-	StrategyID      string
-	CurrentATR      decimal.Decimal
-	BrokerStopsLevel decimal.Decimal // broker minimum stop distance
+	Direction         string // "BUY" or "SELL"
+	EntryPrice        decimal.Decimal
+	InitialSL         decimal.Decimal // immutable original SL (1R reference)
+	ConfirmedSL       decimal.Decimal // broker-confirmed current SL
+	ProposedSL        decimal.Decimal // new proposed SL
+	CurrentBid        decimal.Decimal
+	CurrentAsk        decimal.Decimal
+	StrategyID        string
+	CurrentATR        decimal.Decimal
+	BrokerStopsLevel  decimal.Decimal // broker minimum stop distance
 	BrokerFreezeLevel decimal.Decimal
-	TickSize        decimal.Decimal
+	TickSize          decimal.Decimal
 }
 
 // ValidateMonotonicSL checks the central safety invariant:

@@ -16,7 +16,7 @@ const (
 	DefaultLotStep      = 0.01
 	MinLot              = 0.01
 
-	DefaultLeverage         = 500.0
+	DefaultLeverage          = 500.0
 	DefaultMaxMarginUsagePct = 30.0 // % of free margin usable by one candidate
 )
 
@@ -137,14 +137,14 @@ func MarginAwareLotCapWith(equity, freeMargin, lot, price, leverage, maxMarginUs
 
 // SizingResult aggregates the sizing annotations attached to a Signal.
 type SizingResult struct {
-	SLDistancePoints float64      `json:"sl_distance_points"`
-	RequestedLot     float64      `json:"requested_lot"`
-	SuggestedLot     float64      `json:"suggested_lot"`
-	RiskDollars      float64      `json:"risk_dollars"`
-	RiskPctOfEquity  float64      `json:"risk_pct_of_equity"`
-	Oversize         bool         `json:"oversize"`
-	VetoOversize     bool         `json:"veto_oversize"` // oversize AND no viable suggested lot
-	Margin           MarginCheck  `json:"margin"`
+	SLDistancePoints float64     `json:"sl_distance_points"`
+	RequestedLot     float64     `json:"requested_lot"`
+	SuggestedLot     float64     `json:"suggested_lot"`
+	RiskDollars      float64     `json:"risk_dollars"`
+	RiskPctOfEquity  float64     `json:"risk_pct_of_equity"`
+	Oversize         bool        `json:"oversize"`
+	VetoOversize     bool        `json:"veto_oversize"` // oversize AND no viable suggested lot
+	Margin           MarginCheck `json:"margin"`
 }
 
 // ComputeSizing performs the full R1/R7 sizing computation for a candidate.

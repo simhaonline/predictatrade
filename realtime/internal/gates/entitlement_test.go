@@ -177,7 +177,7 @@ func TestEvaluateAllFailsAfterConservativeSeed(t *testing.T) {
 	SeedConservativeGateStates(reg)
 
 	input := GateInput{
-		Tick: &types.Tick{Quality: types.QualityAuthoritative},
+		Tick:           &types.Tick{Quality: types.QualityAuthoritative},
 		SessionAllowed: true, NewsRisk: "LOW",
 		Spread: 0.20, ATR: 3.0,
 		EntryPrice: 2430, StopLoss: 2426, TakeProfit1: 2435,
@@ -245,7 +245,7 @@ func TestEvaluateAllPassesAfterFullHydration(t *testing.T) {
 	})
 
 	input := GateInput{
-		Tick: &types.Tick{Quality: types.QualityAuthoritative},
+		Tick:           &types.Tick{Quality: types.QualityAuthoritative},
 		SessionAllowed: true, NewsRisk: "LOW",
 		Spread: 0.20, ATR: 3.0,
 		EntryPrice: 2430, StopLoss: 2426, TakeProfit1: 2435,

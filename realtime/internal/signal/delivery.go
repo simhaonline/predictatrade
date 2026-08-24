@@ -17,7 +17,7 @@ import (
 type DeliveryState string
 
 const (
-	DeliveryGenerated   DeliveryState = "GENERATED"
+	DeliveryGenerated    DeliveryState = "GENERATED"
 	DeliveryGated        DeliveryState = "GATED"
 	DeliveryQueued       DeliveryState = "QUEUED"
 	DeliverySent         DeliveryState = "SENT"
@@ -33,35 +33,35 @@ const (
 
 // SignalDelivery tracks per-device signal delivery state.
 type SignalDelivery struct {
-	ID              string        `json:"id"`
-	SignalID        string        `json:"signal_id"`
-	DeviceID        string        `json:"device_id"`
-	LicenseID       string        `json:"license_id"`
-	AccountID       string        `json:"account_id"`
-	TerminalID      string        `json:"terminal_id"`
-	SequenceNumber  int64         `json:"sequence_number"`
-	DeliveryState   DeliveryState `json:"delivery_state"`
-	SentAt          *time.Time    `json:"sent_at,omitempty"`
-	DeliveredAt     *time.Time    `json:"delivered_at,omitempty"`
-	AcknowledgedAt  *time.Time    `json:"acknowledged_at,omitempty"`
-	ExecutedAt      *time.Time    `json:"executed_at,omitempty"`
-	BrokerTicket    string        `json:"broker_ticket,omitempty"`
+	ID              string          `json:"id"`
+	SignalID        string          `json:"signal_id"`
+	DeviceID        string          `json:"device_id"`
+	LicenseID       string          `json:"license_id"`
+	AccountID       string          `json:"account_id"`
+	TerminalID      string          `json:"terminal_id"`
+	SequenceNumber  int64           `json:"sequence_number"`
+	DeliveryState   DeliveryState   `json:"delivery_state"`
+	SentAt          *time.Time      `json:"sent_at,omitempty"`
+	DeliveredAt     *time.Time      `json:"delivered_at,omitempty"`
+	AcknowledgedAt  *time.Time      `json:"acknowledged_at,omitempty"`
+	ExecutedAt      *time.Time      `json:"executed_at,omitempty"`
+	BrokerTicket    string          `json:"broker_ticket,omitempty"`
 	ExecutionResult json.RawMessage `json:"execution_result,omitempty"`
-	Slippage        float64       `json:"slippage,omitempty"`
-	TotalLatencyMs  int           `json:"total_latency_ms,omitempty"`
-	SendAttempts    int           `json:"send_attempts"`
-	ReplayCount     int           `json:"replay_count"`
-	FailureReason   string        `json:"failure_reason,omitempty"`
-	LastError       string        `json:"last_error,omitempty"`
-	CreatedAt       time.Time     `json:"created_at"`
-	UpdatedAt       time.Time     `json:"updated_at"`
+	Slippage        float64         `json:"slippage,omitempty"`
+	TotalLatencyMs  int             `json:"total_latency_ms,omitempty"`
+	SendAttempts    int             `json:"send_attempts"`
+	ReplayCount     int             `json:"replay_count"`
+	FailureReason   string          `json:"failure_reason,omitempty"`
+	LastError       string          `json:"last_error,omitempty"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
 }
 
 // DeliveryManager manages signal delivery state, sequence tracking, and replay.
 type DeliveryManager struct {
-	db         *sql.DB
-	mu         sync.Mutex
-	sequences  map[string]int64 // device_id → next sequence
+	db        *sql.DB
+	mu        sync.Mutex
+	sequences map[string]int64 // device_id → next sequence
 }
 
 // NewDeliveryManager creates a delivery manager with optional DB persistence.

@@ -31,53 +31,53 @@ func NewEngine(gateReg *gates.Registry) *Engine {
 
 // DecisionInput provides all inputs for a master decision.
 type DecisionInput struct {
-	StrategyID    types.StrategyID
-	Direction     types.Direction  // Pre-computed by strategy
-	RawScore      decimal.Decimal  // Pre-computed by strategy
-	LongScore     decimal.Decimal  // Pre-computed by strategy
-	ShortScore    decimal.Decimal  // Pre-computed by strategy
-	Tick          *types.Tick
-	Regime        types.Regime
-	Session       string
-	SessionAllowed bool
-	NewsRisk      string
-	Evidence      []types.EvidenceContribution
-	EntryPrice    decimal.Decimal
-	StopLoss      decimal.Decimal
-	TP1           decimal.Decimal
-	TP2           decimal.Decimal
-	TP3           decimal.Decimal
-	RoundTripCost decimal.Decimal
-	CurrentExposure float64
-	MaxExposure    float64
-	EntitlementOK  bool
-	LicenseActive  bool
+	StrategyID         types.StrategyID
+	Direction          types.Direction // Pre-computed by strategy
+	RawScore           decimal.Decimal // Pre-computed by strategy
+	LongScore          decimal.Decimal // Pre-computed by strategy
+	ShortScore         decimal.Decimal // Pre-computed by strategy
+	Tick               *types.Tick
+	Regime             types.Regime
+	Session            string
+	SessionAllowed     bool
+	NewsRisk           string
+	Evidence           []types.EvidenceContribution
+	EntryPrice         decimal.Decimal
+	StopLoss           decimal.Decimal
+	TP1                decimal.Decimal
+	TP2                decimal.Decimal
+	TP3                decimal.Decimal
+	RoundTripCost      decimal.Decimal
+	CurrentExposure    float64
+	MaxExposure        float64
+	EntitlementOK      bool
+	LicenseActive      bool
 	ExecutionPermitted bool
-	ATR            decimal.Decimal  // Phase 2: Real ATR propagation to gates
+	ATR                decimal.Decimal // Phase 2: Real ATR propagation to gates
 	// Phase 3: Structural levels for StopHuntFilterGate
 	StructuralLow  float64
 	StructuralHigh float64
 
 	// Capital protection (R1-R7): broker snapshot + sizing inputs
-	AccountEquity    float64
-	AccountFreeMargin float64
-	AccountLeverage  float64
-	SymbolTickValue  float64
-	SymbolTickSize   float64
-	LotStep          float64
-	RequestedLot     float64
-	PositionsKnown   bool
-	OpenBuyPositions int
-	OpenSellPositions int
+	AccountEquity         float64
+	AccountFreeMargin     float64
+	AccountLeverage       float64
+	SymbolTickValue       float64
+	SymbolTickSize        float64
+	LotStep               float64
+	RequestedLot          float64
+	PositionsKnown        bool
+	OpenBuyPositions      int
+	OpenSellPositions     int
 	StrategyOpenPositions int
 }
 
 // DecisionResult is the final output of the master decision hierarchy.
 type DecisionResult struct {
-	Signal       *types.Signal
-	AllGatesPass bool
-	GateResults  []gates.GateEvaluation
-	FirstVeto    *gates.GateEvaluation
+	Signal         *types.Signal
+	AllGatesPass   bool
+	GateResults    []gates.GateEvaluation
+	FirstVeto      *gates.GateEvaluation
 	NoTradeReasons []types.NoTradeReason
 }
 
@@ -106,27 +106,27 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 			grade = types.GradeBlocked
 		}
 		result.Signal = &types.Signal{
-			ID:         uuid.New().String(),
-			Symbol:     types.SymbolXAUUSD,
-			StrategyID: input.StrategyID,
-			Direction:  direction,
-			Grade:      grade,
-			Status:     types.SignalDetected,
-			RawScore:   input.RawScore,
-			LongScore:  input.LongScore,
-			ShortScore: input.ShortScore,
-			EntryPrice: input.EntryPrice,
-			StopLoss:   input.StopLoss,
-			TP1:        input.TP1,
-			TP2:        input.TP2,
-			TP3:        input.TP3,
-			Regime:     input.Regime,
-			Session:    input.Session,
-			NewsRisk:   input.NewsRisk,
+			ID:          uuid.New().String(),
+			Symbol:      types.SymbolXAUUSD,
+			StrategyID:  input.StrategyID,
+			Direction:   direction,
+			Grade:       grade,
+			Status:      types.SignalDetected,
+			RawScore:    input.RawScore,
+			LongScore:   input.LongScore,
+			ShortScore:  input.ShortScore,
+			EntryPrice:  input.EntryPrice,
+			StopLoss:    input.StopLoss,
+			TP1:         input.TP1,
+			TP2:         input.TP2,
+			TP3:         input.TP3,
+			Regime:      input.Regime,
+			Session:     input.Session,
+			NewsRisk:    input.NewsRisk,
 			ReasonCodes: result.NoTradeReasons,
-			Evidence:   input.Evidence,
-			CreatedAt:  time.Now().UTC(),
-			ExpiresAt:  time.Now().UTC().Add(time.Minute * 15),
+			Evidence:    input.Evidence,
+			CreatedAt:   time.Now().UTC(),
+			ExpiresAt:   time.Now().UTC().Add(time.Minute * 15),
 		}
 		return result
 	}
@@ -143,36 +143,36 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 	}
 
 	gateInput := gates.GateInput{
-		Tick:            input.Tick,
-		StrategyID:      input.StrategyID,
-		Direction:       input.Direction,
-		Regime:          input.Regime,
-		Spread:          spread,
-		ATR:             atr,
-		EntryPrice:      toFloat(input.EntryPrice),
-		StopLoss:        toFloat(input.StopLoss),
-		TakeProfit1:     toFloat(input.TP1),
-		RoundTripCost:   toFloat(input.RoundTripCost),
-		CurrentExposure: input.CurrentExposure,
-		MaxExposure:     input.MaxExposure,
-		NewsRisk:        input.NewsRisk,
-		SessionAllowed:  input.SessionAllowed,
-		EntitlementOK:   input.EntitlementOK,
-		LicenseActive:   input.LicenseActive,
+		Tick:               input.Tick,
+		StrategyID:         input.StrategyID,
+		Direction:          input.Direction,
+		Regime:             input.Regime,
+		Spread:             spread,
+		ATR:                atr,
+		EntryPrice:         toFloat(input.EntryPrice),
+		StopLoss:           toFloat(input.StopLoss),
+		TakeProfit1:        toFloat(input.TP1),
+		RoundTripCost:      toFloat(input.RoundTripCost),
+		CurrentExposure:    input.CurrentExposure,
+		MaxExposure:        input.MaxExposure,
+		NewsRisk:           input.NewsRisk,
+		SessionAllowed:     input.SessionAllowed,
+		EntitlementOK:      input.EntitlementOK,
+		LicenseActive:      input.LicenseActive,
 		ExecutionPermitted: input.ExecutionPermitted,
-		StructuralLow:  input.StructuralLow,
-		StructuralHigh: input.StructuralHigh,
+		StructuralLow:      input.StructuralLow,
+		StructuralHigh:     input.StructuralHigh,
 		// Capital protection (R1-R7)
-		AccountEquity:    input.AccountEquity,
-		AccountFreeMargin: input.AccountFreeMargin,
-		AccountLeverage:  input.AccountLeverage,
-		SymbolTickValue:  input.SymbolTickValue,
-		SymbolTickSize:   input.SymbolTickSize,
-		LotStep:          input.LotStep,
-		RequestedLot:     input.RequestedLot,
-		PositionsKnown:   input.PositionsKnown,
-		OpenBuyPositions: input.OpenBuyPositions,
-		OpenSellPositions: input.OpenSellPositions,
+		AccountEquity:         input.AccountEquity,
+		AccountFreeMargin:     input.AccountFreeMargin,
+		AccountLeverage:       input.AccountLeverage,
+		SymbolTickValue:       input.SymbolTickValue,
+		SymbolTickSize:        input.SymbolTickSize,
+		LotStep:               input.LotStep,
+		RequestedLot:          input.RequestedLot,
+		PositionsKnown:        input.PositionsKnown,
+		OpenBuyPositions:      input.OpenBuyPositions,
+		OpenSellPositions:     input.OpenSellPositions,
 		StrategyOpenPositions: input.StrategyOpenPositions,
 	}
 
@@ -195,28 +195,28 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 			result.NoTradeReasons = append(result.NoTradeReasons, types.NTGateDegraded)
 		}
 		result.Signal = &types.Signal{
-			ID:         uuid.New().String(),
-			Symbol:     types.SymbolXAUUSD,
-			StrategyID: input.StrategyID,
-			Direction:  direction, // Keep BUY/SELL — do NOT set BLOCKED
-			Grade:      types.GradeBlocked,
-			Status:     types.SignalDetected,
-			RawScore:   input.RawScore,
-			LongScore:  input.LongScore,
-			ShortScore: input.ShortScore,
-			EntryPrice: input.EntryPrice,
-			StopLoss:   input.StopLoss,
-			TP1:        input.TP1,
-			TP2:        input.TP2,
-			TP3:        input.TP3,
-			Regime:     input.Regime,
-			Session:    input.Session,
-			NewsRisk:   input.NewsRisk,
+			ID:          uuid.New().String(),
+			Symbol:      types.SymbolXAUUSD,
+			StrategyID:  input.StrategyID,
+			Direction:   direction, // Keep BUY/SELL — do NOT set BLOCKED
+			Grade:       types.GradeBlocked,
+			Status:      types.SignalDetected,
+			RawScore:    input.RawScore,
+			LongScore:   input.LongScore,
+			ShortScore:  input.ShortScore,
+			EntryPrice:  input.EntryPrice,
+			StopLoss:    input.StopLoss,
+			TP1:         input.TP1,
+			TP2:         input.TP2,
+			TP3:         input.TP3,
+			Regime:      input.Regime,
+			Session:     input.Session,
+			NewsRisk:    input.NewsRisk,
 			ReasonCodes: result.NoTradeReasons,
-			Evidence:   input.Evidence,
+			Evidence:    input.Evidence,
 			GateResults: convertGateEvals(gateEvals),
-			CreatedAt:  time.Now().UTC(),
-			ExpiresAt:  time.Now().UTC().Add(time.Minute * 15),
+			CreatedAt:   time.Now().UTC(),
+			ExpiresAt:   time.Now().UTC().Add(time.Minute * 15),
 		}
 		return result
 	}
@@ -229,30 +229,30 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 	}
 
 	result.Signal = &types.Signal{
-		ID:         uuid.New().String(),
-		Symbol:     types.SymbolXAUUSD,
-		StrategyID: input.StrategyID,
-		Direction:  direction,
-		Grade:      types.GradeUnrated, // Before calibration sufficiency (SOW Section 17A)
-		Status:     types.SignalCandidate,
-		RawScore:   input.RawScore,
-		LongScore:  input.LongScore,
-		ShortScore: input.ShortScore,
-		EntryPrice: input.EntryPrice,
-		StopLoss:   input.StopLoss,
-		TP1:        input.TP1,
-		TP2:        input.TP2,
-		TP3:        input.TP3,
-		GrossRRTP1: grossRR1,
+		ID:           uuid.New().String(),
+		Symbol:       types.SymbolXAUUSD,
+		StrategyID:   input.StrategyID,
+		Direction:    direction,
+		Grade:        types.GradeUnrated, // Before calibration sufficiency (SOW Section 17A)
+		Status:       types.SignalCandidate,
+		RawScore:     input.RawScore,
+		LongScore:    input.LongScore,
+		ShortScore:   input.ShortScore,
+		EntryPrice:   input.EntryPrice,
+		StopLoss:     input.StopLoss,
+		TP1:          input.TP1,
+		TP2:          input.TP2,
+		TP3:          input.TP3,
+		GrossRRTP1:   grossRR1,
 		ExpectedCost: input.RoundTripCost,
-		Regime:     input.Regime,
-		Session:    input.Session,
-		NewsRisk:   input.NewsRisk,
-		ReasonCodes: nil,
-		Evidence:   input.Evidence,
-		GateResults: convertGateEvals(gateEvals),
-		CreatedAt:  time.Now().UTC(),
-		ExpiresAt:  time.Now().UTC().Add(time.Minute * 15),
+		Regime:       input.Regime,
+		Session:      input.Session,
+		NewsRisk:     input.NewsRisk,
+		ReasonCodes:  nil,
+		Evidence:     input.Evidence,
+		GateResults:  convertGateEvals(gateEvals),
+		CreatedAt:    time.Now().UTC(),
+		ExpiresAt:    time.Now().UTC().Add(time.Minute * 15),
 	}
 
 	return result

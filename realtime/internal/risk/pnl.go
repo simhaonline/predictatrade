@@ -81,10 +81,10 @@ func (s *ValkeyAnchorStore) Set(key string, val []byte, ttl time.Duration) error
 
 // PnLSnapshot carries session P&L percentages to the gates.
 type PnLSnapshot struct {
-	Known    bool             `json:"known"` // false → gates must veto pnl_state_unknown
-	Equity   float64          `json:"equity"`
+	Known    bool               `json:"known"` // false → gates must veto pnl_state_unknown
+	Equity   float64            `json:"equity"`
 	PeriodPc map[Period]float64 `json:"period_pct"` // % change vs period anchor
-	AsOf     time.Time        `json:"as_of"`
+	AsOf     time.Time          `json:"as_of"`
 }
 
 // PeriodID returns the canonical period identifier at `now` (UTC-based;

@@ -24,13 +24,16 @@ func setupEngineWithGates() *Engine {
 		types.GateSpread, types.GateSlippage, types.GateTotalCost,
 		types.GateExposure, types.GateMargin, types.GateRRNetExpectancy,
 		types.GateEntitlement, types.GateLicense, types.GateExecutionPermit,
+		// Self-evaluating precision gates are part of the canonical order
+		// (main.go registers + seeds them; mirror that here).
+		types.GateMinATR, types.GateStopHuntFilter,
 	} {
 		reg.Register(&passGate{gateID: gateID})
 		reg.UpdateState(gateID, gates.GateState{
-			GateID:       gateID,
-			State:        types.GatePass,
-			EvaluatedAt:  now,
-			ValidUntil:   now.Add(time.Hour),
+			GateID:        gateID,
+			State:         types.GatePass,
+			EvaluatedAt:   now,
+			ValidUntil:    now.Add(time.Hour),
 			SourceVersion: "test",
 		})
 	}
@@ -53,35 +56,35 @@ func (g *passGate) Evaluate(input gates.GateInput, state gates.GateState) gates.
 
 func makeBaseInput(strat types.StrategyID) DecisionInput {
 	return DecisionInput{
-		StrategyID:    strat,
-		Direction:     types.DirectionBuy,
-		RawScore:      decimal.NewFromInt(80),
-		LongScore:     decimal.NewFromInt(80),
-		ShortScore:    decimal.NewFromInt(20),
+		StrategyID: strat,
+		Direction:  types.DirectionBuy,
+		RawScore:   decimal.NewFromInt(80),
+		LongScore:  decimal.NewFromInt(80),
+		ShortScore: decimal.NewFromInt(20),
 		Tick: &types.Tick{
-			Symbol:  "XAUUSD",
-			Bid:     decimal.NewFromFloat(2400),
-			Ask:     decimal.NewFromFloat(2400.3),
-			Mid:     decimal.NewFromFloat(2400.15),
-			Spread:  decimal.NewFromFloat(0.3),
-			Source:  "LIVE_MASTER_NODE",
+			Symbol:          "XAUUSD",
+			Bid:             decimal.NewFromFloat(2400),
+			Ask:             decimal.NewFromFloat(2400.3),
+			Mid:             decimal.NewFromFloat(2400.15),
+			Spread:          decimal.NewFromFloat(0.3),
+			Source:          "LIVE_MASTER_NODE",
 			SourceTimestamp: time.Now(),
-			Quality: types.QualityAuthoritative,
+			Quality:         types.QualityAuthoritative,
 		},
-		Regime:        types.RegimeTrendingBullish,
-		Session:       "LONDON",
-		SessionAllowed: true,
-		NewsRisk:      "LOW",
-		EntryPrice:    decimal.NewFromFloat(2400),
-		StopLoss:      decimal.NewFromFloat(2390),
-		TP1:           decimal.NewFromFloat(2415),
-		TP2:           decimal.NewFromFloat(2430),
-		TP3:           decimal.NewFromFloat(2450),
-		RoundTripCost:  decimal.NewFromFloat(0.3),
-		CurrentExposure: 1,
-		MaxExposure:    5,
-		EntitlementOK:  true,
-		LicenseActive:  true,
+		Regime:             types.RegimeTrendingBullish,
+		Session:            "LONDON",
+		SessionAllowed:     true,
+		NewsRisk:           "LOW",
+		EntryPrice:         decimal.NewFromFloat(2400),
+		StopLoss:           decimal.NewFromFloat(2390),
+		TP1:                decimal.NewFromFloat(2415),
+		TP2:                decimal.NewFromFloat(2430),
+		TP3:                decimal.NewFromFloat(2450),
+		RoundTripCost:      decimal.NewFromFloat(0.3),
+		CurrentExposure:    1,
+		MaxExposure:        5,
+		EntitlementOK:      true,
+		LicenseActive:      true,
 		ExecutionPermitted: true,
 	}
 }
@@ -89,10 +92,10 @@ func makeBaseInput(strat types.StrategyID) DecisionInput {
 func makeAdvancedInput(base DecisionInput, strat types.StrategyID) AdvancedDecisionInput {
 	return AdvancedDecisionInput{
 		DecisionInput: base,
-		AccountID:    "test-acc",
-		Confluence:   85,
-		SetupGrade:   "A",
-		Confidence:   80,
+		AccountID:     "test-acc",
+		Confluence:    85,
+		SetupGrade:    "A",
+		Confidence:    80,
 		MarketContext: adaptation.ContextInput{
 			Regime: "TRENDING_BULLISH",
 		},
@@ -142,9 +145,9 @@ func TestIntegrationRecoveryBlocksSignal(t *testing.T) {
 		Symbol:     "XAUUSD",
 	}
 	recMgr.SetStateRecord(&recovery.StateRecord{
-		Key:       key,
-		State:     recovery.StateHalted,
-		HaltUntil: time.Now().Add(1 * time.Hour),
+		Key:        key,
+		State:      recovery.StateHalted,
+		HaltUntil:  time.Now().Add(1 * time.Hour),
 		TradingDay: time.Now(),
 	})
 
@@ -243,8 +246,8 @@ func TestIntegrationSizeMultiplierFromRecovery(t *testing.T) {
 		Symbol:     "XAUUSD",
 	}
 	recMgr.SetStateRecord(&recovery.StateRecord{
-		Key:       key,
-		State:     recovery.StateRecovery,
+		Key:        key,
+		State:      recovery.StateRecovery,
 		TradingDay: time.Now(),
 	})
 

@@ -8,7 +8,7 @@ import (
 )
 
 func TestCalculatePositionSize(t *testing.T) {
-	equity := decimal.NewFromFloat(10000.0) // $10,000
+	equity := decimal.NewFromFloat(10000.0)   // $10,000
 	stopDistance := decimal.NewFromFloat(2.0) // $2 stop distance
 	symbol := DefaultXAUSymbolInfo()
 
@@ -107,8 +107,8 @@ func TestBuildPartialCloseSchedule(t *testing.T) {
 
 func TestCheckSwapProtectionNegativeSwap(t *testing.T) {
 	entry := decimal.NewFromFloat(2400.0)
-	sl := decimal.NewFromFloat(2396.0) // 4 units stop
-	tp := decimal.NewFromFloat(2408.0) // 8 units target
+	sl := decimal.NewFromFloat(2396.0)     // 4 units stop
+	tp := decimal.NewFromFloat(2408.0)     // 8 units target
 	swapRate := decimal.NewFromFloat(-0.5) // negative swap
 	lots := decimal.NewFromFloat(1.0)
 	nights := 3

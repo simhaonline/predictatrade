@@ -10,7 +10,6 @@
 package gates
 
 import (
-
 	"github.com/predictatrade/realtime/internal/types"
 	"github.com/shopspring/decimal"
 )
@@ -34,7 +33,7 @@ func DefaultCapitalProtectionConfig() CapitalProtectionConfig {
 		MaxDailyLossPct:     6.0,
 		MaxPerTradeRiskPct:  1.0,
 		MaxTotalOpenRiskPct: 5.0,
-		MinRR:              2.0,
+		MinRR:               2.0,
 	}
 }
 
@@ -76,7 +75,7 @@ type BrokerSymbolInfo struct {
 // These should be overridden with live broker values at runtime.
 func DefaultXAUSymbolInfo() BrokerSymbolInfo {
 	return BrokerSymbolInfo{
-		TickValue: decimal.NewFromInt(1),    // $1.00 per tick per 1.00 lot
+		TickValue: decimal.NewFromInt(1),      // $1.00 per tick per 1.00 lot
 		TickSize:  decimal.NewFromFloat(0.01), // 0.01 price increment
 		LotStep:   decimal.NewFromFloat(0.01),
 		MaxLot:    decimal.NewFromFloat(100),
@@ -138,17 +137,17 @@ type PartialCloseStage int
 
 const (
 	PartialCloseNone PartialCloseStage = iota
-	PartialCloseTP1  // Close 50%, move SL to breakeven
-	PartialCloseTP2  // Close 30%, move SL to TP1
-	PartialCloseTP3  // Close remaining 20%, trail by 1.5*ATR
+	PartialCloseTP1                    // Close 50%, move SL to breakeven
+	PartialCloseTP2                    // Close 30%, move SL to TP1
+	PartialCloseTP3                    // Close remaining 20%, trail by 1.5*ATR
 )
 
 // PartialCloseAction describes the action to take at each TP stage.
 type PartialCloseAction struct {
-	Stage           PartialCloseStage
-	ClosePercent    float64 // percentage of ORIGINAL position to close
-	NewStopLoss     decimal.Decimal // new SL after this stage
-	TrailATRMultiplier float64 // trailing stop multiplier (0 = no trail)
+	Stage              PartialCloseStage
+	ClosePercent       float64         // percentage of ORIGINAL position to close
+	NewStopLoss        decimal.Decimal // new SL after this stage
+	TrailATRMultiplier float64         // trailing stop multiplier (0 = no trail)
 }
 
 // BuildPartialCloseSchedule creates the profit-locking schedule per prompt.md Section 3.3.
@@ -169,8 +168,8 @@ func BuildPartialCloseSchedule(entry, tp1, tp2, atr decimal.Decimal) []PartialCl
 			NewStopLoss:  tp1, // move SL to TP1
 		},
 		{
-			Stage:           PartialCloseTP3,
-			ClosePercent:    20.0,
+			Stage:              PartialCloseTP3,
+			ClosePercent:       20.0,
 			TrailATRMultiplier: 1.5, // trail by 1.5*ATR
 		},
 	}

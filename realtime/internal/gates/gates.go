@@ -35,53 +35,53 @@ type Gate interface {
 
 // GateInput is the snapshot provided to each gate evaluation.
 type GateInput struct {
-	Tick           *types.Tick
-	StrategyID     types.StrategyID
-	Regime         types.Regime
-	Spread         float64
-	ATR            float64
-	SignalScore    float64
-	EntryPrice     float64
-	StopLoss       float64
-	TakeProfit1    float64
-	RoundTripCost  float64
-	CurrentExposure float64
-	MaxExposure    float64
-	NewsRisk       string
-	SessionAllowed bool
-	EntitlementOK  bool
-	LicenseActive  bool
+	Tick               *types.Tick
+	StrategyID         types.StrategyID
+	Regime             types.Regime
+	Spread             float64
+	ATR                float64
+	SignalScore        float64
+	EntryPrice         float64
+	StopLoss           float64
+	TakeProfit1        float64
+	RoundTripCost      float64
+	CurrentExposure    float64
+	MaxExposure        float64
+	NewsRisk           string
+	SessionAllowed     bool
+	EntitlementOK      bool
+	LicenseActive      bool
 	ExecutionPermitted bool
 	// Structural levels for StopHuntFilterGate
 	StructuralLow  float64 // nearest swing low (0 = not available)
 	StructuralHigh float64 // nearest swing high (0 = not available)
 
 	// ─── Capital-protection inputs (R1-R7) ───
-	Direction        types.Direction // BUY or SELL (zero for non-directional evaluation)
-	AccountEquity    float64         // broker snapshot equity (0 = unavailable → fail-closed)
-	AccountFreeMargin float64        // broker snapshot free margin
-	AccountLeverage  float64         // broker leverage (0 → risk.DefaultLeverage)
-	SymbolTickValue  float64         // broker symbol tick value (0 → XAUUSD default)
-	SymbolTickSize   float64         // broker symbol tick size (0 → XAUUSD default)
-	LotStep          float64         // broker lot step (0 → 0.01)
-	RequestedLot     float64         // candidate base lot for this strategy
+	Direction         types.Direction // BUY or SELL (zero for non-directional evaluation)
+	AccountEquity     float64         // broker snapshot equity (0 = unavailable → fail-closed)
+	AccountFreeMargin float64         // broker snapshot free margin
+	AccountLeverage   float64         // broker leverage (0 → risk.DefaultLeverage)
+	SymbolTickValue   float64         // broker symbol tick value (0 → XAUUSD default)
+	SymbolTickSize    float64         // broker symbol tick size (0 → XAUUSD default)
+	LotStep           float64         // broker lot step (0 → 0.01)
+	RequestedLot      float64         // candidate base lot for this strategy
 	// Position census from the broker snapshot. PositionsKnown=false means
 	// no broker positions data has arrived — the caps gate must DEGRADE,
 	// never claim safety it cannot verify.
-	PositionsKnown       bool
-	OpenBuyPositions     int
-	OpenSellPositions    int
+	PositionsKnown        bool
+	OpenBuyPositions      int
+	OpenSellPositions     int
 	StrategyOpenPositions int // per-strategy open-position estimate (engine-issued signals)
 }
 
 // GateEvaluation records the result of a single gate check.
 type GateEvaluation struct {
-	GateID       types.GateID      `json:"gate_id"`
-	Result       types.GateResult  `json:"result"`
-	ReasonCodes  []string          `json:"reason_codes"`
-	EvaluatedAt  time.Time         `json:"evaluated_at"`
-	FreshnessMs  int64             `json:"freshness_ms"`
-	StateVersion string            `json:"state_version"`
+	GateID       types.GateID     `json:"gate_id"`
+	Result       types.GateResult `json:"result"`
+	ReasonCodes  []string         `json:"reason_codes"`
+	EvaluatedAt  time.Time        `json:"evaluated_at"`
+	FreshnessMs  int64            `json:"freshness_ms"`
+	StateVersion string           `json:"state_version"`
 }
 
 // Registry holds all registered gates and their cached state.

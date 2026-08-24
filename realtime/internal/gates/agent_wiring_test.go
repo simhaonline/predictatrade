@@ -28,11 +28,11 @@ func TestFullGateHydrationLifecycleFromAgent(t *testing.T) {
 	// Stage 2: Agent connects (TICK/HEARTBEAT received) — execution permit hydrated
 	now := time.Now().UTC()
 	reg.UpdateState(types.GateExecutionPermit, GateState{
-		State:        types.GatePass,
-		EvaluatedAt:  now,
-		ValidUntil:   now.Add(60 * time.Second),
+		State:         types.GatePass,
+		EvaluatedAt:   now,
+		ValidUntil:    now.Add(60 * time.Second),
 		SourceVersion: "agent_connection",
-		ReasonCode:   "terminal_connected",
+		ReasonCode:    "terminal_connected",
 	})
 
 	state = ResolveEntitlementState(reg)
@@ -46,17 +46,17 @@ func TestFullGateHydrationLifecycleFromAgent(t *testing.T) {
 
 	// Stage 3: Agent sends MARKET_SNAPSHOT with account_info — exposure/margin hydrated
 	reg.UpdateState(types.GateExposure, GateState{
-		State:        types.GatePass,
-		Value:        float64(0), // 0 open positions
-		EvaluatedAt:  now,
-		ValidUntil:   now.Add(30 * time.Second),
+		State:         types.GatePass,
+		Value:         float64(0), // 0 open positions
+		EvaluatedAt:   now,
+		ValidUntil:    now.Add(30 * time.Second),
 		SourceVersion: "broker_telemetry",
 	})
 	reg.UpdateState(types.GateMargin, GateState{
-		State:        types.GatePass,
-		Value:        true, // free margin > 0
-		EvaluatedAt:  now,
-		ValidUntil:   now.Add(30 * time.Second),
+		State:         types.GatePass,
+		Value:         true, // free margin > 0
+		EvaluatedAt:   now,
+		ValidUntil:    now.Add(30 * time.Second),
 		SourceVersion: "broker_telemetry",
 	})
 
@@ -69,7 +69,7 @@ func TestFullGateHydrationLifecycleFromAgent(t *testing.T) {
 	})
 
 	input := GateInput{
-		Tick: &types.Tick{Quality: types.QualityAuthoritative},
+		Tick:           &types.Tick{Quality: types.QualityAuthoritative},
 		SessionAllowed: true, NewsRisk: "LOW",
 		Spread: 0.20, ATR: 3.0,
 		EntryPrice: 2430, StopLoss: 2426, TakeProfit1: 2435,
@@ -80,7 +80,9 @@ func TestFullGateHydrationLifecycleFromAgent(t *testing.T) {
 	allPass, _, veto := reg.EvaluateAll(input)
 	if !allPass {
 		t.Errorf("Expected all gates to pass after full hydration, veto at: %s", func() string {
-			if veto != nil { return string(veto.GateID) }
+			if veto != nil {
+				return string(veto.GateID)
+			}
 			return "nil"
 		}())
 	}

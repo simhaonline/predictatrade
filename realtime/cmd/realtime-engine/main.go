@@ -3,35 +3,29 @@
 package main
 
 import (
-	"strconv"
-	"strings"
-	"database/sql"
 	"context"
-	"sync"
-	"flag"
+	"database/sql"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/predictatrade/realtime/internal/cache"
-	"github.com/predictatrade/realtime/internal/crossmarket"
-	"github.com/predictatrade/realtime/internal/calibration"
-	"github.com/predictatrade/realtime/internal/engstatus"
-	"github.com/predictatrade/realtime/pkg/health"
-	"github.com/predictatrade/realtime/pkg/macro"
-	"github.com/predictatrade/realtime/pkg/mlengine"
-	"github.com/predictatrade/realtime/pkg/news"
-	"github.com/predictatrade/realtime/pkg/notifications"
 	"github.com/predictatrade/realtime/internal/audit"
-	"github.com/predictatrade/realtime/pkg/ollama"
+	"github.com/predictatrade/realtime/internal/cache"
+	"github.com/predictatrade/realtime/internal/calibration"
 	"github.com/predictatrade/realtime/internal/config"
+	"github.com/predictatrade/realtime/internal/crossmarket"
+	"github.com/predictatrade/realtime/internal/engstatus"
 	"github.com/predictatrade/realtime/internal/features"
-	"github.com/predictatrade/realtime/internal/gateway"
 	"github.com/predictatrade/realtime/internal/gates"
+	"github.com/predictatrade/realtime/internal/gateway"
 	"github.com/predictatrade/realtime/internal/marketdata"
 	"github.com/predictatrade/realtime/internal/observability"
 	"github.com/predictatrade/realtime/internal/ptb"
@@ -40,6 +34,12 @@ import (
 	sigengine "github.com/predictatrade/realtime/internal/signal"
 	"github.com/predictatrade/realtime/internal/strategy"
 	"github.com/predictatrade/realtime/internal/strategy/engines"
+	"github.com/predictatrade/realtime/pkg/health"
+	"github.com/predictatrade/realtime/pkg/macro"
+	"github.com/predictatrade/realtime/pkg/mlengine"
+	"github.com/predictatrade/realtime/pkg/news"
+	"github.com/predictatrade/realtime/pkg/notifications"
+	"github.com/predictatrade/realtime/pkg/ollama"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/predictatrade/realtime/internal/types"
@@ -116,7 +116,6 @@ func markBarProcessed(strategyID, symbol string, tf types.Timeframe, barOpenTime
 	return false
 }
 
-
 // broadcastSignalToAll sends a signal to both the frontend dashboard (WebSocketHub)
 // and the Windows Agents (AgentHub) for MT4/MT5 delivery.
 func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, signal *types.Signal) {
@@ -138,12 +137,12 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHu
 		eventID := uuid.New().String()
 		streamID := fmt.Sprintf("signals:%s", signal.StrategyID)
 		agentHub.BroadcastSignalToAgents(eventID, streamID, "SIGNAL", priority, "1.0.0", payload)
-	observability.Log.Info().
-		Str("signal_id", signal.ID).
-		Str("direction", dir).
-		Str("strategy", string(signal.StrategyID)).
-		Int("agents_connected", agentHub.AgentCount()).
-		Msg("Signal broadcast to Windows Agents for MT4/MT5 delivery")
+		observability.Log.Info().
+			Str("signal_id", signal.ID).
+			Str("direction", dir).
+			Str("strategy", string(signal.StrategyID)).
+			Int("agents_connected", agentHub.AgentCount()).
+			Msg("Signal broadcast to Windows Agents for MT4/MT5 delivery")
 	}
 }
 
@@ -253,8 +252,12 @@ func main() {
 	log.Info().Msg("Health manager initialized (stale check, signal flow, macro health)")
 
 	defer func() {
-		if mlWatcher != nil { mlWatcher.Close() }
-		if mlEngine != nil { mlEngine.Close() }
+		if mlWatcher != nil {
+			mlWatcher.Close()
+		}
+		if mlEngine != nil {
+			mlEngine.Close()
+		}
 	}()
 
 	// Database
@@ -371,7 +374,7 @@ func main() {
 	// This allows authoritative MT5 snapshot indicators to be merged into MarketState
 	if isAgentProvider {
 		// Wrap stateMgr to match StateUpdater interface (func(any) vs func(*MarketState))
-	agentProvider.SetStateManager(stateAdapter{sm: stateMgr})
+		agentProvider.SetStateManager(stateAdapter{sm: stateMgr})
 		agentProvider.SetMergeFunction(func(stateRaw any, snapshot *marketdata.MarketSnapshot) {
 			state, ok := stateRaw.(*features.MarketState)
 			if !ok || state == nil {
@@ -435,7 +438,7 @@ func main() {
 			// Mark quality as authoritative (real MT5 data)
 			state.Quality = types.QualityAuthoritative
 
-	})
+		})
 	}
 
 	// ─── Historical Candle Bootstrap ───
@@ -480,11 +483,16 @@ func main() {
 				const weekendFactor = 1.45
 				var lookbackHours int = 48 // default: 2 days
 				switch tf {
-				case "M5": lookbackHours = 35      // ~35h calendar for ~21h market time
-				case "M15": lookbackHours = 105     // ~104h calendar for ~62h market time
-				case "H1": lookbackHours = 418 // ~14.5 days
-				case "H4": lookbackHours = 1462 // ~61 days
-				case "D1": lookbackHours = 365 * 24                     // already calendar-based
+				case "M5":
+					lookbackHours = 35 // ~35h calendar for ~21h market time
+				case "M15":
+					lookbackHours = 105 // ~104h calendar for ~62h market time
+				case "H1":
+					lookbackHours = 418 // ~14.5 days
+				case "H4":
+					lookbackHours = 1462 // ~61 days
+				case "D1":
+					lookbackHours = 365 * 24 // already calendar-based
 				}
 				timeStart := time.Now().UTC().AddDate(0, 0, -lookbackHours/24)
 				if lookbackHours < 24 {
@@ -752,12 +760,12 @@ func main() {
 			openPositions = int(positions.TotalPositions)
 		}
 		gateRegistry.UpdateState(types.GateExposure, gates.GateState{
-			State:        types.GatePass,
-			Value:        float64(openPositions),
-			EvaluatedAt:  now,
-			ValidUntil:   fresh,
+			State:         types.GatePass,
+			Value:         float64(openPositions),
+			EvaluatedAt:   now,
+			ValidUntil:    fresh,
 			SourceVersion: "broker_telemetry",
-			Quality:      types.QualityAuthoritative,
+			Quality:       types.QualityAuthoritative,
 		})
 
 		// Margin gate: free margin > 0 = PASS
@@ -767,12 +775,12 @@ func main() {
 		}
 		marginOK := freeMargin > 0
 		gateRegistry.UpdateState(types.GateMargin, gates.GateState{
-			State:        types.GatePass,
-			Value:        marginOK,
-			EvaluatedAt:  now,
-			ValidUntil:   fresh,
+			State:         types.GatePass,
+			Value:         marginOK,
+			EvaluatedAt:   now,
+			ValidUntil:    fresh,
 			SourceVersion: "broker_telemetry",
-			Quality:      types.QualityAuthoritative,
+			Quality:       types.QualityAuthoritative,
 		})
 
 		// Execution permit gate: terminal connected + account verified = PASS
@@ -780,11 +788,11 @@ func main() {
 		// A connected agent with valid account data means execution is permitted
 		// at the signal delivery level (individual device/license checks still apply).
 		gateRegistry.UpdateState(types.GateExecutionPermit, gates.GateState{
-			State:        types.GatePass,
-			EvaluatedAt:  now,
-			ValidUntil:   fresh,
+			State:         types.GatePass,
+			EvaluatedAt:   now,
+			ValidUntil:    fresh,
 			SourceVersion: "agent_connection",
-			Quality:      types.QualityAuthoritative,
+			Quality:       types.QualityAuthoritative,
 		})
 
 		observability.Log.Info().
@@ -805,12 +813,12 @@ func main() {
 		currentState, exists := gateRegistry.GetState(types.GateExecutionPermit)
 		if !exists || currentState.State != types.GatePass || msgType == "MASTER_INIT" {
 			gateRegistry.UpdateState(types.GateExecutionPermit, gates.GateState{
-				State:        types.GatePass,
-				EvaluatedAt:  now,
-				ValidUntil:   fresh,
+				State:         types.GatePass,
+				EvaluatedAt:   now,
+				ValidUntil:    fresh,
 				SourceVersion: "agent_connection",
-				ReasonCode:   "terminal_connected",
-				Quality:      types.QualityAuthoritative,
+				ReasonCode:    "terminal_connected",
+				Quality:       types.QualityAuthoritative,
 			})
 			if msgType == "MASTER_INIT" {
 				observability.Log.Info().Str("agent_id", agentID).Msg("Agent connected — execution permit gate hydrated to PASS")
@@ -818,13 +826,13 @@ func main() {
 		} else {
 			// Just refresh validity on heartbeat
 			gateRegistry.UpdateState(types.GateExecutionPermit, gates.GateState{
-				State:        types.GatePass,
-				Value:        currentState.Value,
-				EvaluatedAt:  now,
-				ValidUntil:   fresh,
+				State:         types.GatePass,
+				Value:         currentState.Value,
+				EvaluatedAt:   now,
+				ValidUntil:    fresh,
 				SourceVersion: "agent_heartbeat",
-		})
-	}
+			})
+		}
 	})
 
 	engine := sigengine.NewEngine(gateRegistry)
@@ -909,17 +917,17 @@ func main() {
 		if status == "ACTIVE" {
 			result.Valid = true
 			observability.Log.Info().Str("license_key", licenseKey).Str("plan", planCode).Msg("License validated — ACTIVE")
-			} else {
-				result.Error = "license is " + status
-				observability.Log.Warn().Str("license_key", licenseKey).Str("status", status).Msg("License found but not active — disconnecting agent")
-				// P0-RT1 enforcement: an invalid/expired/revoked license no longer
-				// just receives a warning — the agent is disconnected so it cannot
-				// keep receiving EXECUTABLE signals or injecting market data.
-				agentHub.DisconnectAgent(agentID, "license "+status)
-				enqueueNotification(notifications.EventType("AGENT_LICENSE_INVALID"), "critical",
-					"Agent disconnected — invalid license",
-					fmt.Sprintf("Agent %s was disconnected: license status=%s", agentID, status))
-			}
+		} else {
+			result.Error = "license is " + status
+			observability.Log.Warn().Str("license_key", licenseKey).Str("status", status).Msg("License found but not active — disconnecting agent")
+			// P0-RT1 enforcement: an invalid/expired/revoked license no longer
+			// just receives a warning — the agent is disconnected so it cannot
+			// keep receiving EXECUTABLE signals or injecting market data.
+			agentHub.DisconnectAgent(agentID, "license "+status)
+			enqueueNotification(notifications.EventType("AGENT_LICENSE_INVALID"), "critical",
+				"Agent disconnected — invalid license",
+				fmt.Sprintf("Agent %s was disconnected: license status=%s", agentID, status))
+		}
 		agentHub.SendToAgent(agentID, "LICENSE_STATUS", result)
 		return result
 	})
@@ -938,8 +946,8 @@ func main() {
 	// FMP API key from FMP_API_KEY env var. Fails safe if not configured or restricted.
 	// COT is an optional pillar (weight=0 by default) — does not block signal generation.
 	cotProvider := marketdata.NewCOTProvider(marketdata.COTProviderConfig{
-		APIKey:  cfg.FMPAPIKey,
-		Symbol:  cfg.COTSymbol,
+		APIKey:       cfg.FMPAPIKey,
+		Symbol:       cfg.COTSymbol,
 		RefreshHours: 6,
 		TimeoutSec:   30,
 	})
@@ -961,7 +969,7 @@ func main() {
 	// STANDARD_SWING and TREND_SWING have mandatory DXY pillars (weight 20).
 	// If DXY is unavailable, those strategies fail to NO-TRADE — correct behavior.
 	dxyProvider := marketdata.NewDXYProvider(marketdata.DXYProviderConfig{
-		APIKey:    cfg.TwelveDataAPIKey,
+		APIKey:     cfg.TwelveDataAPIKey,
 		RefreshMin: 5, // 5-minute refresh (6 API calls, within 8/min rate limit)
 		TimeoutSec: 15,
 	})
@@ -997,7 +1005,7 @@ func main() {
 	xmConfig.OilEnabled = os.Getenv("OIL_ENABLED") == "true"
 	xmConfig.VIXEnabled = os.Getenv("VIX_ENABLED") == "true"
 	xmConfig.RealYieldsEnabled = os.Getenv("REAL_YIELD_ENABLED") == "true"
-	xmConfig.EURUSDEnabled = os.Getenv("EURUSD_ENABLED") != "false"  // default true
+	xmConfig.EURUSDEnabled = os.Getenv("EURUSD_ENABLED") != "false" // default true
 
 	// Cross-market persister + validation persister (separate connections)
 	var xmPersister *crossmarket.Persister
@@ -1156,8 +1164,8 @@ func main() {
 					agentStatus := gateway.AgentStatus{
 						AgentsConnected:     agentHub.AgentCount(),
 						MasterNodeConnected: agentProvider.HasConnectedAgents(),
-						SnapshotCount:        agentProvider.GetSnapshotCount(),
-						Timestamp:            time.Now().UTC(),
+						SnapshotCount:       agentProvider.GetSnapshotCount(),
+						Timestamp:           time.Now().UTC(),
 					}
 					wsHub.BroadcastAgentStatus(agentStatus)
 					if valkeyCache != nil {
@@ -1291,14 +1299,20 @@ func processTick(tick *types.Tick, validator *marketdata.TickValidator, staleDet
 	staleDetector.Update(tick.Symbol, tick.GatewayTimestamp)
 	observability.TicksReceived.WithLabelValues(tick.Symbol, tick.Source).Inc()
 	latencyMs := time.Since(tick.SourceTimestamp).Milliseconds()
-	if latencyMs < 0 { latencyMs = 0 }
+	if latencyMs < 0 {
+		latencyMs = 0
+	}
 	observability.TickLatencyMs.WithLabelValues(tick.Symbol).Observe(float64(latencyMs))
 	aggregator.ProcessTick(tick)
 	stateMgr.Update(tick.Symbol, func(state *features.MarketState) {
 		state.LastTick = tick
 		state.CurrentPrice = tick.Mid
-		state.Bid = tick.Bid; state.Ask = tick.Ask; state.Spread = tick.Spread; state.Mid = tick.Mid
-		state.Timestamp = tick.GatewayTimestamp; state.Quality = tick.Quality
+		state.Bid = tick.Bid
+		state.Ask = tick.Ask
+		state.Spread = tick.Spread
+		state.Mid = tick.Mid
+		state.Timestamp = tick.GatewayTimestamp
+		state.Quality = tick.Quality
 	})
 
 	// Write to Valkey hot cache for dashboard REST API (sub-ms read)
@@ -1329,7 +1343,9 @@ func processTick(tick *types.Tick, validator *marketdata.TickValidator, staleDet
 }
 
 func processCandle(candle *types.Candle, featureReg *features.RegistrySet, stateMgr *features.StateManager, strategies []strategy.Strategy, engine *sigengine.Engine, mlEngine *mlengine.MLEngine, ollamaClient *ollama.OllamaClient, healthManager *health.Manager, staleChecker *health.StaleChecker, calibConsumer *calibration.Consumer, reconciler *reconciliation.Reconciler, wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, persister *marketdata.Persister, gateRegistry *gates.Registry, cooldownMgr *sigengine.CooldownManager, dupChecker *sigengine.DuplicateChecker, ptbEngine *ptb.Engine, auditLogger *audit.Logger, xmEngine *crossmarket.Engine, xmPersister *crossmarket.Persister, xmValidation *crossmarket.ValidationPersister, engTracker *engstatus.Tracker, cfg *config.Config, posCaps *gates.PositionCapsGate, broker *brokerAccountState) {
-	if candle == nil { return }
+	if candle == nil {
+		return
+	}
 	observability.CandlesGenerated.WithLabelValues(candle.Symbol, string(candle.Timeframe)).Inc()
 
 	// ─── Bar close time (prompt.md Sections 13-15) ───
@@ -1351,11 +1367,19 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 	healthManager.Update()
 	if healthManager.IsDegraded() {
 		observability.Log.Warn().Str("reason", healthManager.DegradedReason()).Msg("System degraded - disabling ML and Sentiment")
-		if mlEngine != nil { mlEngine.SetEnabled(false) }
-		if ollamaClient != nil { ollamaClient.SetEnabled(false) }
+		if mlEngine != nil {
+			mlEngine.SetEnabled(false)
+		}
+		if ollamaClient != nil {
+			ollamaClient.SetEnabled(false)
+		}
 	} else {
-		if mlEngine != nil { mlEngine.SetEnabled(true) }
-		if ollamaClient != nil { ollamaClient.SetEnabled(true) }
+		if mlEngine != nil {
+			mlEngine.SetEnabled(true)
+		}
+		if ollamaClient != nil {
+			ollamaClient.SetEnabled(true)
+		}
 	}
 	stateMgr.Update(candle.Symbol, func(state *features.MarketState) {
 		state.Candles[candle.Timeframe] = candle
@@ -1365,10 +1389,15 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 	// M1 candles never touch H1/H4/D1 indicator state and vice versa.
 	reg := featureReg.For(candle.Timeframe)
 	evalState := reg.Evaluate(candle, state.Candles, state.LastTick)
-	if evalState == nil { return }
+	if evalState == nil {
+		return
+	}
 	stateMgr.Update(candle.Symbol, func(s *features.MarketState) {
-		s.Structure = evalState.Structure; s.Liquidity = evalState.Liquidity; s.FVG = evalState.FVG
-		s.Regime = evalState.Regime; s.MTF = evalState.MTF
+		s.Structure = evalState.Structure
+		s.Liquidity = evalState.Liquidity
+		s.FVG = evalState.FVG
+		s.Regime = evalState.Regime
+		s.MTF = evalState.MTF
 		// MERGE locally-computed indicators into state — only fill in fields
 		// that the MT5 snapshot didn't provide (i.e., are zero in state).
 		// This preserves authoritative MT5 values while adding locally-computed
@@ -1486,7 +1515,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			persister.SaveRegimeHistory(ctx, &marketdata.RegimeHistoryRecord{
 				Symbol: candle.Symbol, Timeframe: string(candle.Timeframe),
 				Timestamp: candle.Time, Regime: string(mergedState.Regime.Current),
-				Confidence: fmt.Sprintf("%.4f", mergedState.Regime.Confidence),
+				Confidence:       fmt.Sprintf("%.4f", mergedState.Regime.Confidence),
 				AlgorithmVersion: "1.0",
 			})
 			// Persist key indicators (SOW Section 12)
@@ -1532,20 +1561,20 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				mlDir = types.DirectionSell
 			}
 			for _, strat := range strategies {
-		stratResult := strat.Evaluate(mergedState)
+				stratResult := strat.Evaluate(mergedState)
 
-		// ─── ENABLE_SHORTS (Bug 3) — generation-level suppression ───
-		// When shorts are disabled, SELL signals are suppressed here, NOT
-		// gate-vetoed: no signal is emitted at all (only a log). Default is
-		// enabled; operators opt out explicitly via ENABLE_SHORTS=false.
-		if cfg != nil && !cfg.EnableShorts && stratResult.Direction == types.DirectionSell {
-			observability.Log.Info().
-				Str("strategy", string(strat.ID())).
-				Str("symbol", string(candle.Symbol)).
-				Str("timeframe", string(candle.Timeframe)).
-				Msg("[ENABLE_SHORTS=false] SELL candidate suppressed at signal-generation")
-			continue
-		}
+				// ─── ENABLE_SHORTS (Bug 3) — generation-level suppression ───
+				// When shorts are disabled, SELL signals are suppressed here, NOT
+				// gate-vetoed: no signal is emitted at all (only a log). Default is
+				// enabled; operators opt out explicitly via ENABLE_SHORTS=false.
+				if cfg != nil && !cfg.EnableShorts && stratResult.Direction == types.DirectionSell {
+					observability.Log.Info().
+						Str("strategy", string(strat.ID())).
+						Str("symbol", string(candle.Symbol)).
+						Str("timeframe", string(candle.Timeframe)).
+						Msg("[ENABLE_SHORTS=false] SELL candidate suppressed at signal-generation")
+					continue
+				}
 				// Apply ML contribution (weight=0.15) and sentiment (weight=0.05)
 				sentimentScore := 0.0
 				if ollamaClient != nil && ollamaClient.IsEnabled() {
@@ -1602,13 +1631,13 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 		if auditLogger != nil {
 			pipeCtx, pipeCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 			if pid, err := auditLogger.StartPipelineWithConfig(pipeCtx, audit.PipelineStartConfig{
-					Asset:               string(candle.Symbol),
-					Timeframe:           string(candle.Timeframe),
-					PipelineVersion:     "1.0.0",
-					StrategyVersion:     "1.0.0",
-					ConfigurationVersion: "1.0.0",
-					ApplicationVersion:  "1.0.0",
-				}); err == nil {
+				Asset:                string(candle.Symbol),
+				Timeframe:            string(candle.Timeframe),
+				PipelineVersion:      "1.0.0",
+				StrategyVersion:      "1.0.0",
+				ConfigurationVersion: "1.0.0",
+				ApplicationVersion:   "1.0.0",
+			}); err == nil {
 				pipelineExecID = pid
 				// Log the strategy evaluation as a pipeline step
 				rawScoreF, _ := stratResult.RawScore.Float64()
@@ -1616,16 +1645,16 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				shortScoreF, _ := stratResult.ShortScore.Float64()
 				_ = auditLogger.LogStep(pipeCtx, audit.PipelineStep{
 					PipelineExecutionID: pid,
-					EngineName:           string(strat.ID()),
-					EngineVersion:        "1.0",
-					Timeframe:            string(candle.Timeframe),
-					StartedAt:            stepStart,
-					Status:               "COMPLETED",
-					RawValue:             rawScoreF,
-					NormalizedValue:      rawScoreF,
-					Direction:            string(stratResult.Direction),
-					Confidence:           stratResult.Confidence,
-					Weight:               1.0,
+					EngineName:          string(strat.ID()),
+					EngineVersion:       "1.0",
+					Timeframe:           string(candle.Timeframe),
+					StartedAt:           stepStart,
+					Status:              "COMPLETED",
+					RawValue:            rawScoreF,
+					NormalizedValue:     rawScoreF,
+					Direction:           string(stratResult.Direction),
+					Confidence:          stratResult.Confidence,
+					Weight:              1.0,
 				})
 				// Log score execution with pillar components from evidence
 				components := make([]audit.ScoreComponent, 0, len(stratResult.Evidence))
@@ -1647,16 +1676,16 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				scoreExec := audit.ScoreExecution{
 					PipelineExecutionID: pid,
 					ScoreVersion:        "1.0",
-					RawScore:             rawScoreF,
+					RawScore:            rawScoreF,
 					NormalizedScore:     rawScoreF,
-					BullishScore:         longScoreF,
-					BearishScore:         shortScoreF,
-					Confidence:           stratResult.Confidence,
-					Signal:               string(stratResult.Direction),
-					SignalGrade:          string(stratResult.HumanReason),
-					StrategyID:           string(strat.ID()),
-					Asset:                string(candle.Symbol),
-					Timeframe:            string(candle.Timeframe),
+					BullishScore:        longScoreF,
+					BearishScore:        shortScoreF,
+					Confidence:          stratResult.Confidence,
+					Signal:              string(stratResult.Direction),
+					SignalGrade:         string(stratResult.HumanReason),
+					StrategyID:          string(strat.ID()),
+					Asset:               string(candle.Symbol),
+					Timeframe:           string(candle.Timeframe),
 				}
 				if err := auditLogger.LogScore(pipeCtx, scoreExec, components); err == nil {
 					scoreExecID = scoreExec.ID
@@ -1702,7 +1731,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 					Timestamp:         time.Now().UTC(),
 					Strategy:          string(strat.ID()),
 					Direction:         string(stratResult.Direction),
-					TechnicalScore:     rawScoreF,
+					TechnicalScore:    rawScoreF,
 					CrossMarketScore:  xmResult.Score,
 					CrossMarketConf:   xmResult.Confidence,
 					CrossMarketRegime: string(xmResult.Regime),
@@ -1782,12 +1811,12 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			persister.SaveStrategyEvaluation(evalCtx, &marketdata.StrategyEvalRecord{
 				StrategyID: string(strat.ID()), StrategyVersion: "1.0",
 				Symbol: candle.Symbol, Timeframe: string(candle.Timeframe),
-				Timestamp: candle.Time,
+				Timestamp:     candle.Time,
 				InputFeatures: map[string]interface{}{"regime": string(mergedState.Regime.Current), "session": mergedState.Session.CurrentSession},
-				Score: stratResult.RawScore.String(), LongScore: stratResult.LongScore.String(), ShortScore: stratResult.ShortScore.String(),
+				Score:         stratResult.RawScore.String(), LongScore: stratResult.LongScore.String(), ShortScore: stratResult.ShortScore.String(),
 				ConditionsPassed: stratResult.Evidence, ConditionsFailed: stratResult.ReasonCodes,
 				CandidateGenerated: stratResult.Direction != types.DirectionNoTrade,
-				Direction: string(stratResult.Direction), Reason: string(stratResult.HumanReason),
+				Direction:          string(stratResult.Direction), Reason: string(stratResult.HumanReason),
 				EvaluationSequence: evalSeq, ScoreStatus: string(scoreStatus),
 			})
 			evalCancel()
@@ -1861,32 +1890,32 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 					advDir := strategy.CandidateDirection(candidateDir)
 					now := time.Now().UTC()
 					sig := &types.Signal{
-						ID:         uuid.New().String(),
-						Symbol:     types.SymbolXAUUSD,
-						StrategyID: strat.ID(),
-						Direction:  advDir,
-						Grade:      types.GradeResearch,
-						Status:     types.SignalDetected,
-						RawScore:   stratResult.RawScore,
-						LongScore:  stratResult.LongScore,
-						ShortScore: stratResult.ShortScore,
-						EntryPrice: geo.Entry,
-						StopLoss:   geo.StopLoss,
-						TP1:        geo.TP1,
-						TP2:        geo.TP2,
-						TP3:        geo.TP3,
-						GrossRRTP1: geo.GrossRR1,
-						GrossRRTP2: geo.GrossRR2,
-						GrossRRTP3: geo.GrossRR3,
-						Regime:     mergedState.Regime.Current,
-						Session:    mergedState.Session.CurrentSession,
-						NewsRisk:   mergedState.Session.NewsRisk,
+						ID:          uuid.New().String(),
+						Symbol:      types.SymbolXAUUSD,
+						StrategyID:  strat.ID(),
+						Direction:   advDir,
+						Grade:       types.GradeResearch,
+						Status:      types.SignalDetected,
+						RawScore:    stratResult.RawScore,
+						LongScore:   stratResult.LongScore,
+						ShortScore:  stratResult.ShortScore,
+						EntryPrice:  geo.Entry,
+						StopLoss:    geo.StopLoss,
+						TP1:         geo.TP1,
+						TP2:         geo.TP2,
+						TP3:         geo.TP3,
+						GrossRRTP1:  geo.GrossRR1,
+						GrossRRTP2:  geo.GrossRR2,
+						GrossRRTP3:  geo.GrossRR3,
+						Regime:      mergedState.Regime.Current,
+						Session:     mergedState.Session.CurrentSession,
+						NewsRisk:    mergedState.Session.NewsRisk,
 						ReasonCodes: []types.NoTradeReason{types.NTInsufficientScore},
-						Evidence:   stratResult.Evidence,
-						CreatedAt:  now,
-						ExpiresAt:  now.Add(time.Duration(stratResult.ExpiryMinutes) * time.Minute),
-						ShadowOnly:           false,
-						Executable:           geo.Valid,
+						Evidence:    stratResult.Evidence,
+						CreatedAt:   now,
+						ExpiresAt:   now.Add(time.Duration(stratResult.ExpiryMinutes) * time.Minute),
+						ShadowOnly:  false,
+						Executable:  geo.Valid,
 						FailedProductionReason: func() string {
 							if geo.Valid {
 								return "" // Candidate is executable with microprofit geometry
@@ -1900,33 +1929,48 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 						DetectedAt:          now,
 						CandidateDetectedAt: now,
 						// Candidate classification (SOW Sections 12, 31-35)
-						SignalClass:         "ADVISORY",
-						EvaluationSequence:  evalSeq,
-						ScoreStatus:         scoreStatus,
-						CandidateThreshold:  candidateThresh,
-						TradeThreshold:      tradeThresh,
-						EntryType:           geo.EntryType,
-						ConflictPenalty:     stratResult.ConflictPenalty,
+						SignalClass:        "ADVISORY",
+						EvaluationSequence: evalSeq,
+						ScoreStatus:        scoreStatus,
+						CandidateThreshold: candidateThresh,
+						TradeThreshold:     tradeThresh,
+						EntryType:          geo.EntryType,
+						ConflictPenalty:    stratResult.ConflictPenalty,
 						// Versioning
-						GeometryVersion:     "1.0",
-						RiskProfileVersion:  "1.0",
-						FeatureVersion:      "1.0",
-						RegimeVersion:       mergedState.Regime.RegimeEngineVersion,
+						GeometryVersion:    "1.0",
+						RiskProfileVersion: "1.0",
+						FeatureVersion:     "1.0",
+						RegimeVersion:      mergedState.Regime.RegimeEngineVersion,
 						// Provenance (prompt.md Sections 30-31)
-						BidPrice:    mergedState.Bid,
-						AskPrice:    mergedState.Ask,
-						SourceMode:  func() string { if mergedState.LastTick != nil { return mergedState.LastTick.Source }; return "" }(),
-						SourceSequence: func() uint64 { if mergedState.LastTick != nil { return mergedState.LastTick.Sequence }; return 0 }(),
-						SourceTimestamp: func() time.Time { if mergedState.LastTick != nil { return mergedState.LastTick.SourceTimestamp }; return time.Time{} }(),
-						IngestTimestamp: now,
-						BarClosed:   types.BarClosedConfirmed,
-						CalibrationStatus: calibStatus,
+						BidPrice: mergedState.Bid,
+						AskPrice: mergedState.Ask,
+						SourceMode: func() string {
+							if mergedState.LastTick != nil {
+								return mergedState.LastTick.Source
+							}
+							return ""
+						}(),
+						SourceSequence: func() uint64 {
+							if mergedState.LastTick != nil {
+								return mergedState.LastTick.Sequence
+							}
+							return 0
+						}(),
+						SourceTimestamp: func() time.Time {
+							if mergedState.LastTick != nil {
+								return mergedState.LastTick.SourceTimestamp
+							}
+							return time.Time{}
+						}(),
+						IngestTimestamp:       now,
+						BarClosed:             types.BarClosedConfirmed,
+						CalibrationStatus:     calibStatus,
 						CalibratedProbability: calibratedProb,
 						// Transition scores (prompt.md Section 6)
-						TransitionLongScore:  stratResult.TransitionLongScore,
-						TransitionShortScore: stratResult.TransitionShortScore,
+						TransitionLongScore:   stratResult.TransitionLongScore,
+						TransitionShortScore:  stratResult.TransitionShortScore,
 						TransitionConflict:    stratResult.TransitionConflict,
-						TransitionFinalScore: stratResult.TransitionFinalScore,
+						TransitionFinalScore:  stratResult.TransitionFinalScore,
 						IsTransitionCandidate: stratResult.IsTransitionCandidate,
 						// Dominance
 						Dominance: stratResult.Dominance,
@@ -1966,8 +2010,8 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 								RawScore: stratResult.RawScore.String(), LongScore: stratResult.LongScore.String(),
 								ShortScore: stratResult.ShortScore.String(), CalibratedProb: calibratedProb.String(),
 								Regime: string(mergedState.Regime.Current), MarketSession: mergedState.Session.CurrentSession,
-								Timeframe: string(candle.Timeframe),
-								ReasonCodes: []types.NoTradeReason{types.NTInsufficientScore},
+								Timeframe:     string(candle.Timeframe),
+								ReasonCodes:   []types.NoTradeReason{types.NTInsufficientScore},
 								ApprovalState: "ADVISORY", RejectionGate: "CANDIDATE_THRESHOLD",
 								CreatedAt: time.Now().UTC(),
 							})
@@ -2042,7 +2086,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 						RawScore: stratResult.RawScore.String(), LongScore: stratResult.LongScore.String(),
 						ShortScore: stratResult.ShortScore.String(), CalibratedProb: calibratedProb.String(),
 						Regime: string(mergedState.Regime.Current), MarketSession: mergedState.Session.CurrentSession,
-						Timeframe: string(candle.Timeframe),
+						Timeframe:   string(candle.Timeframe),
 						ReasonCodes: stratResult.ReasonCodes, ApprovalState: "REJECTED",
 						RejectionGate: "STRATEGY_NO_TRADE", CreatedAt: time.Now().UTC(),
 					})
@@ -2255,28 +2299,35 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			StrategyID: strat.ID(), Direction: stratResult.Direction,
 			RawScore: stratResult.RawScore, LongScore: stratResult.LongScore, ShortScore: stratResult.ShortScore,
 			Tick: mergedState.LastTick, Regime: mergedState.Regime.Current,
-			ATR: mergedState.Indicators.ATR,
+			ATR:     mergedState.Indicators.ATR,
 			Session: mergedState.Session.CurrentSession, SessionAllowed: sessionAllowed,
 			NewsRisk: mergedState.Session.NewsRisk, Evidence: stratResult.Evidence,
 			EntryPrice: stratResult.EntryPrice, StopLoss: stratResult.StopLoss,
 			TP1: stratResult.TP1, TP2: stratResult.TP2, TP3: stratResult.TP3,
 			RoundTripCost: roundTripCost, CurrentExposure: func() float64 {
-					es, _ := gateRegistry.GetState(types.GateExposure)
-					if v, ok := es.Value.(float64); ok { return v }
-					return 0
-				}(), MaxExposure: 5.0,
-			EntitlementOK: entitlementState.EntitlementOK,
-			LicenseActive: entitlementState.LicenseActive,
+				es, _ := gateRegistry.GetState(types.GateExposure)
+				if v, ok := es.Value.(float64); ok {
+					return v
+				}
+				return 0
+			}(), MaxExposure: 5.0,
+			EntitlementOK:      entitlementState.EntitlementOK,
+			LicenseActive:      entitlementState.LicenseActive,
 			ExecutionPermitted: entitlementState.ExecutionPermitted,
 			// Capital protection (R1-R7): broker snapshot + sizing inputs.
-			AccountEquity:    bs.Equity,
+			AccountEquity:     bs.Equity,
 			AccountFreeMargin: bs.FreeMargin,
-			AccountLeverage:  func() float64 { if bs.Leverage > 0 { return bs.Leverage }; return float64(cfg.DefaultLeverage) }(),
-			SymbolTickValue:  bs.TickValue,
-			SymbolTickSize:   bs.TickSize,
-			LotStep:          bs.LotStep,
-			RequestedLot:     cfg.BaseLots[string(strat.ID())],
-			PositionsKnown:   bs.PositionsKnown,
+			AccountLeverage: func() float64 {
+				if bs.Leverage > 0 {
+					return bs.Leverage
+				}
+				return float64(cfg.DefaultLeverage)
+			}(),
+			SymbolTickValue:   bs.TickValue,
+			SymbolTickSize:    bs.TickSize,
+			LotStep:           bs.LotStep,
+			RequestedLot:      cfg.BaseLots[string(strat.ID())],
+			PositionsKnown:    bs.PositionsKnown,
 			OpenBuyPositions:  bs.BuyCount,
 			OpenSellPositions: bs.SellCount,
 			StructuralLow: func() float64 {
@@ -2488,7 +2539,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 					Asset:               string(candle.Symbol),
 					Timeframe:           string(candle.Timeframe),
 					Signal:              string(decision.Signal.Direction),
-					Decision:             string(decision.Signal.SignalClass),
+					Decision:            string(decision.Signal.SignalClass),
 					Score:               scoreF,
 					Confidence:          stratResult.Confidence,
 					Entry:               entryF,
@@ -2588,19 +2639,19 @@ func registerGates(reg *gates.Registry, cfg *config.Config) *gates.PositionCapsG
 // brokerAccountState caches the latest MT5 agent snapshot account data used
 // by capital-protection gates and signal sizing annotations.
 type brokerAccountState struct {
-	mu           sync.Mutex
-	known        bool
-	equity       float64
-	freeMargin   float64
-	leverage     float64
-	tickValue    float64
-	tickSize     float64
-	lotStep      float64
-	buyCount     int
-	sellCount    int
-	totalCount   int
+	mu             sync.Mutex
+	known          bool
+	equity         float64
+	freeMargin     float64
+	leverage       float64
+	tickValue      float64
+	tickSize       float64
+	lotStep        float64
+	buyCount       int
+	sellCount      int
+	totalCount     int
 	positionsKnown bool
-	updatedAt    time.Time
+	updatedAt      time.Time
 }
 
 func (b *brokerAccountState) Update(account *marketdata.SnapshotAccount, positions *marketdata.SnapshotPositions, now time.Time) {
@@ -2781,6 +2832,7 @@ func hydrateEdgeValidationGate(gateRegistry *gates.Registry, persister *marketda
 		})
 	}
 }
+
 // refreshGateStates periodically refreshes gate state from live market/broker data.
 // This runs as a background goroutine to keep gate states fresh.
 func refreshGateStates(reg *gates.Registry, stateMgr *features.StateManager, agentProvider interface{}, staleDetector *marketdata.StaleDetector) {
@@ -2836,32 +2888,32 @@ func refreshGateStates(reg *gates.Registry, stateMgr *features.StateManager, age
 				}
 			}
 			reg.UpdateState(types.GateDataQuality, gates.GateState{
-				State:       dqState,
-				ReasonCode:  dqReason,
-				EvaluatedAt:  now,
-				ValidUntil:   now.Add(15 * time.Second),
-				FreshnessMs:  freshMs,
+				State:         dqState,
+				ReasonCode:    dqReason,
+				EvaluatedAt:   now,
+				ValidUntil:    now.Add(15 * time.Second),
+				FreshnessMs:   freshMs,
 				SourceVersion: "live_feed",
 			})
 
 			// Spread gate
 			spread, _ := state.Spread.Float64()
 			reg.UpdateState(types.GateSpread, gates.GateState{
-				State:       types.GatePass,
-				Value:       spread,
-				EvaluatedAt:  now,
-				ValidUntil:   now.Add(10 * time.Second),
-				FreshnessMs:  0,
+				State:         types.GatePass,
+				Value:         spread,
+				EvaluatedAt:   now,
+				ValidUntil:    now.Add(10 * time.Second),
+				FreshnessMs:   0,
 				SourceVersion: "live_feed",
 			})
 
 			// Session gate
 			reg.UpdateState(types.GateSession, gates.GateState{
-				State:       types.GatePass,
-				Value:       state.Session.CurrentSession,
-				EvaluatedAt:  now,
-				ValidUntil:   now.Add(60 * time.Second),
-				FreshnessMs:  0,
+				State:         types.GatePass,
+				Value:         state.Session.CurrentSession,
+				EvaluatedAt:   now,
+				ValidUntil:    now.Add(60 * time.Second),
+				FreshnessMs:   0,
 				SourceVersion: "session_engine",
 			})
 		}
@@ -2876,8 +2928,8 @@ func refreshGateStates(reg *gates.Registry, stateMgr *features.StateManager, age
 			if exists && gs.State == types.GatePass && !now.After(gs.ValidUntil) {
 				// Still fresh — extend validity
 				reg.UpdateState(gateID, gates.GateState{
-					State:        gs.State,
-					Value:        gs.Value,
+					State:         gs.State,
+					Value:         gs.Value,
 					EvaluatedAt:   now,
 					ValidUntil:    now.Add(30 * time.Second),
 					FreshnessMs:   0,
@@ -2929,11 +2981,11 @@ func hydrateEntitlementLicenseGates(reg *gates.Registry, persister *marketdata.P
 			// Active license found — hydrate license gate to PASS
 			fresh := now.Add(30 * time.Second)
 			reg.UpdateState(types.GateLicense, gates.GateState{
-				State:        types.GatePass,
-				EvaluatedAt:  now,
-				ValidUntil:   fresh,
+				State:         types.GatePass,
+				EvaluatedAt:   now,
+				ValidUntil:    fresh,
 				SourceVersion: "control_plane_db",
-				Quality:      types.QualityAuthoritative,
+				Quality:       types.QualityAuthoritative,
 			})
 
 			// Check for active subscriptions with entitled strategies
@@ -2949,11 +3001,11 @@ func hydrateEntitlementLicenseGates(reg *gates.Registry, persister *marketdata.P
 
 			if err2 == nil && subCount > 0 {
 				reg.UpdateState(types.GateEntitlement, gates.GateState{
-					State:        types.GatePass,
-					EvaluatedAt:  now,
-					ValidUntil:   fresh,
+					State:         types.GatePass,
+					EvaluatedAt:   now,
+					ValidUntil:    fresh,
 					SourceVersion: "control_plane_db",
-					Quality:      types.QualityAuthoritative,
+					Quality:       types.QualityAuthoritative,
 				})
 			}
 		}
@@ -2977,9 +3029,9 @@ func hydrateBrokerAccountState(reg *gates.Registry, balance, equity, freeMargin,
 
 	// Exposure gate: 0 current exposure (no open positions) = PASS
 	reg.UpdateState(types.GateExposure, gates.GateState{
-		State:        types.GatePass,
-		Value:        float64(openPositions),
-		EvaluatedAt:  now,
+		State:         types.GatePass,
+		Value:         float64(openPositions),
+		EvaluatedAt:   now,
 		ValidUntil:    now.Add(10 * time.Second),
 		FreshnessMs:   0,
 		SourceVersion: "broker_telemetry",
@@ -2989,13 +3041,13 @@ func hydrateBrokerAccountState(reg *gates.Registry, balance, equity, freeMargin,
 	// Margin gate: free margin > 0 = PASS
 	marginOK := freeMargin > 0
 	reg.UpdateState(types.GateMargin, gates.GateState{
-		State:        types.GatePass,
-		Value:        marginOK,
-		EvaluatedAt:  now,
-		ValidUntil:   now.Add(10 * time.Second),
-		FreshnessMs:  0,
+		State:         types.GatePass,
+		Value:         marginOK,
+		EvaluatedAt:   now,
+		ValidUntil:    now.Add(10 * time.Second),
+		FreshnessMs:   0,
 		SourceVersion: "broker_telemetry",
-		Quality:      types.QualityAuthoritative,
+		Quality:       types.QualityAuthoritative,
 	})
 }
 
@@ -3022,7 +3074,10 @@ func createNoTradeSignal(result strategy.StrategyResult, calibratedProb decimal.
 			sourceTs = state.LastTick.SourceTimestamp
 		}
 		if state.Candles != nil {
-			for _, c := range state.Candles { timeframe = c.Timeframe; break }
+			for _, c := range state.Candles {
+				timeframe = c.Timeframe
+				break
+			}
 		}
 	}
 	now := time.Now().UTC()
@@ -3032,36 +3087,36 @@ func createNoTradeSignal(result strategy.StrategyResult, calibratedProb decimal.
 		Grade: types.GradeNoTrade, Status: types.SignalDetected,
 		RawScore: result.RawScore, LongScore: result.LongScore, ShortScore: result.ShortScore,
 		CalibratedProbability: calibratedProb,
-		EntryPrice: result.EntryPrice, StopLoss: result.StopLoss,
+		EntryPrice:            result.EntryPrice, StopLoss: result.StopLoss,
 		TP1: result.TP1, TP2: result.TP2, TP3: result.TP3,
 		Regime: regime, Session: session, NewsRisk: newsRisk,
-		Timeframe: timeframe,
+		Timeframe:   timeframe,
 		ReasonCodes: result.ReasonCodes,
-		Evidence: result.Evidence, CreatedAt: now,
-		ExpiresAt: now.Add(15 * time.Minute),
+		Evidence:    result.Evidence, CreatedAt: now,
+		ExpiresAt:     now.Add(15 * time.Minute),
 		ExitProfileID: string(result.StrategyID) + "_EXIT_V1", GatePolicyVersion: "1.0.0",
 		// Detailed timestamp model (SOW Sections 26-30)
-		MarketTime:  marketTime,
-		DetectedAt:  now,
+		MarketTime: marketTime,
+		DetectedAt: now,
 		// Conflict penalty
 		ConflictPenalty: result.ConflictPenalty,
 		// Versioning
 		GeometryVersion: "1.0", RiskProfileVersion: "1.0", FeatureVersion: "1.0",
 		// Provenance (prompt.md Sections 30-31)
-		BidPrice:    bid,
-		AskPrice:    ask,
-		SourceMode:  sourceMode,
-		SourceSequence: sourceSeq,
+		BidPrice:        bid,
+		AskPrice:        ask,
+		SourceMode:      sourceMode,
+		SourceSequence:  sourceSeq,
 		SourceTimestamp: sourceTs,
 		IngestTimestamp: now,
-		BarClosed:   types.BarClosedConfirmed,
+		BarClosed:       types.BarClosedConfirmed,
 		// Calibration status (prompt.md Section 36)
 		CalibrationStatus: types.CalibrationUnverified,
 		// Transition scores (prompt.md Section 6)
-		TransitionLongScore:  result.TransitionLongScore,
-		TransitionShortScore: result.TransitionShortScore,
+		TransitionLongScore:   result.TransitionLongScore,
+		TransitionShortScore:  result.TransitionShortScore,
 		TransitionConflict:    result.TransitionConflict,
-		TransitionFinalScore: result.TransitionFinalScore,
+		TransitionFinalScore:  result.TransitionFinalScore,
 		IsTransitionCandidate: result.IsTransitionCandidate,
 		// Dominance (prompt.md Section 23)
 		Dominance: result.Dominance,
@@ -3078,7 +3133,9 @@ func createNoTradeSignal(result strategy.StrategyResult, calibratedProb decimal.
 }
 
 func computeRR(entry, sl, tp decimal.Decimal) decimal.Decimal {
-	if sl.IsZero() || entry.IsZero() { return decimal.Zero }
+	if sl.IsZero() || entry.IsZero() {
+		return decimal.Zero
+	}
 	return tp.Sub(entry).Abs().Div(entry.Sub(sl).Abs())
 }
 
@@ -3104,52 +3161,54 @@ func parseFloatSafe(d decimal.Decimal) float64 {
 func buildFeatureVector(state *features.MarketState) []float64 {
 	ind := state.Indicators
 	return []float64{
-		ind.EMA9.InexactFloat64(),      // 0: ema9
-		ind.EMA21.InexactFloat64(),     // 1: ema21
-		ind.EMA50.InexactFloat64(),     // 2: ema50
-		ind.EMA100.InexactFloat64(),    // 3: ema100
-		ind.EMA200.InexactFloat64(),    // 4: ema200
-		boolToFloat(ind.EMACross921),      // 5: ema_cross_9_21
-		ind.SMA50.InexactFloat64(),    // 6: sma50
-		ind.SMA100.InexactFloat64(),   // 7: sma100
-		ind.SMA200.InexactFloat64(),   // 8: sma200
-		ind.MACDMain.InexactFloat64(), // 9: macd_main
-		ind.MACDSignal.InexactFloat64(), // 10: macd_signal
-		ind.MACDHistogram.InexactFloat64(), // 11: macd_histogram
-		boolToFloat(ind.MACDBullCross),    // 12: macd_bull_cross
-		boolToFloat(ind.MACDBearCross),    // 13: macd_bear_cross
-		ind.ADX.InexactFloat64(),      // 14: adx
-		ind.ADXPlusDI.InexactFloat64(), // 15: adx_plus_di
-		ind.ADXMinusDI.InexactFloat64(), // 16: adx_minus_di
-		ind.RSI.InexactFloat64(),      // 17: rsi
-		ind.StochMain.InexactFloat64(), // 18: stoch_main
-		ind.StochSignal.InexactFloat64(), // 19: stoch_signal
-		ind.StochRSI.InexactFloat64(), // 20: stoch_rsi
-		ind.StochRSIK.InexactFloat64(), // 21: stoch_rsi_k
-		ind.StochRSID.InexactFloat64(), // 22: stoch_rsi_d
-		ind.CCI.InexactFloat64(),      // 23: cci
-		ind.ATR.InexactFloat64(),      // 24: atr
-		ind.BollUpper.InexactFloat64(), // 25: boll_upper
-		ind.BollMiddle.InexactFloat64(), // 26: boll_middle
-		ind.BollLower.InexactFloat64(), // 27: boll_lower
-		ind.BollWidth.InexactFloat64(), // 28: boll_width
-		boolToFloat(ind.BollBullRev),      // 29: boll_bull_rev
-		boolToFloat(ind.BollBearRev),     // 30: boll_bear_rev
-		ind.OBV.InexactFloat64(),      // 31: obv
-		ind.VWAP.InexactFloat64(),     // 32: vwap
-		ind.ParabolicSAR.InexactFloat64(), // 33: psar
-		boolToFloat(ind.ParabolicSARLong), // 34: psar_long
-		ind.IchimokuTenkan.InexactFloat64(), // 35: ichimoku_tenkan
-		ind.IchimokuKijun.InexactFloat64(), // 36: ichimoku_kijun
-		ind.IchimokuSenkouA.InexactFloat64(), // 37: ichimoku_senkou_a
-		ind.IchimokuSenkouB.InexactFloat64(), // 38: ichimoku_senkou_b
+		ind.EMA9.InexactFloat64(),                       // 0: ema9
+		ind.EMA21.InexactFloat64(),                      // 1: ema21
+		ind.EMA50.InexactFloat64(),                      // 2: ema50
+		ind.EMA100.InexactFloat64(),                     // 3: ema100
+		ind.EMA200.InexactFloat64(),                     // 4: ema200
+		boolToFloat(ind.EMACross921),                    // 5: ema_cross_9_21
+		ind.SMA50.InexactFloat64(),                      // 6: sma50
+		ind.SMA100.InexactFloat64(),                     // 7: sma100
+		ind.SMA200.InexactFloat64(),                     // 8: sma200
+		ind.MACDMain.InexactFloat64(),                   // 9: macd_main
+		ind.MACDSignal.InexactFloat64(),                 // 10: macd_signal
+		ind.MACDHistogram.InexactFloat64(),              // 11: macd_histogram
+		boolToFloat(ind.MACDBullCross),                  // 12: macd_bull_cross
+		boolToFloat(ind.MACDBearCross),                  // 13: macd_bear_cross
+		ind.ADX.InexactFloat64(),                        // 14: adx
+		ind.ADXPlusDI.InexactFloat64(),                  // 15: adx_plus_di
+		ind.ADXMinusDI.InexactFloat64(),                 // 16: adx_minus_di
+		ind.RSI.InexactFloat64(),                        // 17: rsi
+		ind.StochMain.InexactFloat64(),                  // 18: stoch_main
+		ind.StochSignal.InexactFloat64(),                // 19: stoch_signal
+		ind.StochRSI.InexactFloat64(),                   // 20: stoch_rsi
+		ind.StochRSIK.InexactFloat64(),                  // 21: stoch_rsi_k
+		ind.StochRSID.InexactFloat64(),                  // 22: stoch_rsi_d
+		ind.CCI.InexactFloat64(),                        // 23: cci
+		ind.ATR.InexactFloat64(),                        // 24: atr
+		ind.BollUpper.InexactFloat64(),                  // 25: boll_upper
+		ind.BollMiddle.InexactFloat64(),                 // 26: boll_middle
+		ind.BollLower.InexactFloat64(),                  // 27: boll_lower
+		ind.BollWidth.InexactFloat64(),                  // 28: boll_width
+		boolToFloat(ind.BollBullRev),                    // 29: boll_bull_rev
+		boolToFloat(ind.BollBearRev),                    // 30: boll_bear_rev
+		ind.OBV.InexactFloat64(),                        // 31: obv
+		ind.VWAP.InexactFloat64(),                       // 32: vwap
+		ind.ParabolicSAR.InexactFloat64(),               // 33: psar
+		boolToFloat(ind.ParabolicSARLong),               // 34: psar_long
+		ind.IchimokuTenkan.InexactFloat64(),             // 35: ichimoku_tenkan
+		ind.IchimokuKijun.InexactFloat64(),              // 36: ichimoku_kijun
+		ind.IchimokuSenkouA.InexactFloat64(),            // 37: ichimoku_senkou_a
+		ind.IchimokuSenkouB.InexactFloat64(),            // 38: ichimoku_senkou_b
 		boolToFloat(state.Session.CurrentSession == ""), // 39: session (0 if set)
-		boolToFloat(state.Session.IsOverlap), // 40: is_overlap
-		0.0,                           // 41: padding
+		boolToFloat(state.Session.IsOverlap),            // 40: is_overlap
+		0.0,                                             // 41: padding
 	}
 }
 
 func boolToFloat(b bool) float64 {
-	if b { return 1.0 }
+	if b {
+		return 1.0
+	}
 	return 0.0
 }
