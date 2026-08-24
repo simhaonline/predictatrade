@@ -144,6 +144,8 @@ int     g_slippageRejects = 0;
 // Execution safety state
 bool    g_equityHalted   = false;
 int     g_magicSeq       = 0;
+// Last raw signal payload (for ExpiresAt extraction)
+string  g_lastSignalJSON = "";
 
 // Per-trade registry (runtime, keyed by magic; survives reload via
 // GlobalVariables + order-comment reconstruction)
@@ -353,9 +355,6 @@ bool PAT_SignalFresh()
     }
     return true;
 }
-
-// Last raw signal payload (for ExpiresAt extraction)
-string g_lastSignalJSON = "";
 
 //+------------------------------------------------------------------+
 //| Position counting by PAT magic range                              |
@@ -1048,21 +1047,12 @@ bool PAT_DoPartial(int ticket, int magic, bool isBuy, double origLot,
     bool ok = OrderClose(ticket, closeLots, px, PAT_GetMaxSlippage(""), clrOrange);
     if(ok)
     {
-        double estPnl = (isBuy ? (px - openPx) : (openPx - px))
-                        * PAT_PointValue() * closeLots;
-        Print("PARTIAL ", reason, ": closed ", DoubleToString(closeLots, 2),
-              " of ", DoubleToString(origLot, 2), " @ ", DoubleToString(px, _Digits));
-        int idx = PAT_RegFind(magic);
-        string sig = (idx >= 0) ? g_regSig[idx] : "";
-        string strat = (idx >= 0) ? g_regStrat[idx] : "";
-        PAT_ReportResult(magic, ticket, sig, strat, reason, openPx, px, closeLots, estPnl, true);
-
-        // MT4 partial close: the closed chunk goes to history under a NEW
-        // ticket; mark it reported so PAT_HistoryPoll does not double-report.
-        GlobalVariableSet("PAT_RPT_" + IntegerToString(ticket), 1);
-
-        // The remainder continues under a NEW ticket with the SAME magic.
-        // State is keyed by magic, so nothing to re-key.
+        Print("PARTIAL ", reason, ": requested ", DoubleToString(closeLots, 2),
+              " of ", DoubleToString(origLot, 2), " @ ~", DoubleToString(px, _Digits));
+        // NOTE: MT4 splits the order — the closed chunk AND the remainder each
+        // get NEW tickets. We therefore do NOT report here; PAT_HistoryPoll()
+        // picks up the closed chunk by price-proximity (tp1/tp2) exactly once.
+        // Stage state survives because it is keyed by magic.
     }
     else
         Print("PARTIAL ", reason, " FAILED: ticket=", ticket, " err=", GetLastError());
@@ -1217,7 +1207,7 @@ void CheckSlippage(int ticket, string direction, double requestedPrice)
         g_slippageRejects++;
         Print("SLIPPAGE EXCEEDED: ticket=", ticket, " requested=", requestedPrice,
               " filled=", filledPrice, " slip=", slippagePoints, " points (max=", MaxSlippagePoints, ")");
-        PAT_SetForcedReason(OrderMagicNumber(), "SLIPPAGE_REJECT");
+        PAT_SetForcedReason(ticket, "SLIPPAGE_REJECT");
         ClosePosition(ticket, "SLIPPAGE_REJECT");
     }
     else

@@ -36,6 +36,7 @@ import (
 	"github.com/predictatrade/realtime/internal/observability"
 	"github.com/predictatrade/realtime/internal/ptb"
 	"github.com/predictatrade/realtime/internal/reconciliation"
+	"github.com/predictatrade/realtime/internal/risk"
 	sigengine "github.com/predictatrade/realtime/internal/signal"
 	"github.com/predictatrade/realtime/internal/strategy"
 	"github.com/predictatrade/realtime/internal/strategy/engines"
@@ -327,6 +328,11 @@ func main() {
 	featureReg := features.NewRegistrySet()
 	stateMgr := features.NewStateManager()
 
+	// Broker snapshot cache — latest MT5 account/symbol/positions data used
+	// by capital-protection gates and signal sizing annotations (declared
+	// early so snapshot merge hooks can capture symbol economics).
+	broker := &brokerAccountState{}
+
 	// ── News Risk Engine (v1.10) ──
 	// Wire the economic-calendar risk engine into the session feature engine.
 	// When NEWS_PROVIDER=disabled (default), the adapter returns "NONE" so
@@ -371,6 +377,8 @@ func main() {
 			if !ok || state == nil {
 				return
 			}
+			// Capture broker symbol economics for capital-protection sizing.
+			broker.UpdateSymbol(snapshot.SymbolInfo)
 			// Merge authoritative MT5 indicators
 			ind := snapshot.Indicators
 			state.Indicators.ATR = decimal.NewFromFloat(ind.ATR)
@@ -700,10 +708,10 @@ func main() {
 	// edge validation DEGRADED (advisory) until forward-test edge is proven.
 	gates.SeedCapitalProtectionGateStates(gateRegistry)
 
-	// Broker snapshot cache — latest MT5 account/symbol/positions data used
-	// by capital-protection gates and sizing annotations.
-	broker := &brokerAccountState{}
-	posCapsRef = posCaps
+	// ─── Session P&L anchors → daily_loss/profit_target gates (R4/PT) ───
+	go runPnLAnchorLoop(gateRegistry, valkeyCache, broker)
+	// ─── Rolling forward-test edge stats → edge_validation gate (EV1-EV3) ───
+	go hydrateEdgeValidationGate(gateRegistry, persister, cfg)
 	// B-04: Initialize MinATR and StopHuntFilter gates with PASS state at startup.
 	// These gates are self-evaluating from GateInput (ATR, StructuralLow/High),
 	// so they just need to be initialized to PASS so the first signal doesn't
@@ -1242,7 +1250,7 @@ func main() {
 				}
 				processCandle(candle, featureReg, stateMgr, strategies, engine, mlEngine, ollamaClient, healthManager, staleChecker,
 					calibConsumer, reconciler, wsHub, agentHub, persister, gateRegistry,
-					cooldownMgr, dupChecker, ptbEngine, auditLogger, xmEngine, xmPersister, xmValidation, engTracker)
+					cooldownMgr, dupChecker, ptbEngine, auditLogger, xmEngine, xmPersister, xmValidation, engTracker, cfg, posCaps, broker)
 			}
 		}
 	}()
@@ -1320,7 +1328,7 @@ func processTick(tick *types.Tick, validator *marketdata.TickValidator, staleDet
 	}
 }
 
-func processCandle(candle *types.Candle, featureReg *features.RegistrySet, stateMgr *features.StateManager, strategies []strategy.Strategy, engine *sigengine.Engine, mlEngine *mlengine.MLEngine, ollamaClient *ollama.OllamaClient, healthManager *health.Manager, staleChecker *health.StaleChecker, calibConsumer *calibration.Consumer, reconciler *reconciliation.Reconciler, wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, persister *marketdata.Persister, gateRegistry *gates.Registry, cooldownMgr *sigengine.CooldownManager, dupChecker *sigengine.DuplicateChecker, ptbEngine *ptb.Engine, auditLogger *audit.Logger, xmEngine *crossmarket.Engine, xmPersister *crossmarket.Persister, xmValidation *crossmarket.ValidationPersister, engTracker *engstatus.Tracker) {
+func processCandle(candle *types.Candle, featureReg *features.RegistrySet, stateMgr *features.StateManager, strategies []strategy.Strategy, engine *sigengine.Engine, mlEngine *mlengine.MLEngine, ollamaClient *ollama.OllamaClient, healthManager *health.Manager, staleChecker *health.StaleChecker, calibConsumer *calibration.Consumer, reconciler *reconciliation.Reconciler, wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, persister *marketdata.Persister, gateRegistry *gates.Registry, cooldownMgr *sigengine.CooldownManager, dupChecker *sigengine.DuplicateChecker, ptbEngine *ptb.Engine, auditLogger *audit.Logger, xmEngine *crossmarket.Engine, xmPersister *crossmarket.Persister, xmValidation *crossmarket.ValidationPersister, engTracker *engstatus.Tracker, cfg *config.Config, posCaps *gates.PositionCapsGate, broker *brokerAccountState) {
 	if candle == nil { return }
 	observability.CandlesGenerated.WithLabelValues(candle.Symbol, string(candle.Timeframe)).Inc()
 
@@ -1524,7 +1532,20 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				mlDir = types.DirectionSell
 			}
 			for _, strat := range strategies {
-				stratResult := strat.Evaluate(mergedState)
+		stratResult := strat.Evaluate(mergedState)
+
+		// ─── ENABLE_SHORTS (Bug 3) — generation-level suppression ───
+		// When shorts are disabled, SELL signals are suppressed here, NOT
+		// gate-vetoed: no signal is emitted at all (only a log). Default is
+		// enabled; operators opt out explicitly via ENABLE_SHORTS=false.
+		if cfg != nil && !cfg.EnableShorts && stratResult.Direction == types.DirectionSell {
+			observability.Log.Info().
+				Str("strategy", string(strat.ID())).
+				Str("symbol", string(candle.Symbol)).
+				Str("timeframe", string(candle.Timeframe)).
+				Msg("[ENABLE_SHORTS=false] SELL candidate suppressed at signal-generation")
+			continue
+		}
 				// Apply ML contribution (weight=0.15) and sentiment (weight=0.05)
 				sentimentScore := 0.0
 				if ollamaClient != nil && ollamaClient.IsEnabled() {
@@ -2211,7 +2232,13 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			continue
 		}
 
-		roundTripCost := decimal.NewFromFloat(0.30)
+		// Bug 6: real round-trip cost = actual spread from market state
+		// + configured slippage + commission (price points). The previous
+		// hardcoded 0.30 both over- and under-stated true costs.
+		bs := broker.Get()
+		spreadNow, _ := mergedState.Spread.Float64()
+		roundTripCostF := spreadNow + cfg.SlippageCostPoints + cfg.CommissionCostPoints
+		roundTripCost := decimal.NewFromFloat(roundTripCostF)
 		// P1-001: Derive entitlement/license/execution state from the authoritative
 		// gate registry — never hardcoded. Fail closed if any state is unknown/stale.
 		entitlementState := gates.ResolveEntitlementState(gateRegistry)
@@ -2241,6 +2268,17 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			EntitlementOK: entitlementState.EntitlementOK,
 			LicenseActive: entitlementState.LicenseActive,
 			ExecutionPermitted: entitlementState.ExecutionPermitted,
+			// Capital protection (R1-R7): broker snapshot + sizing inputs.
+			AccountEquity:    bs.Equity,
+			AccountFreeMargin: bs.FreeMargin,
+			AccountLeverage:  func() float64 { if bs.Leverage > 0 { return bs.Leverage }; return float64(cfg.DefaultLeverage) }(),
+			SymbolTickValue:  bs.TickValue,
+			SymbolTickSize:   bs.TickSize,
+			LotStep:          bs.LotStep,
+			RequestedLot:     cfg.BaseLots[string(strat.ID())],
+			PositionsKnown:   bs.PositionsKnown,
+			OpenBuyPositions:  bs.BuyCount,
+			OpenSellPositions: bs.SellCount,
 			StructuralLow: func() float64 {
 				if len(mergedState.Structure.SwingLows) > 0 {
 					v, _ := mergedState.Structure.SwingLows[len(mergedState.Structure.SwingLows)-1].Float64()
@@ -2288,6 +2326,33 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			decision.Signal.CalibrationStatus = calibStatus
 			decision.Signal.EvaluationSequence = evalSeq
 			decision.Signal.ScoreStatus = scoreStatus
+			// ─── Capital-protection sizing annotations (R1/R7, MA1-MA2) ───
+			if bs.Known && bs.Equity > 0 && !decision.Signal.EntryPrice.IsZero() && !decision.Signal.StopLoss.IsZero() {
+				entryF, _ := decision.Signal.EntryPrice.Float64()
+				slF, _ := decision.Signal.StopLoss.Float64()
+				econ := risk.SymbolEconomics{TickValue: bs.TickValue, TickSize: bs.TickSize, LotStep: bs.LotStep}
+				baseLot := cfg.BaseLots[string(strat.ID())]
+				leverage := bs.Leverage
+				if leverage <= 0 {
+					leverage = float64(cfg.DefaultLeverage)
+				}
+				sizing := risk.ComputeSizing(bs.Equity, cfg.MaxRiskPerTradePct, entryF, slF, baseLot, econ)
+				decision.Signal.SuggestedLot = decimal.NewFromFloat(sizing.SuggestedLot)
+				decision.Signal.RiskDollars = decimal.NewFromFloat(sizing.RiskDollars)
+				decision.Signal.RiskPctOfEquity = decimal.NewFromFloat(sizing.RiskPctOfEquity)
+				decision.Signal.SLDistancePoints = decimal.NewFromFloat(sizing.SLDistancePoints)
+				mc := risk.MarginAwareLotCapWith(bs.Equity, bs.FreeMargin, baseLot,
+					entryF, leverage, cfg.MaxMarginUsagePct, econ)
+				if !mc.Allowed {
+					observability.Log.Warn().
+						Str("strategy", string(strat.ID())).
+						Str("reason", mc.Reason).
+						Float64("required_margin", mc.RequiredMargin).
+						Float64("margin_budget", mc.MarginBudget).
+						Float64("capped_lot", mc.CappedLot).
+						Msg("[MARGIN_AWARE] candidate lot exceeds margin budget — annotation attached")
+				}
+			}
 			if decision.Signal.SignalReference == "" && persister != nil {
 				dsCtx, dsCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 				dsSeq, _ := persister.NextSignalSequence(dsCtx)
@@ -2312,6 +2377,17 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				decision.Signal.SignalClass = "EXECUTABLE"
 				decision.Signal.QualifiedAt = time.Now().UTC()
 				decision.Signal.PublishedAt = time.Now().UTC()
+				// Count toward the per-strategy position cap until the signal's
+				// expected lifetime elapses (upper-bound estimate; swing
+				// strategies hold longer than scalping ones).
+				if posCaps != nil {
+					issuedTTL := 2 * time.Hour
+					switch strat.ID() {
+					case types.StrategyID("STANDARD_SWING"), types.StrategyID("TREND_SWING"):
+						issuedTTL = 24 * time.Hour
+					}
+					posCaps.RecordIssued(strat.ID(), issuedTTL)
+				}
 				// Set threshold info
 				ct, tt, _ := strategy.GetThresholds(strat.ID(), mergedState.Regime.Current)
 				decision.Signal.CandidateThreshold = ct
@@ -2500,9 +2576,210 @@ func registerGates(reg *gates.Registry, cfg *config.Config) *gates.PositionCapsG
 		MaxLotRatio: cfg.MartingaleMaxLotRatio,
 		BaseLots:    baseLots,
 	}, types.GateProfitTarget)
-	reg.RegisterOrdered(&gates.EdgeValidationGate{}, types.GateExecutionPermit)
+	reg.RegisterOrdered(&gates.EdgeValidationGate{
+		MinProfitFactor: cfg.EdgeMinProfitFactor,
+		MinExpectancyR:  cfg.EdgeMinExpectancyR,
+		MinSampleSize:   cfg.EdgeMinSampleSize,
+	}, types.GateExecutionPermit)
 
 	return posCaps
+}
+
+// brokerAccountState caches the latest MT5 agent snapshot account data used
+// by capital-protection gates and signal sizing annotations.
+type brokerAccountState struct {
+	mu           sync.Mutex
+	known        bool
+	equity       float64
+	freeMargin   float64
+	leverage     float64
+	tickValue    float64
+	tickSize     float64
+	lotStep      float64
+	buyCount     int
+	sellCount    int
+	totalCount   int
+	positionsKnown bool
+	updatedAt    time.Time
+}
+
+func (b *brokerAccountState) Update(account *marketdata.SnapshotAccount, positions *marketdata.SnapshotPositions, now time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if account != nil {
+		b.known = true
+		b.equity = account.Equity
+		b.freeMargin = account.FreeMargin
+		if account.Leverage > 0 {
+			b.leverage = float64(account.Leverage)
+		}
+	}
+	if positions != nil {
+		b.positionsKnown = true
+		b.buyCount = int(positions.BuyCount)
+		b.sellCount = int(positions.SellCount)
+		b.totalCount = int(positions.TotalPositions)
+	}
+	b.updatedAt = now
+}
+
+// Get returns a consistent copy. Stale snapshots (>60s old) are reported as
+// unknown so downstream consumers fail closed.
+func (b *brokerAccountState) Get() brokerAccountSnapshotData {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	data := brokerAccountSnapshotData{
+		Known:          b.known && time.Since(b.updatedAt) < 60*time.Second,
+		Equity:         b.equity,
+		FreeMargin:     b.freeMargin,
+		Leverage:       b.leverage,
+		TickValue:      b.tickValue,
+		TickSize:       b.tickSize,
+		LotStep:        b.lotStep,
+		BuyCount:       b.buyCount,
+		SellCount:      b.sellCount,
+		TotalCount:     b.totalCount,
+		PositionsKnown: b.positionsKnown && time.Since(b.updatedAt) < 60*time.Second,
+		UpdatedAt:      b.updatedAt,
+	}
+	return data
+}
+
+// UpdateSymbol merges broker symbol spec economics into the cached snapshot.
+func (b *brokerAccountState) UpdateSymbol(sym marketdata.SnapshotSymbol) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if sym.TickValue > 0 {
+		b.tickValue = sym.TickValue
+	}
+	if sym.TickSize > 0 {
+		b.tickSize = sym.TickSize
+	}
+	if sym.LotStep > 0 {
+		b.lotStep = sym.LotStep
+	}
+}
+
+type brokerAccountSnapshotData struct {
+	Known          bool
+	Equity         float64
+	FreeMargin     float64
+	Leverage       float64
+	TickValue      float64
+	TickSize       float64
+	LotStep        float64
+	BuyCount       int
+	SellCount      int
+	TotalCount     int
+	PositionsKnown bool
+	UpdatedAt      time.Time
+}
+
+// runPnLAnchorLoop keeps the daily_loss/profit_target gate states hydrated
+// from session P&L anchors persisted in Valkey (pat:pnl_anchor:{period}).
+// Fail-closed: no Valkey/no equity ⇒ gates veto pnl_state_unknown.
+func runPnLAnchorLoop(gateRegistry *gates.Registry, valkeyCache *cache.ValkeyCache, broker *brokerAccountState) {
+	pnlTracker := risk.NewPnLTracker(risk.NewValkeyAnchorStore(valkeyCache))
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		bs := broker.Get()
+		if !bs.Known || bs.Equity <= 0 {
+			continue // gates stay in their fail-closed seeded state
+		}
+		now := time.Now().UTC()
+		snap := pnlTracker.Update(bs.Equity, now)
+		gateRegistry.UpdateState(types.GateDailyLoss, gates.GateState{
+			GateID: types.GateDailyLoss, State: types.GatePass, Value: snap,
+			EvaluatedAt: now, SourceVersion: "pnl_tracker",
+		})
+		gateRegistry.UpdateState(types.GateProfitTarget, gates.GateState{
+			GateID: types.GateProfitTarget, State: types.GatePass, Value: snap,
+			EvaluatedAt: now, SourceVersion: "pnl_tracker",
+		})
+		if observability.Log.Debug().Enabled() {
+			observability.Log.Debug().
+				Float64("day_pct", snap.PeriodPc[risk.PeriodDay]).
+				Float64("week_pct", snap.PeriodPc[risk.PeriodWeek]).
+				Float64("month_pct", snap.PeriodPc[risk.PeriodMonth]).
+				Msg("[PNL] session anchor snapshot refreshed")
+		}
+	}
+}
+
+// hydrateEdgeValidationGate refreshes rolling forward-test edge statistics
+// per strategy from trading.trade_results every 60s (EV1-EV3 cache window).
+// Strategies failing profit factor / expectancy / sample-size thresholds —
+// including strategies with an empty history — degrade the edge gate so
+// signals publish as ADVISORY with reason edge_unproven.
+func hydrateEdgeValidationGate(gateRegistry *gates.Registry, persister *marketdata.Persister, cfg *config.Config) {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		if persister == nil {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		rows, err := persister.GetDB().QueryContext(ctx, `
+			SELECT strategy_id, direction, pnl::float8,
+			       COALESCE(entry_price,0)::float8, COALESCE(stop_loss,0)::float8,
+			       COALESCE(lot_size,0)::float8
+			FROM trading.trade_results
+			ORDER BY closed_at DESC
+			LIMIT $1
+		`, cfg.EdgeLookbackTrades)
+		if err != nil {
+			cancel()
+			observability.Log.Warn().Err(err).Msg("[EDGE] trade_results query failed — edge gate unchanged")
+			continue
+		}
+		var all []risk.TradeRecord
+		for rows.Next() {
+			var t risk.TradeRecord
+			if scanErr := rows.Scan(&t.StrategyID, &t.Direction, &t.PnL,
+				&t.EntryPrice, &t.StopLoss, &t.LotSize); scanErr == nil {
+				all = append(all, t)
+			}
+		}
+		rows.Close()
+		cancel()
+
+		statsByStrategy := make(map[types.StrategyID]risk.EdgeStats)
+		// Compute per strategy over that strategy's last N trades.
+		grouped := make(map[string][]risk.TradeRecord)
+		for _, t := range all {
+			grouped[t.StrategyID] = append(grouped[t.StrategyID], t)
+		}
+		for id, trades := range grouped {
+			stats := risk.ComputeEdgeStats(trades)
+			statsByStrategy[types.StrategyID(id)] = stats
+			proven := stats.IsProven(cfg.EdgeMinProfitFactor, cfg.EdgeMinExpectancyR, cfg.EdgeMinSampleSize)
+			observability.Log.Info().
+				Str("strategy", id).
+				Int("sample_size", stats.SampleSize).
+				Float64("profit_factor", stats.ProfitFactor).
+				Float64("expectancy_r", stats.ExpectancyR).
+				Float64("short_expectancy_r", stats.ShortExpectancyR).
+				Bool("proven", proven).
+				Msg("[EDGE] rolling forward-test stats refreshed")
+		}
+
+		now := time.Now().UTC()
+		reasonCode := gates.ReasonEdgeUnproven
+		stateResult := types.GateDegraded
+		if len(statsByStrategy) > 0 {
+			// Gate result is computed per-signal from the map; the cached
+			// marker reflects overall availability for observability only.
+			stateResult = types.GatePass
+			reasonCode = "edge_stats_available"
+		}
+		gateRegistry.UpdateState(types.GateEdgeValidation, gates.GateState{
+			GateID: types.GateEdgeValidation, State: stateResult,
+			Value: statsByStrategy, ReasonCode: reasonCode,
+			EvaluatedAt: now, ValidUntil: now.Add(90 * time.Second),
+			SourceVersion: "edge_refresher",
+		})
+	}
 }
 // refreshGateStates periodically refreshes gate state from live market/broker data.
 // This runs as a background goroutine to keep gate states fresh.

@@ -296,22 +296,34 @@ func (g *MartingaleBanGate) Evaluate(input GateInput, state GateState) GateEvalu
 
 // EdgeValidationGate forces SignalClass=ADVISORY (via DEGRADED — not a hard
 // veto) when the strategy's rolling forward-test edge over the last N=50
-// closed trades does not prove profit factor ≥ 1.2 AND expectancy ≥ 0.2R
-// at sample size ≥ 50. State is hydrated by a background refresher
-// querying trading.trade_results (60s cache); empty history → ADVISORY.
-type EdgeValidationGate struct{}
+// closed trades does not prove profit factor ≥ MinProfitFactor AND
+// expectancy ≥ MinExpectancyR at sample size ≥ MinSampleSize. State.Value
+// carries a map[types.StrategyID]risk.EdgeStats hydrated by a background
+// refresher querying trading.trade_results (60s cache); empty history or a
+// strategy without entries → ADVISORY (never fabricated evidence).
+type EdgeValidationGate struct {
+	MinProfitFactor float64
+	MinExpectancyR  float64
+	MinSampleSize   int
+}
 
 func (g *EdgeValidationGate) ID() types.GateID { return types.GateEdgeValidation }
 
 func (g *EdgeValidationGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := g.base(state)
-	switch state.State {
-	case types.GatePass:
-		eval.Result = types.GatePass
-	default:
+	statsByStrategy, ok := state.Value.(map[types.StrategyID]risk.EdgeStats)
+	if !ok {
 		eval.Result = types.GateDegraded
 		eval.ReasonCodes = []string{ReasonEdgeUnproven}
+		return eval
 	}
+	stats, ok := statsByStrategy[input.StrategyID]
+	if !ok || !stats.IsProven(g.MinProfitFactor, g.MinExpectancyR, g.MinSampleSize) {
+		eval.Result = types.GateDegraded
+		eval.ReasonCodes = []string{ReasonEdgeUnproven}
+		return eval
+	}
+	eval.Result = types.GatePass
 	return eval
 }
 
