@@ -23,10 +23,33 @@ export class PayoutsService {
    */
   async requestPayout(
     userId: string,
-    dto: { amount: number; method: string; destination: string; idempotency_key?: string; currency?: string },
+    dto: {
+      amount: number;
+      method: 'BANK_TRANSFER' | 'USDT';
+      destination: string;
+      idempotency_key?: string;
+      currency?: string;
+      details?: Record<string, string>;
+    },
   ) {
     const amount = Number(dto.amount);
     if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('amount must be positive');
+    // Only BANK_TRANSFER and USDT payouts are supported (PayPal/Wise removed).
+    if (!['BANK_TRANSFER', 'USDT'].includes(dto.method)) {
+      throw new BadRequestException('method must be BANK_TRANSFER or USDT');
+    }
+    if (dto.method === 'BANK_TRANSFER') {
+      for (const field of ['bank_name', 'account_holder', 'account_number', 'swift_bic', 'country']) {
+        if (!dto.details?.[field]?.trim()) throw new BadRequestException(`bank payout requires details.${field}`);
+      }
+    } else if (dto.method === 'USDT') {
+      if (!['TRC20', 'ERC20', 'BEP20'].includes(dto.details?.network ?? '')) {
+        throw new BadRequestException('USDT payout requires details.network (TRC20, ERC20 or BEP20)');
+      }
+      if (!/^0x[a-fA-F0-9]{40}$/.test(dto.destination.trim()) && !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(dto.destination.trim())) {
+        throw new BadRequestException('USDT payout requires a valid wallet address in destination');
+      }
+    }
     const MIN_PAYOUT = 50;
     if (amount < MIN_PAYOUT) throw new BadRequestException(`minimum payout is ${MIN_PAYOUT}`);
 
@@ -90,7 +113,7 @@ export class PayoutsService {
           userId,
           amount,
           currency,
-          JSON.stringify({ method: dto.method, destination: dto.destination }),
+          JSON.stringify({ method: dto.method, destination: dto.destination, details: dto.details ?? {} }),
           dto.idempotency_key ?? null,
         ],
       );

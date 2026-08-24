@@ -6,7 +6,7 @@ export const STRATEGIES = [
 ] as const;
 
 export type Strategy = (typeof STRATEGIES)[number];
-export type CommercialPlan = 'FREE' | 'STANDARD' | 'PRO' | 'ELITE' | 'BASIC';
+export type CommercialPlan = 'FREE' | 'STANDARD' | 'PRO' | 'ELITE';
 
 export interface PlanPolicy {
   code: CommercialPlan;

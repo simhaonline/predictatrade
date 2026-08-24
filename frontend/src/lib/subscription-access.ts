@@ -2,7 +2,7 @@
 // Keeps the UI consistent with the user's plan: lower tiers see a limited,
 // clearly-labeled subset of strategy analytics rather than the full grid.
 
-export type PlanTier = "FREE" | "BASIC" | "PRO" | "ELITE" | "ENTERPRISE" | string;
+export type PlanTier = "FREE" | "STANDARD" | "PRO" | "ELITE" | string;
 
 export interface SubscriptionContext {
   planName?: string | null;
@@ -17,7 +17,7 @@ export function planRank(plan?: string | null): number {
   if (p.includes("ENTERPRISE")) return 4;
   if (p.includes("ELITE")) return 3;
   if (p.includes("PRO")) return 2;
-  if (p.includes("BASIC") || p.includes("STARTER")) return 1;
+  if (p.includes("STANDARD") || p.includes("STARTER")) return 1;
   return 0; // FREE / unknown
 }
 
@@ -28,7 +28,7 @@ export function isActiveSubscription(ctx?: SubscriptionContext): boolean {
 /**
  * Given the full ranking, return the subset visible to the user's plan.
  * - FREE: only the overall top strategy (teaser), rest locked.
- * - BASIC: top 5 strategies.
+ * - STANDARD: top 5 strategies.
  * - PRO+: all strategies, plus full analytics.
  */
 export function visibleStrategies<T>(rows: T[], ctx?: SubscriptionContext): {
@@ -39,7 +39,7 @@ export function visibleStrategies<T>(rows: T[], ctx?: SubscriptionContext): {
   const tier = planRank(ctx?.planName);
   let limit = rows.length;
   if (tier <= 0) limit = Math.min(1, rows.length);      // FREE teaser
-  else if (tier === 1) limit = Math.min(5, rows.length); // BASIC
+  else if (tier === 1) limit = Math.min(5, rows.length); // STANDARD
   // PRO (2), ELITE (3), ENTERPRISE (4) -> all
   return {
     visible: rows.slice(0, limit),

@@ -13,10 +13,13 @@ export interface Payout {
   notes?: string;
 }
 
+export type PayoutMethod = "BANK_TRANSFER" | "USDT";
+
 export interface RequestPayoutPayload {
   amount: number;
-  method: string;
+  method: PayoutMethod;
   destination: string;
+  details?: Record<string, string>;
 }
 
 export async function fetchPayouts(): Promise<Payout[]> {

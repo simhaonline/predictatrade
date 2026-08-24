@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 const footerLinks = [
   { label: "Terms of Service", href: "/terms" },
   { label: "Privacy Policy", href: "/privacy" },
+  { label: "Data Processing Agreement", href: "/data-processing-agreement" },
   { label: "Complaints Procedure", href: "/complaints" },
   { label: "Sitemap", href: "/sitemap" },
   { label: "Cookie Policy", href: "/cookies" },

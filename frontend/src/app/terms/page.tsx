@@ -1,22 +1,160 @@
 import type { Metadata } from "next";
 import LegalLayout from "@/components/legal/legal-layout";
+
 export const metadata: Metadata = { title: "Terms of Service | Predict-A-Trade" };
+
 export default function TermsPage() {
   return (
-    <LegalLayout title="Terms of Service" lastUpdated="August 2026">
-      <section><h2>1. Acceptance of Terms</h2><p>By accessing and using the Predict-A-Trade platform (the &quot;Service&quot;), you agree to be bound by these Terms of Service. If you do not agree, please do not use the Service.</p></section>
-      <section><h2>2. Description of Service</h2><p>Predict-A-Trade is a XAUUSD signal generation and trading analysis platform that provides market analysis, signal generation, and related tools. The Service is provided by Simha FinTech.</p></section>
-      <section><h2>3. Eligibility</h2><p>You must be at least 18 years old and legally capable of entering into contracts to use this Service. By registering, you represent that you meet these requirements.</p></section>
-      <section><h2>4. Accounts and Licenses</h2><p>You are responsible for maintaining the security of your account credentials. Each license is tied to a single device. Unauthorized sharing of accounts or licenses may result in termination.</p></section>
-      <section><h2>5. Trading Disclaimer</h2><p>The Service provides analysis and signals for informational purposes only. Nothing on this platform constitutes financial advice. Trading in financial markets, including XAUUSD, carries significant risk of loss. Past performance does not guarantee future results. You are solely responsible for your trading decisions.</p></section>
-      <section><h2>6. Subscription and Billing</h2><p>Subscription fees are billed according to your selected plan. Refunds are handled on a case-by-case basis. Subscription cancellation stops future billing but does not automatically refund the current period.</p></section>
-      <section><h2>7. Referral Program</h2><p>Commissions are earned through the referral program according to the published commission structure. Commission reversals may occur for refunded or fraudulent referrals.</p></section>
-      <section><h2>8. Prohibited Conduct</h2><p>You agree not to: reverse engineer the platform, attempt to circumvent licensing or device authorization, use the Service for illegal activities, or redistribute signals without authorization.</p></section>
-      <section><h2>9. Intellectual Property</h2><p>All content, software, indicators, strategies, and designs on this platform are the property of Simha FinTech. You may not copy, modify, or distribute platform content without written permission.</p></section>
-      <section><h2>10. Limitation of Liability</h2><p>The Service is provided &quot;as is&quot; without warranties of any kind. Simha FinTech is not liable for trading losses, technical failures, data inaccuracies, or any indirect damages arising from use of the Service.</p></section>
-      <section><h2>11. Termination</h2><p>We may terminate or suspend your account at any time for violation of these terms. You may cancel your subscription at any time.</p></section>
-      <section><h2>12. Changes to Terms</h2><p>We may update these terms periodically. Continued use after changes constitutes acceptance of the updated terms.</p></section>
-      <section><h2>13. Contact</h2><p>For questions about these terms, contact: support@predictatrade.com</p></section>
+    <LegalLayout title="Terms of Service" lastUpdated="25 August 2026">
+      <section>
+        <h2>1. Acceptance of Terms</h2>
+        <p>By accessing, registering for, or using the Predict-A-Trade platform (the &quot;Service&quot;), you agree to be bound by these Terms of Service (&quot;Terms&quot;). If you do not agree to these Terms, you must not access or use the Service. Your use of the Service constitutes a legally binding agreement between you and Simha FinTech (&quot;Simha FinTech&quot;, &quot;we&quot;, &quot;us&quot;, or &quot;our&quot;).</p>
+      </section>
+
+      <section>
+        <h2>2. Description of Service</h2>
+        <p>Predict-A-Trade is a XAUUSD (gold vs. US dollar) signal generation, market analysis, and trading intelligence platform. The Service provides real-time market data visualization, technical indicator analysis, multi-timeframe signal generation, risk management tools, broker connectivity (via MetaTrader 4/5), referral program management, and subscription-based access to trading analysis tools. The Service is provided by Simha FinTech.</p>
+        <p>The Service is <strong>not</strong> a broker, dealer, financial advisor, investment manager, or custodian. We do not execute trades on your behalf, hold your funds, or provide personalized financial advice.</p>
+      </section>
+
+      <section>
+        <h2>3. Eligibility and Representations</h2>
+        <p>By registering an account, you represent and warrant that:</p>
+        <ul>
+          <li>You are at least 18 years of age (or the legal age of majority in your jurisdiction) and are legally capable of entering into binding contracts.</li>
+          <li>You are not located in, or a citizen or resident of, any country or jurisdiction where access to or use of the Service is prohibited by applicable law, including but not limited to jurisdictions subject to comprehensive sanctions by the United Nations, the European Union, the United Kingdom, or the United States of America.</li>
+          <li>You are not on any restricted-party list maintained by any governmental or regulatory authority.</li>
+          <li>All information you provide during registration and account use is accurate, complete, and not misleading.</li>
+          <li>You are using the Service for your own account and not on behalf of any third party, unless expressly authorized by us in writing.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>4. User Accounts and Security</h2>
+        <p>You are responsible for maintaining the confidentiality and security of your account credentials, including your password, multi-factor authentication codes, and any API keys or device tokens. You agree to notify us immediately of any unauthorized use of your account or any other security breach. We are not liable for any loss or damage arising from your failure to protect your account credentials.</p>
+        <p>Each subscription license is tied to a single authorized device. Unauthorized sharing, transferring, or reselling of accounts, licenses, or access credentials is strictly prohibited and may result in immediate account termination without refund.</p>
+      </section>
+
+      <section>
+        <h2>5. Trading Disclaimer and Risk Acknowledgment</h2>
+        <p><strong>IMPORTANT — READ CAREFULLY:</strong> The Service provides analysis, signals, indicators, and market data for <strong>informational and educational purposes only</strong>. Nothing on this platform constitutes, or should be construed as, financial advice, investment advice, trading advice, a recommendation to buy or sell any instrument, or an offer or solicitation to enter into any transaction.</p>
+        <p>Trading in financial markets, including but not limited to XAUUSD spot gold, gold futures, and gold-related instruments, carries a <strong>high level of risk</strong> and may result in the loss of some or all of your invested capital. You acknowledge and agree that:</p>
+        <ul>
+          <li>Past performance, backtest results, walk-forward results, and any historical or simulated data presented on the Service do not guarantee future results and are not indicative of future performance.</li>
+          <li>Signals and analysis generated by the Service may be incorrect, incomplete, or outdated. You must independently verify all information before acting.</li>
+          <li>You are solely and exclusively responsible for all trading decisions, including entry, exit, position sizing, risk management, and the selection of brokers and trading platforms.</li>
+          <li>The Service does not guarantee the accuracy, timeliness, or completeness of market data, price quotes, or any other information.</li>
+          <li>You may lose more than your initial investment due to leverage, margin requirements, gaps, slippage, or market volatility.</li>
+        </ul>
+        <p>By using the Service, you expressly acknowledge that you have read and understood this risk disclosure and that you accept full responsibility for all trading outcomes.</p>
+      </section>
+
+      <section>
+        <h2>6. Subscriptions, Billing, and Refunds</h2>
+        <p>The Service offers subscription plans with different features and pricing. Subscription fees are billed in advance according to your selected plan and billing cycle (monthly or annual). Payment is processed through our authorized payment processors.</p>
+        <ul>
+          <li><strong>Auto-renewal:</strong> Subscriptions auto-renew at the end of each billing cycle unless cancelled before the renewal date. You may cancel at any time from your account settings.</li>
+          <li><strong>Cancellation:</strong> Cancellation stops future billing but does not automatically refund the current billing period. You will retain access until the end of your paid period.</li>
+          <li><strong>Refunds:</strong> Refund requests are evaluated on a case-by-case basis. Refunds, if granted, are processed within 14 business days to the original payment method.</li>
+          <li><strong>Price changes:</strong> We may change subscription pricing with at least 30 days&apos; notice. Existing subscribers retain the current price until the next renewal date.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>7. Referral Program and Commissions</h2>
+        <p>The Service includes a referral program that allows you to earn commissions by referring new subscribers. Commissions are calculated and paid according to the published commission structure in effect at the time of the referral. You acknowledge that:</p>
+        <ul>
+          <li>Commissions are earned only from eligible, validated revenue as defined in our commission policy.</li>
+          <li>Commission reversals may occur for refunded, chargebacked, or fraudulent referrals.</li>
+          <li>Self-referrals are prohibited and will result in forfeiture of commissions and potential account termination.</li>
+          <li>Payouts are processed according to our published payout schedule and are subject to minimum threshold requirements.</li>
+          <li>You are responsible for any tax obligations arising from referral commission earnings. We may issue tax documentation as required by applicable law.</li>
+          <li>You must comply with all applicable laws when promoting the Service, including disclosure requirements and anti-spam regulations.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>8. Prohibited Conduct</h2>
+        <p>You agree not to:</p>
+        <ul>
+          <li>Reverse engineer, decompile, disassemble, or otherwise attempt to derive the source code of the Service or its underlying algorithms, strategies, or models.</li>
+          <li>Attempt to circumvent or disable any licensing, device authorization, rate limiting, or security mechanism.</li>
+          <li>Use the Service for any illegal, fraudulent, or unauthorized purpose.</li>
+          <li>Redistribute, resell, sublicense, or commercially exploit signals, indicators, analysis, or any Service content without express written authorization.</li>
+          <li>Scrape, crawl, or use automated tools to extract data from the Service beyond what is provided through official APIs.</li>
+          <li>Introduce malware, viruses, or any malicious code to the Service.</li>
+          <li>Use the Service to violate any applicable law, regulation, or third-party rights.</li>
+          <li>Create multiple accounts to abuse free trials, promotional offers, or the referral program.</li>
+          <li>Interfere with or disrupt the Service, servers, or networks connected to the Service.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>9. Intellectual Property</h2>
+        <p>All content, software, algorithms, indicators, strategies, designs, logos, trademarks, and other intellectual property on the Service are the exclusive property of Simha FinTech or its licensors. No part of the Service may be copied, modified, distributed, or used for commercial purposes without our prior written consent.</p>
+        <p>&quot;Predict-A-Trade&quot;, &quot;Simha FinTech&quot;, and associated logos are trademarks of Simha FinTech. All other trademarks are the property of their respective owners.</p>
+      </section>
+
+      <section>
+        <h2>10. Broker Connectivity and MetaTrader Integration</h2>
+        <p>The Service may integrate with MetaTrader 4 (MT4) and MetaTrader 5 (MT5) platforms to provide signal delivery and execution monitoring. You acknowledge that:</p>
+        <ul>
+          <li>Your broker, not Simha FinTech, is responsible for trade execution, order routing, pricing, and all trading infrastructure.</li>
+          <li>Simha FinTech does not hold, custody, or transfer your trading funds.</li>
+          <li>You are solely responsible for configuring your MetaTrader terminal and broker account.</li>
+          <li>Broker connectivity features may be unavailable or delayed due to broker-side issues, network problems, or maintenance windows.</li>
+          <li>Any Expert Advisor (EA) or indicator provided by the Service is a lightweight execution adapter and does not contain predictive intelligence or private signing credentials.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>11. Disclaimers and Warranties</h2>
+        <p>The Service is provided &quot;as is&quot; and &quot;as available&quot; without warranties of any kind, whether express or implied, including but not limited to warranties of merchantability, fitness for a particular purpose, non-infringement, and accuracy. We do not warrant that the Service will be uninterrupted, error-free, secure, or that defects will be corrected.</p>
+        <p>Market data, price quotes, and other information may be delayed, inaccurate, or incomplete. We are not responsible for any losses resulting from reliance on such information.</p>
+      </section>
+
+      <section>
+        <h2>12. Limitation of Liability</h2>
+        <p>To the maximum extent permitted by applicable law, Simha FinTech and its affiliates, officers, directors, employees, contractors, and agents shall not be liable for:</p>
+        <ul>
+          <li>Any direct, indirect, incidental, special, consequential, or punitive damages arising from your use of or inability to use the Service.</li>
+          <li>Trading losses, including but not limited to losses from following signals, analysis, or any Service output.</li>
+          <li>Technical failures, including server downtime, data loss, connectivity issues, or software errors.</li>
+          <li>Any third-party actions, including broker execution failures, payment processor errors, or data provider inaccuracies.</li>
+          <li>Any loss of profits, revenue, business, or data.</li>
+        </ul>
+        <p>Our total aggregate liability for all claims arising from or related to the Service shall not exceed the amount you paid us in the 12 months preceding the claim.</p>
+      </section>
+
+      <section>
+        <h2>13. Indemnification</h2>
+        <p>You agree to indemnify and hold harmless Simha FinTech and its affiliates, officers, directors, employees, and agents from any claims, damages, losses, liabilities, costs, and expenses (including reasonable legal fees) arising from your use of the Service, your violation of these Terms, your infringement of third-party rights, or your breach of any applicable law.</p>
+      </section>
+
+      <section>
+        <h2>14. Termination</h2>
+        <p>We may terminate or suspend your account at any time, with or without cause, including for violation of these Terms, fraudulent activity, or inactivity. Upon termination, your right to use the Service ceases immediately. You may cancel your subscription at any time from your account settings. Provisions that by their nature should survive termination shall remain in effect.</p>
+      </section>
+
+      <section>
+        <h2>15. Governing Law and Dispute Resolution</h2>
+        <p>These Terms are governed by the laws applicable in the jurisdiction where Simha FinTech is registered and operating. Any dispute arising from these Terms or the Service shall first be attempted to be resolved through good-faith negotiation. If unresolved within 30 days, the dispute shall be submitted to binding arbitration in accordance with the applicable arbitration rules. The prevailing language of arbitration shall be English.</p>
+      </section>
+
+      <section>
+        <h2>16. Changes to Terms</h2>
+        <p>We may update these Terms periodically. Material changes will be notified to registered users via email or in-platform notification at least 30 days before taking effect. Your continued use of the Service after changes become effective constitutes acceptance of the updated Terms.</p>
+      </section>
+
+      <section>
+        <h2>17. Severability</h2>
+        <p>If any provision of these Terms is found to be unenforceable or invalid, that provision shall be limited or eliminated to the minimum extent necessary, and the remaining provisions shall remain in full force and effect.</p>
+      </section>
+
+      <section>
+        <h2>18. Contact</h2>
+        <p>For questions about these Terms, contact: <strong>support@predictatrade.com</strong></p>
+      </section>
     </LegalLayout>
   );
 }

@@ -111,7 +111,7 @@ export class AdminService {
     const [data, count] = await Promise.all([
       this.pool.query(
         `SELECT s.id, s.user_id, u.email as user_email, s.plan_id, p.code as plan_code,
-                CASE WHEN p.code = 'BASIC' THEN 'Legacy' ELSE p.name END as plan_name,
+                p.name as plan_name,
                 p.monthly_price, p.annual_price, s.billing_interval as billing_cycle,
                 s.status,
                 s.billing_period_start as current_period_start,

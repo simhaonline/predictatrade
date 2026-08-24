@@ -75,6 +75,17 @@ export class AuthService {
   /* ─── Registration ─── */
 
   async register(dto: RegisterDto): Promise<AuthResponse & { _refreshToken: string }> {
+    // ── Consent validation — required checkboxes must be true ──
+    if (!dto.agreeToTerms) {
+      throw new BadRequestException('You must agree to the Terms of Use and Privacy Policy');
+    }
+    if (!dto.acknowledgePrivacyPolicy) {
+      throw new BadRequestException('You must acknowledge the Privacy Policy');
+    }
+    if (!dto.acknowledgeDataProcessing) {
+      throw new BadRequestException('You must acknowledge the Data Processing and Security Agreement');
+    }
+
     const existing = await this.pool.query('SELECT id FROM iam.users WHERE email = $1', [dto.email]);
     if (existing.rows.length > 0) throw new ConflictException('Email already registered');
     const passwordHash = await bcrypt.hash(dto.password, 12);
@@ -115,6 +126,46 @@ export class AuthService {
        VALUES (gen_random_uuid(), $1, $2, true, now()) ON CONFLICT DO NOTHING`,
       [userId, refCode],
     );
+    // ── Log consent records for compliance audit ──
+    const consentVersion = '2026-08-25';
+    const consents = [
+      { type: 'AGREE_TO_TERMS', accepted: true, text: 'I agree to the Terms of Use and Privacy Policy' },
+      { type: 'ACKNOWLEDGE_PRIVACY_POLICY', accepted: true, text: 'I confirm that I have read and acknowledge the Privacy Policy' },
+      { type: 'ACKNOWLEDGE_DATA_PROCESSING', accepted: true, text: 'I confirm that I have read and acknowledge the Data Processing and Security Agreement' },
+      { type: 'OPT_IN_EMAIL_MARKETING', accepted: !!dto.optInEmailMarketing, text: 'I want to receive news and promotional offers by email' },
+      { type: 'OPT_IN_SMS_MARKETING', accepted: !!dto.optInSmsMarketing, text: 'I want to receive news and promotional offers by SMS' },
+      { type: 'OPT_IN_PHONE_MARKETING', accepted: !!dto.optInPhoneMarketing, text: 'I want to receive news and promotional offers by phone call' },
+    ];
+    for (const c of consents) {
+      try {
+        await this.pool.query(
+          `INSERT INTO audit.client_events (user_id, event_type, metadata, created_at)
+           VALUES ($1, 'CONSENT_LOG', $2, now())`,
+          [userId, JSON.stringify({ consentType: c.type, accepted: c.accepted, textVersion: consentVersion, consentText: c.text })],
+        );
+      } catch (e) {
+        this.logger?.warn?.(`Failed to log consent ${c.type}: ${e}`) ;
+      }
+    }
+
+    // ── Store marketing preferences and consent version on the user record ──
+    try {
+      await this.pool.query(
+        `UPDATE iam.users SET
+           marketing_email_optin = $2,
+           marketing_sms_optin = $3,
+           marketing_phone_optin = $4,
+           consent_version = $5,
+           consent_timestamp = now(),
+           updated_at = now()
+         WHERE id = $1`,
+        [userId, !!dto.optInEmailMarketing, !!dto.optInSmsMarketing, !!dto.optInPhoneMarketing, consentVersion],
+      );
+    } catch (e) {
+      // Marketing preference columns may not exist yet — log and continue
+      this.logger?.warn?.(`Marketing preferences update failed (non-fatal): ${e}`);
+    }
+
     const session = await this.createSession(userId, dto.email);
     return {
       accessToken: session.accessToken,
