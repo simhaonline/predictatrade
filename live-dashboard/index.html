@@ -24,18 +24,19 @@
   --mono:'JetBrains Mono','Fira Code','SF Mono',Consolas,'Liberation Mono',Menlo,monospace;
   --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 }
-html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--mono);font-size:11px;line-height:1.3}
+html,body{height:100%;overflow:hidden;background:#0a0e17;color:#c5cad6;font-family:var(--mono);font-size:11px;line-height:1.3}
+body.light{background:#f5f7fb;color:#172033}
 ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
 /* ═══ APP GRID ═══ */
-#app{display:grid;grid-template-rows:28px 28px auto 1fr 20px;height:100vh;gap:0;background:var(--bg)}
-#modeBanner{font-size:9px;padding:2px 8px;text-align:center;font-weight:700;letter-spacing:.3px;background:var(--panel);color:var(--text-dim)}
+#app{display:grid;grid-template-rows:auto 30px auto 1fr 20px;height:100vh;gap:0;background:var(--bg)}
+#modeBanner{font-size:8px;padding:1px 8px;text-align:center;font-weight:700;letter-spacing:.3px;background:var(--panel);color:var(--text-dim);line-height:1.4;overflow:hidden;max-height:20px}
 .mode-banner.live{background:var(--green-bg);color:var(--green);border-bottom:1px solid var(--green-dim)}
 .mode-banner.observe{background:var(--amber-bg);color:var(--amber);border-bottom:1px solid #5a3d00}
 .mode-banner.down{background:var(--red-bg);color:var(--red);border-bottom:1px solid var(--red-dim)}
 
 /* ═══ HEADER ═══ */
-#header{display:grid;grid-template-columns:auto 1fr auto auto auto auto auto;align-items:center;padding:0 8px;gap:8px;background:var(--panel) !important;border-bottom:1px solid var(--border);min-height:28px}
+#header{display:grid;grid-template-columns:auto 1fr auto auto auto auto auto;align-items:center;padding:0 8px;gap:8px;background:var(--panel) !important;border-bottom:1px solid var(--border);height:30px;overflow:hidden}
 .logo{display:flex;align-items:center;gap:6px}
 .logo-img-light{display:none;height:24px;width:auto}
 .logo-img-dark{display:block;height:24px;width:auto}
@@ -214,25 +215,47 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .cm-dir{font-weight:700;text-align:right;font-size:8px}
 
 
-/* ═══ LIGHT MODE ═══ */
+/* ═══ LIGHT MODE (original color scheme) ═══ */
 body.light{
-  --bg:#f5f7fb;--panel:#ffffff;--panel2:#f0f2f6;--border:#e0e4ec;--border2:#c8cdd6;
-  --text:#3a3f4b;--text-dim:#8a92a0;--text-bright:#1a1d24;
-  --green:#0b7a4c;--green-dim:#096a40;--green-bg:rgba(0,200,83,.06);
-  --red:#b4232d;--red-dim:#9a1e26;--red-bg:rgba(255,23,68,.05);
-  --blue:#1e4dd8;--blue-dim:#1a42b8;--blue-bg:rgba(41,98,255,.05);
-  --amber:#9a5b00;--amber-bg:rgba(255,167,38,.06);
+  --bg:#f5f7fb;--panel:#ffffff;--panel2:#eef2f7;--border:#d5dce5;--border2:#aeb8c5;
+  --text:#172033;--text-dim:#5b677a;--text-bright:#172033;
+  --green:#16a36a;--green-dim:#0b7a4c;--green-bg:#ddf5ea;
+  --red:#d64550;--red-dim:#b4232d;--red-bg:#fbe3e5;
+  --blue:#2563eb;--blue-dim:#1d4ed8;--blue-bg:#e0eaff;
+  --amber:#d97706;--amber-bg:#fff0d6;
 }
-body.light #header{background:linear-gradient(180deg,#efeade 0%,#e5ddcc 100%);border-bottom:1px solid #d0c8b6}
-body.light #footer{background:linear-gradient(180deg,#e5ddcc,#d9cfba);border-top:1px solid #c0b6a0}
-body.light .panel-head{background:#ebeef4}
-body.light .live-pill.pill-live{background:rgba(0,200,83,.08);color:var(--green);border-color:var(--green-dim)}
-body.light .live-pill.pill-off{background:rgba(255,23,68,.08);color:var(--red);border-color:var(--red-dim)}
+body.light #header{background:linear-gradient(180deg,#efeade 0%,#e5ddcc 100%) !important;border-bottom:1px solid #d0c8b6}
+body.light #footer{background:linear-gradient(180deg,#e5ddcc,#d9cfba) !important;border-top:1px solid #c0b6a0}
+body.light .panel-head{background:#eef2f7 !important;border-bottom:1px solid #d5dce5}
+body.light .panel{background:#ffffff !important;border:1px solid #d5dce5}
+body.light .ind-cell{background:#eef2f7}
+body.light .eng-card{background:#eef2f7}
+body.light .res-cell{background:#eef2f7}
+body.light .gate-cell{background:#eef2f7}
+body.light .dom-table{border-left:1px solid #d5dce5}
+body.light .spark-col{border-right:1px solid #d5dce5}
+body.light .active-mkts{border-left:1px solid #d5dce5}
+body.light .net-area{background:#ffffff}
+body.light .live-pill.pill-live{background:#ddf5ea;color:#0b7a4c;border:1px solid #16a36a}
+body.light .live-pill.pill-off{background:#fbe3e5;color:#b4232d;border:1px solid #d64550}
 body.light .logo-img-light{display:block}
 body.light .logo-img-dark{display:none}
-body.light .mode-banner.live{background:rgba(0,200,83,.06);color:var(--green)}
-body.light .mode-banner.observe{background:rgba(255,167,38,.06);color:var(--amber)}
-body.light .mode-banner.down{background:rgba(255,23,68,.06);color:var(--red)}
+body.light .mode-banner.live{background:#ddf5ea;color:#0b7a4c;border-bottom:1px solid #16a36a}
+body.light .mode-banner.observe{background:#fff0d6;color:#b45309;border-bottom:1px solid #e0a85a}
+body.light .mode-banner.down{background:#fbe3e5;color:#b4232d;border-bottom:1px solid #d64550}
+body.light .regime-TB{background:#ddf5ea;color:#0b7a4c}
+body.light .regime-TBR{background:#fbe3e5;color:#b4232d}
+body.light .regime-RANGE{background:#e0eaff;color:#1d4ed8}
+body.light .gantt-track{background:#eef2f7}
+body.light .am-track{background:#eef2f7}
+body.light .bar-track{background:#eef2f7}
+body.light .cm-driver{border-bottom:1px solid #d5dce5}
+body.light .section-divider{background:#d5dce5}
+body.light ::-webkit-scrollbar-thumb{background:#aeb8c5}
+body.light .news-strip{background:#eef2f7 !important;border-bottom:1px solid #d5dce5}
+body.light .theme-toggle{background:#eef2f7;border:1px solid #d5dce5;color:#5b677a}
+body.light .ticker-track{color:#5b677a}
+body.light .pipe-node{background:#eef2f7;border:1px solid #d5dce5;color:#5b677a}
 
 /* ═══ RESPONSIVE ═══ */
 @media(max-width:1200px){
@@ -241,7 +264,7 @@ body.light .mode-banner.down{background:rgba(255,23,68,.06);color:var(--red)}
 }
 @media(max-width:900px){
   html,body{overflow:auto}
-  #app{grid-template-rows:28px 28px auto auto 20px;height:auto;min-height:100vh}
+  #app{grid-template-rows:auto 30px auto auto 20px;height:auto;min-height:100vh}
   #main{grid-template-columns:1fr;grid-template-rows:auto;overflow:visible}
   .p-account,.p-price,.p-lifecycle,.p-neural,.p-resolution,.p-indicators,.p-engines,.p-agents{grid-column:1;grid-row:auto;min-height:200px}
   .eng-grid{grid-template-columns:repeat(2,1fr)}
