@@ -36,6 +36,7 @@ const PLAN_TIERS: Record<string, number> = { FREE: 0, STANDARD: 1, PRO: 2, ELITE
 export default function UserBillingPage() {
   const [interval, setInterval] = useState<"MONTHLY" | "ANNUAL">("MONTHLY");
   const [autoRenew, setAutoRenew] = useState(true);
+  const [usdtNotice, setUsdtNotice] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const plansQ = useQuery({ queryKey: ["plans"], queryFn: async () => (await customInstance.get("/plans")).data as Plan[] });
   const entitlementsQ = useQuery({ queryKey: ["subscription-entitlements"], queryFn: async () => (await customInstance.get("/subscriptions/entitlements")).data as Entitlements });
@@ -49,6 +50,32 @@ export default function UserBillingPage() {
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["subscription-entitlements"] }); toast.success("Plan upgrade request recorded; activation awaits validated payment."); },
     onError: () => toast.error("Plan upgrade request could not be recorded."),
+  });
+
+  // USDT (NOWPayments) checkout: server creates a pending payment + hosted
+  // invoice URL; browser is redirected to it. 503 means the gateway is not
+  // configured yet — shown honestly as a degraded state, not an error toast.
+  const payWithUsdt = useMutation({
+    mutationFn: async (plan: Plan) => {
+      setUsdtNotice(null);
+      const res = await customInstance.post("/billing/nowpayments/create-invoice", {
+        plan_id: plan.id,
+        billing_interval: plan.code === "FREE" ? "MONTHLY" : interval,
+      });
+      return res.data as { payment_url: string };
+    },
+    onSuccess: (data) => {
+      if (data?.payment_url) window.location.href = data.payment_url;
+      else toast.error("Payment gateway returned no checkout URL");
+    },
+    onError: (err: unknown) => {
+      const status = (err as { response?: { status?: number } } | undefined)?.response?.status;
+      if (status === 503) {
+        setUsdtNotice("USDT payments are temporarily unavailable — the crypto payment gateway is not configured yet. Card/other methods and support remain unaffected.");
+      } else {
+        toast.error("Could not start USDT checkout");
+      }
+    },
   });
 
   const current = subsQ.data?.find((s) => ["ACTIVE", "TRIAL", "GRACE", "CANCEL_AT_PERIOD_END"].includes(s.status)) || subsQ.data?.[0];
@@ -146,6 +173,14 @@ export default function UserBillingPage() {
         </div>
       ) : null}
 
+      {/* Honest degraded state: USDT gateway not configured (server 503) */}
+      {usdtNotice && (
+        <div role="status" className="rounded-lg border border-pat-warning/40 bg-pat-warning/5 px-4 py-3 text-xs text-pat-text-secondary">
+          {usdtNotice}{" "}
+          <button onClick={() => setUsdtNotice(null)} className="underline hover:text-pat-text-primary">Dismiss</button>
+        </div>
+      )}
+
       {/* Plan cards — only upgrade options shown */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {(plansQ.data ?? []).filter(p => !p.legacy).map((plan) => {
@@ -194,6 +229,15 @@ export default function UserBillingPage() {
               >
                 {isCurrent ? "Current Plan" : isDowngrade ? "Not Available" : "Upgrade"}
               </button>
+              {!isCurrent && !isDowngrade && plan.code !== "FREE" && (
+                <button
+                  onClick={() => payWithUsdt.mutate(plan)}
+                  disabled={payWithUsdt.isPending}
+                  className="mt-2 w-full rounded border border-pat-border bg-pat-bg-surface px-3 py-2 text-xs text-pat-text-secondary hover:bg-pat-bg-surface-secondary disabled:opacity-50"
+                >
+                  {payWithUsdt.isPending ? "Redirecting to USDT checkout…" : "Pay with USDT"}
+                </button>
+              )}
             </div>
           );
         })}

@@ -2,13 +2,17 @@ import { Body, Controller, Get, Post, Param, Res, Headers, UseGuards, Req } from
 import { Request, Response } from 'express';
 import { RawBodyRequest } from '@nestjs/common';
 import { BillingService } from './billing.service';
+import { NowPaymentsService } from './nowpayments.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../common/guards/admin.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @Controller('billing')
 export class BillingController {
-  constructor(private billingService: BillingService) {}
+  constructor(
+    private billingService: BillingService,
+    private nowPaymentsService: NowPaymentsService,
+  ) {}
 
   @UseGuards(JwtAuthGuard)
   @Get('invoices')
@@ -62,5 +66,26 @@ export class BillingController {
   async webhook(@Req() req: RawBodyRequest<Request>, @Headers() headers: any) {
     // P0-CP1 fix: HMAC signature verification + event-id idempotency.
     return this.billingService.handleWebhook(req.body, headers, req.rawBody);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('nowpayments/create-invoice')
+  async createNowPaymentsInvoice(
+    @CurrentUser('sub') userId: string,
+    @Body() body: { plan_id: string; billing_interval?: 'MONTHLY' | 'ANNUAL' },
+  ) {
+    const result = await this.nowPaymentsService.createInvoice(
+      userId,
+      body?.plan_id,
+      body?.billing_interval ?? 'MONTHLY',
+    );
+    return { payment_url: result.payment_url, invoice_id: result.invoice_id };
+  }
+
+  @Post('webhook/nowpayments')
+  async nowpaymentsWebhook(@Req() req: RawBodyRequest<Request>, @Headers() headers: any) {
+    // Public by design: the x-nowpayments-sig HMAC-SHA512 verification inside
+    // handleIPN is the only authentication for gateway callbacks.
+    return this.nowPaymentsService.handleIPN(req.body, headers?.['x-nowpayments-sig']);
   }
 }
