@@ -59,7 +59,7 @@ body.light{background:#f5f7fb;color:#172033}
 #newsStrip .news-label{color:var(--amber);font-weight:700}
 
 /* ═══ MAIN GRID ═══ */
-#main{display:grid;grid-template-columns:240px 1fr 280px;grid-template-rows:minmax(0,1fr) minmax(0,1.3fr) minmax(0,.7fr);gap:2px;padding:2px;overflow:hidden;background:var(--bg)}
+#main{display:grid;grid-template-columns:220px 1fr 260px;grid-template-rows:minmax(0,1.2fr) minmax(0,1.3fr) minmax(0,.6fr);gap:2px;padding:2px;overflow:hidden;background:var(--bg)}
 #modeBanner{grid-row:1}#header{grid-row:2}#newsStrip{grid-row:3}#main{grid-row:4}#footer{grid-row:5}
 
 /* ═══ PANEL ═══ */
@@ -71,9 +71,9 @@ body.light{background:#f5f7fb;color:#172033}
 
 /* ═══ GRID PLACEMENT ═══ */
 .p-account{grid-column:1;grid-row:1}
-.p-price{grid-column:2;grid-row:1}
+.p-price{grid-column:2;grid-row:1/span 2}
 .p-lifecycle{grid-column:3;grid-row:1}
-.p-neural{grid-column:1/span 2;grid-row:2}
+.p-neural{grid-column:1;grid-row:2}
 .p-resolution{grid-column:3;grid-row:2}
 .p-indicators{grid-column:1;grid-row:3}
 .p-engines{grid-column:2;grid-row:3}
@@ -389,18 +389,11 @@ body.light .focus-layer{background:#f5f7fb}
     <!-- PRICE CHART -->
     <section class="panel p-price">
       <div class="panel-head">
-        <span><span class="diamond">◆</span> XAUUSD · <span id="chartTF">M5</span> · CANDLES + EMA9/21/50 + VWAP + BB</span>
-        <span><span id="priceTime">—</span><button class="expand-btn" onclick="toggleExpand('p-price')">⛶</button></span>
+        <span><span class="diamond">◆</span> <span id="plSym">XAUUSD</span> · <span id="chartTF">M5</span> · <span class="pl-price" id="plPrice">—</span> <span class="pl-chg" id="plChg">—</span></span>
+        <span><span style="font-size:7px">H:<b id="plHi">—</b></span> <span style="font-size:7px">L:<b id="plLo">—</b></span> <span style="font-size:7px">VOL:<b id="plVol">—</b></span> <span id="priceTime">—</span><button class="expand-btn" onclick="toggleExpand('p-price')">⛶</button></span>
       </div>
       <div class="panel-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden">
-        <div class="price-header-bar">
-          <div><span class="pl-sym" id="plSym">XAUUSD</span><span class="pl-price" id="plPrice">—</span><span class="pl-chg" id="plChg">—</span></div>
-          <div class="phb-right"><span>H<b id="plHi">—</b></span><span>L<b id="plLo">—</b></span><span>VOL<b id="plVol">—</b></span></div>
-        </div>
-        <div class="chart-ladder-wrap">
-          <div id="priceChart" style="flex:1;min-width:0;min-height:0"></div>
-          <div class="dom-table" id="domTable"></div>
-        </div>
+        <div id="priceChart" style="flex:1;min-width:0;min-height:0;width:100%"></div>
       </div>
     </section>
 
@@ -583,7 +576,7 @@ function computeEMA(data,period){
 
 function priceOption(){
   if(!STATE.candles||!STATE.candles.length){
-    return{animation:false,backgroundColor:'transparent',graphic:[{type:'text',left:'center',top:'middle',style:{text:'Loading chart data...',fill:'#6b7384',font:'11px monospace'}}]};
+    return{animation:false,backgroundColor:'transparent',graphic:[{type:'text',left:'center',top:'middle',style:{text:'Loading chart data...',fill:'rgba(128,128,128,0.5)',font:'11px monospace'}}]};
   }
   var d=STATE.digits;
   var cd=STATE.candles.map(c=>[c.t,c.o,c.c,c.l,c.h]);
@@ -597,11 +590,11 @@ function priceOption(){
   return{
     animation:true,animationDuration:300,animationDurationUpdate:300,animationEasing:'cubicOut',
     backgroundColor:'transparent',
-    grid:{left:58,right:4,top:4,bottom:20,containLabel:false,borderWidth:0},
+    grid:{left:50,right:4,top:4,bottom:20,containLabel:false,borderWidth:0},
     xAxis:{
       type:'time',
-      axisLine:{lineStyle:{color:'#2a3548'}},
-      axisLabel:{color:'#6b7384',fontFamily:'monospace',fontSize:8,
+      axisLine:{lineStyle:{color:'rgba(128,128,128,0.2)'}},
+      axisLabel:{color:'rgba(128,128,128,0.6)',fontFamily:'monospace',fontSize:8,
         formatter:function(v){var dt=new Date(v);return dt.getHours()+':'+String(dt.getMinutes()).padStart(2,'0');}},
       splitLine:{show:false},
       axisTick:{show:false}
@@ -609,8 +602,8 @@ function priceOption(){
     yAxis:{
       scale:true,position:'left',
       axisLine:{show:false},axisTick:{show:false},
-      axisLabel:{color:'#6b7384',fontFamily:'monospace',fontSize:8,formatter:function(v){return v.toFixed(d);},margin:4},
-      splitLine:{show:true,lineStyle:{color:'#1e2738',type:'dashed'}},
+      axisLabel:{color:'rgba(128,128,128,0.6)',fontFamily:'monospace',fontSize:8,formatter:function(v){return v.toFixed(d);},margin:4},
+      splitLine:{show:true,lineStyle:{color:'rgba(128,128,128,0.15)',type:'dashed'}},
       splitNumber:8
     },
     tooltip:{
@@ -645,7 +638,7 @@ function priceOption(){
         STATE.low>0?{coord:[cd[0][0],STATE.low],label:{formatter:'LO '+fmt(STATE.low,d),color:'#ff1744',fontFamily:'monospace',fontSize:8,position:'insideEndBottom'},lineStyle:{color:'#ff1744'}}:[],
       ]
     },
-    graphic:[{type:'text',left:60,top:2,style:{text:(STATE.candleSource||'—')+' · '+STATE.candles.length+' bars',fill:'#6b7384',font:'7px monospace'}}]
+    graphic:[{type:'text',left:60,top:2,style:{text:(STATE.candleSource||'—')+' · '+STATE.candles.length+' bars',fill:'rgba(128,128,128,0.5)',font:'7px monospace'}}]
   };
 }
 
