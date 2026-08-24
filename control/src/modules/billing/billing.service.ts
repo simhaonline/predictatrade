@@ -1,6 +1,7 @@
 import { Injectable, Inject, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Pool } from 'pg';
 import { DB_POOL } from '../../common/database.module';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -272,13 +273,57 @@ export class BillingService {
 </html>`;
   }
 
-  /** Best-effort webhook: generate + pay an invoice when a payment event arrives. */
-  async handleWebhook(body: any, headers: any) {
+  /**
+   * Webhook handler (P0-CP1 fix).
+   * Security: HMAC-SHA256 signature verification against BILLING_WEBHOOK_SECRET
+   * (timing-safe compare) + event-id idempotency via billing.payment_events
+   * unique (provider, provider_event_id). Unsigned/replayed events are rejected.
+   */
+  async handleWebhook(body: any, headers: any, rawBody?: Buffer) {
+    const secret = process.env.BILLING_WEBHOOK_SECRET;
+    if (!secret) {
+      this.logger.error('Webhook rejected: BILLING_WEBHOOK_SECRET not configured');
+      throw new Error('webhook_secret_not_configured');
+    }
+
+    const signatureHeader =
+      headers?.['x-pat-signature'] || headers?.['x-signature'] || headers?.['x-webhook-signature'] || '';
+    const provided = String(signatureHeader).replace(/^sha256=/, '');
+    if (!provided || !rawBody) {
+      this.logger.warn('Webhook rejected: missing signature or raw body');
+      throw new Error('invalid_webhook_signature');
+    }
+    const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+    const a = Buffer.from(provided, 'utf8');
+    const b = Buffer.from(expected, 'utf8');
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      this.logger.warn('Webhook rejected: HMAC signature mismatch');
+      throw new Error('invalid_webhook_signature');
+    }
+
     const event = body?.event_type || body?.type;
-    this.logger.log(`Webhook received: ${event || 'unknown'}`);
+    const provider = String(headers?.['x-provider'] || body?.provider || 'internal');
+    const providerEventId = String(body?.id || body?.event_id || `${event}:${body?.created_at ?? ''}`);
     const subId = body?.subscription_id || body?.data?.subscription_id || body?.data?.object?.subscription;
+    // NOTE: subscription.active intentionally NOT treated as payment (audit CP1).
+    const paidEvents = ['payment.succeeded', 'invoice.paid', 'checkout.session.completed'];
     const paymentId = body?.payment_id || body?.id || body?.data?.id;
-    const paidEvents = ['payment.succeeded', 'invoice.paid', 'checkout.session.completed', 'subscription.active'];
+
+    // Idempotency: record the delivery first; unique(provider, provider_event_id)
+    // makes replays no-ops.
+    const inserted = await this.pool.query(
+      `INSERT INTO billing.payment_events (provider, provider_event_id, event_type, raw_payload, signature_verified)
+       VALUES ($1, $2, $3, $4, true)
+       ON CONFLICT (provider, provider_event_id) DO NOTHING
+       RETURNING id`,
+      [provider, providerEventId, String(event || 'unknown'), JSON.stringify(body)],
+    );
+    if (inserted.rowCount === 0) {
+      this.logger.log(`Webhook duplicate ignored: ${provider}/${providerEventId}`);
+      return { received: true, duplicate: true, eventId: providerEventId };
+    }
+
+    this.logger.log(`Webhook accepted: ${event || 'unknown'} (${providerEventId})`);
     if (subId && paidEvents.includes(event)) {
       try {
         const id = await this.generateInvoiceForSubscription(subId, (await this.subscriptionOwner(subId)) || subId, { markPaid: true, paymentId });

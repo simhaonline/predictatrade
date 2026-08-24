@@ -1,9 +1,11 @@
 package gateway
 
 import (
+	"crypto/subtle"
 	"log"
 	"encoding/json"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -137,6 +139,23 @@ func (h *AgentHub) AgentCount() int {
 	return len(h.agents)
 }
 
+// DisconnectAgent forcibly removes an agent connection (e.g. failed license
+// validation). Safe to call for unknown IDs.
+func (h *AgentHub) DisconnectAgent(agentID, reason string) {
+	h.mu.Lock()
+	agent, ok := h.agents[agentID]
+	if ok {
+		close(agent.done)
+		agent.conn.Close()
+		delete(h.agents, agent.ID)
+	}
+	h.mu.Unlock()
+	if !ok {
+		return
+	}
+	log.Printf("[AGENT] Disconnected %s: %s", agentID, reason)
+}
+
 // BroadcastSignalToAgents sends a trading signal to ALL connected Windows Agents.
 // The agent forwards it to the MT4/MT5 EA via named pipe.
 // Only directional signals (BUY/SELL/BUY_CANDIDATE/SELL_CANDIDATE) are sent —
@@ -175,6 +194,21 @@ func (h *AgentHub) BroadcastSignalToAgents(eventID, streamID, eventType, priorit
 }
 
 func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
+	// P0-RT1 (partial mitigation): shared-token authentication.
+	// When AGENT_WS_TOKEN is configured, agents MUST present it via the
+	// X-Agent-Token header or ?token= query param. Full per-device crypto
+	// identity remains open work (see full-audit.md Batch 2).
+	if expected := os.Getenv("AGENT_WS_TOKEN"); expected != "" {
+		provided := r.Header.Get("X-Agent-Token")
+		if provided == "" {
+			provided = r.URL.Query().Get("token")
+		}
+		if provided == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
+			http.Error(w, "agent authentication required", http.StatusUnauthorized)
+			return
+		}
+	}
+
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return

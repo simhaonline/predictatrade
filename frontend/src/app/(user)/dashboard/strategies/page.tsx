@@ -80,17 +80,12 @@ export default function UserStrategiesPage() {
         <button
           onClick={async () => {
             try {
-              const activeStrategies = selected;
-              const res = await fetch('/api/v1/subscriptions/strategies', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` },
-                body: JSON.stringify({ selectedStrategies: activeStrategies }),
+              // P1-FE1 fix: use the authenticated axios instance (token lives in
+              // memory+cookie, not localStorage — the raw fetch silently failed).
+              await customInstance.patch("/subscriptions/strategies", {
+                selectedStrategies: selected,
               });
-              if (res.ok) {
-                setSaved(true);
-              } else {
-                setSaved(false);
-              }
+              setSaved(true);
             } catch {
               setSaved(false);
             }

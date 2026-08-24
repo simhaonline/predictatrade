@@ -167,14 +167,18 @@ func (h *HTTPServer) handleReady(w http.ResponseWriter, r *http.Request) {
 func (h *HTTPServer) handleSignals(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// B-01: Entitlement filtering — extract JWT from Authorization header.
-	// Nginx proxies the request with the original Authorization header intact.
-	// If no valid JWT is present, return only public/advisory signals (BUY_CANDIDATE/SELL_CANDIDATE
-	// with SignalClass=ADVISORY). EXECUTABLE signals require authenticated + entitled users.
+	// B-01 / P0-RT3: Entitlement filtering — the JWT is now actually VERIFIED
+	// (HS256 signature + exp + alg), not merely checked for presence.
+	// Absent or invalid tokens are treated as anonymous and only receive
+	// advisory signals. EXECUTABLE signals require a verified token.
 	authHeader := r.Header.Get("Authorization")
 	jwtToken := ""
+	authenticated := false
 	if strings.HasPrefix(authHeader, "Bearer ") {
 		jwtToken = strings.TrimPrefix(authHeader, "Bearer ")
+		if userID, err := extractUserIDFromJWT(jwtToken); err == nil && userID != "" {
+			authenticated = true
+		}
 	}
 
 	// Parse query params for filtering
@@ -188,15 +192,17 @@ func (h *HTTPServer) handleSignals(w http.ResponseWriter, r *http.Request) {
 	// Try Valkey cache first (sub-ms, no DB load)
 	if h.valkeyCache != nil {
 		if data, err := h.valkeyCache.GetLatestSignals(); err == nil && len(data) > 0 {
-			// If no JWT, filter to advisory-only before returning
-			if jwtToken == "" {
-				// Return cached data but mark it as public/advisory
-				// The frontend already handles display based on SignalClass
+			if authenticated {
 				w.Write(data)
 				return
 			}
-			// With JWT: return all signals (entitlement is enforced by control plane at subscription level)
-			w.Write(data)
+			// Anonymous/unverified callers get advisory-only, even from cache
+			if filtered, ferr := filterAdvisorySignalsJSON(data); ferr == nil {
+				w.Write(filtered)
+				return
+			}
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{"error": "authentication required for executable signals"})
 			return
 		}
 	}
@@ -218,8 +224,8 @@ func (h *HTTPServer) handleSignals(w http.ResponseWriter, r *http.Request) {
 		signals = []*types.Signal{}
 	}
 
-	// B-01: If no JWT, filter out EXECUTABLE signals — only advisory/NO-TRADE visible publicly
-	if jwtToken == "" {
+	// B-01/P0-RT3: anonymous or invalid-token callers get advisory-only signals
+	if !authenticated {
 		filtered := make([]*types.Signal, 0, len(signals))
 		for _, s := range signals {
 			if s.SignalClass != "EXECUTABLE" {
@@ -230,6 +236,35 @@ func (h *HTTPServer) handleSignals(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{"signals": signals})
+}
+
+// filterAdvisorySignalsJSON strips EXECUTABLE-class entries from the cached
+// signals payload so unauthenticated callers never see actionable signals.
+func filterAdvisorySignalsJSON(data []byte) ([]byte, error) {
+	var raw struct {
+		Signals []json.RawMessage `json:"signals"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	kept := make([]map[string]interface{}, 0)
+	for _, sigRaw := range raw.Signals {
+		var probe map[string]interface{}
+		if err := json.Unmarshal(sigRaw, &probe); err != nil {
+			continue
+		}
+		class, _ := probe["SignalClass"].(string)
+		classAlt, _ := probe["signal_class"].(string)
+		if class == "EXECUTABLE" || classAlt == "EXECUTABLE" {
+			continue
+		}
+		kept = append(kept, probe)
+	}
+	out, err := json.Marshal(map[string]interface{}{"signals": kept})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (h *HTTPServer) handleMarketState(w http.ResponseWriter, r *http.Request) {
@@ -741,13 +776,18 @@ func (h *HTTPServer) handleSignalResume(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// B-01: Verify device ownership — require Authorization header
-	// The device_id must be associated with the authenticated user.
-	// Without this check, any client can replay any device's signals.
+	// B-01 / P0-RT3: Verify device ownership — require a VALID JWT
+	// (signature + expiry + alg), not merely a non-empty header.
+	// Without verification, any client could replay any device's signals.
 	authHeader := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authHeader, "Bearer ") {
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "authorization required for signal resume"})
+		return
+	}
+	if _, err := extractUserIDFromJWT(strings.TrimPrefix(authHeader, "Bearer ")); err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid or expired token"})
 		return
 	}
 	

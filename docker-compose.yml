@@ -184,6 +184,7 @@ services:
     container_name: pat-prometheus
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/rules.yml:/etc/prometheus/rules.yml:ro
       - pat-prometheus:/prometheus
     networks:
       - pat-net

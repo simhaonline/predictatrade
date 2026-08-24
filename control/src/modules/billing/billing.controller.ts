@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Post, Param, Res, Headers, UseGuards } from '@nestjs/common';
-import { Response } from 'express';
+import { Body, Controller, Get, Post, Param, Res, Headers, UseGuards, Req } from '@nestjs/common';
+import { Request, Response } from 'express';
+import { RawBodyRequest } from '@nestjs/common';
 import { BillingService } from './billing.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../common/guards/admin.guard';
@@ -58,7 +59,8 @@ export class BillingController {
   }
 
   @Post('webhook')
-  async webhook(@Body() body: any, @Headers() headers: any) {
-    return this.billingService.handleWebhook(body, headers);
+  async webhook(@Req() req: RawBodyRequest<Request>, @Headers() headers: any) {
+    // P0-CP1 fix: HMAC signature verification + event-id idempotency.
+    return this.billingService.handleWebhook(req.body, headers, req.rawBody);
   }
 }

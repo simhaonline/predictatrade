@@ -9,13 +9,19 @@ scrape_configs:
   - job_name: 'realtime-engine'
     metrics_path: /metrics
     static_configs:
-      - targets: ['127.0.0.1:13081']
+      # Docker network service names — 127.0.0.1 pointed inside the
+      # prometheus container itself and collected nothing (P0-IN1).
+      - targets: ['realtime:13081']
         labels:
           service: 'go-realtime'
 
   - job_name: 'control-plane'
     metrics_path: /metrics
     static_configs:
-      - targets: ['127.0.0.1:13080']
+      - targets: ['control:13080']
         labels:
           service: 'nestjs-control'
+
+  - job_name: 'prometheus-self'
+    static_configs:
+      - targets: ['localhost:9090']

@@ -50,16 +50,19 @@ const COMPLIANCE = [
 ];
 
 const SECURITY_CONTROLS = [
+  // F6 fix: claims must reflect verifiable reality. Items without evidence
+  // are marked "In Progress"/"Planned" — never "Implemented" (SOW: no
+  // unsupported compliance/security claims).
   { name: 'Encryption in Transit', detail: 'TLS 1.2 / 1.3 across all public endpoints', state: 'Implemented' },
-  { name: 'Encryption at Rest', detail: 'Database & object storage encrypted (AES-256)', state: 'Implemented' },
-  { name: 'Multi-Factor Authentication', detail: 'TOTP MFA enforced for admin & trader accounts', state: 'Implemented' },
-  { name: 'Role-Based Access Control', detail: 'Least-privilege RBAC, tenant isolation', state: 'Implemented' },
-  { name: 'Audit Logging', detail: 'Immutable audit trail of privileged actions', state: 'Implemented' },
-  { name: 'Secrets Management', detail: 'No secrets in code; env-injected, rotated', state: 'Implemented' },
-  { name: 'DDoS Protection', detail: 'Edge rate-limiting & WAF at reverse proxy', state: 'Implemented' },
-  { name: 'Backups & DR', detail: 'Automated backups, tested restore, RPO/RTO targets', state: 'Implemented' },
-  { name: 'Vulnerability Management', detail: 'Dependency & container scanning in CI', state: 'Implemented' },
-  { name: 'Penetration Testing', detail: 'Periodic third-party assessment', state: 'In Progress' },
+  { name: 'Role-Based Access Control', detail: 'Least-privilege RBAC, tenant isolation', state: 'In Progress' },
+  { name: 'Audit Logging', detail: 'Privileged actions recorded in audit schema', state: 'Implemented' },
+  { name: 'Secrets Management', detail: 'Env-injected secrets; rotation workflow', state: 'In Progress' },
+  { name: 'DDoS Protection', detail: 'Edge rate-limiting at reverse proxy', state: 'Implemented' },
+  { name: 'Backups & DR', detail: 'Scheduled logical backups; restore drills', state: 'In Progress' },
+  { name: 'Multi-Factor Authentication', detail: 'TOTP MFA for privileged accounts', state: 'In Progress' },
+  { name: 'Encryption at Rest', detail: 'Database & object storage encrypted (AES-256)', state: 'Planned' },
+  { name: 'Vulnerability Management', detail: 'Dependency & container scanning in CI', state: 'Planned' },
+  { name: 'Penetration Testing', detail: 'Periodic third-party assessment', state: 'Planned' },
 ];
 
 const PRIVACY = [
@@ -314,7 +317,9 @@ footer a{margin:0 6px}
       <a href="https://platform.predictatrade.com">Platform</a>
     </div>
     <div>&copy; ${now.getUTCFullYear()} Simha Online. Predict-A-Trade is an analytical platform, not a broker.</div>
-    <div>No incidents recorded during the current monitoring window.</div>
+    <div>${overall === 'down'
+      ? 'Incident in progress — components are degraded or down. Engineers notified.'
+      : 'No incidents recorded during the current monitoring window.'}</div>
   </footer>
 </div>
 <script>

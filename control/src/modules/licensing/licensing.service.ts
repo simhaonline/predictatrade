@@ -169,6 +169,17 @@ export class LicensingService {
     // Find or create device
     let deviceId = body.deviceId;
 
+    // P0-CP4 fix: a client-supplied deviceId must belong to the caller
+    if (deviceId) {
+      const owned = await this.pool.query(
+        `SELECT id FROM licensing.devices WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
+        [deviceId, userId],
+      );
+      if (owned.rows.length === 0) {
+        throw new BadRequestException('Device not found for this user');
+      }
+    }
+
     if (!deviceId && body.licenseKey) {
       const lic = await this.pool.query(
         `SELECT id FROM licensing.licenses WHERE license_key = $1 AND user_id = $2 AND status = 'ACTIVE'`,
@@ -213,8 +224,9 @@ export class LicensingService {
     }
 
     // Check max_mt_accounts limit
+    // P1 fix: also select l.id so the activation insert gets a real license_id
     const lic = await this.pool.query(
-      `SELECT l.max_mt_accounts FROM licensing.devices d
+      `SELECT l.id, l.max_mt_accounts FROM licensing.devices d
        JOIN licensing.licenses l ON d.bound_license_id = l.id
        WHERE d.id = $1`, [deviceId],
     );
@@ -273,13 +285,15 @@ export class LicensingService {
   }
 
   /** Update device heartbeat (called by Windows Agent periodically) */
-  async heartbeat(deviceId: string, body: { connectionStatus?: string; fingerprintHash?: string }) {
+  // P0-CP4 fix: ownerUserId scoping — cross-tenant heartbeats rejected
+  async heartbeat(deviceId: string, body: { connectionStatus?: string; fingerprintHash?: string }, ownerUserId?: string) {
     const r = await this.pool.query(
       `UPDATE licensing.devices
        SET last_seen_at = now(), connection_status = $2, updated_at = now()
        WHERE id = $1 AND deleted_at IS NULL
+         AND ($3::uuid IS NULL OR user_id = $3::uuid)
        RETURNING id, connection_status, last_seen_at`,
-      [deviceId, body.connectionStatus || 'ONLINE'],
+      [deviceId, body.connectionStatus || 'ONLINE', ownerUserId ?? null],
     );
     if (r.rows.length === 0) {
       throw new NotFoundException('Device not found');
@@ -287,15 +301,21 @@ export class LicensingService {
     return r.rows[0];
   }
 
-  /** Revoke a device (admin or user) */
-  async revokeDevice(deviceId: string, reason: string) {
+  /** Revoke a device (admin or owning user) */
+  // P0-CP4 fix: ownerUserId scoping — users can only revoke their own devices
+  async revokeDevice(deviceId: string, reason: string, ownerUserId?: string) {
+    if (!ownerUserId) {
+      throw new BadRequestException('owner context required for device revocation');
+    }
     const r = await this.pool.query(
       `UPDATE licensing.devices
        SET revoked_at = now(), revocation_reason = $2, connection_status = 'REVOKED', updated_at = now()
-       WHERE id = $1 AND deleted_at IS NULL
-       RETURNING *`,
-      [deviceId, reason],
+       WHERE id = $1 AND deleted_at IS NULL AND user_id = $2::uuid`,
+      [deviceId, reason, ownerUserId],
     );
+    if (r.rows.length === 0) {
+      throw new NotFoundException('Device not found');
+    }
     return r.rows[0];
   }
 

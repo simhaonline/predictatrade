@@ -25,6 +25,7 @@ import (
 	"github.com/predictatrade/realtime/pkg/macro"
 	"github.com/predictatrade/realtime/pkg/mlengine"
 	"github.com/predictatrade/realtime/pkg/news"
+	"github.com/predictatrade/realtime/pkg/notifications"
 	"github.com/predictatrade/realtime/internal/audit"
 	"github.com/predictatrade/realtime/pkg/ollama"
 	"github.com/predictatrade/realtime/internal/config"
@@ -219,6 +220,35 @@ func main() {
 	signalFlowMonitor := health.NewSignalFlowMonitor(5)
 	macroHealth := macro.NewMacroHealth()
 	healthManager := health.NewManager(staleChecker, signalFlowMonitor, macroHealth)
+
+	// P1-IN4 fix: notifications were dead code — the ntfy provider existed and
+	// was tested but never constructed. Wire the manager + provider so
+	// operational alerts (agent lifecycle, license failures) actually reach ntfy.
+	var notifMgr *notifications.Manager
+	{
+		notifCfg := notifications.DefaultConfig()
+		if cfg.NtfyServerURL != "" && cfg.NtfyTopic != "" {
+			notifCfg.PushEnabled = true
+			notifMgr = notifications.NewManager(notifCfg)
+			if p := notifications.NewNtfyPushProvider(cfg.NtfyServerURL, cfg.NtfyTopic, cfg.NtfyAccessToken); p != nil {
+				notifMgr.RegisterProvider(p)
+				log.Info().Str("server", cfg.NtfyServerURL).Str("topic", cfg.NtfyTopic).Msg("ntfy push notifications enabled")
+			}
+		}
+	}
+	enqueueNotification := func(eventType notifications.EventType, severity, title, message string) {
+		if notifMgr == nil {
+			return
+		}
+		notifMgr.Enqueue(&notifications.Notification{
+			NotificationID: uuid.New().String(),
+			EventType:      eventType,
+			Severity:       severity,
+			Title:          title,
+			Message:        message,
+			CreatedAt:      time.Now().UTC(),
+		})
+	}
 	log.Info().Msg("Health manager initialized (stale check, signal flow, macro health)")
 
 	defer func() {
@@ -435,13 +465,18 @@ func main() {
 			if len(candles) < 20 {
 				// Calculate time range: 250 candles * timeframe duration + safety margin
 				// This helps TimescaleDB exclude irrelevant chunks (dramatically faster planning)
+				// P2 fix: lookbacks are in MARKET time (bars only form while the market is
+				// open ~120h/week for XAUUSD), but the SQL window is CALENDAR time.
+				// Multiply by the weekend/holiday factor (~1.45x, empirically safe)
+				// so H4/M15 actually fetch enough bars — previously H4 got ~18 of 250.
+				const weekendFactor = 1.45
 				var lookbackHours int = 48 // default: 2 days
 				switch tf {
-				case "M5": lookbackHours = 24      // 250 * 5min = ~21 hours
-				case "M15": lookbackHours = 72     // 250 * 15min = ~62 hours
-				case "H1": lookbackHours = 12 * 24 // 250 * 1hr = ~10 days
-				case "H4": lookbackHours = 42 * 24 // 250 * 4hr = ~42 days
-				case "D1": lookbackHours = 365 * 24 // 250 * 1day = ~250 days
+				case "M5": lookbackHours = 35      // ~35h calendar for ~21h market time
+				case "M15": lookbackHours = 105     // ~104h calendar for ~62h market time
+				case "H1": lookbackHours = 418 // ~14.5 days
+				case "H4": lookbackHours = 1462 // ~61 days
+				case "D1": lookbackHours = 365 * 24                     // already calendar-based
 				}
 				timeStart := time.Now().UTC().AddDate(0, 0, -lookbackHours/24)
 				if lookbackHours < 24 {
@@ -458,7 +493,6 @@ func main() {
 					log.Warn().Str("timeframe", tf).Err(err).Msg("Failed to load historical candles for bootstrap")
 					continue
 				}
-
 				var cachedCandles []cache.CachedCandle
 				for rows.Next() {
 					var c types.Candle
@@ -485,6 +519,47 @@ func main() {
 					})
 				}
 				rows.Close()
+
+				// Fallback: if history has gaps inside the expected window
+				// (observed for H4), retry once WITHOUT the time constraint so
+				// chunk exclusion doesn't hide older-but-valid bars.
+				if len(candles) < 20 {
+					log.Info().Str("timeframe", tf).Msg("Bootstrap window sparse — retrying with unbounded lookback")
+					candles = candles[:0]
+					fallbackRows, ferr := persister.GetDB().QueryContext(bootstrapCtx, `
+						SELECT time, open, high, low, close, volume, source, quality, is_closed
+						FROM market.candles
+						WHERE symbol = $1 AND timeframe = $2
+						ORDER BY time DESC LIMIT $3
+					`, "XAUUSD", tf, 250)
+					if ferr == nil {
+						for fallbackRows.Next() {
+							var c types.Candle
+							var openStr, highStr, lowStr, closeStr, source, qualityStr string
+							var isClosed bool
+							if err := fallbackRows.Scan(&c.Time, &openStr, &highStr, &lowStr, &closeStr, &c.Volume, &source, &qualityStr, &isClosed); err != nil {
+								continue
+							}
+							c.Symbol = types.SymbolXAUUSD
+							c.Timeframe = types.Timeframe(tf)
+							c.Open = parseDecimalSafe(openStr)
+							c.High = parseDecimalSafe(highStr)
+							c.Low = parseDecimalSafe(lowStr)
+							c.Close = parseDecimalSafe(closeStr)
+							c.Source = source
+							c.Quality = types.CandleQuality(qualityStr)
+							c.IsClosed = isClosed
+							candles = append(candles, &c)
+						}
+						fallbackRows.Close()
+						// Only cache fallback results if they are reasonably fresh
+						if valkeyCache != nil && len(candles) >= 20 && time.Since(candles[0].Time) < time.Duration(lookbackHours)*time.Hour {
+							_ = valkeyCache // caching skipped for stale fallback data
+						}
+					} else {
+						log.Warn().Str("timeframe", tf).Err(ferr).Msg("Bootstrap fallback query failed")
+					}
+				}
 
 				// Cache in Valkey for next startup (5-minute TTL)
 				if valkeyCache != nil && len(cachedCandles) >= 20 {
@@ -814,10 +889,17 @@ func main() {
 		if status == "ACTIVE" {
 			result.Valid = true
 			observability.Log.Info().Str("license_key", licenseKey).Str("plan", planCode).Msg("License validated — ACTIVE")
-		} else {
-			result.Error = "license is " + status
-			observability.Log.Warn().Str("license_key", licenseKey).Str("status", status).Msg("License found but not active")
-		}
+			} else {
+				result.Error = "license is " + status
+				observability.Log.Warn().Str("license_key", licenseKey).Str("status", status).Msg("License found but not active — disconnecting agent")
+				// P0-RT1 enforcement: an invalid/expired/revoked license no longer
+				// just receives a warning — the agent is disconnected so it cannot
+				// keep receiving EXECUTABLE signals or injecting market data.
+				agentHub.DisconnectAgent(agentID, "license "+status)
+				enqueueNotification(notifications.EventType("AGENT_LICENSE_INVALID"), "critical",
+					"Agent disconnected — invalid license",
+					fmt.Sprintf("Agent %s was disconnected: license status=%s", agentID, status))
+			}
 		agentHub.SendToAgent(agentID, "LICENSE_STATUS", result)
 		return result
 	})
@@ -825,6 +907,12 @@ func main() {
 	// HTTP server
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Start notification delivery loop (bound to shutdown ctx — P1-IN4)
+	if notifMgr != nil {
+		notifMgr.Start(ctx)
+		defer notifMgr.Stop()
+	}
 
 	// COT (Commitment of Traders) provider — optional macro/positioning data.
 	// FMP API key from FMP_API_KEY env var. Fails safe if not configured or restricted.

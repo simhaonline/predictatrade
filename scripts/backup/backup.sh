@@ -49,6 +49,7 @@ if docker exec "${CONTAINER_NAME}" pg_dump -U "${DB_USER}" -d "${DB_NAME}" \
     DURATION=$((END_TIME - START_TIME))
     SIZE=$(stat -c%s "${HOST_FILE}" 2>/dev/null || echo 0)
     CHECKSUM=$(sha256sum "${HOST_FILE}" | awk '{print $1}')
+    echo "${CHECKSUM}  $(basename "${HOST_FILE}")" > "${HOST_FILE}.sha256"
     COMPLETED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
     
     log "Backup completed: ${BACKUP_ID}"

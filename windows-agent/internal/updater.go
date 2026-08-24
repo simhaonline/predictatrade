@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -74,16 +76,54 @@ func (u *Updater) CheckForUpdate() (*UpdateManifest, error) {
 		return nil, fmt.Errorf("failed to decode update manifest: %w", err)
 	}
 
-	// Downgrade protection
-	if manifest.MinVersion != "" && u.currentVer < manifest.MinVersion {
-		return nil, fmt.Errorf("current version %s is below minimum required %s", u.currentVer, manifest.MinVersion)
+	// P0-WA1 fix: numeric semantic-version comparison.
+	// The previous lexicographic string compare made "1.2.16" < "1.2.6",
+	// leaving most of the fleet stuck on old versions (observed in prod).
+	if belowMin, err := versionLessThan(u.currentVer, manifest.MinVersion); err == nil && manifest.MinVersion != "" && belowMin {
+		// Below the floor is not an abort condition — it FORCES the update.
+		return &manifest, nil
 	}
 
-	if manifest.Version <= u.currentVer {
+	if newer, err := versionLessThan(u.currentVer, manifest.Version); err == nil && !newer {
 		return nil, nil // Already up to date or newer
 	}
 
 	return &manifest, nil
+}
+
+// versionLessThan returns true if a < b under numeric semver comparison
+// (major.minor.patch; missing components treated as 0).
+func versionLessThan(a, b string) (bool, error) {
+	parse := func(v string) ([3]int, error) {
+		var out [3]int
+		v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+		parts := strings.SplitN(v, ".", 3)
+		if len(parts) == 0 {
+			return out, fmt.Errorf("empty version")
+		}
+		for i := 0; i < len(parts) && i < 3; i++ {
+			n, err := strconv.Atoi(parts[i])
+			if err != nil {
+				return out, fmt.Errorf("invalid version component %q: %w", parts[i], err)
+			}
+			out[i] = n
+		}
+		return out, nil
+	}
+	pa, err := parse(a)
+	if err != nil {
+		return false, err
+	}
+	pb, err := parse(b)
+	if err != nil {
+		return false, err
+	}
+	for i := 0; i < 3; i++ {
+		if pa[i] != pb[i] {
+			return pa[i] < pb[i], nil
+		}
+	}
+	return false, nil
 }
 
 // DownloadAndVerify downloads the update, verifies checksum, and stages it.

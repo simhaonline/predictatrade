@@ -7,7 +7,10 @@ import { metricsMiddleware, getMetrics } from './common/metrics';
 import cookieParser = require('cookie-parser');
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    // Raw body required for webhook HMAC signature verification
+    rawBody: true,
+  });
 
   // Cookie parsing for HttpOnly refresh-token cookie
   app.use(cookieParser());

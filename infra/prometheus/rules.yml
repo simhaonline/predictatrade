@@ -1,0 +1,29 @@
+# Predict-A-Trade baseline alert rules (audit P0-IN2)
+# NOTE: only metrics verified to exist are referenced.
+# TODO(P2): export pat_agents_connected gauge from engine, then add
+# "zero agents connected" alert — today that state is only visible
+# via /health JSON.
+groups:
+  - name: availability
+    rules:
+      - alert: ServiceScrapeDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} scrape target down"
+          description: "Prometheus cannot scrape {{ $labels.job }} for >2m."
+
+      - alert: SignalPipelineStalled
+        # Weekdays only (XAUUSD ~Mon–Fri); zero new signals for 15m
+        # while the engine is being scraped suggests a stalled pipeline.
+        expr: >
+          sum(rate(pat_signals_generated_total[15m])) == 0
+          and on() (day_of_week() >= 1 and day_of_week() <= 5)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No signals generated for 15m during weekday"
+          description: "Engine may be stalled, vetoing everything, or market data feed dead."

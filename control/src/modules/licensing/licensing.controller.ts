@@ -50,14 +50,16 @@ export class LicensingController {
 
   @UseGuards(JwtAuthGuard)
   @Put('devices/:id/heartbeat')
-  async heartbeat(@Param('id') deviceId: string, @Body() body: any) {
-    return this.licensingService.heartbeat(deviceId, body);
+  async heartbeat(@CurrentUser('sub') userId: string, @Param('id') deviceId: string, @Body() body: any) {
+    // P0-CP4 fix: ownership scoping — users may only heartbeat their own devices
+    return this.licensingService.heartbeat(deviceId, body, userId);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('devices/:id/revoke')
   async revokeDevice(@CurrentUser('sub') userId: string, @Param('id') deviceId: string, @Body() body: any) {
-    return this.licensingService.revokeDevice(deviceId, body.reason || 'User revoked');
+    // P0-CP4 fix: ownership scoping (admins use the admin endpoint)
+    return this.licensingService.revokeDevice(deviceId, body.reason || 'User revoked', userId);
   }
 
   @UseGuards(JwtAuthGuard)
