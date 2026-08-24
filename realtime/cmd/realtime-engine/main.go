@@ -986,7 +986,7 @@ func main() {
 				}
 				processCandle(candle, featureReg, stateMgr, strategies, engine, mlEngine, ollamaClient, healthManager, staleChecker,
 					calibConsumer, reconciler, wsHub, agentHub, persister, gateRegistry,
-					cooldownMgr, dupChecker, ptbEngine, auditLogger)
+					cooldownMgr, dupChecker, ptbEngine, auditLogger, xmEngine, xmPersister)
 			}
 		}
 	}()
@@ -1053,7 +1053,7 @@ func processTick(tick *types.Tick, validator *marketdata.TickValidator, staleDet
 	}
 }
 
-func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr *features.StateManager, strategies []strategy.Strategy, engine *sigengine.Engine, mlEngine *mlengine.MLEngine, ollamaClient *ollama.OllamaClient, healthManager *health.Manager, staleChecker *health.StaleChecker, calibConsumer *calibration.Consumer, reconciler *reconciliation.Reconciler, wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, persister *marketdata.Persister, gateRegistry *gates.Registry, cooldownMgr *sigengine.CooldownManager, dupChecker *sigengine.DuplicateChecker, ptbEngine *ptb.Engine, auditLogger *audit.Logger) {
+func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr *features.StateManager, strategies []strategy.Strategy, engine *sigengine.Engine, mlEngine *mlengine.MLEngine, ollamaClient *ollama.OllamaClient, healthManager *health.Manager, staleChecker *health.StaleChecker, calibConsumer *calibration.Consumer, reconciler *reconciliation.Reconciler, wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, persister *marketdata.Persister, gateRegistry *gates.Registry, cooldownMgr *sigengine.CooldownManager, dupChecker *sigengine.DuplicateChecker, ptbEngine *ptb.Engine, auditLogger *audit.Logger, xmEngine *crossmarket.Engine, xmPersister *crossmarket.Persister) {
 	if candle == nil { return }
 	observability.CandlesGenerated.WithLabelValues(candle.Symbol, string(candle.Timeframe)).Inc()
 
@@ -1337,6 +1337,57 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			pipeCancel()
 		}
 		// ─── End audit: pipeline + score ───
+
+		// ─── Cross-Market Confluence Evaluation ───
+		// Evaluate the cross-market confluence score for this signal candidate.
+		// In shadow mode: persists results but does NOT modify the signal score.
+		// In active mode: applies a bounded score adjustment to stratResult.RawScore.
+		xmReason := ""
+		var xmResult crossmarket.ConfluenceResult
+		if xmEngine != nil {
+			xmDir := crossmarket.DirNeutral
+			if stratResult.Direction == types.DirectionBuy || string(stratResult.Direction) == "BUY_CANDIDATE" {
+				xmDir = crossmarket.DirBullish
+			} else if stratResult.Direction == types.DirectionSell || string(stratResult.Direction) == "SELL_CANDIDATE" {
+				xmDir = crossmarket.DirBearish
+			}
+			xmResult = xmEngine.Evaluate(xmDir, crossmarket.EventNormal)
+			xmReason = xmResult.FormatReason()
+
+			// Persist confluence result (best-effort, never blocks)
+			if xmPersister != nil {
+				xmCtx, xmCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+				_ = xmPersister.SaveConfluenceResult(xmCtx, &xmResult, "")
+				xmCancel()
+			}
+
+			// Add cross-market evidence to strategy result
+			if xmReason != "" {
+				stratResult.Evidence = append(stratResult.Evidence, types.EvidenceContribution{
+					Pillar:          "CROSS_MARKET",
+					Feature:         "CONFLUENCE",
+					Direction:       stratResult.Direction,
+					NormalizedValue: decimal.NewFromFloat(xmResult.Score),
+					Contribution:    decimal.NewFromFloat(xmResult.ScoreAdjustment),
+					Weight:          decimal.NewFromFloat(1.0),
+					Quality:         types.QualityAuthoritative,
+					Source:          "crossmarket_engine",
+					Version:         "1.0.0",
+					ReasonCode:      xmReason,
+				})
+			}
+
+			// In active mode, apply bounded score adjustment
+			if xmResult.ScoreAdjustment != 0 {
+				adjustment := decimal.NewFromFloat(xmResult.ScoreAdjustment)
+				stratResult.RawScore = stratResult.RawScore.Add(adjustment)
+				if xmDir == crossmarket.DirBullish {
+					stratResult.LongScore = stratResult.LongScore.Add(adjustment)
+				} else if xmDir == crossmarket.DirBearish {
+					stratResult.ShortScore = stratResult.ShortScore.Add(adjustment)
+				}
+			}
+		}
 
 		// ===== ADDON: Engine Override (Phase 1 wiring) =====
 		// Try to get a specialized engine for this strategy.
