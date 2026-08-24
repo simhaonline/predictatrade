@@ -1757,6 +1757,9 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 
 		if stratResult.Direction != types.DirectionBuy && stratResult.Direction != types.DirectionSell {
 			sig := createNoTradeSignal(stratResult, calibratedProb, mergedState)
+			sig.CandidateThreshold = candidateThresh
+			sig.TradeThreshold = tradeThresh
+			sig.SignalClass = "NO_TRADE"
 			sig.MarketTime = candle.Time
 			sig.MarketBarOpenTime = candle.Time
 			sig.MarketBarCloseTime = candle.Time
@@ -1825,6 +1828,8 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			sig.MarketTime = candle.Time
 			sig.MarketBarOpenTime = candle.Time
 			sig.MarketBarCloseTime = candle.Time
+			sig.CandidateThreshold = candidateThresh
+			sig.TradeThreshold = tradeThresh
 			sig.SignalClass = "ADVISORY"
 			sig.EvaluationSequence = evalSeq
 			sig.ScoreStatus = scoreStatus
@@ -1909,6 +1914,8 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			sig.MarketTime = candle.Time
 			sig.MarketBarOpenTime = candle.Time
 			sig.MarketBarCloseTime = candle.Time
+			sig.CandidateThreshold = candidateThresh
+			sig.TradeThreshold = tradeThresh
 			sig.SignalClass = "ADVISORY"
 			sig.EvaluationSequence = evalSeq
 			sig.ScoreStatus = scoreStatus
