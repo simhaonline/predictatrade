@@ -173,15 +173,65 @@ reconciliation table (ADDENDUM 4 / Bug 5).
 ---
 
 ## Checklist (MQL files to modify)
-- [ ] Order ticket: enforce correct SL side (reject wrong-side) — MT4 & MT5.
-- [ ] Order ticket: set SL + TP correctly for the direction.
-- [ ] Implement partial TP1/2/3 scaling on ONE position (not 3 full orders).
-- [ ] Move SL to breakeven after TP1; trail after TP2.
-- [ ] Magic-number ranges per strategy + `PAT-<STRAT>:<id>` comment.
-- [ ] Risk-side rejects: risk_oversize, position caps, martingale ban.
-- [ ] Exit-reason reporting (tp1/tp2/tp3/sl/expiry/manual) back to the Go engine.
-- [ ] Handle MT5 position-level vs MT4 order-level SL/TP correctly.
-- [ ] Compile clean in MT4 (MQL4) and MT5 (MQL5) with `#property strict`.
+> Status after v1.08 execution-layer rework (`mql/mt4/PredictATrade_MT4.mq4`, `mql/mt5/PredictATrade_MT5.mq5`):
+
+- [x] Order ticket: enforce correct SL side (reject wrong-side) — MT4 & MT5.
+      `PAT_ValidateLevels()`: BUY requires SL < entry AND TP > entry; SELL requires
+      SL > entry AND TP < entry. Runs BEFORE every send path; on violation it
+      Prints a detailed reason and ABORTS — never clamps.
+- [x] Order ticket: set SL + TP correctly for the direction.
+      Order opens with signal SL and TP3 (final target) as broker-side protection;
+      TP1/TP2 are EA-managed partials.
+- [x] Implement partial TP1/2/3 scaling on ONE position (not 3 full orders).
+      ONE position per signal with total lot; stage 0→1→2 tracked per magic via
+      GlobalVariables (`PAT_M<magic>_STAGE`), survives EA reload.
+- [x] Move SL to breakeven after TP1; trail after TP2.
+      Breakeven = entry ± spread (cost-aware), applied as maintenance from stage 1
+      (covers MT4 remainder tickets). Stage ≥ 2 trails by ATR × TrailingATRMult,
+      monotonic, respecting stop/freeze levels.
+- [x] Magic-number ranges per strategy + `PAT-<STRAT>:<id>` comment.
+      Bases 40101/40201/40301/40401/40501 (+ offset within each 100-range);
+      comment prefixes `PAT-SS:` / `PAT-US:` / `PAT-SW:` / `PAT-TS:` / `PAT-MF:`
+      with signal_id (truncated to fit terminal comment limits).
+- [x] Risk-side rejects: risk_oversize, position caps, martingale ban.
+      `PAT_PreTradeGate()`: risk$ vs MaxRiskPct×equity (default 1.5%), lot vs
+      baseLot×MaxLotRatioVsBase (default 1.0), max 1 same-direction / 2 total PAT
+      positions counted by magic range, margin vs MaxMarginUsagePct (default 30%)
+      via AccountFreeMarginCheck (MT4) / OrderCalcMargin (MT5).
+- [x] Exit-reason reporting (tp1/tp2/tp3/sl/expiry/manual) back to the Go engine.
+      `TRADE_RESULT|{...}` messages appended to `PAT_ticks.txt` (the same IPC file
+      channel the agent reads): fields type, signal_id, strategy_id, magic, ticket,
+      exit_reason, entry, exit, lot, realized_pnl, sl_correct. A compatible
+      `CLOSE_ACK|{...}` is emitted alongside because the agent currently parses
+      CLOSE_ACK (windows-agent/internal/pipe.go) but has NO case for TRADE_RESULT
+      yet — add one to forward TRADE_RESULT to the RT server.
+      Detection: deal/order-history polling classified by close-price proximity to
+      TP1/TP2/TP3/SL, with explicit forced reasons for EA-initiated closes
+      (MAX_HOLD_TIME→expiry, swap/emergency/watchdog/slippage→manual).
+      NOTE: the Windows Agent truncation bug was real on MT5 only — `PAT_Append`
+      used FILE_WRITE (truncates). FIXED to FILE_READ|FILE_WRITE + FileSeek(SEEK_END).
+- [x] Handle MT5 position-level vs MT4 order-level SL/TP correctly.
+      MT5: CTrade::PositionClosePartial keeps the same position ticket; state keyed
+      by magic. MT4: partial close splits the order into NEW tickets — reporting is
+      done exclusively by history-polling closed chunks (one report per chunk),
+      never inline, so nothing double-counts.
+- [x] Compile clean in MT4 (MQL4) and MT5 (MQL5) with `#property strict`.
+      Both files carry `#property strict`; standard well-known API signatures only.
+      NOT compiler-verified here (no MetaEditor in this environment) — compile in
+      MetaEditor before deploying (pass criteria below).
+
+Additional v1.08 changes:
+- Pre-trade spread gate `PAT_CheckSpread()` wired into both Execute paths (was dead code).
+- Entry-drift gate (MaxEntryDriftPoints, default 50 pts) and signal-TTL gate
+  (server `ExpiresAt` field parsed when present, else MaxSignalAgeSeconds default 300).
+- Watchdog OnTimer(15s): missing-SL restore/close (`OnMissingSL`=RESTORE|CLOSE,
+  default CLOSE fail-closed; restored SL is side-validated first) and equity floor
+  (MinEquityFloorPct default 40% of day-start balance → close ALL PAT positions and
+  latch halt via `PAT_EQUITY_HALT` GV until manual ReEnableAfterHalt=true).
+- Removed the MT5 pending-LIMIT order path (UsePendingLimit): async fills could not be
+  level/state-validated at fill time — market orders with immediate validation are the
+  fail-closed choice. Removed superseded inputs CloseAtTP2 / BreakEvenTriggerR /
+  TP1ClosePercent(50/30/20 split); new TP1ClosePct=33.33 / TP2ClosePct=33.33 (~1/3 each).
 
 > After these are done, re-run the master prompt's `go test ./...` and a forward-test on the
 > demo account. The pass criteria are: no wrong-side SL in any filled order, TP1/2/3 scaling

@@ -92,8 +92,8 @@ func (m *memStore) Get(key string) ([]byte, error) {
 	if m.fail {
 		return nil, errStoreFailed
 	}
-	v, ok := m.data[key]
-	return v, nil //nolint:nilerr — missing key is handled by caller via empty bytes
+	v := m.data[key]
+	return v, nil // missing key → empty bytes, handled by caller
 }
 
 func (m *memStore) SetNX(key string, val []byte, _ time.Duration) (bool, error) {
@@ -156,7 +156,8 @@ func TestPnLTrackerAnchorsAndRollover(t *testing.T) {
 		t.Errorf("month pct = %v, want -3", snap.PeriodPc[PeriodMonth])
 	}
 
-	// Next UTC day: daily anchor rolls over (pct resets), weekly persists.
+	// Next UTC day: daily anchor rolls over (pct resets vs new day anchor);
+	// weekly and monthly anchors persist (start-of-period equity = 1000).
 	day2 := time.Date(2026, 8, 25, 0, 30, 0, 0, time.UTC)
 	snap = tracker.Update(1000, day2)
 	if !snap.Known {
@@ -165,8 +166,17 @@ func TestPnLTrackerAnchorsAndRollover(t *testing.T) {
 	if snap.PeriodPc[PeriodDay] != 0 {
 		t.Errorf("new day should re-anchor to 0%%, got %v", snap.PeriodPc[PeriodDay])
 	}
-	if math.Abs(snap.PeriodPc[PeriodWeek]-3.0927835) > 1e-6 {
-		t.Errorf("week pct should persist across days (=+3.09 vs 970 anchor), got %v", snap.PeriodPc[PeriodWeek])
+	if math.Abs(snap.PeriodPc[PeriodWeek]) > 1e-9 || math.Abs(snap.PeriodPc[PeriodMonth]) > 1e-9 {
+		t.Errorf("week/month pct measured against their own anchors should be 0%%, got week=%v month=%v",
+			snap.PeriodPc[PeriodWeek], snap.PeriodPc[PeriodMonth])
+	}
+	// Weekly loss persists relative to the Monday anchor when equity drops again.
+	snap = tracker.Update(950, day2.Add(time.Hour))
+	if math.Abs(snap.PeriodPc[PeriodWeek]+5) > 1e-9 {
+		t.Errorf("week pct = %v, want -5 vs Monday anchor", snap.PeriodPc[PeriodWeek])
+	}
+	if snap.PeriodPc[PeriodDay] != 0 {
+		t.Errorf("day pct should reset on the new day's anchor, got %v", snap.PeriodPc[PeriodDay])
 	}
 }
 
