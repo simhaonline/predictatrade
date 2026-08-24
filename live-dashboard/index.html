@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover"/>
-<meta name="description" content="Predict-A-Trade XAUUSD Live Dashboard — real-time MT5 broker data observation portal by Simha Online"/>
+<meta name="description" content="Predict-A-Trade XAUUSD Real-Time Console — live trading intelligence terminal"/>
 <meta name="author" content="Simha Online"/>
 <meta name="theme-color" content="#f5f7fb"/>
 <meta name="mobile-web-app-capable" content="yes"/>
@@ -20,7 +20,7 @@
 <link rel="apple-touch-icon" sizes="256x256" href="/icon-256.png"/>
 <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png"/>
 <meta property="og:title" content="Predict-A-Trade by Simha Online"/>
-<meta property="og:description" content="XAUUSD Live Dashboard — real-time MT5 broker data"/>
+<meta property="og:description" content="XAUUSD Real-Time Console — live trading intelligence"/>
 <meta property="og:type" content="website"/>
 <meta property="og:site_name" content="Predict-A-Trade by Simha Online"/>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
@@ -148,7 +148,7 @@ body{
 /* ============ APP GRID ============ */
 #app{
   display:grid;
-  grid-template-rows:auto 30px 1fr 22px;
+  grid-template-rows:30px 1fr 22px;
   height:100vh;
   width:100%;
   max-width:100vw;
@@ -510,7 +510,7 @@ body{
 /* Tablet portrait */
 @media screen and (max-width:900px){
   html,body{overflow:auto}
-  #app{grid-template-rows:auto 30px auto 22px;height:auto;min-height:100vh}
+  #app{grid-template-rows:30px auto 22px;height:auto;min-height:100vh}
   #main{
     grid-template-columns:minmax(0,1fr);
     grid-template-rows:auto auto auto auto auto auto auto auto;
@@ -722,7 +722,11 @@ body.dark .focus-layer{background:var(--bg)}
         <div class="ph-left"><span class="diamond">◆</span> XAUUSD · M5 · CANDLES + EMA9/21/50 · VWAP · BB</div>
         <div class="ph-right" id="priceTime">● -- --- ---- --:--:-- MT<button class="expand-btn" onclick="toggleExpand('p-price')" aria-label="Expand XAUUSD chart" title="Expand panel">⛶</button></div>
       </div>
-      <div class="panel-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden">
+        <!-- Live News Feed (sourced from configured economic calendar provider) -->
+  <div id="newsStrip" class="news-strip" style="border:1px solid var(--border);border-radius:3px;margin:4px 6px;padding:4px 8px;font-size:9px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+    <span style="color:var(--text);font-weight:700">NEWS</span> <span id="newsText">Loading economic calendar…</span>
+  </div>
+<div class="panel-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden">
         <div class="price-header-bar">
           <div class="phb-left">
             <span class="pl-sym" id="plSym">XAUUSD</span>
@@ -921,6 +925,7 @@ function applyLastPrice(){
   }
 }
 
+
 async function fetchJSON(url){
   try{const r=await fetch(url,{cache:'no-store'});if(!r.ok)return null;return await r.json();}
   catch(e){return null;}
@@ -933,6 +938,7 @@ async function loadSnapshot(){
   STATE.symbol = d.symbol||'XAUUSD';
   STATE.broker = d.broker||'';
   STATE.source = d.source||'';
+  STATE.masterTime = d.timestamp||'';  // Master Node authoritative UTC time (GMT)
   STATE.brokerTime = d.timestamp||'';
   // Sync clock with server_time from API response
   if(d.server_time){
@@ -1595,7 +1601,7 @@ function buildFooter(){
     ['AGENTS',STATE.agentsConnected+' connected'],['SNAPS',STATE.snapshotCount.toLocaleString()],
     ['WS',STATE.wsState||'OFFLINE'],['QUALITY',STATE.apiConnected?'AUTHORITATIVE':'OFFLINE'],
   ];
-  if(STATE.brokerTime){var bt=STATE.brokerTime.split(' ');if(bt.length>=2)items.push(['MT-TIME',bt[bt.length-1]]);}
+  if(STATE.brokerTime){var bt=STATE.brokerTime.split(' ');if(bt.length>=2)items.push(['NODE-TIME',bt[bt.length-1]]);}
   track.innerHTML=items.concat(items).map(function(it){return '<span class="footer-item"><span class="fk">'+it[0]+'</span><span class="fv">'+it[1]+'</span></span>';}).join('');
 }
 
@@ -1688,12 +1694,7 @@ function updateModeBanner(){
     b.className='mode-banner observe';
     var src2=STATE.source||'LOCAL_COMPUTE_ONLY';
     var tf2=STATE.candleTimeframe?(' '+STATE.candleTimeframe+' timeframe'):'';
-    var lastPriceStr='';
-    if(STATE.price>0 && STATE._lastPriceIso){
-      var age = Math.round((Date.now() - (STATE._lastPriceTime||0)) / 60000);
-      lastPriceStr = ' · last price '+fmt(STATE.price, STATE.digits)+' ('+age+'m ago)';
-    }
-    b.textContent='◐ OBSERVATION MODE — No live MT5 master node connected · showing real historical'+tf2+' candles ('+src2+')'+lastPriceStr+' · not live trading data';
+    b.textContent='◐ OBSERVATION MODE — No live MT5 master node connected · showing real historical'+tf2+' candles ('+src2+') · not live trading data';
   }
   // Header LIVE pill reflects reality
   var lp=$('livePill');
@@ -1715,7 +1716,8 @@ function updateAllDisplay(){
   if($('kAsk'))$('kAsk').textContent=fmt(STATE.ask,d);
   if($('kSpread'))$('kSpread').textContent=fmt(STATE.spread,d);
   if($('kSymbol'))$('kSymbol').textContent=STATE.symbol;
-  if($('kBroker'))$('kBroker').textContent=STATE.broker?STATE.broker.substring(0,15):'—';
+  // Broker brand is intentionally not displayed (legal/branding). Show a neutral status only.
+  if($('kBroker'))$('kBroker').textContent = STATE.broker ? 'Authorized' : '—';
   if($('kVol'))$('kVol').textContent=STATE.volume>0?STATE.volume.toLocaleString():'—';
   if($('accQuality')){if(!STATE.apiConnected){$('accQuality').textContent='OFFLINE';$('accQuality').style.color='var(--red)';}else if(STATE.masterNode&&/MASTER|LIVE/.test(STATE.source||'')){$('accQuality').textContent='LIVE FEED';$('accQuality').style.color='var(--green-deep)';}else{$('accQuality').textContent='AGGREGATE';$('accQuality').style.color='#9a5b00';}}
   if($('dataSource'))$('dataSource').textContent=STATE.source||'—';
@@ -1751,15 +1753,38 @@ function updateAllDisplay(){
 
   // Live UTC clock — updates every second, synced to server_time
   // Falls back to browser time if no server sync available
+  
+  async function loadNews(){
+    try{
+      const d = await fetchJSON(API_BASE+'/api/v1/news');
+      if(!d) return;
+      var parts = [];
+      if(d.risk && d.risk!=='NONE'){ parts.push('['+d.risk+(d.reason?(' '+d.reason):'')+']'); }
+      var evs = (d.events||[]).slice(0,6);
+      for(var i=0;i<evs.length;i++){
+        var e=evs[i];
+        parts.push((e.Impact||'')+' '+(e.EventName||e.title||'event')+(e.ScheduledAtUTC?(' @ '+e.ScheduledAtUTC.slice(11,16)):''));
+      }
+      var el=document.getElementById('newsText');
+      if(el) el.textContent = parts.length? parts.join('  •  ') : 'No upcoming high-impact events';
+    }catch(e){}
+  }
+  setInterval(loadNews, 120000);
+  loadNews();
+
   if(typeof CLOCK_DRIFT_MS === 'undefined') CLOCK_DRIFT_MS = 0;
   var now = new Date(Date.now() + CLOCK_DRIFT_MS);
   var utcStr = now.toLocaleTimeString('en-GB', {timeZone:'UTC', hour12:false}) + ' UTC';
   if($('clock'))$('clock').textContent = utcStr;
   // Also show broker time from snapshot if available (for reference)
-  if(STATE.brokerTime){
-    var bt = STATE.brokerTime.split(' ');
+  if(STATE.masterTime){
+    var bt = STATE.masterTime.split(' ');
     var timeStr = bt[bt.length-1];
-    if($('priceTime')){$('priceTime').childNodes[0].textContent='● '+timeStr+' MT';}
+    if($('priceTime')){$('priceTime').childNodes[0].textContent='● '+timeStr+' NODE';}
+  } else if(STATE.brokerTime){
+    var bt2 = STATE.brokerTime.split(' ');
+    var timeStr2 = bt2[bt2.length-1];
+    if($('priceTime')){$('priceTime').childNodes[0].textContent='● '+timeStr2+' MT';}
   } else {
     if($('priceTime')){$('priceTime').childNodes[0].textContent='● '+utcStr;}
   }

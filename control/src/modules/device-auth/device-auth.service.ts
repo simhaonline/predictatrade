@@ -266,17 +266,17 @@ export class DeviceAuthService {
 
       // Renew session lease
       await client.query(
-        `UPDATE licensing.session_leases SET last_heartbeat_at = now(), lease_expires_at = now() + interval '45 seconds' WHERE device_id = $1 AND status = 'ACTIVE'
+        `UPDATE licensing.session_leases SET last_heartbeat_at = now(), lease_expires_at = now() + interval '45 seconds' WHERE device_id = $1 AND status = 'ACTIVE'`,
+        [token.device_id],
+      );
 
-      -- Keep the device itself ONLINE so dashboards reflect a live, connected agent.
+      // Keep the device itself ONLINE so dashboards reflect a live, connected agent.
       // (Previously only the session lease was touched, leaving licensing.devices.connection_status
       //  stale as OFFLINE even when the agent was actively heartbeating.)
       await client.query(
         `UPDATE licensing.devices SET connection_status = 'ONLINE', last_seen_at = now(), updated_at = now()
          WHERE id = $1 AND deleted_at IS NULL`,
         [deviceId],
-      );`,
-        [token.device_id],
       );
 
       await client.query('COMMIT');

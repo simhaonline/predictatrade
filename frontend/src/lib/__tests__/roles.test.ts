@@ -39,14 +39,14 @@ describe('Canonical Role Resolution', () => {
   });
 
   describe('panelLabelForRole', () => {
-    it('returns "Admin Panel" for ADMIN', () => {
-      expect(panelLabelForRole('ADMIN')).toBe('Admin Panel');
+    it('returns "" for ADMIN (panel labels removed)', () => {
+      expect(panelLabelForRole('ADMIN')).toBe('');
     });
-    it('returns "Admin Panel" for SUPER_ADMIN', () => {
-      expect(panelLabelForRole('SUPER_ADMIN')).toBe('Admin Panel');
+    it('returns "" for SUPER_ADMIN', () => {
+      expect(panelLabelForRole('SUPER_ADMIN')).toBe('');
     });
-    it('returns "User Panel" for USER', () => {
-      expect(panelLabelForRole('USER')).toBe('User Panel');
+    it('returns "" for USER', () => {
+      expect(panelLabelForRole('USER')).toBe('');
     });
   });
 });

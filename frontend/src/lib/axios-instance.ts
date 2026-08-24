@@ -4,9 +4,9 @@ import { refreshSession } from './session-refresh';
 
 export const customInstance = axios.create({
   baseURL:
-    typeof window !== 'undefined'
-      ? (process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1')
-      : (process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1'),
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    'http://localhost:13080/api/v1',
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',

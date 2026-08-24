@@ -9,7 +9,7 @@ jest.mock('next-themes', () => ({
 }));
 
 describe('User Sidebar Separation', () => {
-  it('renders User Panel label for USER role', async () => {
+  it('renders no User Panel label (labels removed)', async () => {
     jest.doMock('@/providers/auth-provider', () => ({
       useAuth: () => ({
         user: { id: '2', email: 'user@test.com', role: 'USER', name: 'Test User' },
@@ -22,7 +22,7 @@ describe('User Sidebar Separation', () => {
     }));
     const { default: Sidebar } = await import('@/components/layout/sidebar');
     render(<Sidebar />);
-    expect(screen.getByTestId('panel-label')).toHaveTextContent('User Panel');
+    expect(screen.getByTestId('panel-label')).toHaveTextContent('');
   });
 
   it('shows user navigation items', async () => {

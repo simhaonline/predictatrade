@@ -20,17 +20,17 @@ jest.mock('next-themes', () => ({
 }));
 
 describe('Admin Sidebar', () => {
-  it('renders Admin Panel label in footer', async () => {
+  it('renders no panel label in footer (labels removed)', async () => {
     const { default: Sidebar } = await import('@/components/layout/sidebar');
     render(<Sidebar />);
-    expect(screen.getByTestId('panel-label')).toHaveTextContent('Admin Panel');
+    expect(screen.getByTestId('panel-label')).toHaveTextContent('');
   });
 
   it('shows admin navigation items including Signal Panel', async () => {
     const { default: Sidebar } = await import('@/components/layout/sidebar');
     render(<Sidebar />);
     expect(screen.getByText('Signal Panel')).toBeInTheDocument();
-    expect(screen.getByText('Indicator Panel')).toBeInTheDocument();
+    expect(screen.getByText('Indicator Monitor')).toBeInTheDocument();
     expect(screen.getByText('Scoring Board')).toBeInTheDocument();
     expect(screen.getByText('Platform Operations')).toBeInTheDocument();
     expect(screen.getByText('System Health')).toBeInTheDocument();

@@ -56,7 +56,7 @@ export async function revokeTrustedDevice(id: string, reason = "user_revoke"): P
 
 // === Sessions (admin-only endpoint; degrades in user context) ===
 export async function fetchSessions(): Promise<unknown> {
-  const res = await customInstance.get("/device-auth/sessions");
+  const res = await customInstance.get("/devices/sessions");
   return res.data;
 }
 

@@ -94,13 +94,19 @@ export function sendTelemetry(): void {
     const telemetry = collectClientTelemetry();
     if (!telemetry) return;
 
-    // Fire and forget — use sendBeacon or fetch with keepalive
+    // Fire and forget — use sendBeacon or fetch with keepalive.
+    // Resolve against the configured API origin so the beacon reaches the
+    // control plane even when the app is served from a different domain.
+    const base =
+      (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_API_BASE_URL) ||
+      (typeof window !== 'undefined' ? window.location.origin : '');
+    const url = `${base}/api/v1/telemetry/client`;
     const body = JSON.stringify(telemetry);
 
     if (navigator.sendBeacon) {
-      navigator.sendBeacon('/api/v1/telemetry/client', body);
+      navigator.sendBeacon(url, body);
     } else {
-      fetch('/api/v1/telemetry/client', {
+      fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,
