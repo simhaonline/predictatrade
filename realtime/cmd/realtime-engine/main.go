@@ -590,6 +590,22 @@ func main() {
 	gateRegistry := gates.NewRegistry()
 	registerGates(gateRegistry, cfg)
 	gates.SeedConservativeGateStates(gateRegistry)
+	// B-04: Initialize MinATR and StopHuntFilter gates with PASS state at startup.
+	// These gates are self-evaluating from GateInput (ATR, StructuralLow/High),
+	// so they just need to be initialized to PASS so the first signal doesn't
+	// get vetoed with GATE_NOT_INITIALIZED before the refresh ticker fires.
+	gateRegistry.UpdateState(types.GateMinATR, gates.GateState{
+		GateID:        types.GateMinATR,
+		State:         types.GatePass,
+		EvaluatedAt:   time.Now(),
+		SourceVersion: "1.0",
+	})
+	gateRegistry.UpdateState(types.GateStopHuntFilter, gates.GateState{
+		GateID:        types.GateStopHuntFilter,
+		State:         types.GatePass,
+		EvaluatedAt:   time.Now(),
+		SourceVersion: "1.0",
+	})
 	go refreshGateStates(gateRegistry, stateMgr, agentProvider, staleDetector)
 	// Hydrate entitlement and license gates from control plane database.
 	// These gates are seeded as UNKNOWN (fail-closed) and must be positively
