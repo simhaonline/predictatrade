@@ -387,7 +387,9 @@ func (h *HTTPServer) handleMarketSnapshot(w http.ResponseWriter, r *http.Request
 		response["source"] = mt5Snapshot.Source
 		response["broker"] = mt5Snapshot.Broker
 		response["node"] = mt5Snapshot.Node
-		response["tick"] = mt5Snapshot.Tick
+		if mt5Snapshot.Tick.Bid > 0 && mt5Snapshot.Tick.Ask > 0 && mt5Snapshot.Tick.Ask >= mt5Snapshot.Tick.Bid {
+			response["tick"] = mt5Snapshot.Tick
+		}
 		response["bars"] = mt5Snapshot.Bars
 		response["vwap"] = mt5Snapshot.VWAP
 		response["account_info"] = mt5Snapshot.AccountInfo

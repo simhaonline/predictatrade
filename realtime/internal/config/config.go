@@ -62,6 +62,7 @@ type Config struct {
 	EURUSDEnabled        bool
 	RealYieldEnabled     bool
 	RealYieldProvider    string // fmp|fred|disabled
+	FREDAPIKey           string // FRED API key for real yield data
 	VIXEnabled           bool
 	BTCEnabled           bool
 	OilEnabled           bool
@@ -148,6 +149,7 @@ func Default() *Config {
 		EURUSDEnabled:        getEnvBool("EURUSD_ENABLED", true),
 		RealYieldEnabled:     getEnvBool("REAL_YIELD_ENABLED", false),
 		RealYieldProvider:    getEnv("REAL_YIELD_PROVIDER", "disabled"),
+		FREDAPIKey:           getEnv("FRED_API_KEY", ""),
 		VIXEnabled:           getEnvBool("VIX_ENABLED", false),
 		BTCEnabled:           getEnvBool("BTC_ENABLED", false),
 		OilEnabled:           getEnvBool("OIL_ENABLED", false),

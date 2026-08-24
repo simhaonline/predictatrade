@@ -931,6 +931,28 @@ func main() {
 		}
 	})
 
+	// ─── FRED Real Yield Provider ───
+	// Fetches 10-Year Treasury Inflation-Indexed Security yield (real yield / TIPS).
+	// FRED series DFII10 — real yield, NOT nominal yield.
+	// If FRED_API_KEY is not set, provider degrades to UNCONFIGURED — engine continues safely.
+	fredProvider := marketdata.NewFredProvider(cfg.FREDAPIKey, "DFII10")
+	if fredProvider.IsConfigured() {
+		log.Info().Str("series", "DFII10").Msg("FRED Real Yield provider configured — fetching 10-Year TIPS yield")
+	} else {
+		log.Info().Msg("FRED Real Yield provider not configured — FRED_API_KEY not set (Real Yield remains UNCONFIGURED, does not block signal generation)")
+	}
+	go fredProvider.StartRefreshLoop(ctx, 60, func(value float64, date string, ts time.Time) {
+		prevValue := fredProvider.GetPrevValue()
+		snap := crossmarket.NormalizeRealYield(value, prevValue, ts)
+		xmEngine.UpdateDriver(snap)
+	}, func(msg string, err error) {
+		if err != nil {
+			log.Warn().Err(err).Str("component", "fred_real_yield").Msg(msg)
+		} else {
+			log.Info().Str("component", "fred_real_yield").Msg(msg)
+		}
+	})
+
 	go aggregator.FlushClosedCandles(ctx)
 
 	// Broadcast market snapshot + agent status (HFT: 200ms snapshot, 1s agent status)

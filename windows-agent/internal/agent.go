@@ -423,7 +423,10 @@ func (a *Agent) sendHeartbeatToBackend() error {
 				tk := a.lastXAUUSDTick
 				a.tickMu.RUnlock()
 				xau := map[string]interface{}{"symbol": "XAUUSD", "available": false}
-				if tk != nil {
+				// Only publish real market data. A zero/inverted spread (e.g. before the
+				// EA has a live tick, or a malformed pipe frame) must never be forwarded,
+				// otherwise the terminal shows a 0.00 price and downstream analytics break.
+				if tk != nil && tk.Bid > 0 && tk.Ask > 0 && tk.Ask >= tk.Bid {
 					spread := tk.Ask - tk.Bid
 					xau["available"] = true
 					xau["bid"] = tk.Bid

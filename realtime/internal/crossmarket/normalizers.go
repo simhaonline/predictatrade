@@ -229,3 +229,40 @@ func NormalizeOil(oilValue, oilPrevValue float64, timestamp time.Time) DriverSna
 		Timestamp:   timestamp,
 	}
 }
+
+// NormalizeRealYield converts a 10-year real yield value into a bounded impact score.
+// Real yield is the 10-Year Treasury Inflation-Indexed Security yield (TIPS).
+// This is the REAL yield, not nominal — they are semantically separate.
+//
+// Conceptually: falling real yields → supportive for gold (lower opportunity cost)
+//               rising real yields → negative for gold (higher opportunity cost)
+// But this is probabilistic and regime-dependent, NOT deterministic.
+func NormalizeRealYield(realYield, prevRealYield float64, timestamp time.Time) DriverSnapshot {
+	change := realYield - prevRealYield
+
+	// Falling real yields → bullish for gold
+	// Rising real yields → bearish for gold
+	impact := -change * 30 // scale factor for yield changes
+	impact = math.Max(-80, math.Min(80, impact))
+
+	dir := DirNeutral
+	if impact > 15 {
+		dir = DirBullish
+	} else if impact < -15 {
+		dir = DirBearish
+	}
+
+	return DriverSnapshot{
+		Name:            DriverRealYields,
+		RawValue:        realYield,
+		NormalizedValue: impact,
+		ImpactScore:     impact,
+		Direction:       dir,
+		Confidence:      0.6, // medium-high confidence — real yield is a strong gold driver
+		Quality:         QualityConnected,
+		Source:          "fred",
+		Timeframe:       "daily",
+		Reason:          "Real yield " + directionWord(change) + " (" + formatFloat(realYield) + "%) → " + directionWord(impact) + " for gold",
+		Timestamp:       timestamp,
+	}
+}
