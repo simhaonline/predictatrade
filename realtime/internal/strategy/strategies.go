@@ -1393,6 +1393,7 @@ func AllStrategies() []Strategy {
 		NewUltraScalping(),
 		NewStandardSwing(),
 		NewTrendSwing(),
+		NewMarnieFibStrategy(),
 	}
 }
 

@@ -229,7 +229,7 @@ func TestCalculateMomentum(t *testing.T) {
 
 func TestStrategyWeights_AllStrategies(t *testing.T) {
 	weights := DefaultStrategyWeights()
-	if len(weights) != 4 {
+	if len(weights) != 5 {
 		t.Errorf("expected 4 strategy weight configs, got %d", len(weights))
 	}
 

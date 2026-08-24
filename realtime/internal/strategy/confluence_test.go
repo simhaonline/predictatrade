@@ -114,8 +114,8 @@ func TestFourStrategiesAreDistinct(t *testing.T) {
 func TestSeedRiskProfiles(t *testing.T) {
 	profiles := SeedRiskProfiles()
 
-	if len(profiles) != 4 {
-		t.Errorf("Expected 4 risk profiles, got %d", len(profiles))
+	if len(profiles) != 5 {
+		t.Errorf("Expected 5 risk profiles, got %d", len(profiles))
 	}
 
 	// SOW 25A.1: STANDARD_SCALPING min R:R 1.20

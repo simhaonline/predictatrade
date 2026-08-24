@@ -228,6 +228,7 @@ const (
 	StrategyStandardScalping StrategyID = "STANDARD_SCALPING"
 	StrategyStandardSwing    StrategyID = "STANDARD_SWING"
 	StrategyTrendSwing       StrategyID = "TREND_SWING"
+	StrategyMarnieFib        StrategyID = "MARNIE_FIB"
 )
 
 // StrategyWeightConfig holds per-strategy macro weight overrides.
@@ -281,6 +282,17 @@ func DefaultStrategyWeights() map[StrategyID]StrategyWeightConfig {
 				DriverVIX:        5.0,
 				DriverCOT:        20.0, // HIGH — weekly positioning
 				DriverBTC:        2.0,  // MINIMAL
+			},
+		},
+		StrategyMarnieFib: {
+			MaxContribution: 15.0,
+			Weights: map[DriverName]float64{
+				DriverDXY:        18.0, // USD context for Fib reversals
+				DriverEURUSD:     10.0,
+				DriverRealYields: 15.0, // Yield context for swing
+				DriverVIX:        10.0, // Volatility regime matters
+				DriverCOT:        12.0, // Positioning context
+				DriverBTC:        3.0,  // LOW
 			},
 		},
 	}

@@ -31,6 +31,7 @@ const (
 	StrategyUltraScalping    StrategyID = "ULTRA_SCALPING"
 	StrategyStandardSwing    StrategyID = "STANDARD_SWING"
 	StrategyTrendSwing       StrategyID = "TREND_SWING"
+	StrategyMarnieFib        StrategyID = "MARNIE_FIB"
 )
 
 // AllStrategies returns the four canonical strategy IDs.
@@ -40,6 +41,7 @@ func AllStrategies() []StrategyID {
 		StrategyUltraScalping,
 		StrategyStandardSwing,
 		StrategyTrendSwing,
+		StrategyMarnieFib,
 	}
 }
 

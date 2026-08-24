@@ -400,15 +400,21 @@ func TestStandardScalping_MissingDataProducesERROR(t *testing.T) {
 // === STAGE 4: STRATEGY REGRESSION — existing golden tests still pass ===
 // Stage 4 Section 68: Verify identical outputs for existing golden fixtures
 func TestStrategyRegression_AllFourStrategiesConsistent(t *testing.T) {
-	// Run all 4 strategies on bullish state — must produce BUY
+	// Run all strategies on bullish state — must produce BUY (or NO-TRADE if they need structure data)
 	for _, strat := range AllStrategies() {
 		state := makeBullishState()
 		result := strat.Evaluate(state)
-		// The direction should be BUY for all 4 strategies with this bullish fixture
+		// The direction should be BUY for all strategies with this bullish fixture
 		// (each has different thresholds but the fixture is strong enough)
+		// Exception: MarnieFib needs confirmed swing high/low structure which the
+		// fixture doesn't provide, so NO-TRADE with FIB_NO_SWING_ANCHORS is correct.
+		if strat.ID() == types.StrategyMarnieFib {
+			if result.Direction != types.DirectionNoTrade {
+				t.Errorf("%s: Expected NO-TRADE (no swing structure in fixture), got %s", strat.ID(), result.Direction)
+			}
+			continue
+		}
 		if result.Direction != types.DirectionBuy && result.Direction != types.DirectionWait {
-			// Some strategies might WAIT if their conflict threshold is stricter, but
-			// the bullish fixture has no conflicts so should be BUY
 			t.Errorf("%s: Expected BUY, got %s (score=%s reasons=%v)", strat.ID(), result.Direction, result.RawScore, result.ReasonCodes)
 		}
 	}

@@ -66,6 +66,15 @@ func DefaultRegimeThresholds() map[types.StrategyID]map[types.Regime]RegimeTrade
 			types.RegimeTrendingBearish: {types.StrategyTrendSwing, types.RegimeTrendingBearish, 30, 50, "TREND: max~75"},
 			types.RegimeBreakout: {types.StrategyTrendSwing, types.RegimeBreakout, 30, 50, "BREAKOUT: max~70"},
 		},
+		types.StrategyMarnieFib: {
+			// Marnie Fib works best in RANGE/MEAN_REVERSION (retracement reversals)
+			types.RegimeRange: {types.StrategyMarnieFib, types.RegimeRange, 25, 40, "RANGE: Fib retracement reversals, max~55"},
+			types.RegimeMeanReversion: {types.StrategyMarnieFib, types.RegimeMeanReversion, 25, 40, "MEAN_REVERSION: Fib reversals, max~55"},
+			types.RegimeTrendingBullish: {types.StrategyMarnieFib, types.RegimeTrendingBullish, 30, 45, "TREND: Fib pullback entries, max~65"},
+			types.RegimeTrendingBearish: {types.StrategyMarnieFib, types.RegimeTrendingBearish, 30, 45, "TREND: Fib pullback entries, max~65"},
+			types.RegimeBreakout: {types.StrategyMarnieFib, types.RegimeBreakout, 30, 45, "BREAKOUT: Fib extension targets, max~60"},
+			types.RegimeHighVolatility: {types.StrategyMarnieFib, types.RegimeHighVolatility, 25, 40, "HIGH_VOL: wider Fib zones"},
+		},
 	}
 }
 

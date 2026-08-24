@@ -8,6 +8,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+# Clear Go build cache to ensure fresh compile with latest source files
+RUN go clean -cache
 RUN CGO_ENABLED=1 go build -o bin/realtime-engine ./cmd/realtime-engine/
 
 # Runtime stage

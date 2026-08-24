@@ -56,6 +56,12 @@ func DefaultCandidateThresholds() map[types.StrategyID]CandidateThresholdConfig 
 			TradeThreshold:    50,
 			Version:           "1.0.0",
 		},
+		types.StrategyMarnieFib: {
+			StrategyID:        types.StrategyMarnieFib,
+			CandidateThreshold: 25,
+			TradeThreshold:    40,
+			Version:           "1.0.0",
+		},
 	}
 }
 

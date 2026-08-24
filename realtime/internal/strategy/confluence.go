@@ -280,6 +280,14 @@ func SeedRiskProfiles() map[types.StrategyID]RiskProfile {
 			LossCooldownMinutes: 240,
 			MaxTotalCostToTarget: decimal.NewFromFloat(0.25),
 		},
+		types.StrategyMarnieFib: {
+			MinGrossRR:          decimal.NewFromFloat(2.00),
+			MaxSpreadAbsolute:   decimal.NewFromFloat(0.45),
+			MaxSpreadToATR:      decimal.NewFromFloat(0.55),
+			MaxNewTradesPerDay:  2,
+			LossCooldownMinutes: 180,
+			MaxTotalCostToTarget: decimal.NewFromFloat(0.25),
+		},
 	}
 }
 
