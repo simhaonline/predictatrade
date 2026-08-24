@@ -939,4 +939,43 @@ export class AdminService {
       gate_vetoes: gateVetoStats.rows,
     };
   }
+
+  /**
+   * Signal accuracy ranking computed from trading.signals outcome data.
+   * Win = resolved signal with realized_pnl > 0. Honest: returns empty strategies
+   * when no resolved signals exist (never fabricates accuracy).
+   */
+  async getSignalAccuracy() {
+    const q = await this.pool.query(`
+      SELECT
+        strategy_id,
+        count(*) AS total,
+        count(*) FILTER (WHERE closed_at IS NOT NULL) AS resolved,
+        count(*) FILTER (WHERE closed_at IS NOT NULL AND realized_pnl > 0) AS wins,
+        count(*) FILTER (WHERE closed_at IS NOT NULL AND realized_pnl < 0) AS losses,
+        COALESCE(SUM(realized_pnl), 0) AS total_pnl,
+        COALESCE(AVG(realized_pnl) FILTER (WHERE closed_at IS NOT NULL), 0) AS avg_pnl
+      FROM trading.signals
+      GROUP BY strategy_id
+    `);
+    const strategies = q.rows.map((r) => {
+      const total = Number(r.total);
+      const resolved = Number(r.resolved);
+      const wins = Number(r.wins);
+      const losses = Number(r.losses);
+      const winRate = resolved > 0 ? (wins / resolved) * 100 : null;
+      return {
+        strategyId: r.strategy_id,
+        total,
+        resolved,
+        wins,
+        losses,
+        winRate,
+        avgPnl: Number(r.avg_pnl),
+        totalPnl: Number(r.total_pnl),
+      };
+    }).sort((a, b) => (b.winRate ?? -1) - (a.winRate ?? -1));
+    return { generatedAt: new Date().toISOString(), strategies };
+  }
+
 }

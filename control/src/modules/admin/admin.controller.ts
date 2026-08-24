@@ -158,4 +158,10 @@ export class AdminController {
   async subscriptionProvider() {
     return this.adminService.getSubscriptionProvider();
   }
+
+  @Get('signal-accuracy')
+  getSignalAccuracy() {
+    return this.adminService.getSignalAccuracy();
+  }
+
 }

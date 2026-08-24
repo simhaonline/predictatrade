@@ -12,7 +12,7 @@ input bool    SendTickData   = true;
 input int     MagicNumber    = 20240002;
 input int     TickIntervalMs = 0;
 input string  BrokerSymbol   = "";
-input string  LicenseKey     = "PAT-A1B2C3D4-0002-4000-8000-000000000002";
+input string  LicenseKey     = "PAT-A1B2C3D4-0003-4000-8000-000000000003";
 
 // ─── Strategy/Direction filters ───
 input bool    ReceiveStandardScalping = true;
@@ -839,16 +839,15 @@ void SendInitMessage()
 //+------------------------------------------------------------------+
 void RequestLicenseValidation()
 {
-    string msg = "LICENSE_CHECK|{"account":"" + g_accountID +
-                 "","broker":"" + AccountCompany() +
-                 "","symbol":"" + g_symbol +
-                 "","license_key":"" + g_licenseKey +
-                 "","balance":" + DoubleToStr(AccountBalance(), 2) +
-                 ","equity":" + DoubleToStr(AccountEquity(), 2) +
-                 ","profit":" + DoubleToStr(AccountProfit(), 2) +
-                 ","open_positions":" + IntegerToString(OrdersTotal()) +
-                 "}
-";
+    string msg = "LICENSE_CHECK|{\"account\":\"" + g_accountID +
+                 "\",\"broker\":\"" + AccountCompany() +
+                 "\",\"symbol\":\"" + g_symbol +
+                 "\",\"license_key\":\"" + g_licenseKey +
+                 "\",\"balance\":" + DoubleToStr(AccountBalance(), 2) +
+                 ",\"equity\":" + DoubleToStr(AccountEquity(), 2) +
+                 ",\"profit\":" + DoubleToStr(AccountProfit(), 2) +
+                 ",\"open_positions\":" + IntegerToString(OrdersTotal()) +
+                 "}\n";
     PAT_Append(PAT_TICK_FILE, msg);
     Print("License validation requested - balance: ", AccountBalance());
 }
