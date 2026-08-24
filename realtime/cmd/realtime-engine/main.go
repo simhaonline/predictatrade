@@ -894,7 +894,7 @@ func main() {
 		})
 	}
 
-	httpServer := gateway.NewHTTPServer(wsHub, persister, stateMgr, agentHub, agentProvider, valkeyCache, xmEngine)
+	httpServer := gateway.NewHTTPServer(wsHub, persister, stateMgr, agentHub, agentProvider, valkeyCache, xmEngine, newsRiskEngine)
 	go func() {
 		addr := fmt.Sprintf("%s:%d", cfg.HTTPHost, cfg.HTTPPort)
 		log.Info().Str("addr", addr).Msg("HTTP server starting")
@@ -1560,7 +1560,7 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			if model != nil && model.Status == "PROMOTED" {
 				calibratedProb = calibConsumer.Calibrate(strat.ID(), stratResult.RawScore)
 				calibStatus = types.CalibrationPromoted
-			} else if model != nil && model.Status == "VALIDATED" || model.Status == "PROVISIONAL" {
+			} else if model != nil && (model.Status == "VALIDATED" || model.Status == "PROVISIONAL") {
 				calibratedProb = calibConsumer.Calibrate(strat.ID(), stratResult.RawScore)
 				calibStatus = types.CalibrationValidated
 			}

@@ -722,7 +722,11 @@ body.dark .focus-layer{background:var(--bg)}
         <div class="ph-left"><span class="diamond">◆</span> XAUUSD · M5 · CANDLES + EMA9/21/50 · VWAP · BB</div>
         <div class="ph-right" id="priceTime">● -- --- ---- --:--:-- MT<button class="expand-btn" onclick="toggleExpand('p-price')" aria-label="Expand XAUUSD chart" title="Expand panel">⛶</button></div>
       </div>
-      <div class="panel-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden">
+        <!-- Live News Feed (sourced from configured economic calendar provider) -->
+  <div id="newsStrip" class="news-strip" style="border:1px solid var(--border);border-radius:3px;margin:4px 6px;padding:4px 8px;font-size:9px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+    <span style="color:var(--text);font-weight:700">NEWS</span> <span id="newsText">Loading economic calendar…</span>
+  </div>
+<div class="panel-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden">
         <div class="price-header-bar">
           <div class="phb-left">
             <span class="pl-sym" id="plSym">XAUUSD</span>
@@ -1709,6 +1713,25 @@ function updateAllDisplay(){
 
   // Live UTC clock — updates every second, synced to server_time
   // Falls back to browser time if no server sync available
+  
+  async function loadNews(){
+    try{
+      const d = await fetchJSON(API_BASE+'/api/v1/news');
+      if(!d) return;
+      var parts = [];
+      if(d.risk && d.risk!=='NONE'){ parts.push('['+d.risk+(d.reason?(' '+d.reason):'')+']'); }
+      var evs = (d.events||[]).slice(0,6);
+      for(var i=0;i<evs.length;i++){
+        var e=evs[i];
+        parts.push((e.Impact||'')+' '+(e.EventName||e.title||'event')+(e.ScheduledAtUTC?(' @ '+e.ScheduledAtUTC.slice(11,16)):''));
+      }
+      var el=document.getElementById('newsText');
+      if(el) el.textContent = parts.length? parts.join('  •  ') : 'No upcoming high-impact events';
+    }catch(e){}
+  }
+  setInterval(loadNews, 120000);
+  loadNews();
+
   if(typeof CLOCK_DRIFT_MS === 'undefined') CLOCK_DRIFT_MS = 0;
   var now = new Date(Date.now() + CLOCK_DRIFT_MS);
   var utcStr = now.toLocaleTimeString('en-GB', {timeZone:'UTC', hour12:false}) + ' UTC';

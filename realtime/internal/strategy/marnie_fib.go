@@ -16,6 +16,7 @@ package strategy
 
 import (
 	"fmt"
+	"log"
 	
 
 	"github.com/predictatrade/realtime/internal/features"
@@ -66,9 +67,18 @@ func NewMarnieFibStrategy() *MarnieFibStrategy {
 func (s *MarnieFibStrategy) ID() types.StrategyID { return types.StrategyMarnieFib }
 
 func (s *MarnieFibStrategy) Evaluate(state *features.MarketState) StrategyResult {
+	log.Printf("[MARNIE_FIB] Evaluate called, ATR zero: %v", state.Indicators.ATR.IsZero())
 	result := StrategyResult{
 		StrategyID:      s.ID(),
 		Direction:       types.DirectionNoTrade,
+		RawScore:        decimal.Zero,
+		LongScore:       decimal.Zero,
+		ShortScore:      decimal.Zero,
+		EntryPrice:      decimal.Zero,
+		StopLoss:        decimal.Zero,
+		TP1:             decimal.Zero,
+		TP2:             decimal.Zero,
+		TP3:             decimal.Zero,
 		ExpiryMinutes:   s.cfg.ExpiryMinutes,
 		CooldownMinutes: s.cfg.CooldownMinutes,
 	}
@@ -80,6 +90,10 @@ func (s *MarnieFibStrategy) Evaluate(state *features.MarketState) StrategyResult
 	}
 
 	// Check regime/session
+	if state.Regime.Current == "" {
+		result.ReasonCodes = append(result.ReasonCodes, "NT_REGIME_UNKNOWN")
+		return result
+	}
 	result.ReasonCodes = append(result.ReasonCodes, checkRegimeSession(state, s.cfg)...)
 	if len(result.ReasonCodes) > 0 {
 		return result

@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"github.com/predictatrade/realtime/pkg/news"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -28,16 +29,18 @@ type HTTPServer struct {
 	agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool }
 	valkeyCache *cache.ValkeyCache
 	crossMarketEngine *crossmarket.Engine
+	newsEngine *news.RiskEngine
 	mux       *http.ServeMux
 	server    *http.Server
 }
 
-func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine) *HTTPServer {
+func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine, newsEngine *news.RiskEngine) *HTTPServer {
 	h := &HTTPServer{
 		agentHub: agentHub,
 		agentProvider: agentProvider,
 		valkeyCache: valkeyCache,
 		crossMarketEngine: xmEngine,
+		newsEngine:        newsEngine,
 		hub:       hub,
 		persister: persister,
 		states:    states,
@@ -72,6 +75,7 @@ func (h *HTTPServer) registerRoutes() {
 	h.mux.HandleFunc("/api/v1/strategies", h.handleStrategies)
 	h.mux.HandleFunc("/api/v1/market/snapshot", h.handleMarketSnapshot)
 	h.mux.HandleFunc("/api/v1/agents/status", h.handleAgentsStatus)
+	h.mux.HandleFunc("/api/v1/news", h.handleNews)
 	h.mux.HandleFunc("/api/v1/price/history", h.handlePriceHistory)
 	h.mux.HandleFunc("/api/v1/signals/resume", h.handleSignalResume)
 	h.mux.HandleFunc("/api/v1/admin/regime-diagnostics", h.handleRegimeDiagnostics)
@@ -640,6 +644,29 @@ func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) 
 		"server_time":          time.Now().UTC().Format(time.RFC3339),
 	})
 }
+
+// handleNews exposes the current news risk level and upcoming economic events
+// (sourced from the configured provider, e.g. FMP). This powers the live news
+// feed on the trading terminal.
+func (h *HTTPServer) handleNews(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if h.newsEngine == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"risk": "NONE", "events": []interface{}{}, "configured": false})
+		return
+	}
+	risk := h.newsEngine.ComputeRisk(time.Now())
+	events := h.newsEngine.GetEvents()
+	out := map[string]interface{}{
+		"risk":       string(risk.Level),
+		"reason":     risk.ReasonCode,
+		"evidence":   risk.Evidence,
+		"computedAt": risk.ComputedAt,
+		"configured": h.newsEngine.HasProvider(),
+		"events":     events,
+	}
+	json.NewEncoder(w).Encode(out)
+}
+
 
 // handleSignalResume handles client reconnect: returns missed signals for replay.
 // SOW Section 29, 47: Signal Sequence Resume Protocol.
