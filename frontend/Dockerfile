@@ -8,6 +8,12 @@ FROM node:24-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# NEXT_PUBLIC_* vars are inlined into the client bundle at build time — they
+# MUST be provided as build args (runtime env_file alone is NOT enough).
+ARG NEXT_PUBLIC_API_BASE_URL=https://api.predictatrade.com/api/v1
+ARG NEXT_PUBLIC_API_URL=https://api.predictatrade.com/api/v1
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN npx next build --webpack
 
 FROM node:24-alpine AS runner

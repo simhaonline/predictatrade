@@ -116,6 +116,10 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # Baked into the client bundle at build time (must match the public API origin).
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://api.predictatrade.com/api/v1}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.predictatrade.com/api/v1}
     container_name: pat-frontend
     env_file:
       - ./infra/env/frontend.env
