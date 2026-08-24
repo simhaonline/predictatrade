@@ -16,7 +16,7 @@ input bool    SendTickData   = true;     // Send real tick data to Windows Agent
 input ulong   MagicNumber    = 20240001;
 input int     TickIntervalMs = 0;      // 0 = every tick (HFT: 1-5ms co-located)
 input string  BrokerSymbol   = "";       // Empty = auto-detect chart symbol
-input string  LicenseKey     = "PAT-A1B2C3D4-0001-4000-8000-000000000001";       // Your Predict-A-Trade license key
+input string  LicenseKey     = "PAT-A1B2C3D4-0004-4000-8000-000000000004";       // Your Predict-A-Trade license key
 
 //=== Strategy Selection (set to true to receive that strategy's signals) ===
 input bool    ReceiveStandardScalping = true;   // STANDARD_SCALPING (M1/M5 scalping)

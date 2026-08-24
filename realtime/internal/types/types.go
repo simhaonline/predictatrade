@@ -114,6 +114,34 @@ const (
 	TFMN1 Timeframe = "MN1"
 )
 
+// Duration returns the bar period covered by one closed candle of this
+// timeframe. Returns 0 for unknown timeframes (callers must treat the bar
+// close time as unknown rather than guessing).
+func (t Timeframe) Duration() time.Duration {
+	switch t {
+	case TFM1:
+		return time.Minute
+	case TFM5:
+		return 5 * time.Minute
+	case TFM15:
+		return 15 * time.Minute
+	case TFM30:
+		return 30 * time.Minute
+	case TFH1:
+		return time.Hour
+	case TFH4:
+		return 4 * time.Hour
+	case TFD1:
+		return 24 * time.Hour
+	case TFW1:
+		return 7 * 24 * time.Hour
+	case TFMN1:
+		return 30 * 24 * time.Hour
+	default:
+		return 0
+	}
+}
+
 // AlignmentProfile defines candle bucket alignment (SOW Section 150.3).
 type AlignmentProfile string
 

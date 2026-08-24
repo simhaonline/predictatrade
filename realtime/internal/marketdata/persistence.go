@@ -362,11 +362,13 @@ func (p *Persister) SaveStrategyEvaluation(ctx context.Context, e *StrategyEvalR
 		INSERT INTO trading.strategy_evaluations (
 			strategy_id, strategy_version, symbol, timeframe, timestamp,
 			input_features, score, long_score, short_score,
-			conditions_passed, conditions_failed, candidate_generated, direction, reason
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+			conditions_passed, conditions_failed, candidate_generated, direction, reason,
+			evaluation_sequence, score_status
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 	`, e.StrategyID, e.StrategyVersion, e.Symbol, e.Timeframe, e.Timestamp,
 		string(inputJSON), decStrOrZero(e.Score), decStrOrZero(e.LongScore), decStrOrZero(e.ShortScore),
-		string(condPassedJSON), string(condFailedJSON), e.CandidateGenerated, e.Direction, reason)
+		string(condPassedJSON), string(condFailedJSON), e.CandidateGenerated, e.Direction, reason,
+		e.EvaluationSequence, e.ScoreStatus)
 	if err != nil {
 		log.Printf("[RT] SaveStrategyEvaluation error: %v", err)
 	}
@@ -491,6 +493,8 @@ type StrategyEvalRecord struct {
 	CandidateGenerated bool
 	Direction      string
 	Reason          string
+	EvaluationSequence int64
+	ScoreStatus     string
 }
 
 type CooldownAuditRecord struct {

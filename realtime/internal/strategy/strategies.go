@@ -22,6 +22,36 @@ type Strategy interface {
 	Evaluate(state *features.MarketState) StrategyResult
 }
 
+// DecisionTFProvider is implemented by strategies that declare the timeframes
+// on which they must be evaluated (prompt.md Sections 5-10, 67-68).
+// Engines are only triggered on closes of their decision timeframes — never on
+// every bar of every timeframe (prevents M1 values contaminating H4 logic and
+// per-minute re-evaluation of swing/daily engines).
+type DecisionTFProvider interface {
+	DecisionTimeframes() []types.Timeframe
+}
+
+// ShouldEvaluateOn reports whether a strategy may be evaluated on a close of
+// the given timeframe. Strategies that do not implement DecisionTFProvider are
+// always evaluated (legacy-compatible). An empty DecisionTimeframes list also
+// means "evaluate on all timeframes".
+func ShouldEvaluateOn(s Strategy, tf types.Timeframe) bool {
+	p, ok := s.(DecisionTFProvider)
+	if !ok {
+		return true
+	}
+	tfs := p.DecisionTimeframes()
+	if len(tfs) == 0 {
+		return true
+	}
+	for _, t := range tfs {
+		if t == tf {
+			return true
+		}
+	}
+	return false
+}
+
 // StrategyResult is the output of a strategy evaluation.
 type StrategyResult struct {
 	StrategyID    types.StrategyID
@@ -561,6 +591,7 @@ func NewStandardScalping() *StandardScalping {
 	}}
 }
 func (s *StandardScalping) ID() types.StrategyID { return types.StrategyStandardScalping }
+func (s *StandardScalping) DecisionTimeframes() []types.Timeframe { return s.cfg.DecisionTFs }
 
 func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult {
 	result := StrategyResult{StrategyID: s.ID(), Direction: types.DirectionNoTrade, ExpiryMinutes: s.cfg.ExpiryMinutes, CooldownMinutes: s.cfg.CooldownMinutes}
@@ -735,6 +766,7 @@ func NewUltraScalping() *UltraScalping {
 	}}
 }
 func (s *UltraScalping) ID() types.StrategyID { return types.StrategyUltraScalping }
+func (s *UltraScalping) DecisionTimeframes() []types.Timeframe { return s.cfg.DecisionTFs }
 
 func (s *UltraScalping) Evaluate(state *features.MarketState) StrategyResult {
 	result := StrategyResult{StrategyID: s.ID(), Direction: types.DirectionNoTrade, ExpiryMinutes: s.cfg.ExpiryMinutes, CooldownMinutes: s.cfg.CooldownMinutes}
@@ -931,6 +963,7 @@ func NewStandardSwing() *StandardSwing {
 	}}
 }
 func (s *StandardSwing) ID() types.StrategyID { return types.StrategyStandardSwing }
+func (s *StandardSwing) DecisionTimeframes() []types.Timeframe { return s.cfg.DecisionTFs }
 
 func (s *StandardSwing) Evaluate(state *features.MarketState) StrategyResult {
 	result := StrategyResult{StrategyID: s.ID(), Direction: types.DirectionNoTrade, ExpiryMinutes: s.cfg.ExpiryMinutes, CooldownMinutes: s.cfg.CooldownMinutes}
@@ -1125,6 +1158,7 @@ func NewTrendSwing() *TrendSwing {
 	}}
 }
 func (s *TrendSwing) ID() types.StrategyID { return types.StrategyTrendSwing }
+func (s *TrendSwing) DecisionTimeframes() []types.Timeframe { return s.cfg.DecisionTFs }
 
 func (s *TrendSwing) Evaluate(state *features.MarketState) StrategyResult {
 	result := StrategyResult{StrategyID: s.ID(), Direction: types.DirectionNoTrade, ExpiryMinutes: s.cfg.ExpiryMinutes, CooldownMinutes: s.cfg.CooldownMinutes}

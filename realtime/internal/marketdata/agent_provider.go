@@ -42,6 +42,13 @@ func parseMQLTimestamp(s string) time.Time {
 	return time.Now().UTC()
 }
 
+// ParseSnapshotTime exposes MQL snapshot timestamp parsing (ISO8601 preferred,
+// gateway-time fallback) so consumers merging snapshot data into market state
+// can carry genuine source timestamps instead of processing timestamps.
+func ParseSnapshotTime(s string) time.Time {
+	return parseMQLTimestamp(s)
+}
+
 // AgentTickMessage is the message format the Windows Agent sends with real MT5 tick data.
 type AgentTickMessage struct {
 	Type      string          `json:"type"`       // "TICK", "HEARTBEAT", "BAR"

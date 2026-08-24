@@ -65,6 +65,7 @@ func NewMarnieFibStrategy() *MarnieFibStrategy {
 }
 
 func (s *MarnieFibStrategy) ID() types.StrategyID { return types.StrategyMarnieFib }
+func (s *MarnieFibStrategy) DecisionTimeframes() []types.Timeframe { return s.cfg.DecisionTFs }
 
 func (s *MarnieFibStrategy) Evaluate(state *features.MarketState) StrategyResult {
 	log.Printf("[MARNIE_FIB] Evaluate called, ATR zero: %v", state.Indicators.ATR.IsZero())
@@ -239,7 +240,9 @@ func (s *MarnieFibStrategy) Evaluate(state *features.MarketState) StrategyResult
 	result.RawScore = rawScore
 	result.LongScore = longScore
 	result.ShortScore = shortScore
-	result.Confidence = rawScore.InexactFloat64() / 100.0
+	// NOTE: Confidence intentionally NOT derived from RawScore (prompt.md
+	// Section 30: score is not probability/confidence). Subscriber-facing
+	// confidence comes only from the calibrated model via CalibratedProbability.
 	result.ReasonCodes = append(result.ReasonCodes, reasons...)
 
 	// Build human reason

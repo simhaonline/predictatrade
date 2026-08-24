@@ -12,6 +12,7 @@ import (
 
 	"github.com/predictatrade/realtime/internal/cache"
 	"github.com/predictatrade/realtime/internal/crossmarket"
+	"github.com/predictatrade/realtime/internal/engstatus"
 	"github.com/predictatrade/realtime/internal/features"
 	"github.com/predictatrade/realtime/internal/marketdata"
 	"github.com/predictatrade/realtime/internal/types"
@@ -30,17 +31,19 @@ type HTTPServer struct {
 	valkeyCache *cache.ValkeyCache
 	crossMarketEngine *crossmarket.Engine
 	newsEngine *news.RiskEngine
+	engTracker *engstatus.Tracker
 	mux       *http.ServeMux
 	server    *http.Server
 }
 
-func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine, newsEngine *news.RiskEngine) *HTTPServer {
+func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine, newsEngine *news.RiskEngine, engTracker *engstatus.Tracker) *HTTPServer {
 	h := &HTTPServer{
 		agentHub: agentHub,
 		agentProvider: agentProvider,
 		valkeyCache: valkeyCache,
 		crossMarketEngine: xmEngine,
 		newsEngine:        newsEngine,
+		engTracker:        engTracker,
 		hub:       hub,
 		persister: persister,
 		states:    states,
@@ -81,12 +84,31 @@ func (h *HTTPServer) registerRoutes() {
 	h.mux.HandleFunc("/api/v1/admin/regime-diagnostics", h.handleRegimeDiagnostics)
 	h.mux.HandleFunc("/api/v1/system-health", h.handleSystemHealth)
 
+	// Per-strategy-engine liveness (prompt.md Sections 26, 38, 43-46)
+	h.mux.HandleFunc("/api/v1/engines/status", h.handleEnginesStatus)
+
 	// Cross-Market Confluence Engine API
 	if h.crossMarketEngine != nil {
 		h.mux.HandleFunc("/api/v1/cross-market/current", crossmarket.HandleCurrent(h.crossMarketEngine))
 		h.mux.HandleFunc("/api/v1/cross-market/health", crossmarket.HandleHealthExtended(h.crossMarketEngine))
 		h.mux.HandleFunc("/api/v1/cross-market/validation", crossmarket.HandleValidationStatus(h.crossMarketEngine))
 	}
+}
+
+// handleEnginesStatus reports truthful per-strategy-engine liveness derived
+// from actual evaluation activity — never fabricated green states.
+func (h *HTTPServer) handleEnginesStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if h.engTracker == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"engines": []engstatus.Snapshot{}, "server_time": time.Now().UTC(),
+		})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"engines":     h.engTracker.All(),
+		"server_time": time.Now().UTC(),
+	})
 }
 
 func (h *HTTPServer) Start(host string, port int) error {

@@ -2,6 +2,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import { getGlobalWs, type WsMessage, type ConnectionState } from "@/lib/websocket";
+import { fetchEnginesStatus } from "@/lib/engines-api";
+import AdminEngineCards from "@/components/admin/engine-cards";
 import { IconUsers, IconReceipt, IconCoin, IconChartBar, IconShield, IconDeviceDesktop, IconActivity, IconBolt, IconServer, IconDatabase, IconBroadcast, IconKey } from "@tabler/icons-react";
 import { format } from "date-fns";
 import { useState, useEffect, useRef } from "react";
@@ -52,6 +54,13 @@ export default function AdminDashboardPage() {
     queryKey: ["go-system-health"],
     queryFn: async () => (await customInstance.get("/system-health")).data,
     refetchInterval: 30000,
+  });
+
+  // Backend-authoritative per-engine liveness (Go realtime plane)
+  const { data: enginesStatus } = useQuery({
+    queryKey: ["engines-status"],
+    queryFn: fetchEnginesStatus,
+    refetchInterval: 10000,
   });
 
   // --- WebSocket for live signals ---
@@ -109,15 +118,21 @@ export default function AdminDashboardPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engineSignals]);
 
-  // --- Derived states ---
+  // --- Derived states (evidence-based, never fake green — prompt.md #111) ---
   const tradingHalted = opsState?.trading_halted ?? false;
   const signalsPaused = opsState?.signals_paused ?? false;
-  const engineAlive = !!engineSignals && (((engineSignals as { signals?: unknown[] })?.signals?.length) ?? 0) >= 0;
+  // Engine is "operational" only if the engines/status endpoint reports at
+  // least one running engine with a recent evaluation. A successful empty
+  // HTTP response alone proves nothing.
+  const engineEvaluating = (() => {
+    const engines = enginesStatus?.engines ?? [];
+    return engines.some((e) => e.running && e.evaluation_count > 0);
+  })();
+  const engineAlive = engineEvaluating;
   const agentCount = Number(agentsStatus?.agents_connected ?? 0) || (Array.isArray(agentsStatus?.agents) ? agentsStatus.agents.length : 0);
   const hasAgents = agentCount > 0;
   const wsConnected = wsState === 'CONNECTED';
   const masterNodeConnected = (agentsStatus?.master_node_connected as boolean) ?? false;
-  const feedState = !marketState ? "OFFLINE" : wsConnected ? "LIVE" : "DEGRADED";
 
   // Extract market data from the Go engine response
   const marketData = marketState as Record<string, unknown> | undefined;
@@ -126,6 +141,17 @@ export default function AdminDashboardPage() {
   const ask = Number(lastTick?.Ask ?? marketData?.Ask ?? 0);
   const spread = Number(lastTick?.Spread ?? marketData?.Spread ?? 0);
   const tickSource = (lastTick?.Source as string) ?? (marketData?.Source as string) ?? "";
+  // Feed liveness derives from backend tick age (server clock), not from the
+  // browser's WebSocket connection state (prompt.md Sections 43, 111).
+  const tickTimeStr = (lastTick?.GatewayTimestamp ?? lastTick?.Timestamp) as string | undefined;
+  const serverNowStr = enginesStatus?.server_time;
+  const serverNow = serverNowStr ? new Date(serverNowStr).getTime() : null;
+  const tickAgeSec = tickTimeStr && serverNow !== null ? Math.max(0, (serverNow - new Date(tickTimeStr).getTime()) / 1000) : null;
+  const feedState =
+    !marketData ? "OFFLINE"
+    : tickAgeSec !== null && tickAgeSec < 60 ? "LIVE"
+    : tickAgeSec !== null && tickAgeSec < 300 ? "DEGRADED"
+    : "STALE";
   const regime = (marketData?.Regime as Record<string, unknown>) ?? {};
   const currentRegime = (regime.Current as string) ?? "";
   const session = (marketData?.Session as Record<string, unknown>) ?? {};
@@ -288,6 +314,9 @@ export default function AdminDashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Four Strategy Engine Cards (prompt.md Section 44) */}
+      <AdminEngineCards />
 
       {/* Platform Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">

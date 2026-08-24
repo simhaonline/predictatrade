@@ -18,6 +18,7 @@ import (
 	"github.com/predictatrade/realtime/internal/cache"
 	"github.com/predictatrade/realtime/internal/crossmarket"
 	"github.com/predictatrade/realtime/internal/calibration"
+	"github.com/predictatrade/realtime/internal/engstatus"
 	"github.com/predictatrade/realtime/pkg/health"
 	"github.com/predictatrade/realtime/pkg/macro"
 	"github.com/predictatrade/realtime/pkg/mlengine"
@@ -261,7 +262,9 @@ func main() {
 		agentProvider.SetValkeyCache(valkeyCache)
 	}
 
-	featureReg := features.NewRegistry()
+	// One feature Registry per timeframe: indicator/structure/VWAP state for
+	// M1..W1 must never share rolling windows (prompt.md Sections 6, 11, 73).
+	featureReg := features.NewRegistrySet()
 	stateMgr := features.NewStateManager()
 
 	// ── News Risk Engine (v1.10) ──
@@ -468,7 +471,7 @@ func main() {
 				c := candles[i]
 				// Ensure symbol is normalized to XAUUSD
 				c.Symbol = types.SymbolXAUUSD
-				evalState := featureReg.Evaluate(c, map[types.Timeframe]*types.Candle{
+				evalState := featureReg.For(types.Timeframe(tf)).Evaluate(c, map[types.Timeframe]*types.Candle{
 					types.Timeframe(tf): c,
 				}, nil)
 				_ = evalState // We just need the side effect of indicators being computed
@@ -480,7 +483,7 @@ func main() {
 				stateMgr.Update(types.SymbolXAUUSD, func(state *features.MarketState) {
 					state.Candles[types.Timeframe(tf)] = latest
 					// Merge computed indicators from the last evaluation
-					evalState := featureReg.Evaluate(latest, state.Candles, nil)
+					evalState := featureReg.For(types.Timeframe(tf)).Evaluate(latest, state.Candles, nil)
 					if evalState != nil {
 						// Only set indicators if they haven't been set by MT5 snapshot yet
 						if state.Indicators.ATR.IsZero() {
@@ -587,7 +590,7 @@ func main() {
 	gateRegistry := gates.NewRegistry()
 	registerGates(gateRegistry, cfg)
 	gates.SeedConservativeGateStates(gateRegistry)
-	go refreshGateStates(gateRegistry, stateMgr, agentProvider)
+	go refreshGateStates(gateRegistry, stateMgr, agentProvider, staleDetector)
 	// Hydrate entitlement and license gates from control plane database.
 	// These gates are seeded as UNKNOWN (fail-closed) and must be positively
 	// verified before BUY/SELL signals can be confirmed.
@@ -689,6 +692,21 @@ func main() {
 	calibConsumer := calibration.NewConsumer()
 	calibConsumer.SeedDefaultModels()
 	strategies := strategy.AllStrategies()
+	// Per-engine liveness tracker (prompt.md Sections 26, 38, 43-46)
+	stratIDs := make([]types.StrategyID, 0, len(strategies))
+	for _, s := range strategies {
+		stratIDs = append(stratIDs, s.ID())
+	}
+	engTracker := engstatus.NewTracker(stratIDs...)
+	for _, s := range strategies {
+		if p, ok := s.(strategy.DecisionTFProvider); ok {
+			tfs := make([]string, 0, len(p.DecisionTimeframes()))
+			for _, tf := range p.DecisionTimeframes() {
+				tfs = append(tfs, string(tf))
+			}
+			engTracker.SetPrimaryTFs(s.ID(), tfs)
+		}
+	}
 	ptbEngine := ptb.NewEngine()
 	reconciler := reconciliation.NewReconciler()
 
@@ -894,7 +912,7 @@ func main() {
 		})
 	}
 
-	httpServer := gateway.NewHTTPServer(wsHub, persister, stateMgr, agentHub, agentProvider, valkeyCache, xmEngine, newsRiskEngine)
+	httpServer := gateway.NewHTTPServer(wsHub, persister, stateMgr, agentHub, agentProvider, valkeyCache, xmEngine, newsRiskEngine, engTracker)
 	go func() {
 		addr := fmt.Sprintf("%s:%d", cfg.HTTPHost, cfg.HTTPPort)
 		log.Info().Str("addr", addr).Msg("HTTP server starting")
@@ -1059,13 +1077,17 @@ func main() {
 								// Merge bars as candles
 								for tfName, bar := range ms.Bars {
 									tf := types.Timeframe(tfName)
+									// Use the broker bar timestamp when available (ISO8601
+									// from updated EAs). Never stamp processing time as the
+									// bar's market time (prompt.md Sections 13-15).
+									barTime := marketdata.ParseSnapshotTime(bar.Time)
 									s.Candles[tf] = &types.Candle{
 										Symbol: normalizeXAUUSD(ms.Symbol), Timeframe: tf,
 										Open: decimal.NewFromFloat(bar.Open), High: decimal.NewFromFloat(bar.High),
 										Low: decimal.NewFromFloat(bar.Low), Close: decimal.NewFromFloat(bar.Close),
 										Volume: bar.Volume, Source: ms.Source,
 										Quality: types.CandleComplete, IsClosed: false,
-										Time: time.Now().UTC(),
+										Time: barTime,
 									}
 								}
 							})
@@ -1074,7 +1096,7 @@ func main() {
 				}
 				processCandle(candle, featureReg, stateMgr, strategies, engine, mlEngine, ollamaClient, healthManager, staleChecker,
 					calibConsumer, reconciler, wsHub, agentHub, persister, gateRegistry,
-					cooldownMgr, dupChecker, ptbEngine, auditLogger, xmEngine, xmPersister, xmValidation)
+					cooldownMgr, dupChecker, ptbEngine, auditLogger, xmEngine, xmPersister, xmValidation, engTracker)
 			}
 		}
 	}()
@@ -1141,9 +1163,18 @@ func processTick(tick *types.Tick, validator *marketdata.TickValidator, staleDet
 	}
 }
 
-func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr *features.StateManager, strategies []strategy.Strategy, engine *sigengine.Engine, mlEngine *mlengine.MLEngine, ollamaClient *ollama.OllamaClient, healthManager *health.Manager, staleChecker *health.StaleChecker, calibConsumer *calibration.Consumer, reconciler *reconciliation.Reconciler, wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, persister *marketdata.Persister, gateRegistry *gates.Registry, cooldownMgr *sigengine.CooldownManager, dupChecker *sigengine.DuplicateChecker, ptbEngine *ptb.Engine, auditLogger *audit.Logger, xmEngine *crossmarket.Engine, xmPersister *crossmarket.Persister, xmValidation *crossmarket.ValidationPersister) {
+func processCandle(candle *types.Candle, featureReg *features.RegistrySet, stateMgr *features.StateManager, strategies []strategy.Strategy, engine *sigengine.Engine, mlEngine *mlengine.MLEngine, ollamaClient *ollama.OllamaClient, healthManager *health.Manager, staleChecker *health.StaleChecker, calibConsumer *calibration.Consumer, reconciler *reconciliation.Reconciler, wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, persister *marketdata.Persister, gateRegistry *gates.Registry, cooldownMgr *sigengine.CooldownManager, dupChecker *sigengine.DuplicateChecker, ptbEngine *ptb.Engine, auditLogger *audit.Logger, xmEngine *crossmarket.Engine, xmPersister *crossmarket.Persister, xmValidation *crossmarket.ValidationPersister, engTracker *engstatus.Tracker) {
 	if candle == nil { return }
 	observability.CandlesGenerated.WithLabelValues(candle.Symbol, string(candle.Timeframe)).Inc()
+
+	// ─── Bar close time (prompt.md Sections 13-15) ───
+	// Aggregator candles are stamped with bucket-open time. Persisting that as
+	// market_bar_close_time made open==close for most historical rows; compute
+	// the genuine close = open + period instead.
+	barCloseTime := candle.Time
+	if d := candle.Timeframe.Duration(); d > 0 {
+		barCloseTime = candle.Time.Add(d)
+	}
 
 	// ─── Update candle freshness BEFORE health check ───
 	// FIX: Update lastCandleTime first so the stale checker sees the CURRENT
@@ -1165,7 +1196,10 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 		state.Candles[candle.Timeframe] = candle
 	})
 	state := stateMgr.Get(candle.Symbol)
-	evalState := featureReg.Evaluate(candle, state.Candles, state.LastTick)
+	// Evaluate features in the registry dedicated to THIS timeframe —
+	// M1 candles never touch H1/H4/D1 indicator state and vice versa.
+	reg := featureReg.For(candle.Timeframe)
+	evalState := reg.Evaluate(candle, state.Candles, state.LastTick)
 	if evalState == nil { return }
 	stateMgr.Update(candle.Symbol, func(s *features.MarketState) {
 		s.Structure = evalState.Structure; s.Liquidity = evalState.Liquidity; s.FVG = evalState.FVG
@@ -1353,6 +1387,13 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 
 	sessionAllowed := features.IsSessionAllowed(string(mergedState.Regime.Current), mergedState.Session.CurrentSession, mergedState.Session.IsWeekend)
 	for _, strat := range strategies {
+		// ─── Decision-timeframe trigger (prompt.md Sections 5-10, 67-68) ───
+		// Each engine evaluates only on closes of its declared decision TFs.
+		// Swing/daily engines must not re-fire on every M1 bar, and scalping
+		// engines must not wait for higher-TF events.
+		if !strategy.ShouldEvaluateOn(strat, candle.Timeframe) {
+			continue
+		}
 		stratResult := strat.Evaluate(mergedState)
 
 		// ─── Audit: Start pipeline execution (prompt.md audit logging) ───
@@ -1548,6 +1589,7 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 				ConditionsPassed: stratResult.Evidence, ConditionsFailed: stratResult.ReasonCodes,
 				CandidateGenerated: stratResult.Direction != types.DirectionNoTrade,
 				Direction: string(stratResult.Direction), Reason: string(stratResult.HumanReason),
+				EvaluationSequence: evalSeq, ScoreStatus: string(scoreStatus),
 			})
 			evalCancel()
 		}
@@ -1571,6 +1613,20 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			if !calibratedProb.IsZero() {
 				observability.CalibratedProbability.WithLabelValues(string(strat.ID())).Set(toF(calibratedProb))
 			}
+		}
+		// ─── Engine liveness tracking (prompt.md Sections 26, 38) ───
+		if engTracker != nil {
+			probF, _ := calibratedProb.Float64()
+			scoreF, _ := stratResult.RawScore.Float64()
+			dq := "GOOD"
+			if mergedState.LastTick != nil && mergedState.LastTick.Quality == types.QualityStale {
+				dq = "DEGRADED"
+			} else if mergedState.LastTick == nil {
+				dq = "DEGRADED"
+			}
+			engTracker.RecordEvaluation(strat.ID(), candle.Timeframe, candle.Time, stratResult.Direction,
+				scoreF, stratResult.Confidence, probF, !calibratedProb.IsZero(),
+				string(mergedState.Regime.Current), dq)
 		}
 		// Phase 2: Regime-specific candidate threshold — advisory signals (SOW Sections 7-10, 34-35)
 		// If strategy returned NO-TRADE but score is meaningful, check for candidate
@@ -1641,7 +1697,7 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 						// Detailed timestamp model (SOW Sections 26-30)
 						MarketTime:          candle.Time,
 						MarketBarOpenTime:   candle.Time,
-						MarketBarCloseTime:  candle.Time, // candle close time (processing on closed candle)
+						MarketBarCloseTime:  barCloseTime, // genuine close = open + period
 						DetectedAt:          now,
 						CandidateDetectedAt: now,
 						// Candidate classification (SOW Sections 12, 31-35)
@@ -1762,7 +1818,7 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			sig.SignalClass = "NO_TRADE"
 			sig.MarketTime = candle.Time
 			sig.MarketBarOpenTime = candle.Time
-			sig.MarketBarCloseTime = candle.Time
+			sig.MarketBarCloseTime = barCloseTime
 			sig.EvaluationSequence = evalSeq
 			sig.ScoreStatus = scoreStatus
 			if sig.SignalReference == "" && persister != nil {
@@ -1827,7 +1883,7 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			sig := createNoTradeSignal(stratResult, calibratedProb, mergedState)
 			sig.MarketTime = candle.Time
 			sig.MarketBarOpenTime = candle.Time
-			sig.MarketBarCloseTime = candle.Time
+			sig.MarketBarCloseTime = barCloseTime
 			sig.CandidateThreshold = candidateThresh
 			sig.TradeThreshold = tradeThresh
 			sig.SignalClass = "ADVISORY"
@@ -1913,7 +1969,7 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			sig := createNoTradeSignal(stratResult, calibratedProb, mergedState)
 			sig.MarketTime = candle.Time
 			sig.MarketBarOpenTime = candle.Time
-			sig.MarketBarCloseTime = candle.Time
+			sig.MarketBarCloseTime = barCloseTime
 			sig.CandidateThreshold = candidateThresh
 			sig.TradeThreshold = tradeThresh
 			sig.SignalClass = "ADVISORY"
@@ -2033,7 +2089,7 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			// Detailed timestamp model (SOW Sections 26-30)
 			decision.Signal.MarketTime = candle.Time
 			decision.Signal.MarketBarOpenTime = candle.Time
-			decision.Signal.MarketBarCloseTime = candle.Time
+			decision.Signal.MarketBarCloseTime = barCloseTime
 			decision.Signal.DetectedAt = time.Now().UTC()
 			decision.Signal.EntryType = "MARKET"
 			decision.Signal.ConflictPenalty = stratResult.ConflictPenalty
@@ -2142,6 +2198,9 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			}
 			reconciler.RecordSignal(decision.Signal)
 			broadcastSignalToAll(wsHub, agentHub, decision.Signal)
+			if engTracker != nil {
+				engTracker.RecordIssuedSignal(strat.ID(), decision.Signal.SignalReference, time.Now().UTC())
+			}
 			if persister != nil {
 				// Persist signal + outbox event (prompt.md Section 32)
 				sCtx, sCancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -2226,7 +2285,7 @@ func registerGates(reg *gates.Registry, cfg *config.Config) {
 }
 // refreshGateStates periodically refreshes gate state from live market/broker data.
 // This runs as a background goroutine to keep gate states fresh.
-func refreshGateStates(reg *gates.Registry, stateMgr *features.StateManager, agentProvider interface{}) {
+func refreshGateStates(reg *gates.Registry, stateMgr *features.StateManager, agentProvider interface{}, staleDetector *marketdata.StaleDetector) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -2236,12 +2295,37 @@ func refreshGateStates(reg *gates.Registry, stateMgr *features.StateManager, age
 		// Refresh market-data gates from live market state
 		state := stateMgr.Get("XAUUSD")
 		if state != nil {
-			// Data quality gate
+			// Data quality gate — evidence-based, not hardcoded PASS.
+			// Frozen/stalled feeds must not keep a green light (prompt.md
+			// Sections 16-17, 21-22, 79). The StaleDetector tracks the last
+			// genuine tick per symbol; staleness beyond thresholds degrades
+			// then vetoes signal generation (fail-closed).
+			dqState := types.GatePass
+			dqReason := ""
+			freshMs := int64(0)
+			if staleDetector != nil {
+				staleness := staleDetector.Staleness("XAUUSD")
+				if staleness < time.Hour { // known (not "never seen a tick")
+					freshMs = staleness.Milliseconds()
+					switch {
+					case staleness > 30*time.Second:
+						dqState = types.GateVeto
+						dqReason = "XAUUSD_DATA_STALE"
+					case staleness > 10*time.Second:
+						dqState = types.GateDegraded
+						dqReason = "XAUUSD_DATA_AGING"
+					}
+				} else {
+					dqState = types.GateVeto
+					dqReason = "NO_XAUUSD_TICK_YET"
+				}
+			}
 			reg.UpdateState(types.GateDataQuality, gates.GateState{
-				State:       types.GatePass,
+				State:       dqState,
+				ReasonCode:  dqReason,
 				EvaluatedAt:  now,
-				ValidUntil:   now.Add(60 * time.Second),
-				FreshnessMs:  0,
+				ValidUntil:   now.Add(15 * time.Second),
+				FreshnessMs:  freshMs,
 				SourceVersion: "live_feed",
 			})
 

@@ -19,6 +19,7 @@ export function MarketHeader() {
   const askRef = useRef<HTMLSpanElement>(null);
   const spreadRef = useRef<HTMLSpanElement>(null);
   const [wsConnected, setWsConnected] = useState(false);
+  const [wsLost, setWsLost] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<number>(0);
   const [clockTick, setClockTick] = useState<number>(0);
   const ws = getGlobalWs();
@@ -59,7 +60,11 @@ export function MarketHeader() {
         });
       }
     });
-    const unsubState = ws.subscribeState((s) => setWsConnected(s === "CONNECTED"));
+    const unsubState = ws.subscribeState((s) => {
+      setWsConnected(s === "CONNECTED");
+      // prompt.md Section 59: never keep displaying stale values as live.
+      setWsLost(s === "DISCONNECTED" || s === "RECONNECTING");
+    });
     return () => { unsub(); unsubState(); };
   }, [ws]);
 
@@ -97,6 +102,13 @@ export function MarketHeader() {
 
   return (
     <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-4">
+      {/* Live connection lost banner (prompt.md Section 59) */}
+      {wsLost && (
+        <div role="alert" className="mb-3 flex items-center gap-2 rounded-md border border-pat-warning/30 bg-pat-warning/10 px-3 py-2 text-xs font-medium text-pat-warning">
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-pat-warning" />
+          LIVE CONNECTION LOST — showing last known values; reconnecting…
+        </div>
+      )}
       {/* Price bar */}
       <div className="flex flex-wrap items-center gap-4 mb-3">
         <div className="flex items-center gap-2">

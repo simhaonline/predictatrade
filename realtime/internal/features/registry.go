@@ -68,6 +68,64 @@ func NewRegistry() *Registry {
 	}
 }
 
+// RegistrySet provides one Registry per timeframe so that stateful indicator,
+// structure and VWAP engines for different timeframes never contaminate each
+// other (prompt.md Sections 6, 11, 73). Sharing immutable cached calculations
+// for identical (symbol, timeframe, indicator, params) remains fine; what must
+// not happen is feeding M1 and H4 candles through the same EMA/MACD windows.
+type RegistrySet struct {
+	mu           sync.Mutex
+	regs         map[types.Timeframe]*Registry
+	newsProvider NewsRiskProvider
+	cotStatus    string
+	cotReason    string
+}
+
+func NewRegistrySet() *RegistrySet {
+	return &RegistrySet{regs: make(map[types.Timeframe]*Registry)}
+}
+
+// SetNewsRiskProvider configures the news provider applied to every registry
+// in the set (including ones created later).
+func (s *RegistrySet) SetNewsRiskProvider(p NewsRiskProvider) {
+	s.mu.Lock()
+	s.newsProvider = p
+	for _, r := range s.regs {
+		r.SetNewsRiskProvider(p)
+	}
+	s.mu.Unlock()
+}
+
+// SetCOTStatus configures the COT readiness override applied to every registry.
+func (s *RegistrySet) SetCOTStatus(status, reason string) {
+	s.mu.Lock()
+	s.cotStatus = status
+	s.cotReason = reason
+	for _, r := range s.regs {
+		r.SetCOTStatus(status, reason)
+	}
+	s.mu.Unlock()
+}
+
+// For returns the registry dedicated to the given timeframe, creating it on
+// first use with all configured providers already wired.
+func (s *RegistrySet) For(tf types.Timeframe) *Registry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r, ok := s.regs[tf]; ok {
+		return r
+	}
+	r := NewRegistry()
+	if s.newsProvider != nil {
+		r.SetNewsRiskProvider(s.newsProvider)
+	}
+	if s.cotStatus != "" {
+		r.SetCOTStatus(s.cotStatus, s.cotReason)
+	}
+	s.regs[tf] = r
+	return r
+}
+
 // Evaluate processes a new candle through all feature engines and returns updated MarketState.
 func (r *Registry) Evaluate(candle *types.Candle, allCandles map[types.Timeframe]*types.Candle, lastTick *types.Tick) *MarketState {
 	r.mu.Lock()
