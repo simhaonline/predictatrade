@@ -954,7 +954,7 @@ async function loadSnapshot(){
   }
   if(STATE.price > 0) saveLastPrice();
   if(d.bars){STATE.bars=d.bars;
-    var m5=d.bars.M5; if(m5){STATE.dayOpen=Number(m5.open)||0;STATE.high=Number(m5.high)||0;STATE.low=Number(m5.low)||0;}
+    var m5=d.bars.M5; if(m5){STATE.dayOpen=Number(m5.open)||0;STATE.high=Number(m5.high)||0;STATE.low=Number(m5.low)||0;}else{STATE.high=0;STATE.low=0;STATE.dayOpen=0;}
   }
   if(d.indicators)STATE.indicators=d.indicators;
   if(d.vwap)STATE.vwap=Number(d.vwap.session_vwap)||0;
@@ -987,7 +987,7 @@ function buildCandlesFromTicks(){
     else{cc.c=tk.p;cc.h=Math.max(cc.h,tk.p);cc.l=Math.min(cc.l,tk.p);cc.v++;}});
   if(cc)candles.push(cc);
   // Add M5 bars from snapshot
-  if(STATE.bars.M5){var m5=STATE.bars.M5;
+  if(STATE.bars&&STATE.bars.M5){var m5=STATE.bars.M5;
     var m5t=Date.now();
     if(m5.prev_open!==undefined)candles.unshift({t:m5t-300000,o:Number(m5.prev_open),h:Number(m5.prev_high||m5.prev_open),l:Number(m5.prev_low||m5.prev_open),c:Number(m5.prev_close),v:Number(m5.prev_volume||100)});
     candles.unshift({t:m5t,o:Number(m5.open),h:Number(m5.high),l:Number(m5.low),c:Number(m5.close),v:Number(m5.volume)});
@@ -1703,6 +1703,7 @@ function updateModeBanner(){
 
 /* ============ FULL DISPLAY UPDATE (on snapshot) ============ */
 function updateAllDisplay(){
+  try{
   var d=STATE.digits;
   // Header
   if($('hPrice'))$('hPrice').textContent=fmt(STATE.price,d);
@@ -1747,10 +1748,11 @@ function updateAllDisplay(){
   if($('plSym'))$('plSym').textContent=STATE.symbol;
   if($('plHi'))$('plHi').textContent=fmt(STATE.high,d);
   if($('plLo'))$('plLo').textContent=fmt(STATE.low,d);
-  if($('plVol')){var v=STATE.bars.M5?STATE.bars.M5.volume:0;$('plVol').textContent=v>0?(v/1000).toFixed(1)+'k':'—';}
+  if($('plVol')){var v=(STATE.bars&&STATE.bars.M5)?STATE.bars.M5.volume:0;$('plVol').textContent=v>0?(v/1000).toFixed(1)+'k':'—';}
   var chg=STATE.price-STATE.dayOpen;
   if($('plChg')){if(STATE.dayOpen>0){$('plChg').textContent=(chg>=0?'+':'')+fmt(chg,d)+' ('+(chg>=0?'+':'')+Math.round(chg/STATE.dayOpen*100*100)/100+'%)';$('plChg').className='pl-chg '+(chg>=0?'chg-up':'chg-dn');}else{$('plChg').textContent='—';}}
 
+  }catch(e){console.error('updateAllDisplay error:',e);}
   // Live UTC clock — updates every second, synced to server_time
   // Falls back to browser time if no server sync available
   
@@ -1860,18 +1862,29 @@ try{
 
 /* ============ INIT ============ */
 async function init(){
+  try {
   // Set correct toggle icon
   var ti=document.getElementById('themeToggle');
   if(ti)ti.textContent=document.body.classList.contains('dark')?'☀':'🌙';
   applyLastPrice(); // restore last known price before first render
-  await loadSnapshot();
-  await loadCandles(); // preferred chart source; falls back to aggregated market-state candles
-  await Promise.all([loadMarketState(),loadAgentStatus(),loadStrategies(),loadSignals()]);
-  buildSparklines();buildResGrid();buildGantt();buildActiveMarkets();buildAgents();buildTicker();buildFooter();buildDOM();
-  if(priceChart)priceChart.setOption(priceOption());
-  if(edgeChart)edgeChart.setOption(edgeOption());
-  if(flowChart)flowChart.setOption(flowOption());
-  initNet();animateNet();updateAllDisplay();connectWS();
+  await loadSnapshot().catch(function(e){console.error('loadSnapshot error:',e);});
+  await loadCandles().catch(function(e){console.error('loadCandles error:',e);});
+  await Promise.allSettled([loadMarketState(),loadAgentStatus(),loadStrategies(),loadSignals()]);
+  try{buildSparklines();}catch(e){console.error('buildSparklines:',e);}
+  try{buildResGrid();}catch(e){console.error('buildResGrid:',e);}
+  try{buildGantt();}catch(e){console.error('buildGantt:',e);}
+  try{buildActiveMarkets();}catch(e){console.error('buildActiveMarkets:',e);}
+  try{buildAgents();}catch(e){console.error('buildAgents:',e);}
+  try{buildTicker();}catch(e){console.error('buildTicker:',e);}
+  try{buildFooter();}catch(e){console.error('buildFooter:',e);}
+  try{buildDOM();}catch(e){console.error('buildDOM:',e);}
+  if(priceChart)try{priceChart.setOption(priceOption());}catch(e){console.error('priceChart:',e);}
+  if(edgeChart)try{edgeChart.setOption(edgeOption());}catch(e){console.error('edgeChart:',e);}
+  if(flowChart)try{flowChart.setOption(flowOption());}catch(e){console.error('flowChart:',e);}
+  try{initNet();}catch(e){console.error('initNet:',e);}
+  try{animateNet();}catch(e){console.error('animateNet:',e);}
+  try{updateAllDisplay();}catch(e){console.error('updateAllDisplay:',e);}
+  try{connectWS();}catch(e){console.error('connectWS:',e);}
   // Poll snapshot every 500ms for minimal latency (WebSocket is primary, this is backup)
   var pollTimer=setInterval(async function(){
     await loadSnapshot();
@@ -1879,6 +1892,7 @@ async function init(){
     await loadCandles();
     updateAllDisplay();
   },3000);
+  } catch(e) { console.error('init() fatal error:', e); }
   // Agent status every 5s
   var agentTimer=setInterval(async function(){
     await loadAgentStatus();
