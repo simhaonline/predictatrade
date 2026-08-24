@@ -23,15 +23,14 @@ func TestDataQualityGateVetoesOnDegradedState(t *testing.T) {
 	}
 }
 
-func TestStopHuntAndMinATRGatesNotInOrderWithoutStateSeeding(t *testing.T) {
-	// stop_hunt_filter / min_atr are registered but intentionally NOT in the
-	// evaluation order: they have no state seeding, and EvaluateAll fails
-	// closed (GATE_NOT_INITIALIZED → veto) which would block ALL signals.
-	// Min-ATR is enforced per-strategy in strategy/engines instead.
-	// Wiring them requires state hydration first — tracked as a gap.
+func TestStopHuntAndMinATRGatesWiredWithStateSeeding(t *testing.T) {
+	// stop_hunt_filter / min_atr are self-evaluating (they read ATR and
+	// StructuralLow/High directly from GateInput). They sit in the canonical
+	// order but MUST have a seeded state, otherwise EvaluateAll fails closed
+	// with GATE_NOT_INITIALIZED before the refresh ticker fires.
+	// SeedConservativeGateStates provides that seed (matching main.go B-04).
 	r := NewRegistry()
-	r.Register(&StopHuntFilterGate{MinDistanceATR: 1.5})
-	r.Register(&MinAbsoluteATRGate{MinATR: 2.0})
+	registerAllGates(r)
 	registered := map[types.GateID]bool{}
 	for _, g := range r.gates {
 		registered[g.ID()] = true
@@ -39,9 +38,44 @@ func TestStopHuntAndMinATRGatesNotInOrderWithoutStateSeeding(t *testing.T) {
 	if !registered[types.GateStopHuntFilter] || !registered[types.GateMinATR] {
 		t.Fatal("stop_hunt/min_atr gates should stay registered")
 	}
-	for _, id := range r.order {
-		if id == types.GateStopHuntFilter || id == types.GateMinATR {
-			t.Errorf("%s must not be evaluated until state seeding exists", id)
+	if !containsID(r.order, types.GateStopHuntFilter) || !containsID(r.order, types.GateMinATR) {
+		t.Fatalf("stop_hunt/min_atr gates are part of the canonical evaluation order")
+	}
+
+	// Without state seeding they (like every ordered gate) fail closed.
+	in := GateInput{Tick: &types.Tick{Quality: types.QualityAuthoritative}, ATR: 3.0,
+		SessionAllowed: true, NewsRisk: "LOW", EntryPrice: 2430, StopLoss: 2426,
+		TakeProfit1: 2435, EntitlementOK: true, LicenseActive: true,
+		ExecutionPermitted: true}
+	if allPass, _, _ := r.EvaluateAll(in); allPass {
+		t.Fatal("unseeded registry must fail closed")
+	}
+
+	// After seeding they evaluate from live input and pass valid geometry.
+	setAllGateStatesPass(r)
+	allPass, evals, veto := r.EvaluateAll(in)
+	if !allPass || veto != nil {
+		t.Fatalf("seeded registry should pass valid input, veto=%v", veto)
+	}
+	found := 0
+	for _, e := range evals {
+		if e.GateID == types.GateMinATR || e.GateID == types.GateStopHuntFilter {
+			if e.Result != types.GatePass {
+				t.Errorf("%s = %s, want PASS for ATR=3.0 with no structure", e.GateID, e.Result)
+			}
+			found++
 		}
 	}
+	if found < 2 {
+		t.Errorf("expected both self-evaluating gates in evaluations, found %d of %d evals", found, len(evals))
+	}
+}
+
+func containsID(order []types.GateID, id types.GateID) bool {
+	for _, o := range order {
+		if o == id {
+			return true
+		}
+	}
+	return false
 }

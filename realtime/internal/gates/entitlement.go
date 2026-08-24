@@ -133,6 +133,11 @@ func SeedConservativeGateStates(reg *Registry) {
 			ValidUntil: now,
 			ReasonCode: "NOT_INITIALIZED", SourceVersion: "seed",
 		},
+		// ── Self-evaluating precision gates (B-04): evaluated from live
+		// GateInput each call; seeded PASS so EvaluateAll does not fail with
+		// GATE_NOT_INITIALIZED on the first signal before refresh ticks fire.
+		types.GateMinATR:         {State: types.GatePass, EvaluatedAt: now, SourceVersion: "seed"},
+		types.GateStopHuntFilter: {State: types.GatePass, EvaluatedAt: now, SourceVersion: "seed"},
 	} {
 		reg.UpdateState(gateID, state)
 	}

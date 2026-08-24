@@ -48,6 +48,12 @@ func (v *ValkeyCache) SetNXRaw(ctx context.Context, key string, val []byte, ttl 
 	return v.client.SetNX(ctx, key, val, ttl).Result()
 }
 
+// SetRaw overwrites the raw bytes stored at key with a TTL (used by P&L
+// anchor rollover).
+func (v *ValkeyCache) SetRaw(ctx context.Context, key string, val []byte, ttl time.Duration) error {
+	return v.client.Set(ctx, key, val, ttl).Err()
+}
+
 func (v *ValkeyCache) SetMarketState(data interface{}) error {
 	b, err := json.Marshal(data)
 	if err != nil {

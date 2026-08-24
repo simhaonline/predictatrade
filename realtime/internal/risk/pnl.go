@@ -45,6 +45,8 @@ type PeriodAnchor struct {
 type AnchorStore interface {
 	Get(key string) ([]byte, error)
 	SetNX(key string, val []byte, ttl time.Duration) (bool, error)
+	// Set unconditionally overwrites — used for period rollover.
+	Set(key string, val []byte, ttl time.Duration) error
 }
 
 // ValkeyAnchorStore adapts the shared Valkey cache to AnchorStore.
@@ -68,6 +70,13 @@ func (s *ValkeyAnchorStore) SetNX(key string, val []byte, ttl time.Duration) (bo
 		return false, fmt.Errorf("valkey unavailable")
 	}
 	return s.cache.SetNXRaw(context.Background(), key, val, ttl)
+}
+
+func (s *ValkeyAnchorStore) Set(key string, val []byte, ttl time.Duration) error {
+	if s == nil || s.cache == nil {
+		return fmt.Errorf("valkey unavailable")
+	}
+	return s.cache.SetRaw(context.Background(), key, val, ttl)
 }
 
 // PnLSnapshot carries session P&L percentages to the gates.
@@ -157,17 +166,20 @@ func (t *PnLTracker) periodPct(p Period, equity float64, now time.Time) (float64
 		return 0, false
 	}
 	if !set {
-		// Another writer won the race — re-read once; if it is a valid
-		// anchor for this period use it, otherwise fail closed.
+		// Another writer won the race — re-read; if it is a valid anchor for
+		// this period use it. If it belongs to a PREVIOUS period (rollover
+		// race), overwrite it with this period's anchor deterministically.
 		raw, err = t.store.Get(key)
 		if err != nil || len(raw) == 0 {
 			return 0, false
 		}
 		var anchor PeriodAnchor
-		if json.Unmarshal(raw, &anchor) != nil || anchor.PeriodID != id || anchor.Equity <= 0 {
+		if json.Unmarshal(raw, &anchor) == nil && anchor.PeriodID == id && anchor.Equity > 0 {
+			return (equity - anchor.Equity) / anchor.Equity * 100.0, true
+		}
+		if oErr := t.store.Set(key, blob, AnchorTTL); oErr != nil {
 			return 0, false
 		}
-		return (equity - anchor.Equity) / anchor.Equity * 100.0, true
 	}
 	// We set the anchor: P&L for this period starts at zero.
 	return 0, true

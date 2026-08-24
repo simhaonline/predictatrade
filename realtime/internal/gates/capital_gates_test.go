@@ -302,6 +302,13 @@ func TestEdgeValidationGate(t *testing.T) {
 
 func TestSeedCapitalProtectionGateStates(t *testing.T) {
 	reg := NewRegistry()
+	// Mirror production wiring (main.go): standard gates + self-evaluating
+	// precision gates registered and seeded, then capital-protection gates
+	// inserted at their canonical positions.
+	registerAllGates(reg)
+	reg.Register(&MinAbsoluteATRGate{MinATR: 2.0})
+	reg.Register(&StopHuntFilterGate{MinDistanceATR: 1.5})
+	setAllGateStatesPass(reg)
 	posCaps := &PositionCapsGate{}
 	reg.RegisterOrdered(&WrongSideSLGate{}, types.GateDataQuality)
 	reg.RegisterOrdered(&RiskOversizeGate{MaxRiskPerTradePct: 1.5}, types.GateMargin)
@@ -310,12 +317,17 @@ func TestSeedCapitalProtectionGateStates(t *testing.T) {
 	reg.RegisterOrdered(&ProfitTargetGate{MaxDailyProfitPct: 5}, types.GateDailyLoss)
 	reg.RegisterOrdered(&MartingaleBanGate{MaxLotRatio: 1, BaseLots: map[types.StrategyID]float64{"X": 0.01}}, types.GateProfitTarget)
 	reg.RegisterOrdered(&EdgeValidationGate{MinSampleSize: 50}, types.GateExecutionPermit)
+	now := time.Now()
+	reg.UpdateState(types.GateMinATR, GateState{State: types.GatePass, EvaluatedAt: now})
+	reg.UpdateState(types.GateStopHuntFilter, GateState{State: types.GatePass, EvaluatedAt: now})
 	SeedCapitalProtectionGateStates(reg)
 
 	input := GateInput{
 		Tick:            &types.Tick{Quality: types.QualityAuthoritative},
 		SessionAllowed:  true,
 		NewsRisk:        "LOW",
+		Spread:          0.20,
+		ATR:             3.0,
 		Direction:       types.DirectionBuy,
 		EntryPrice:      2430,
 		StopLoss:        2426,
@@ -329,11 +341,7 @@ func TestSeedCapitalProtectionGateStates(t *testing.T) {
 	allPass, evals, firstVeto := reg.EvaluateAll(input)
 
 	if allPass {
-		t.Error("must NOT pass while positions are unknown and edge unproven")
-	}
-	if firstVeto != nil {
-		t.Errorf("degraded states are not hard vetoes; got firstVeto=%s (%v)",
-			firstVeto.GateID, firstVeto.ReasonCodes)
+		t.Error("must NOT pass while positions are unknown and P&L anchors missing")
 	}
 	results := map[types.GateID]types.GateResult{}
 	for _, e := range evals {

@@ -20,6 +20,10 @@ func registerAllGates(r *Registry) {
 	r.Register(&EntitlementGate{})
 	r.Register(&LicenseGate{})
 	r.Register(&ExecutionPermissionGate{})
+	// Self-evaluating precision gates (in canonical order; evaluated from
+	// live GateInput, seeded PASS like production main.go B-04).
+	r.Register(&MinAbsoluteATRGate{MinATR: 2.0})
+	r.Register(&StopHuntFilterGate{MinDistanceATR: 1.5})
 }
 
 func setAllGateStatesPass(r *Registry) {
@@ -30,6 +34,7 @@ func setAllGateStatesPass(r *Registry) {
 		types.GateSpread, types.GateSlippage, types.GateTotalCost,
 		types.GateExposure, types.GateMargin, types.GateRRNetExpectancy,
 		types.GateEntitlement, types.GateLicense, types.GateExecutionPermit,
+		types.GateMinATR, types.GateStopHuntFilter,
 	} {
 		val := any(true)
 		if gid == types.GateSlippage {

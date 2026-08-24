@@ -18,8 +18,10 @@ func TestSuggestedLot(t *testing.T) {
 	}{
 		// $10k equity × 1.5% = $150; $2 stop → $200/lot → floor(0.75) = 0.75
 		{"standard", 10000, 1.5, 2.0, 0.75},
-		// rounds DOWN to lot step
-		{"rounds down", 10000, 1.5, 1.5, 0.50}, // $150/300 = 0.5
+		// $10k × 1.5% = $150 risk; dist 1.5 → $150/lot → exactly 1.00 lot
+		{"rounds to whole lots", 10000, 1.5, 1.5, 1.0},
+		// $105 risk / $200 per lot = 0.525 → floor to step 0.52
+		{"floors to lot step", 7000, 1.5, 2.0, 0.52},
 		{"too small returns zero", 100, 1.5, 30.0, 0}, // $1.5/$3000 → 0
 		{"zero equity", 0, 1.5, 2.0, 0},
 	}
@@ -110,6 +112,17 @@ func (m *memStore) SetNX(key string, val []byte, _ time.Duration) (bool, error) 
 	return true, nil
 }
 
+func (m *memStore) Set(key string, val []byte, _ time.Duration) error {
+	if m.fail {
+		return errStoreFailed
+	}
+	if m.data == nil {
+		m.data = map[string][]byte{}
+	}
+	m.data[key] = val
+	return nil
+}
+
 var errStoreFailed = &storeError{}
 
 type storeError struct{}
@@ -170,13 +183,14 @@ func TestPnLTrackerAnchorsAndRollover(t *testing.T) {
 		t.Errorf("week/month pct measured against their own anchors should be 0%%, got week=%v month=%v",
 			snap.PeriodPc[PeriodWeek], snap.PeriodPc[PeriodMonth])
 	}
-	// Weekly loss persists relative to the Monday anchor when equity drops again.
+	// Weekly loss persists relative to the Monday anchor when equity drops again;
+	// daily pct is measured against today's anchor set earlier today (1000).
 	snap = tracker.Update(950, day2.Add(time.Hour))
 	if math.Abs(snap.PeriodPc[PeriodWeek]+5) > 1e-9 {
 		t.Errorf("week pct = %v, want -5 vs Monday anchor", snap.PeriodPc[PeriodWeek])
 	}
-	if snap.PeriodPc[PeriodDay] != 0 {
-		t.Errorf("day pct should reset on the new day's anchor, got %v", snap.PeriodPc[PeriodDay])
+	if math.Abs(snap.PeriodPc[PeriodDay]+5) > 1e-9 {
+		t.Errorf("day pct = %v, want -5 vs today's anchor", snap.PeriodPc[PeriodDay])
 	}
 }
 

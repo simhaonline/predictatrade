@@ -584,15 +584,20 @@ function priceOption(){
     xAxis:{type:'time',axisLine:{lineStyle:{color:'#2a3548'}},axisLabel:{color:'#6b7384',fontFamily:'monospace',fontSize:8},splitLine:{show:false},axisTick:{show:false}},
     yAxis:{scale:true,position:'left',axisLine:{show:false},axisTick:{show:false},axisLabel:{color:'#6b7384',fontFamily:'monospace',fontSize:8,formatter:v=>v.toFixed(d),margin:8},splitLine:{show:true,lineStyle:{color:'#1e2738',type:'dashed'}},splitNumber:6},
     series:[
-      {type:'candlestick',data:cd,clip:true,barMaxWidth:12,itemStyle:{color:'#00c853',color0:'#ff1744',borderColor:'#00c853',borderColor0:'#ff1744',borderWidth:1},
-        markLine:{symbol:'none',silent:true,clip:true,lineStyle:{type:'dashed',width:1},data:[
+      // Candlestick — keep but make thinner
+      {type:'candlestick',data:cd,clip:true,barMaxWidth:10,itemStyle:{color:'#00c853',color0:'#ff1744',borderColor:'#00c853',borderColor0:'#ff1744',borderWidth:1}},
+      // EMA lines
+      {type:'line',data:e9,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#2962ff',width:1.2}},
+      {type:'line',data:e21,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#7c3aed',width:1.2}},
+      {type:'line',data:e50,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#00bcd4',width:1.5}},
+      // HI/LO/VWAP mark lines
+      {type:'line',markLine:{symbol:'none',silent:true,clip:true,lineStyle:{type:'dashed',width:1},data:[
           STATE.high>0?[{coord:[cd[0][0],STATE.high]},{coord:[cd[cd.length-1][0],STATE.high],label:{formatter:'HI '+fmt(STATE.high,d),color:'#00c853',fontFamily:'monospace',fontSize:8,position:'insideEndTop'},lineStyle:{color:'#00c853'}}]:[],
           STATE.low>0?[{coord:[cd[0][0],STATE.low]},{coord:[cd[cd.length-1][0],STATE.low],label:{formatter:'LO '+fmt(STATE.low,d),color:'#ff1744',fontFamily:'monospace',fontSize:8,position:'insideEndBottom'},lineStyle:{color:'#ff1744'}}]:[],
           STATE.vwap>0?[{coord:[cd[0][0],STATE.vwap]},{coord:[cd[cd.length-1][0],STATE.vwap],label:{formatter:'VWAP '+fmt(STATE.vwap,d),color:'#ffa726',fontFamily:'monospace',fontSize:8},lineStyle:{color:'#ffa726',type:'dotted'}}]:[],
-        ]}},
-      {type:'line',data:e9,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#2962ff',width:1}},
-      {type:'line',data:e21,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#7c3aed',width:1}},
-      {type:'line',data:e50,smooth:true,showSymbol:false,clip:true,lineStyle:{color:'#00bcd4',width:1.2}},
+        ]},data:[]},
+      // Volume bars at bottom
+      {type:'bar',xAxisIndex:0,yAxisIndex:0,data:STATE.candles.map(c=>[c.t,c.v]),itemStyle:{color:'rgba(41,98,255,.1)'},barMaxWidth:10,z:-1,silent:true},
     ],
     graphic:[{type:'text',right:6,top:1,style:{text:'SRC: '+(STATE.candleSource||'—'),fill:'#6b7384',font:'7px monospace'}}]
   };
@@ -696,8 +701,16 @@ async function loadNews(){
   try{const d=await fetchJSON(API_BASE+'/api/v1/news');if(!d)return;
     var parts=[];
     if(d.risk&&d.risk!=='NONE')parts.push('['+d.risk+']');
-    var evs=(d.events||[]).slice(0,5);
-    for(var i=0;i<evs.length;i++){var e=evs[i];parts.push((e.Impact||'')+' '+(e.EventName||e.title||'event')+(e.ScheduledAtUTC?(' @'+e.ScheduledAtUTC.slice(11,16)):''))}
+    var evs=(d.events||[]).slice(0,6);
+    for(var i=0;i<evs.length;i++){
+      var e=evs[i];
+      // Handle both PascalCase (old) and snake_case (new) field names
+      var impact=e.Impact||e.impact||'';
+      var name=e.EventName||e.event_name||e.title||'event';
+      var sched=e.ScheduledAtUTC||e.scheduled_at_utc||'';
+      var timeStr=sched?(' @'+sched.slice(11,16)+'Z'):'';
+      parts.push(impact+' '+name+timeStr);
+    }
     if($('newsText'))$('newsText').textContent=parts.length?parts.join('  ·  '):'No upcoming high-impact events';
   }catch(e){}
 }
@@ -988,7 +1001,7 @@ function buildFooter(){
 var netCanvas,netCtx,netNodes=[],netEdges=[],_netCanvasRect=null,netFrameSkip=0;
 function initNet(){
   netCanvas=$('netCanvas');if(!netCanvas)return;
-  var r=netCanvas.getBoundingClientRect();if(r.width<1||r.height<1)return;
+  var r=netCanvas.getBoundingClientRect();if(r.width<1||r.height<1){setTimeout(initNet,200);return;}
   netCanvas.width=r.width*devicePixelRatio;netCanvas.height=r.height*devicePixelRatio;
   netCtx=netCanvas.getContext('2d');netCtx.setTransform(1,0,0,1,0,0);netCtx.scale(devicePixelRatio,devicePixelRatio);
   netNodes=[];netEdges=[];var W=r.width,H=r.height;
@@ -1170,19 +1183,20 @@ async function init(){
     applyLastPrice();
     await loadSnapshot().catch(e=>console.error('loadSnapshot:',e));
     await loadCandles().catch(e=>console.error('loadCandles:',e));
+    initCharts(); // Initialize charts after candles are loaded
     await Promise.allSettled([loadMarketState(),loadAgentStatus(),loadStrategies(),loadSignals(),loadEngines(),loadCrossMarket()]);
     loadNews();
     buildAll();updateAllDisplay();connectWS();
     // Clock
     setInterval(function(){var now=new Date(Date.now()+CLOCK_DRIFT_MS);if($('clock'))$('clock').textContent=now.toLocaleTimeString('en-GB',{timeZone:'UTC',hour12:false})+' UTC';},1000);
-    // Poll snapshot every 3s
-    setInterval(async function(){await loadSnapshot().catch(()=>{});await loadMarketState().catch(()=>{});await loadCandles().catch(()=>{});updateAllDisplay();try{buildDOM();}catch(e){}},3000);
+    // Poll snapshot every 5s
+    setInterval(async function(){await loadSnapshot().catch(()=>{});await loadMarketState().catch(()=>{});await loadCandles().catch(()=>{});updateAllDisplay();try{buildDOM();if(priceChart)try{priceChart.setOption(priceOption());}catch(e){}}catch(e){}},5000);
     // Agent status every 5s
     setInterval(async function(){await loadAgentStatus().catch(()=>{});await loadEngines().catch(()=>{});try{buildAgents();buildActiveMarkets();buildEngines();}catch(e){}},5000);
-    // Signals every 10s
-    setInterval(async function(){await loadSignals().catch(()=>{});await loadCrossMarket().catch(()=>{});try{buildGantt();buildResGrid();buildGates();}catch(e){}},10000);
-    // News every 2min
-    setInterval(loadNews,120000);
+    // Signals every 5s
+    setInterval(async function(){await loadSignals().catch(()=>{});await loadCrossMarket().catch(()=>{});try{buildGantt();buildResGrid();buildGates();}catch(e){}},5000);
+    // News every 30s
+    setInterval(loadNews,30000);
     // WS health watchdog
     setInterval(function(){if(!navigator.onLine||document.hidden)return;if(!STATE.wsConnected){STATE.wsState='OFFLINE';if(!wsTimer)scheduleReconnect();}else if(isStale()){STATE.wsState='STALE';triggerRecovery();}},5000);
     // Resize
@@ -1190,8 +1204,19 @@ async function init(){
   }catch(e){console.error('init fatal:',e);}
 }
 
-// Charts init
-priceChart=typeof echarts!=='undefined'?echarts.init($('priceChart'),null,{renderer:'canvas'}):null;
+// Charts init — delayed to ensure DOM has dimensions
+var priceChart=null;
+function initCharts(){
+  if(typeof echarts==='undefined')return;
+  var el=$('priceChart');
+  if(!el||el.offsetWidth<1||el.offsetHeight<1){
+    setTimeout(initCharts,100);return;
+  }
+  priceChart=echarts.init(el,null,{renderer:'canvas'});
+  if(STATE.candles&&STATE.candles.length){
+    try{priceChart.setOption(priceOption());}catch(e){}
+  }
+}
 
 window.addEventListener('load',init);
 document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')triggerRecovery();});
