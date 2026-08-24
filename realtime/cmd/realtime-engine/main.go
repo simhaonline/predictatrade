@@ -820,6 +820,12 @@ func main() {
 	if os.Getenv("CROSS_MARKET_ENABLED") == "false" {
 		xmConfig.Mode = crossmarket.ModeDisabled
 	}
+	// Wire env vars from realtime.env into engine config
+	xmConfig.BTCEnabled = os.Getenv("BTC_ENABLED") == "true"
+	xmConfig.OilEnabled = os.Getenv("OIL_ENABLED") == "true"
+	xmConfig.VIXEnabled = os.Getenv("VIX_ENABLED") == "true"
+	xmConfig.RealYieldsEnabled = os.Getenv("REAL_YIELD_ENABLED") == "true"
+	xmConfig.EURUSDEnabled = os.Getenv("EURUSD_ENABLED") != "false"  // default true
 
 	// Cross-market persister + validation persister (separate connections)
 	var xmPersister *crossmarket.Persister
@@ -838,6 +844,27 @@ func main() {
 	}
 
 	xmEngine := crossmarket.NewEngine(xmConfig)
+
+	// ─── XAUUSD Shadow Outcome Resolver ───
+	// Resolves XAUUSD shadow signal outcomes (TP1/TP2/TP3/SL/Expired)
+	// Only XAUUSD price determines outcomes — reference assets never do.
+	var xmResolver *crossmarket.OutcomeResolver
+	if xmValidation != nil {
+		xmResolver = crossmarket.NewOutcomeResolver(
+			xmValidation.GetDB(),
+			func() (float64, float64, time.Time) {
+				state := stateMgr.Get(types.SymbolXAUUSD)
+				if state == nil {
+					return 0, 0, time.Now()
+				}
+				bid, _ := state.Bid.Float64()
+				ask, _ := state.Ask.Float64()
+				return bid, ask, state.Timestamp
+			},
+		)
+		go xmResolver.Start(ctx, 30) // check every 30 seconds
+		log.Info().Msg("XAUUSD Shadow Outcome Resolver started")
+	}
 	globalCrossMarketEngine = xmEngine
 	globalCrossMarketPersister = xmPersister
 	log.Info().Str("mode", string(xmConfig.Mode)).Msg("Cross-Market Confluence Engine initialized")

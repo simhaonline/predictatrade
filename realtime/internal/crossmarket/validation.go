@@ -340,3 +340,11 @@ func (g *ActivationGuard) CheckEligibility(status *ValidationStatus) (bool, []st
 
 // Need fmt import
 var _ = json.Marshal
+
+// GetDB returns the database connection for the outcome resolver.
+func (p *ValidationPersister) GetDB() *sql.DB {
+	if p == nil {
+		return nil
+	}
+	return p.db
+}
