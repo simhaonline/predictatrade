@@ -1224,7 +1224,14 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 		stepStart := time.Now().UTC()
 		if auditLogger != nil {
 			pipeCtx, pipeCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-			if pid, err := auditLogger.StartPipeline(pipeCtx, string(candle.Symbol), string(candle.Timeframe)); err == nil {
+			if pid, err := auditLogger.StartPipelineWithConfig(pipeCtx, audit.PipelineStartConfig{
+					Asset:               string(candle.Symbol),
+					Timeframe:           string(candle.Timeframe),
+					PipelineVersion:     "1.0.0",
+					StrategyVersion:     "1.0.0",
+					ConfigurationVersion: "1.0.0",
+					ApplicationVersion:  "1.0.0",
+				}); err == nil {
 				pipelineExecID = pid
 				// Log the strategy evaluation as a pipeline step
 				rawScoreF, _ := stratResult.RawScore.Float64()
@@ -1493,6 +1500,38 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 							})
 						}(sig)
 					}
+					// Audit: Log CANDIDATE signal decision (prompt.md Section 8 — all signal types)
+					if auditLogger != nil && pipelineExecID != uuid.Nil {
+						ac, acCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+						candSigID, _ := uuid.Parse(sig.ID)
+						candScoreF, _ := sig.RawScore.Float64()
+						candEntryF, _ := sig.EntryPrice.Float64()
+						candSLF, _ := sig.StopLoss.Float64()
+						candTP1F, _ := sig.TP1.Float64()
+						_ = auditLogger.LogSignal(ac, audit.SignalExecution{
+							SignalID:            candSigID,
+							PipelineExecutionID: pipelineExecID,
+							ScoreExecutionID:    scoreExecID,
+							Asset:               string(candle.Symbol),
+							Timeframe:           string(candle.Timeframe),
+							Signal:              string(advDir),
+							Decision:            "ADVISORY",
+							Score:               candScoreF,
+							Entry:               candEntryF,
+							StopLoss:            candSLF,
+							TakeProfit:          candTP1F,
+							StrategyID:          string(strat.ID()),
+							MarketDataTimestamp: candle.Time,
+							DataSource:          sig.SourceMode,
+							ApplicationVersion:  "1.0.0",
+						})
+						_ = auditLogger.CompletePipeline(ac, pipelineExecID, candSigID, "CANDIDATE", map[string]interface{}{
+							"strategy":  string(strat.ID()),
+							"direction": string(advDir),
+							"class":     "ADVISORY",
+						})
+						acCancel()
+					}
 					continue
 				}
 			}
@@ -1535,7 +1574,23 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			}
 			if auditLogger != nil && pipelineExecID != uuid.Nil {
 				ac, acCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-				_ = auditLogger.CompletePipeline(ac, pipelineExecID, uuid.Nil, "NO_TRADE", nil)
+				ntSigID, _ := uuid.Parse(sig.ID)
+				ntScoreF, _ := sig.RawScore.Float64()
+				_ = auditLogger.LogSignal(ac, audit.SignalExecution{
+					SignalID:            ntSigID,
+					PipelineExecutionID: pipelineExecID,
+					ScoreExecutionID:    scoreExecID,
+					Asset:               string(candle.Symbol),
+					Timeframe:           string(candle.Timeframe),
+					Signal:              string(sig.Direction),
+					Decision:            "NO_TRADE",
+					Score:               ntScoreF,
+					StrategyID:          string(strat.ID()),
+					MarketDataTimestamp: candle.Time,
+					DataSource:          sig.SourceMode,
+					ApplicationVersion:  "1.0.0",
+				})
+				_ = auditLogger.CompletePipeline(ac, pipelineExecID, ntSigID, "NO_TRADE", map[string]interface{}{"reason": "insufficient_score"})
 				acCancel()
 			}
 			continue
@@ -1591,7 +1646,23 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			}
 			if auditLogger != nil && pipelineExecID != uuid.Nil {
 				ac, acCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-				_ = auditLogger.CompletePipeline(ac, pipelineExecID, uuid.Nil, "NO_TRADE", nil)
+				ntSigID, _ := uuid.Parse(sig.ID)
+				ntScoreF, _ := sig.RawScore.Float64()
+				_ = auditLogger.LogSignal(ac, audit.SignalExecution{
+					SignalID:            ntSigID,
+					PipelineExecutionID: pipelineExecID,
+					ScoreExecutionID:    scoreExecID,
+					Asset:               string(candle.Symbol),
+					Timeframe:           string(candle.Timeframe),
+					Signal:              string(sig.Direction),
+					Decision:            "NO_TRADE",
+					Score:               ntScoreF,
+					StrategyID:          string(strat.ID()),
+					MarketDataTimestamp: candle.Time,
+					DataSource:          sig.SourceMode,
+					ApplicationVersion:  "1.0.0",
+				})
+				_ = auditLogger.CompletePipeline(ac, pipelineExecID, ntSigID, "NO_TRADE", map[string]interface{}{"reason": "insufficient_score"})
 				acCancel()
 			}
 			continue
@@ -1659,7 +1730,23 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			}
 			if auditLogger != nil && pipelineExecID != uuid.Nil {
 				ac, acCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-				_ = auditLogger.CompletePipeline(ac, pipelineExecID, uuid.Nil, "NO_TRADE", nil)
+				ntSigID, _ := uuid.Parse(sig.ID)
+				ntScoreF, _ := sig.RawScore.Float64()
+				_ = auditLogger.LogSignal(ac, audit.SignalExecution{
+					SignalID:            ntSigID,
+					PipelineExecutionID: pipelineExecID,
+					ScoreExecutionID:    scoreExecID,
+					Asset:               string(candle.Symbol),
+					Timeframe:           string(candle.Timeframe),
+					Signal:              string(sig.Direction),
+					Decision:            "NO_TRADE",
+					Score:               ntScoreF,
+					StrategyID:          string(strat.ID()),
+					MarketDataTimestamp: candle.Time,
+					DataSource:          sig.SourceMode,
+					ApplicationVersion:  "1.0.0",
+				})
+				_ = auditLogger.CompletePipeline(ac, pipelineExecID, ntSigID, "NO_TRADE", map[string]interface{}{"reason": "insufficient_score"})
 				acCancel()
 			}
 			continue
@@ -1845,7 +1932,9 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 			if decision.FirstVeto != nil {
 				observability.GateVetoTotal.WithLabelValues(string(decision.FirstVeto.GateID)).Inc()
 			}
-			// ─── Audit: Log final signal decision (prompt.md audit logging) ───
+			// ─── Audit: Log final signal decision for ALL signal types ───
+			// (BUY, SELL, BUY_CANDIDATE, SELL_CANDIDATE, NO-TRADE, BLOCKED)
+			// This ensures every signal decision is reconstructable (prompt.md Section 8).
 			if auditLogger != nil && pipelineExecID != uuid.Nil {
 				auditCtx, auditCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 				sigID, _ := uuid.Parse(decision.Signal.ID)
@@ -1872,12 +1961,20 @@ func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr
 					StrategyID:          string(strat.ID()),
 					MarketDataTimestamp: candle.Time,
 					DataSource:          decision.Signal.SourceMode,
+					ApplicationVersion:  "1.0.0",
 				})
-				_ = auditLogger.CompletePipeline(auditCtx, pipelineExecID, sigID, "COMPLETED", map[string]interface{}{
-					"strategy":  string(strat.ID()),
-					"direction": string(decision.Signal.Direction),
+				// Determine pipeline status from signal direction
+				pipeStatus := "COMPLETED"
+				if decision.Signal.Direction == types.DirectionNoTrade {
+					pipeStatus = "NO_TRADE"
+				} else if !decision.AllGatesPass {
+					pipeStatus = "GATE_VETOED"
+				}
+				_ = auditLogger.CompletePipeline(auditCtx, pipelineExecID, sigID, pipeStatus, map[string]interface{}{
+					"strategy":     string(strat.ID()),
+					"direction":    string(decision.Signal.Direction),
 					"signal_class": string(decision.Signal.SignalClass),
-					"gates_pass": decision.AllGatesPass,
+					"gates_pass":   decision.AllGatesPass,
 				})
 				auditCancel()
 			}

@@ -9,6 +9,7 @@ import {
   RegisterDto, LoginDto, MfaSetupDto, VerifyOtpDto, ForgotPasswordDto, ResetPasswordDto,
 } from './dto/auth.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { ComplianceLog } from '../../common/interceptors/compliance.interceptor';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @Controller('auth')
@@ -82,6 +83,7 @@ export class AuthController {
 
   @Throttle({ default: { limit: 5, ttl: 60_000 } }) // 5 register attempts per minute per IP
   @Post('register')
+  @ComplianceLog('ACCOUNT_CREATED')
   async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
     this.setNoStoreHeaders(res);
     const result = await this.authService.register(dto);
@@ -94,6 +96,7 @@ export class AuthController {
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } }) // 10 login attempts per minute per IP
   @Post('login')
+  @ComplianceLog('AUTH_LOGIN')
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     this.setNoStoreHeaders(res);
     const result = await this.authService.login(dto);

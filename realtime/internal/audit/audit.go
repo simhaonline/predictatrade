@@ -46,16 +46,36 @@ func (l *Logger) Close() error {
 	return l.db.Close()
 }
 
+// PipelineStartConfig holds version/traceability metadata for a pipeline execution.
+type PipelineStartConfig struct {
+	Asset              string
+	Timeframe          string
+	PipelineVersion    string
+	StrategyVersion    string
+	ConfigurationVersion string
+	ApplicationVersion string
+	BuildID            string
+}
+
 // StartPipeline creates a pipeline execution record and returns its ID.
 func (l *Logger) StartPipeline(ctx context.Context, asset, timeframe string) (uuid.UUID, error) {
+	return l.StartPipelineWithConfig(ctx, PipelineStartConfig{Asset: asset, Timeframe: timeframe})
+}
+
+// StartPipelineWithConfig creates a pipeline execution with full version traceability.
+func (l *Logger) StartPipelineWithConfig(ctx context.Context, cfg PipelineStartConfig) (uuid.UUID, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
 	_, err := l.db.ExecContext(ctx, `
 		INSERT INTO audit.pipeline_executions (
 			event_time, pipeline_execution_id, asset, timeframe,
-			started_at, status
-		) VALUES ($1, $2, $3, $4, $5, 'RUNNING')
-	`, now, id, asset, timeframe, now)
+			started_at, status,
+			pipeline_version, strategy_version, configuration_version,
+			application_version, build_id
+		) VALUES ($1, $2, $3, $4, $5, 'RUNNING', $6, $7, $8, $9, $10)
+	`, now, id, cfg.Asset, cfg.Timeframe, now,
+		cfg.PipelineVersion, cfg.StrategyVersion, cfg.ConfigurationVersion,
+		cfg.ApplicationVersion, cfg.BuildID)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -211,9 +231,12 @@ type SignalExecution struct {
 	MarketDataTimestamp time.Time
 	DataSource          string
 	ApplicationVersion  string
+	BuildID            string
 }
 
-// LogSignal records the final signal decision.
+// LogSignal records the final signal decision for ANY signal type
+// (BUY, SELL, BUY_CANDIDATE, SELL_CANDIDATE, NO-TRADE, BLOCKED).
+// This ensures the complete audit trail — every signal decision is reconstructable.
 func (l *Logger) LogSignal(ctx context.Context, exec SignalExecution) error {
 	if exec.SignalID == uuid.Nil {
 		exec.SignalID = uuid.New()
@@ -224,11 +247,11 @@ func (l *Logger) LogSignal(ctx context.Context, exec SignalExecution) error {
 			event_time, signal_id, pipeline_execution_id, score_execution_id,
 			asset, timeframe, signal, decision, score, confidence, signal_grade,
 			entry, stop_loss, take_profit, risk_reward,
-			decision_reason, strategy_id, market_data_timestamp, data_source, application_version
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+			decision_reason, strategy_id, market_data_timestamp, data_source, application_version, build_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 	`, now, exec.SignalID, exec.PipelineExecutionID, exec.ScoreExecutionID,
 		exec.Asset, exec.Timeframe, exec.Signal, exec.Decision, exec.Score, exec.Confidence, exec.SignalGrade,
 		exec.Entry, exec.StopLoss, exec.TakeProfit, exec.RiskReward,
-		exec.DecisionReason, exec.StrategyID, exec.MarketDataTimestamp, exec.DataSource, exec.ApplicationVersion)
+		exec.DecisionReason, exec.StrategyID, exec.MarketDataTimestamp, exec.DataSource, exec.ApplicationVersion, exec.BuildID)
 	return err
 }
