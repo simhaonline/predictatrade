@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
 import { SubscriptionsService } from './subscriptions.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -19,4 +19,10 @@ export class SubscriptionsController {
   async create(@CurrentUser('sub') userId: string, @Body() dto: CreateSubscriptionDto) {
     return this.subsService.create(userId, dto);
   }
+
+  @Patch('strategies')
+  async updateStrategies(@CurrentUser('sub') userId: string, @Body() body: { selectedStrategies: string[] }) {
+    return this.subsService.updateStrategyPreferences(userId, body.selectedStrategies);
+  }
+
 }

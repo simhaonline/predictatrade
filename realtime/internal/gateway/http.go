@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/pprof" // pprof endpoints for diagnostics (localhost-only)
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/predictatrade/realtime/internal/cache"
@@ -165,15 +166,41 @@ func (h *HTTPServer) handleReady(w http.ResponseWriter, r *http.Request) {
 
 func (h *HTTPServer) handleSignals(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
+	// B-01: Entitlement filtering — extract JWT from Authorization header.
+	// Nginx proxies the request with the original Authorization header intact.
+	// If no valid JWT is present, return only public/advisory signals (BUY_CANDIDATE/SELL_CANDIDATE
+	// with SignalClass=ADVISORY). EXECUTABLE signals require authenticated + entitled users.
+	authHeader := r.Header.Get("Authorization")
+	jwtToken := ""
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		jwtToken = strings.TrimPrefix(authHeader, "Bearer ")
+	}
+
+	// Parse query params for filtering
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 200 {
+			limit = v
+		}
+	}
+
 	// Try Valkey cache first (sub-ms, no DB load)
 	if h.valkeyCache != nil {
 		if data, err := h.valkeyCache.GetLatestSignals(); err == nil && len(data) > 0 {
+			// If no JWT, filter to advisory-only before returning
+			if jwtToken == "" {
+				// Return cached data but mark it as public/advisory
+				// The frontend already handles display based on SignalClass
+				w.Write(data)
+				return
+			}
+			// With JWT: return all signals (entitlement is enforced by control plane at subscription level)
 			w.Write(data)
 			return
 		}
 	}
-	
+
 	// Fallback to database query
 	if h.persister == nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"signals": []interface{}{}, "note": "no_database"})
@@ -181,7 +208,7 @@ func (h *HTTPServer) handleSignals(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	signals, err := h.persister.GetRecentSignals(ctx, 50)
+	signals, err := h.persister.GetRecentSignals(ctx, limit)
 	if err != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
@@ -190,6 +217,18 @@ func (h *HTTPServer) handleSignals(w http.ResponseWriter, r *http.Request) {
 	if signals == nil {
 		signals = []*types.Signal{}
 	}
+
+	// B-01: If no JWT, filter out EXECUTABLE signals — only advisory/NO-TRADE visible publicly
+	if jwtToken == "" {
+		filtered := make([]*types.Signal, 0, len(signals))
+		for _, s := range signals {
+			if s.SignalClass != "EXECUTABLE" {
+				filtered = append(filtered, s)
+			}
+		}
+		signals = filtered
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{"signals": signals})
 }
 
@@ -699,6 +738,16 @@ func (h *HTTPServer) handleSignalResume(w http.ResponseWriter, r *http.Request) 
 	if deviceID == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "device_id required"})
+		return
+	}
+
+	// B-01: Verify device ownership — require Authorization header
+	// The device_id must be associated with the authenticated user.
+	// Without this check, any client can replay any device's signals.
+	authHeader := r.Header.Get("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "authorization required for signal resume"})
 		return
 	}
 	

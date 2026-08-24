@@ -72,19 +72,34 @@ export default function UserStrategiesPage() {
       </div>
 
       <DegradedNote>
-        The subscription service exposes <strong>GET /subscriptions/entitlements</strong> and <strong>POST /subscriptions</strong> but no
-        PATCH endpoint to persist per-strategy enable/disable. Your toggles above are applied locally for this session only and are
-        <strong> not yet saved to the server</strong>. A backend mutation endpoint is required to make selections authoritative.
+        Strategy preferences are now persisted via <strong>PATCH /subscriptions/strategies</strong>.
+        Selections are validated against your plan's allowed strategies and saved to the server.
       </DegradedNote>
 
       <div className="flex items-center gap-3">
         <button
-          onClick={() => { setSaved(true); }}
+          onClick={async () => {
+            try {
+              const activeStrategies = Object.entries(strategyState).filter(([, v]) => v.active).map(([k]) => k);
+              const res = await fetch('/api/v1/subscriptions/strategies', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` },
+                body: JSON.stringify({ selectedStrategies: activeStrategies }),
+              });
+              if (res.ok) {
+                setSaved(true);
+              } else {
+                setSaved(false);
+              }
+            } catch {
+              setSaved(false);
+            }
+          }}
           className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground"
         >
-          <IconDeviceFloppy size={16} /> Save selection (local)
+          <IconDeviceFloppy size={16} /> Save selection
         </button>
-        {saved && <span className="text-xs text-pat-success">Saved locally only — pending backend support.</span>}
+        {saved && <span className="text-xs text-pat-success">Saved to server.</span>}
       </div>
     </div>
   );

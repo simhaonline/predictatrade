@@ -203,8 +203,8 @@ func SeedProfiles() map[types.StrategyID]ConfluenceProfile {
 		types.StrategyStandardSwing: {
 			StrategyID: types.StrategyStandardSwing,
 			Version:    "1.0.0",
-			MandatoryPillars: []string{"d1_h4_structure", "macro_dxy_yield"},
-			OptionalPillars:  []string{"htf_liquidity", "mtf_alignment", "volume_profile_flow", "regime_volatility", "rr_carry_cost"},
+			MandatoryPillars: []string{"d1_h4_structure"},
+			OptionalPillars:  []string{"macro_dxy_yield", "htf_liquidity", "mtf_alignment", "volume_profile_flow", "regime_volatility", "rr_carry_cost"},
 			Weights: map[string]decimal.Decimal{
 				"d1_h4_structure":    decimal.NewFromInt(20),
 				"htf_liquidity":      decimal.NewFromInt(15),
@@ -224,8 +224,8 @@ func SeedProfiles() map[types.StrategyID]ConfluenceProfile {
 		types.StrategyTrendSwing: {
 			StrategyID: types.StrategyTrendSwing,
 			Version:    "1.0.0",
-			MandatoryPillars: []string{"w1_d1_h4_trend_structure", "macro_real_yield_dxy"},
-			OptionalPillars:  []string{"cot_etf_flow", "mtf_alignment", "major_liquidity_htf_profile", "trend_persistence_volatility", "carry_execution_cost"},
+			MandatoryPillars: []string{"w1_d1_h4_trend_structure"},
+			OptionalPillars:  []string{"macro_real_yield_dxy", "cot_etf_flow", "mtf_alignment", "major_liquidity_htf_profile", "trend_persistence_volatility", "carry_execution_cost"},
 			Weights: map[string]decimal.Decimal{
 				"w1_d1_h4_trend_structure":  decimal.NewFromInt(25),
 				"macro_real_yield_dxy":      decimal.NewFromInt(20),

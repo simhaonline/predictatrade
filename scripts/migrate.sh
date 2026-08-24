@@ -1,4 +1,16 @@
 #!/usr/bin/env bash
+
+# ─── B-07: Duplicate sequence number check ───
+duplicates=$(ls database/migrations/*.sql 2>/dev/null | sed 's/.*\/\([0-9]*\)_.*/\1/' | sort | uniq -d)
+if [ -n "$duplicates" ]; then
+    echo "WARNING: Duplicate migration sequence numbers found:"
+    for d in $duplicates; do
+        echo "  $d: $(ls database/migrations/${d}_*.sql 2>/dev/null)"
+    done
+    echo "Existing duplicates are already applied and cannot be renamed."
+    echo "New migrations must use unique sequence numbers."
+fi
+
 # Predict-A-Trade v1.0.0 — Canonical Migration Runner
 # SOW Section 60: One authoritative migration sequence.
 

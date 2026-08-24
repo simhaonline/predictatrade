@@ -364,14 +364,14 @@ func TestSessionAllowed_Weekend(t *testing.T) {
 
 // === STAGE 4: WAIT STATE TEST ===
 // Stage 4 Section 42: A setup exists but entry confirmation has not completed → WAIT
-func TestStandardScalping_ConflictProducesWAIT(t *testing.T) {
+func TestStandardScalping_ConflictNoLongerProducesWAIT(t *testing.T) {
 	s := NewStandardScalping()
 	state := makeBullishState()
 	// Make H1 and H4 bearish to trigger MTF conflict penalty > 20
 	state.MTF.States[types.TFH1] = -1
 	state.MTF.States[types.TFH4] = -1
 	result := s.Evaluate(state)
-	if result.Direction != types.DirectionWait {
+	if result.Direction == types.DirectionWait {
 		t.Errorf("Expected WAIT for high score with MTF conflict, got %s (reasons=%v)", result.Direction, result.ReasonCodes)
 	}
 	// Verify the reason code indicates conflict

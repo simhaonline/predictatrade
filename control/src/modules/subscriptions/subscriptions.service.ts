@@ -85,4 +85,43 @@ export class SubscriptionsService {
     );
     return r.rows[0] ?? { code: 'FREE', selected_strategies: ['STANDARD_SCALPING'], entitlements: {} };
   }
+
+  async updateStrategyPreferences(userId: string, selectedStrategies: string[]) {
+    // Validate that the user has an active subscription
+    const sub = await this.pool.query(
+      `SELECT s.plan_id, p.code, p.allowed_strategies, p.max_active_strategy_slots,
+              COALESCE(NULLIF(s.selected_strategies, '[]'::jsonb), p.allowed_strategies) as current_strategies
+       FROM billing.subscriptions s
+       JOIN control.plans p ON p.id = s.plan_id
+       WHERE s.user_id = $1 AND s.status IN ('ACTIVE','TRIAL','GRACE','CANCEL_AT_PERIOD_END')
+       ORDER BY s.created_at DESC LIMIT 1`,
+      [userId],
+    );
+    if (!sub.rows[0]) {
+      throw new NotFoundException('No active subscription found');
+    }
+    const plan = planPolicyFromRow(sub.rows[0]);
+    const decision = validateStrategySelection(plan, selectedStrategies);
+    if (!decision.allowed) {
+      throw new BadRequestException(decision.reason);
+    }
+
+    // Upsert into control.strategy_preferences
+    await this.pool.query(
+      `INSERT INTO control.strategy_preferences (user_id, selected_strategies, updated_at)
+       VALUES ($1, $2::jsonb, now())
+       ON CONFLICT (user_id) DO UPDATE SET selected_strategies = $2::jsonb, updated_at = now()`,
+      [userId, JSON.stringify(decision.selected)],
+    );
+
+    // Also update the subscription's selected_strategies
+    await this.pool.query(
+      `UPDATE billing.subscriptions SET selected_strategies = $2::jsonb
+       WHERE id = (SELECT id FROM billing.subscriptions WHERE user_id = $1 AND status IN ('ACTIVE','TRIAL','GRACE','CANCEL_AT_PERIOD_END') ORDER BY created_at DESC LIMIT 1)`,
+      [userId, JSON.stringify(decision.selected)],
+    );
+
+    return { selected_strategies: decision.selected };
+  }
+
 }

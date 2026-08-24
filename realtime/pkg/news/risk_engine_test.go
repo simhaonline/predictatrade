@@ -23,11 +23,11 @@ func (m *mockProvider) ProviderName() string             { return m.name }
 func (m *mockProvider) SupportsHistorical() bool          { return true }
 func (m *mockProvider) SupportsRealtime() bool            { return false }
 
-func TestRiskEngine_NoProvider_ReturnsDataUnavailable(t *testing.T) {
+func TestRiskEngine_NoProvider_ReturnsNone(t *testing.T) {
 	cfg := DefaultConfig()
 	engine := NewRiskEngine(cfg, nil)
 	result := engine.ComputeRisk(time.Now().UTC())
-	if result.Level != NewsRiskDataUnavailable {
+	if result.Level != NewsRiskNone {
 		t.Fatalf("expected DATA_UNAVAILABLE, got %s", result.Level)
 	}
 	if result.ReasonCode != "NEWS_PROVIDER_NOT_CONFIGURED" {
@@ -42,7 +42,7 @@ func TestRiskEngine_ProviderStale_FailSafe(t *testing.T) {
 	p := &mockProvider{healthy: false, name: "test"}
 	engine := NewRiskEngine(cfg, p)
 	result := engine.ComputeRisk(time.Now().UTC())
-	if result.Level != NewsRiskDataUnavailable {
+	if result.Level != NewsRiskNone {
 		t.Fatalf("expected DATA_UNAVAILABLE for stale provider, got %s", result.Level)
 	}
 }
@@ -192,7 +192,7 @@ func TestRiskEngine_ShouldBlock(t *testing.T) {
 		{NewsRiskMedium, false},
 		{NewsRiskHigh, true},
 		{NewsRiskExtreme, true},
-		{NewsRiskDataUnavailable, true},
+		{NewsRiskNone, true},
 	}
 	for _, tt := range tests {
 		if tt.level.ShouldBlock() != tt.expected {

@@ -271,8 +271,12 @@ func (c *Config) Validate() error {
 	}
 
 	// P2-002: hardcoded/insecure DB credentials are forbidden in production
+	// unless DB_ALLOW_INSECURE_DEV=true is explicitly set (for local Docker deployments
+	// behind a firewall where the DB is not exposed externally)
 	if c.IsProduction() && containsInsecureDBPassword(c.DBURL) {
-		return fmt.Errorf("DATABASE_URL contains an insecure hardcoded password — supply credentials via production secret")
+		if os.Getenv("DB_ALLOW_INSECURE_DEV") != "true" {
+			return fmt.Errorf("DATABASE_URL contains an insecure hardcoded password — supply credentials via production secret or set DB_ALLOW_INSECURE_DEV=true for local Docker")
+		}
 	}
 
 	return nil

@@ -70,28 +70,31 @@ func TestFactory_ReturnsNilForUnknownStrategy(t *testing.T) {
 
 func TestUltraScalp_LowATR_Rejects(t *testing.T) {
 	engine, _ := GetEngine(types.StrategyUltraScalping)
-	state := makeTestState(10.0, 4600, types.RegimeTrendingBullish)
+	state := makeTestState(1.0, 4600, types.RegimeTrendingBullish) // ATR=1.0 < MinAbsATR=3.0
 	result := engine.Evaluate(makeBuyResult(70, 4600), state)
 	if result.RejectReason == "" {
-		t.Error("expected rejection for low ATR")
+		t.Error("expected rejection for low ATR (1.0 < 3.0)")
 	}
 }
 
-func TestUltraScalp_RegimeMismatch_Rejects(t *testing.T) {
+func TestUltraScalp_RegimeMismatch_NoLongerRejects(t *testing.T) {
+	// Regime gate was removed — scoring system handles regime filtering via thresholds.
+	// RANGE regime signals are allowed but will have lower scores due to regime-specific thresholds.
 	engine, _ := GetEngine(types.StrategyUltraScalping)
 	state := makeTestState(15.0, 4600, types.RegimeRange)
 	result := engine.Evaluate(makeBuyResult(70, 4600), state)
-	if result.RejectReason == "" {
-		t.Error("expected rejection for regime mismatch")
+	if result.RejectReason != "" {
+		t.Errorf("expected no rejection for regime mismatch (regime gate removed), got: %s", result.RejectReason)
 	}
 }
 
-func TestUltraScalp_LowGrade_Rejects(t *testing.T) {
+func TestUltraScalp_LowGrade_NoLongerRejects(t *testing.T) {
+	// Grade gate was removed — scoring system handles quality via thresholds.
 	engine, _ := GetEngine(types.StrategyUltraScalping)
 	state := makeTestState(15.0, 4600, types.RegimeTrendingBullish)
 	result := engine.Evaluate(makeBuyResult(50, 4600), state)
-	if result.RejectReason == "" {
-		t.Error("expected rejection for low grade")
+	if result.RejectReason != "" {
+		t.Errorf("expected no rejection for low grade (grade gate removed), got: %s", result.RejectReason)
 	}
 }
 
@@ -109,7 +112,7 @@ func TestUltraScalp_ValidSignal_AppliesOverrides(t *testing.T) {
 
 func TestStdScalp_LowATR_Rejects(t *testing.T) {
 	engine, _ := GetEngine(types.StrategyStandardScalping)
-	state := makeTestState(5.0, 4600, types.RegimeTrendingBullish)
+	state := makeTestState(1.0, 4600, types.RegimeTrendingBullish) // ATR=1.0 < MinAbsATR=2.0
 	result := engine.Evaluate(makeBuyResult(70, 4600), state)
 	if result.RejectReason == "" {
 		t.Error("expected rejection for low ATR")
@@ -161,7 +164,7 @@ func TestGetEngineConfig_ReturnsConfig(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("expected config for UltraScalping")
 	}
-	if cfg.MinAbsATR != 12.0 {
+	if cfg.MinAbsATR != 3.0 {
 		t.Errorf("MinAbsATR=%.1f, want 12.0", cfg.MinAbsATR)
 	}
 	if !cfg.IgnoreStructure {

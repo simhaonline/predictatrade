@@ -87,6 +87,8 @@ func NewRegistry() *Registry {
 			types.GateSpread,
 			types.GateSlippage,
 			types.GateTotalCost,
+			types.GateMinATR,
+			types.GateStopHuntFilter,
 			types.GateExposure,
 			types.GateMargin,
 			types.GateRRNetExpectancy,
