@@ -37,6 +37,17 @@ func (v *ValkeyCache) Ping() error {
 	return v.client.Ping(v.ctx).Err()
 }
 
+// GetRaw returns the raw bytes stored at key (used by P&L anchors).
+func (v *ValkeyCache) GetRaw(key string) ([]byte, error) {
+	return v.client.Get(v.ctx, key).Bytes()
+}
+
+// SetNXRaw stores raw bytes at key only if it does not already exist.
+// Returns true when the caller won the write race.
+func (v *ValkeyCache) SetNXRaw(ctx context.Context, key string, val []byte, ttl time.Duration) (bool, error) {
+	return v.client.SetNX(ctx, key, val, ttl).Result()
+}
+
 func (v *ValkeyCache) SetMarketState(data interface{}) error {
 	b, err := json.Marshal(data)
 	if err != nil {

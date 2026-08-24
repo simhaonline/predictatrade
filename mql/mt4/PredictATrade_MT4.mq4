@@ -1,15 +1,22 @@
 //+------------------------------------------------------------------+
-//| Predict-A-Trade MT4 EA v1.06                                     |
-//| Fixes: TP validation, position management, swap avoidance        |
+//| Predict-A-Trade MT4 EA v1.08                                     |
+//| Execution-layer fixes (mql-fix.md):                              |
+//|  - WRONG-SIDE SL/TP REJECTION (fail-closed, never clamped)       |
+//|  - REAL partial TP1/TP2/TP3 scaling on ONE position              |
+//|  - Per-strategy magic ranges + PAT-<STRAT>:<signal_id> comment   |
+//|  - EA-side risk rejects (risk$, lot ratio, caps, margin)         |
+//|  - Pre-trade spread / entry-drift / signal-TTL gates             |
+//|  - Exit reporting via TRADE_RESULT + CLOSE_ACK IPC messages      |
+//|  - Watchdog: missing-SL restore/close, equity floor halt         |
+//| Lightweight adapter only — contains NO predictive logic.         |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.07"
+#property version   "1.08"
 #property strict
 
 // ─── Signal/Execution inputs ───
 input bool    AutoExecute    = true;
 input bool    SendTickData   = true;
-input int     MagicNumber    = 20240002;
 input int     TickIntervalMs = 0;
 input string  BrokerSymbol   = "";
 input string  LicenseKey     = "PAT-A1B2C3D4-0003-4000-8000-000000000003";
@@ -25,35 +32,49 @@ input bool    ReceiveBuyCandidate    = true;
 input bool    ReceiveSellCandidate   = true;
 input bool    ExecuteCandidates  = false;  // Execute BUY_CANDIDATE/SELL_CANDIDATE as real trades
 
-// ─── Position Management (NEW v1.06) ───
-input bool    UseTrailingStop  = true;     // Trail SL behind price after profit
+// ─── Position Management ───
+input bool    UseTrailingStop  = true;     // Trail SL behind price after TP2 (stage 2)
 input double  TrailingATRMult  = 2.0;      // Trailing distance = ATR * this multiplier
-input bool    UseBreakEven     = true;     // Move SL to entry after 1R profit
-input double  BreakEvenTriggerR = 1.0;     // R multiples to trigger break-even
-input bool    CloseAtTP2       = true;     // Close full position at TP2 (after TP1 hit)
+input bool    UseBreakEven     = true;     // Move SL to breakeven (entry +/- spread) after TP1
 input int     MaxHoldHours     = 4;        // Max holding time in hours (0 = unlimited)
+input bool    UsePartialClose  = true;     // Enable partial close at TP1/TP2
+input double  TP1ClosePct      = 33.33;    // Close ~1/3 of lot at TP1
+input double  TP2ClosePct      = 33.33;    // Close ~1/3 of lot at TP2
+input double  TP3TrailATRMult  = 1.5;      // ATR multiplier for stage-2 trailing
 
-// ─── Swap Avoidance (NEW v1.06) ───
+// ─── Swap Avoidance ───
 input bool    AvoidSwapCharges  = true;     // Close positions before swap/rollover
 input int     SwapCutoffHour    = 22;       // Server hour to close before (default 22:00)
 input int     SwapCutoffBuffer = 15;        // Close N minutes before cutoff
 input bool    AvoidTripleSwapDay = true;     // Don't open new positions on triple swap day
 input string  TripleSwapDay     = "Wednesday"; // Day that gets 3x swap charge
 
-// ─── Slippage Control (NEW v1.07) ───
+// ─── Slippage Control ───
 input int     MaxSlippagePoints = 3;        // Max acceptable slippage in points (0 = no limit)
 input bool    RejectOnHighSlippage = true;  // Reject orders that exceed max slippage
 input bool    AvoidRolloverSlippage = true; // Don't trade during rollover (spread widens)
 
-// ─── Capital Protection (NEW v1.07) ───
-input double  MaxDailyLossPct   = 6.0;      // Phase 4: hard halt threshold
-input double  WarningLossPct    = 3.0;      // Warning level (close at 3%, block at 5%)
+// ─── Capital Protection ───
+input double  MaxDailyLossPct   = 6.0;      // Hard halt threshold
+input double  WarningLossPct    = 3.0;      // Warning level
 input bool    EmergencyCloseAll = true;     // Close all positions when daily loss hits limit
-input double  SoftHaltLossPct   = 4.0;      // Phase 4: soft halt (block new, keep existing)
-input double  HardHaltLossPct   = 6.0;      // Phase 4: hard halt (close all)
+input double  SoftHaltLossPct   = 4.0;      // Soft halt (block new, keep existing)
+input double  HardHaltLossPct   = 6.0;      // Hard halt (close all)
 
+// ─── Execution Safety v1.08 (mql-fix.md — fail-closed) ───
+input double  MaxRiskPct          = 1.5;     // Max risk per trade, % of equity
+input double  BaseLot             = 0.01;    // Reference base lot (martingale-ban anchor)
+input double  MaxLotRatioVsBase   = 1.0;     // Reject lot > baseLot * this ratio
+input int     MaxSameDirPositions = 1;       // Max same-direction PAT positions
+input int     MaxTotalPositions   = 2;       // Max total concurrent PAT positions
+input double  MaxMarginUsagePct   = 30.0;    // Max % of free margin a new order may require
+input int     MaxEntryDriftPoints = 50;      // Reject if |currentPrice - signalEntry| > points
+input int     MaxSignalAgeSeconds = 300;     // Fallback TTL when signal has no expiry field
+input double  MinEquityFloorPct   = 40.0;    // Halt if equity < this % of day-start balance
+input string  OnMissingSL         = "CLOSE"; // RESTORE or CLOSE (default CLOSE = fail-closed)
+input bool    ReEnableAfterHalt   = false;   // Manual re-enable after equity-floor halt
 
-// ─── Per-Strategy Spread/Slippage Limits (prompt.md Section 4.2) ───
+// ─── Per-Strategy Spread/Slippage Limits ───
 input int     UltraScalp_MaxSpread    = 15;  // Ultra Scalping: max spread in points
 input int     UltraScalp_MaxSlippage  = 5;   // Ultra Scalping: max slippage in points
 input int     StdScalp_MaxSpread      = 25;  // Standard Scalping: max spread in points
@@ -63,22 +84,25 @@ input int     StdSwing_MaxSlippage    = 20;  // Standard Swing: max slippage in 
 input int     TrendSwing_MaxSpread    = 50;  // Trend Swing: max spread in points
 input int     TrendSwing_MaxSlippage  = 30;  // Trend Swing: max slippage in points
 
-// ─── Position Sizing (prompt.md Section 3.2) ───
+// ─── Position Sizing ───
 input double  RiskPerTradePct  = 1.0;  // Risk per trade as % of equity (1%)
 input bool    UseAutoLotSizing = true; // Calculate lot size from risk % and stop distance
-
-// ─── Partial Close / Profit Locking (prompt.md Section 3.3) ───
-input bool    UsePartialClose  = true; // Enable partial close at TP1/TP2/TP3
-input double  TP1ClosePercent  = 50.0; // Close 50% at TP1, move SL to breakeven
-input double  TP2ClosePercent  = 30.0; // Close 30% at TP2, move SL to TP1
-input double  TP3ClosePercent  = 20.0; // Close remaining 20% at TP3
-input double  TP3TrailATRMult  = 1.5;  // Trail remaining by 1.5*ATR after TP3
 
 // ─── Constants ───
 #define PAT_TICK_FILE   "PAT_ticks.txt"
 #define PAT_SIGNAL_FILE "PAT_signals.txt"
 #define PAT_LICENSE_FILE "PAT_license.txt"
 #define PAT_HEARTBEAT   "PAT_heartbeat.txt"
+
+// Strategy magic bases (mql-fix.md convention; +offset within 100 range)
+#define MAGIC_BASE_SS   40101
+#define MAGIC_BASE_US   40201
+#define MAGIC_BASE_SW   40301
+#define MAGIC_BASE_TS   40401
+#define MAGIC_BASE_MF   40501
+#define PAT_MAGIC_MIN   40101
+#define PAT_MAGIC_MAX   40600
+#define PAT_REG_MAX     64
 
 // ─── Global state ───
 string  g_connection      = "OFFLINE";
@@ -103,41 +127,87 @@ int     g_tickCount        = 0;
 int     g_signalsReceived = 0;
 int     g_signalsDisplayed = 0;
 int     g_signalsFiltered  = 0;
-// Capital protection state (NEW v1.07)
-double  g_dailyPnL       = 0;      // running daily P&L
-double  g_dayStartBalance = 0;     // balance at start of trading day
-datetime g_currentDay    = 0;     // current trading day
-bool    g_tradingBlocked = false; // capital protection flag
-bool    g_hardHaltTriggered = false; // Phase 4: hard halt flag
-int     g_slippageRejects = 0;    // count of slippage rejections
-double  g_entry  = 0;
-double  g_sl     = 0;
-double  g_tp1    = 0;
-double  g_tp2    = 0;
-double  g_tp3    = 0;
-double  g_rawScore = 0;
-double  g_calibProb = 0;
+// Capital protection state
+double  g_dailyPnL       = 0;
+double  g_dayStartBalance = 0;
+datetime g_currentDay    = 0;
+bool    g_tradingBlocked = false;
+bool    g_hardHaltTriggered = false;
+int     g_slippageRejects = 0;
+// Execution safety state
+bool    g_equityHalted   = false;
+int     g_magicSeq       = 0;
+
+// Per-trade registry (runtime, keyed by magic; survives reload via
+// GlobalVariables + order-comment reconstruction)
+int     g_regMagic[PAT_REG_MAX];
+string  g_regSig[PAT_REG_MAX];
+string  g_regStrat[PAT_REG_MAX];
+double  g_regEntry[PAT_REG_MAX];
+double  g_regSL0[PAT_REG_MAX];
+double  g_regTP1[PAT_REG_MAX];
+double  g_regTP2[PAT_REG_MAX];
+double  g_regTP3[PAT_REG_MAX];
+double  g_regOrigLot[PAT_REG_MAX];
+int     g_regCount = 0;
 
 //+------------------------------------------------------------------+
-// ─── Unified Price Access Wrappers (prompt.md Section 8.1) ───
-// MT4 native — iClose/iOpen/iHigh/iLow already platform-agnostic in MT4.
-// These wrappers provide a consistent interface for future MT5 migration.
+//| Strategy mapping                                                  |
+//+------------------------------------------------------------------+
+int PAT_StrategyMagicBase(string strategyName)
+{
+    if(strategyName == "ULTRA_SCALPING")    return MAGIC_BASE_US;
+    if(strategyName == "STANDARD_SWING")    return MAGIC_BASE_SW;
+    if(strategyName == "TREND_SWING")       return MAGIC_BASE_TS;
+    if(strategyName == "MARNIE_FIB")        return MAGIC_BASE_MF;
+    if(strategyName == "STANDARD_SCALPING") return MAGIC_BASE_SS;
+    return 0; // unknown strategy — caller must reject (fail-closed)
+}
 
+string PAT_StrategyPrefix(string strategyName)
+{
+    if(strategyName == "ULTRA_SCALPING")    return "PAT-US:";
+    if(strategyName == "STANDARD_SWING")    return "PAT-SW:";
+    if(strategyName == "TREND_SWING")       return "PAT-TS:";
+    if(strategyName == "MARNIE_FIB")        return "PAT-MF:";
+    if(strategyName == "STANDARD_SCALPING") return "PAT-SS:";
+    return "";
+}
+
+bool PAT_IsPatMagic(int magic)
+{
+    return (magic >= PAT_MAGIC_MIN && magic <= PAT_MAGIC_MAX);
+}
+
+//+------------------------------------------------------------------+
+//| Unified Price Access Wrappers                                     |
+//+------------------------------------------------------------------+
 double PAT_Close(int shift) { return iClose(g_symbol, 0, shift); }
 double PAT_Open(int shift)  { return iOpen(g_symbol, 0, shift); }
 double PAT_High(int shift)  { return iHigh(g_symbol, 0, shift); }
 double PAT_Low(int shift)   { return iLow(g_symbol, 0, shift); }
 
-// ─── Unified Swap/Tick Info Wrappers (prompt.md Section 8.3) ───
 double PAT_SwapLong()   { return MarketInfo(g_symbol, MODE_SWAPLONG); }
 double PAT_SwapShort()  { return MarketInfo(g_symbol, MODE_SWAPSHORT); }
 double PAT_TickValue()  { return MarketInfo(g_symbol, MODE_TICKVALUE); }
 double PAT_TickSize()   { return MarketInfo(g_symbol, MODE_TICKSIZE); }
 double PAT_PointValue() { return (PAT_TickValue() / PAT_TickSize()); }
 
-// ─── Position Sizing (prompt.md Section 3.2) ───
-// lots = risk_amount / (stop_distance_price * point_value)
-// Round down to broker lot step.
+//+------------------------------------------------------------------+
+//| Lot normalization to broker volume step/min/max                   |
+//+------------------------------------------------------------------+
+double PAT_NormalizeLot(double lots)
+{
+    double lotStep = MarketInfo(g_symbol, MODE_LOTSTEP);
+    double minLot  = MarketInfo(g_symbol, MODE_MINLOT);
+    double maxLot  = MarketInfo(g_symbol, MODE_MAXLOT);
+    if(lotStep > 0) lots = MathFloor(lots / lotStep + 0.0000001) * lotStep;
+    if(lots > maxLot) lots = maxLot;
+    if(lots < minLot) return 0; // below broker minimum — caller rejects (fail-closed)
+    return NormalizeDouble(lots, 2);
+}
+
+// ─── Position Sizing ───
 double PAT_CalcLotSize(double equity, double stopDistancePrice)
 {
     if(stopDistancePrice <= 0 || equity <= 0) return 0;
@@ -145,122 +215,498 @@ double PAT_CalcLotSize(double equity, double stopDistancePrice)
     double pointValue = PAT_PointValue();
     if(pointValue <= 0) return 0;
     double lots = riskAmount / (stopDistancePrice * pointValue);
-    double lotStep = MarketInfo(g_symbol, MODE_LOTSTEP);
-    if(lotStep > 0) lots = MathFloor(lots / lotStep) * lotStep;
-    double minLot = MarketInfo(g_symbol, MODE_MINLOT);
-    double maxLot = MarketInfo(g_symbol, MODE_MAXLOT);
-    if(lots < minLot) return 0; // Below minimum — reject
-    if(lots > maxLot) lots = maxLot;
-    return NormalizeDouble(lots, 2);
+    double norm = PAT_NormalizeLot(lots);
+    return norm;
 }
 
-// ─── Per-Strategy Spread Check (prompt.md Section 4.2) ───
+// ─── Per-Strategy Spread Check (wired into Execute paths v1.08) ───
 bool PAT_CheckSpread(string strategyName)
 {
     int spread = (int)MarketInfo(g_symbol, MODE_SPREAD);
-    int maxSpread = 50; // default
+    int maxSpread = 50;
     if(strategyName == "ULTRA_SCALPING") maxSpread = UltraScalp_MaxSpread;
     else if(strategyName == "STANDARD_SCALPING") maxSpread = StdScalp_MaxSpread;
     else if(strategyName == "STANDARD_SWING") maxSpread = StdSwing_MaxSpread;
     else if(strategyName == "TREND_SWING") maxSpread = TrendSwing_MaxSpread;
     if(spread > maxSpread) {
-        Print("Spread check FAILED: ", spread, " > ", maxSpread, " for ", strategyName);
+        Print("SPREAD REJECT: ", spread, " > ", maxSpread, " pts for ", strategyName);
         return false;
     }
     return true;
 }
 
-// ─── Per-Strategy Slippage (prompt.md Section 4.2) ───
 int PAT_GetMaxSlippage(string strategyName)
 {
     if(strategyName == "ULTRA_SCALPING") return UltraScalp_MaxSlippage;
     if(strategyName == "STANDARD_SCALPING") return StdScalp_MaxSlippage;
     if(strategyName == "STANDARD_SWING") return StdSwing_MaxSlippage;
     if(strategyName == "TREND_SWING") return TrendSwing_MaxSlippage;
-    return MaxSlippagePoints; // fallback to global
+    return MaxSlippagePoints;
 }
 
-// ─── Swap Protection Check (prompt.md Section 4.1) ───
-bool PAT_CheckSwapProtection(int orderType, double entry, double sl, double tp, double lots, bool isIntraday)
+//+------------------------------------------------------------------+
+//| WRONG-SIDE SL/TP VALIDATION (highest priority — fail-closed).     |
+//| Never clamps. Aborts the order on any violation.                  |
+//+------------------------------------------------------------------+
+bool PAT_ValidateLevels(bool isBuy, double entry, double sl, double tpFinal)
 {
-    double swapRate = (orderType == OP_BUY) ? PAT_SwapLong() : PAT_SwapShort();
-    if(swapRate >= 0) return true; // Positive swap — no restriction
-    if(isIntraday) return true; // Intraday closes before rollover
+    if(entry <= 0 || sl <= 0 || tpFinal <= 0)
+    {
+        Print("REJECTED invalid_levels: entry=", DoubleToString(entry, _Digits),
+              " sl=", DoubleToString(sl, _Digits),
+              " tp=", DoubleToString(tpFinal, _Digits));
+        return false;
+    }
+    if(isBuy)
+    {
+        if(sl >= entry)
+        {
+            Print("REJECTED wrong_side_sl: BUY entry=", DoubleToString(entry, _Digits),
+                  " sl=", DoubleToString(sl, _Digits), " — SL must be BELOW entry. Order ABORTED.");
+            return false;
+        }
+        if(tpFinal <= entry)
+        {
+            Print("REJECTED wrong_side_tp: BUY entry=", DoubleToString(entry, _Digits),
+                  " tp=", DoubleToString(tpFinal, _Digits), " — TP must be ABOVE entry. Order ABORTED.");
+            return false;
+        }
+    }
+    else
+    {
+        if(sl <= entry)
+        {
+            Print("REJECTED wrong_side_sl: SELL entry=", DoubleToString(entry, _Digits),
+                  " sl=", DoubleToString(sl, _Digits), " — SL must be ABOVE entry. Order ABORTED.");
+            return false;
+        }
+        if(tpFinal >= entry)
+        {
+            Print("REJECTED wrong_side_tp: SELL entry=", DoubleToString(entry, _Digits),
+                  " tp=", DoubleToString(tpFinal, _Digits), " — TP must be BELOW entry. Order ABORTED.");
+            return false;
+        }
+    }
+    return true;
+}
 
-    // Swing: include swap cost in R:R
-    int expectedNights = 3; // default expected hold nights
-    double swapCost = MathAbs(swapRate) * lots * expectedNights;
-    double targetDist = MathAbs(tp - entry);
-    double stopDist = MathAbs(entry - sl);
-    if(stopDist <= 0) return false;
-    double netProfit = targetDist - swapCost;
-    double netRR = netProfit / stopDist;
-    if(netRR < 2.0) {
-        Print("Swap protection REJECT: net R:R=", DoubleToString(netRR, 2), " < 2.0");
+//+------------------------------------------------------------------+
+//| Signal expiry: prefer server-provided ExpiresAt, else age input   |
+//+------------------------------------------------------------------+
+datetime PAT_ParseISO8601UTC(string s)
+{
+    // Handles "2026-08-24T16:25:11[.frac][Z|+03:00|-05:00]"
+    if(StringLen(s) < 19) return 0;
+    int y  = (int)StringToInteger(StringSubstr(s, 0, 4));
+    int mo = (int)StringToInteger(StringSubstr(s, 5, 2));
+    int d  = (int)StringToInteger(StringSubstr(s, 8, 2));
+    int h  = (int)StringToInteger(StringSubstr(s, 11, 2));
+    int mi = (int)StringToInteger(StringSubstr(s, 14, 2));
+    int se = (int)StringToInteger(StringSubstr(s, 17, 2));
+    if(y < 2000 || mo < 1 || mo > 12 || d < 1 || d > 31) return 0;
+    MqlDateTime dt;
+    dt.year = y; dt.mon = mo; dt.day = d; dt.hour = h; dt.min = mi; dt.sec = se;
+    datetime gmt = StructToTime(dt);
+    // Apply timezone offset if present (not plain 'Z')
+    int tzPos = 19;
+    if(tzPos < StringLen(s))
+    {
+        string tzChar = StringSubstr(s, tzPos, 1);
+        if(tzChar == "+" || tzChar == "-")
+        {
+            int sign = (tzChar == "+") ? -1 : 1; // local ahead of UTC => subtract to get UTC
+            int oh = (int)StringToInteger(StringSubstr(s, tzPos + 1, 2));
+            int om = 0;
+            if(StringLen(s) >= tzPos + 6)
+                om = (int)StringToInteger(StringSubstr(s, tzPos + 4, 2));
+            gmt += sign * (oh * 3600 + om * 60);
+        }
+    }
+    // Convert UTC -> approximate server timeline using terminal GMT offset
+    return (gmt + (TimeCurrent() - TimeGMT()));
+}
+
+bool PAT_SignalFresh()
+{
+    datetime expiry = PAT_ParseISO8601UTC(ExtractJSONString(g_lastSignalJSON, "ExpiresAt"));
+    if(expiry > 0)
+    {
+        if(TimeCurrent() > expiry)
+        {
+            Print("SIGNAL EXPIRED (server expiry): signal=", g_signalID,
+                  " expired=", TimeToString(expiry, TIME_DATE|TIME_SECONDS));
+            return false;
+        }
+        return true;
+    }
+    if(g_signalTime > 0 && TimeCurrent() > g_signalTime + MaxSignalAgeSeconds)
+    {
+        Print("SIGNAL EXPIRED (age>): signal=", g_signalID, " older than ", MaxSignalAgeSeconds, "s");
         return false;
     }
     return true;
 }
 
-// ─── Partial Close / Profit Locking (prompt.md Section 3.3) ───
-// TP1 hit: Close 50%, move SL to breakeven
-// TP2 hit: Close 30%, move SL to TP1
-// TP3 hit: Close remaining 20%, trail by 1.5*ATR
-void PAT_ProcessPartialClose(int ticket, int orderType, double openPrice, double sl, double tp1, double tp2, double tp3, double originalLots)
+// Last raw signal payload (for ExpiresAt extraction)
+string g_lastSignalJSON = "";
+
+//+------------------------------------------------------------------+
+//| Position counting by PAT magic range                              |
+//+------------------------------------------------------------------+
+int PAT_CountPatPositions()
 {
-    if(!UsePartialClose) return;
-    if(!OrderSelect(ticket, SELECT_BY_TICKET)) return;
-    if(OrderCloseTime() != 0) return; // already closed
+    int count = 0;
+    int total = OrdersTotal();
+    for(int i = 0; i < total; i++)
+    {
+        if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+        if(OrderSymbol() != g_symbol) continue;
+        if(PAT_IsPatMagic(OrderMagicNumber())) count++;
+    }
+    return count;
+}
 
-    double currentLots = OrderLots();
-    double tp1CloseLots = NormalizeDouble(originalLots * (TP1ClosePercent / 100.0), 2);
-    double tp2CloseLots = NormalizeDouble(originalLots * (TP2ClosePercent / 100.0), 2);
-
-    // TP1: close 50%, move SL to Entry + 0.5R (Phase 3C: guaranteed profit)
-    if(orderType == OP_BUY && Bid >= tp1 && OrderLots() >= tp1CloseLots)
+int PAT_CountPatPositionsDir(bool isBuy)
+{
+    int count = 0;
+    int total = OrdersTotal();
+    for(int i = 0; i < total; i++)
     {
-        if(OrderClose(ticket, tp1CloseLots, Bid, PAT_GetMaxSlippage(""), clrGreen))
-            Print("TP1 partial close: 50% closed at ", Bid);
-        // ADDON Phase 3C: Move SL to Entry + 0.5R (not just breakeven)
-        double r_dist = MathAbs(openPrice - sl);
-        double newSL = openPrice + (0.5 * r_dist);
-        if(OrderModify(ticket, newSL, newSL, OrderTakeProfit(), 0, clrYellow))
-            Print("TP1: SL moved to Entry+0.5R (", newSL, ") — profit locked");
+        if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+        if(OrderSymbol() != g_symbol) continue;
+        if(!PAT_IsPatMagic(OrderMagicNumber())) continue;
+        if(isBuy && OrderType() == OP_BUY) count++;
+        if(!isBuy && OrderType() == OP_SELL) count++;
     }
-    else if(orderType == OP_SELL && Ask <= tp1 && OrderLots() >= tp1CloseLots)
-    {
-        if(OrderClose(ticket, tp1CloseLots, Ask, PAT_GetMaxSlippage(""), clrRed))
-            Print("TP1 partial close: 50% closed at ", Ask);
-        // ADDON Phase 3C: Move SL to Entry - 0.5R (not just breakeven)
-        double r_dist_s = MathAbs(sl - openPrice);
-        double newSL_s = openPrice - (0.5 * r_dist_s);
-        if(OrderModify(ticket, newSL_s, newSL_s, OrderTakeProfit(), 0, clrYellow))
-            Print("TP1: SL moved to Entry-0.5R (", newSL_s, ") — profit locked");
-    }
-
-    // TP2: close 30%, move SL to TP1
-    if(orderType == OP_BUY && Bid >= tp2 && OrderLots() >= tp2CloseLots)
-    {
-        if(OrderClose(ticket, tp2CloseLots, Bid, PAT_GetMaxSlippage(""), clrGreen))
-            Print("TP2 partial close: 30% closed at ", Bid);
-        if(OrderModify(ticket, openPrice, tp1, OrderTakeProfit(), 0, clrAqua))
-            Print("TP2: SL moved to TP1 (", tp1, ")");
-    }
-    else if(orderType == OP_SELL && Ask <= tp2 && OrderLots() >= tp2CloseLots)
-    {
-        if(OrderClose(ticket, tp2CloseLots, Ask, PAT_GetMaxSlippage(""), clrRed))
-            Print("TP2 partial close: 30% closed at ", Ask);
-        if(OrderModify(ticket, openPrice, tp1, OrderTakeProfit(), 0, clrAqua))
-            Print("TP2: SL moved to TP1 (", tp1, ")");
-    }
-    // TP3: remaining 20% trails by 1.5*ATR (handled by existing trailing stop logic)
+    return count;
 }
 
 //+------------------------------------------------------------------+
-//| FormatISO8601UTC — Convert datetime to ISO8601 UTC string        |
-//| Returns: "2026-08-21T16:25:11Z" (proper RFC3339/ISO8601 format)  |
-//| This replaces TimeToStr which produces "2026.08.21 19:25:11"      |
-//| (dot separators, no timezone, broker time) — unparseable by JS   |
+//| EA-side risk gate (belt-and-suspenders — all fail-closed)         |
+//+------------------------------------------------------------------+
+bool PAT_PreTradeGate(bool isBuy, double lot, string strategyName)
+{
+    // 0. Halt flags
+    if(g_equityHalted)
+    {
+        Print("REJECTED equity_floor_halt: trading halted until manual re-enable");
+        return false;
+    }
+    if(g_tradingBlocked)
+    {
+        Print("REJECTED capital_protection_halt: daily loss limit reached");
+        return false;
+    }
+
+    // 1. Pre-trade spread gate (previously dead code — now wired)
+    if(!PAT_CheckSpread(strategyName)) return false;
+
+    // 2. Entry drift gate
+    double point = MarketInfo(g_symbol, MODE_POINT);
+    double refPx = isBuy ? Ask : Bid;
+    double driftPts = 0;
+    if(point > 0) driftPts = MathAbs(refPx - g_entry) / point;
+    if(driftPts > MaxEntryDriftPoints)
+    {
+        Print("REJECTED entry_drift: |", DoubleToString(refPx, _Digits), " - ",
+              DoubleToString(g_entry, _Digits), "| = ", DoubleToString(driftPts, 1),
+              " pts > ", MaxEntryDriftPoints);
+        return false;
+    }
+
+    // 3. Signal TTL gate
+    if(!PAT_SignalFresh()) return false;
+
+    // 4. Position caps (same-direction and total, by PAT magic range)
+    if(PAT_CountPatPositionsDir(isBuy) >= MaxSameDirPositions)
+    {
+        Print("REJECTED same_dir_cap: already ", PAT_CountPatPositionsDir(isBuy),
+              " ", (isBuy ? "BUY" : "SELL"), " PAT position(s) (max ", MaxSameDirPositions, ")");
+        return false;
+    }
+    if(PAT_CountPatPositions() >= MaxTotalPositions)
+    {
+        Print("REJECTED total_cap: ", PAT_CountPatPositions(),
+              " PAT positions open (max ", MaxTotalPositions, ")");
+        return false;
+    }
+
+    // 5. Risk-$ gate: risk$ = |entry-sl| * valuePerPriceUnit * lot
+    double tickVal  = PAT_TickValue();
+    double tickSize = PAT_TickSize();
+    double equity   = AccountEquity();
+    double dist     = MathAbs(g_entry - g_sl);
+    if(tickVal <= 0 || tickSize <= 0 || dist <= 0 || equity <= 0)
+    {
+        Print("REJECTED bad_risk_inputs: tickVal=", tickVal, " tickSize=", tickSize,
+              " dist=", dist, " equity=", equity);
+        return false;
+    }
+    double valuePerUnit = tickVal / tickSize; // account currency per 1.0 price move per lot
+    double riskDollars  = dist * valuePerUnit * lot;
+    double riskCap      = equity * (MaxRiskPct / 100.0);
+    if(riskDollars > riskCap)
+    {
+        Print("REJECTED risk_oversize: risk$=", DoubleToString(riskDollars, 2),
+              " > cap=", DoubleToString(riskCap, 2),
+              " (equity=", DoubleToString(equity, 2), " x ", MaxRiskPct, "%)");
+        return false;
+    }
+
+    // 6. Martingale ban: lot may never exceed baseLot * MaxLotRatioVsBase.
+    //    Effective base = max(configured BaseLot, deterministic risk-sized lot
+    //    for THIS signal) — prevents runaway sizing while allowing honest
+    //    risk-based sizing. Ratio 1.0 forbids any escalation beyond it.
+    double effBase = BaseLot;
+    double riskLot = PAT_CalcLotSize(equity, dist);
+    if(riskLot > effBase) effBase = riskLot;
+    if(lot > effBase * MaxLotRatioVsBase + 0.0000001)
+    {
+        Print("REJECTED martingale_ban: lot=", DoubleToString(lot, 2),
+              " > base=", DoubleToString(effBase, 2), " x ", DoubleToString(MaxLotRatioVsBase, 2));
+        return false;
+    }
+
+    // 7. Margin gate
+    double marginRequired = lot * MarketInfo(g_symbol, MODE_MARGINREQUIRED);
+    double freeMargin     = AccountFreeMargin();
+    if(marginRequired > freeMargin * (MaxMarginUsagePct / 100.0))
+    {
+        Print("REJECTED margin_overuse: required=", DoubleToString(marginRequired, 2),
+              " > freeMargin x ", MaxMarginUsagePct, "% = ",
+              DoubleToString(freeMargin * MaxMarginUsagePct / 100.0, 2));
+        return false;
+    }
+    if(AccountFreeMarginCheck(g_symbol, isBuy ? OP_BUY : OP_SELL, lot) <= 0)
+    {
+        Print("REJECTED insufficient_margin: AccountFreeMarginCheck <= 0");
+        return false;
+    }
+
+    return true;
+}
+
+//+------------------------------------------------------------------+
+//| Per-trade registry (runtime)                                      |
+//+------------------------------------------------------------------+
+int PAT_RegFind(int magic)
+{
+    for(int i = 0; i < g_regCount; i++)
+        if(g_regMagic[i] == magic) return i;
+    return -1;
+}
+
+int PAT_RegPut(int magic, string sig, string strat, double entry, double sl0,
+               double tp1, double tp2, double tp3, double origLot)
+{
+    int idx = PAT_RegFind(magic);
+    if(idx < 0)
+    {
+        if(g_regCount >= PAT_REG_MAX) return -1;
+        idx = g_regCount++;
+    }
+    g_regMagic[idx]   = magic;
+    g_regSig[idx]     = sig;
+    g_regStrat[idx]   = strat;
+    g_regEntry[idx]   = entry;
+    g_regSL0[idx]     = sl0;
+    g_regTP1[idx]     = tp1;
+    g_regTP2[idx]     = tp2;
+    g_regTP3[idx]     = tp3;
+    g_regOrigLot[idx] = origLot;
+    return idx;
+}
+
+//+------------------------------------------------------------------+
+//| Stage persistence (survives EA reload via GlobalVariables)        |
+//+------------------------------------------------------------------+
+string PAT_GVName(int magic, string field) { return "PAT_M" + IntegerToString(magic) + "_" + field; }
+
+void PAT_SaveStage(int magic, int stage)
+{
+    GlobalVariableSet(PAT_GVName(magic, "STAGE"), stage);
+}
+
+int PAT_LoadStage(int magic)
+{
+    string name = PAT_GVName(magic, "STAGE");
+    if(GlobalVariableCheck(name)) return (int)GlobalVariableGet(name);
+    return 0;
+}
+
+//+------------------------------------------------------------------+
+//| Trade result reporting (TRADE_RESULT + CLOSE_ACK via IPC file)    |
+//+------------------------------------------------------------------+
+void PAT_ReportResult(int magic, string signalID, string strategyID, string exitReason,
+                      double entry, double exitPx, double lots, double realizedPnl,
+                      bool slCorrect)
+{
+    if(signalID == "" && strategyID == "")
+    {
+        int idx = PAT_RegFind(magic);
+        if(idx >= 0) { signalID = g_regSig[idx]; strategyID = g_regStrat[idx]; }
+    }
+    string msg = "TRADE_RESULT|{";
+    msg += "\"type\":\"TRADE_RESULT\"";
+    msg += ",\"signal_id\":\"" + signalID + "\"";
+    msg += ",\"strategy_id\":\"" + strategyID + "\"";
+    msg += ",\"magic\":" + IntegerToString(magic);
+    msg += ",\"exit_reason\":\"" + exitReason + "\"";
+    msg += ",\"entry\":" + DoubleToString(entry, _Digits);
+    msg += ",\"exit\":" + DoubleToString(exitPx, _Digits);
+    msg += ",\"lot\":" + DoubleToString(lots, 2);
+    msg += ",\"realized_pnl\":" + DoubleToString(realizedPnl, 2);
+    msg += ",\"sl_correct\":" + (slCorrect ? "true" : "false");
+    msg += "}";
+    PAT_Append(PAT_TICK_FILE, msg + "\n");
+
+    // CLOSE_ACK is already parsed/forwarded by the Windows Agent
+    // (windows-agent/internal/pipe.go) — sent for pipeline compatibility.
+    string ack = "CLOSE_ACK|{";
+    ack += "\"ticket\":" + IntegerToString(magic); // magic uniquely identifies the PAT trade chain
+    ack += ",\"reason\":\"" + exitReason + "\"";
+    ack += ",\"net_pnl\":" + DoubleToString(realizedPnl, 2);
+    ack += ",\"signal_id\":\"" + signalID + "\"";
+    ack += ",\"strategy_id\":\"" + strategyID + "\"";
+    ack += ",\"magic\":" + IntegerToString(magic);
+    ack += "}\n";
+    PAT_Append(PAT_TICK_FILE, ack);
+
+    Print("TRADE_RESULT reported: magic=", magic, " reason=", exitReason,
+          " pnl=", DoubleToString(realizedPnl, 2), " signal=", signalID);
+}
+
+// Mark an EA-initiated close so the history poller attributes the reason.
+void PAT_SetForcedReason(int magic, string reason)
+{
+    GlobalVariableSet(PAT_GVName(magic, "FR"),
+                      HashCode(reason));
+}
+
+int HashCode(string s)
+{
+    int h = 0;
+    for(int i = 0; i < StringLen(s); i++) h = h * 31 + StringGetChar(s, i);
+    return h;
+}
+
+//+------------------------------------------------------------------+
+//| Exit-reason classification by close price proximity               |
+//+------------------------------------------------------------------+
+string PAT_ClassifyExit(bool isBuy, double entry, double sl, double tp1, double tp2,
+                        double tp3, double exitPx, string forcedReason)
+{
+    if(forcedReason != "") return forcedReason;
+    double point = MarketInfo(g_symbol, MODE_POINT);
+    double spread = MarketInfo(g_symbol, MODE_SPREAD) * point;
+    double tol = MathMax(spread, 10 * point);
+    if(tol <= 0) tol = 0.10;
+    if(isBuy)
+    {
+        if(tp3 > 0 && exitPx >= tp3 - tol) return "tp3";
+        if(tp2 > 0 && exitPx >= tp2 - tol) return "tp2";
+        if(tp1 > 0 && exitPx >= tp1 - tol) return "tp1";
+        if(sl > 0 && exitPx <= sl + tol) return "sl";
+    }
+    else
+    {
+        if(tp3 > 0 && exitPx <= tp3 + tol) return "tp3";
+        if(tp2 > 0 && exitPx <= tp2 + tol) return "tp2";
+        if(tp1 > 0 && exitPx <= tp1 + tol) return "tp1";
+        if(sl > 0 && exitPx >= sl - tol) return "sl";
+    }
+    return "manual";
+}
+
+// Forced-reason codes -> strings
+string PAT_ForcedReasonFromCode(int code)
+{
+    if(code == HashCode("MAX_HOLD_TIME"))    return "expiry";
+    if(code == HashCode("SWAP_AVOIDANCE"))   return "manual";
+    if(code == HashCode("EMERGENCY_CAPITAL_PROTECTION")) return "manual";
+    if(code == HashCode("EQUITY_FLOOR"))     return "manual";
+    if(code == HashCode("WATCHDOG_NOSL"))    return "manual";
+    if(code == HashCode("SLIPPAGE_REJECT"))  return "manual";
+    return "";
+}
+
+//+------------------------------------------------------------------+
+//| History poller: report every closed PAT order exactly once        |
+//| (covers broker-side SL/TP fills AND MT4 partial-close chunks)     |
+//+------------------------------------------------------------------+
+void PAT_HistoryPoll()
+{
+    int total = OrdersHistoryTotal();
+    for(int i = total - 1; i >= 0; i--)
+    {
+        if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+        if(OrderSymbol() != g_symbol) continue;
+        if(!PAT_IsPatMagic(OrderMagicNumber())) continue;
+        if(OrderCloseTime() == 0) continue;
+
+        int ticket = OrderTicket();
+        string rptName = "PAT_RPT_" + IntegerToString(ticket);
+        if(GlobalVariableCheck(rptName)) continue;
+
+        int magic = OrderMagicNumber();
+        int frCode = 0;
+        string frName = PAT_GVName(magic, "FR");
+        if(GlobalVariableCheck(frName)) frCode = (int)GlobalVariableGet(frName);
+        string forced = PAT_ForcedReasonFromCode(frCode);
+
+        // Direction/type from the closed order itself
+        bool isBuy = (OrderType() == OP_BUY);
+        int idx = PAT_RegFind(magic);
+        double entry = OrderOpenPrice();
+        double sl0 = OrderStopLoss();
+        double tp1 = 0, tp2 = 0, tp3 = 0;
+        if(idx >= 0)
+        {
+            entry = g_regEntry[idx];
+            sl0 = g_regSL0[idx];
+            tp1 = g_regTP1[idx];
+            tp2 = g_regTP2[idx];
+            tp3 = g_regTP3[idx];
+        }
+        // Partial-close chunks carry the ORIGINAL comment ("from #X" suffix
+        // varies by broker) — classify purely by close-price proximity unless
+        // an explicit forced reason exists.
+        string reason = PAT_ClassifyExit(isBuy, entry, sl0, tp1, tp2, tp3,
+                                         OrderClosePrice(), forced);
+        double pnl = OrderProfit() + OrderSwap() + OrderCommission();
+        string sig = "", strat = "";
+        if(idx >= 0) { sig = g_regSig[idx]; strat = g_regStrat[idx]; }
+        else
+        {
+            sig = PAT_SignalIDFromComment(OrderComment());
+            strat = PAT_StrategyFromMagic(magic);
+        }
+        PAT_ReportResult(magic, sig, strat, reason, entry, OrderClosePrice(),
+                         OrderLots(), pnl, true);
+        GlobalVariableSet(rptName, 1);
+    }
+}
+
+string PAT_StrategyFromMagic(int magic)
+{
+    if(magic >= MAGIC_BASE_SS && magic < MAGIC_BASE_SS + 100) return "STANDARD_SCALPING";
+    if(magic >= MAGIC_BASE_US && magic < MAGIC_BASE_US + 100) return "ULTRA_SCALPING";
+    if(magic >= MAGIC_BASE_SW && magic < MAGIC_BASE_SW + 100) return "STANDARD_SWING";
+    if(magic >= MAGIC_BASE_TS && magic < MAGIC_BASE_TS + 100) return "TREND_SWING";
+    if(magic >= MAGIC_BASE_MF && magic < MAGIC_BASE_MF + 100) return "MARNIE_FIB";
+    return "";
+}
+
+string PAT_SignalIDFromComment(string comment)
+{
+    // Comment format: PAT-XX:<signal_id>
+    int colon = StringFind(comment, ":");
+    if(colon < 0) return "";
+    return StringSubstr(comment, colon + 1);
+}
+
+//+------------------------------------------------------------------+
+//| FormatISO8601UTC                                                  |
 //+------------------------------------------------------------------+
 string FormatISO8601UTC(datetime t)
 {
@@ -274,8 +720,7 @@ string FormatISO8601UTC(datetime t)
         year, mon, day, hour, min, sec);
 }
 
-
-
+//+------------------------------------------------------------------+
 int OnInit()
 {
     if(BrokerSymbol != "")
@@ -288,10 +733,25 @@ int OnInit()
     g_connection = "OFFLINE";
     g_licenseStatus = "PENDING";
 
-    Print("Predict-A-Trade MT4 EA v1.07 initializing...");
+    Print("Predict-A-Trade MT4 EA v1.08 initializing...");
     Print("Symbol: ", g_symbol);
     Print("Account: ", g_accountID);
     Print("License Key: ", (g_licenseKey == "" ? "NOT SET — SIGNALS WILL BE IGNORED" : g_licenseKey));
+
+    // Restore equity-floor halt latch (persists across reloads)
+    if(GlobalVariableCheck("PAT_EQUITY_HALT"))
+        g_equityHalted = (GlobalVariableGet("PAT_EQUITY_HALT") > 0.5);
+    if(g_equityHalted && !ReEnableAfterHalt)
+        Print("*** TRADING HALTED: equity-floor breach latched. Set ReEnableAfterHalt=true to resume. ***");
+    else if(g_equityHalted && ReEnableAfterHalt)
+    {
+        Print("Manual re-enable accepted — clearing equity-floor halt latch.");
+        g_equityHalted = false;
+        GlobalVariableSet("PAT_EQUITY_HALT", 0);
+    }
+
+    // Watchdog timer (every 15s)
+    EventSetTimer(15);
 
     if(FileIsExist(PAT_HEARTBEAT, FILE_COMMON))
     {
@@ -313,12 +773,13 @@ int OnInit()
 
 void OnDeinit(const int reason)
 {
-    PAT_Write(PAT_TICK_FILE, "DEINIT|{}\n");
+    EventKillTimer();
+    PAT_Append(PAT_TICK_FILE, "DEINIT|{}\n");
     Comment("");
 }
 
 //+------------------------------------------------------------------+
-//| MAIN TICK — now manages open positions every tick                |
+//| MAIN TICK                                                         |
 //+------------------------------------------------------------------+
 void OnTick()
 {
@@ -330,169 +791,309 @@ void OnTick()
     if(g_connection == "CONNECTED")
         ReadFromAgent();
 
-    // Signal expiry
+    // Signal expiry (display state)
     if(g_signalDirection != "NONE" && g_signalTime > 0)
     {
-        if(TimeCurrent() > g_signalTime + 300)
+        if(TimeCurrent() > g_signalTime + MaxSignalAgeSeconds)
             g_signalDirection = "EXPIRED";
     }
 
-    // Manage all open positions (trailing stop, break-even, TP2, swap, max hold)
-    ManageOpenPositions();
+    // Staged position management (partial TP1/TP2, breakeven, trailing)
+    PAT_ManagePositions();
 
-    // NEW v1.07: Capital protection — check daily loss limit
+    // Capital protection — check daily loss limit
     UpdateCapitalProtection();
+
+    // Exit reporting (covers broker-side closes and partial chunks)
+    PAT_HistoryPoll();
 
     UpdatePanel();
 }
 
 //+------------------------------------------------------------------+
-//| POSITION MANAGEMENT (NEW v1.06)                                   |
-//| Called every tick — monitors and manages all open PAT positions   |
+//| WATCHDOG (OnTimer, 15s): missing-SL check + equity floor          |
 //+------------------------------------------------------------------+
-void ManageOpenPositions()
+void OnTimer()
+{
+    PAT_Watchdog();
+    PAT_HistoryPoll();
+}
+
+void PAT_Watchdog()
+{
+    // 1. Equity floor check (fail-closed: close ALL PAT positions and halt)
+    if(!g_equityHalted)
+    {
+        double baseline = g_dayStartBalance;
+        if(baseline <= 0) baseline = AccountBalance();
+        double floorEq = baseline * (MinEquityFloorPct / 100.0);
+        if(baseline > 0 && AccountEquity() < floorEq && AccountEquity() > 0)
+        {
+            g_equityHalted = true;
+            GlobalVariableSet("PAT_EQUITY_HALT", 1);
+            Print("*** EQUITY FLOOR BREACH: equity=", DoubleToString(AccountEquity(), 2),
+                  " < floor=", DoubleToString(floorEq, 2), " — CLOSING ALL PAT POSITIONS AND HALTING ***");
+            CloseAllPatPositions("EQUITY_FLOOR");
+        }
+    }
+
+    // 2. Missing-SL self-check on every PAT position
+    int total = OrdersTotal();
+    for(int i = total - 1; i >= 0; i--)
+    {
+        if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+        if(OrderSymbol() != g_symbol) continue;
+        if(!PAT_IsPatMagic(OrderMagicNumber())) continue;
+
+        double sl = OrderStopLoss();
+        if(sl > 0) continue;
+
+        int magic = OrderMagicNumber();
+        bool isBuy = (OrderType() == OP_BUY);
+        int idx = PAT_RegFind(magic);
+        double sl0 = (idx >= 0) ? g_regSL0[idx] : 0;
+
+        string mode = OnMissingSL;
+        StringToUpper(mode);
+        if(mode == "RESTORE" && sl0 > 0)
+        {
+            // Validate restored SL side BEFORE modifying (fail-closed)
+            double openPx = OrderOpenPrice();
+            bool sideOk = isBuy ? (sl0 < openPx) : (sl0 > openPx);
+            if(sideOk)
+            {
+                if(OrderModify(OrderTicket(), openPx, sl0, OrderTakeProfit(), 0, clrYellow))
+                    Print("WATCHDOG: restored missing SL on ticket=", OrderTicket(), " SL=", DoubleToString(sl0, _Digits));
+                else
+                    Print("WATCHDOG: SL restore FAILED ticket=", OrderTicket(), " err=", GetLastError());
+            }
+            else
+            {
+                Print("WATCHDOG: stored SL wrong-side for ticket=", OrderTicket(), " — CLOSING (fail-closed)");
+                ClosePosition(OrderTicket(), "WATCHDOG_NOSL");
+            }
+        }
+        else
+        {
+            Print("WATCHDOG: PAT position without SL ticket=", OrderTicket(),
+                  " magic=", magic, " — CLOSING (OnMissingSL=CLOSE, fail-closed)");
+            ClosePosition(OrderTicket(), "WATCHDOG_NOSL");
+        }
+    }
+}
+
+void CloseAllPatPositions(string reason)
 {
     int total = OrdersTotal();
     for(int i = total - 1; i >= 0; i--)
     {
-        if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-            continue;
-        if(OrderSymbol() != g_symbol || OrderMagicNumber() != MagicNumber)
-            continue;
+        if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+        if(OrderSymbol() == g_symbol && PAT_IsPatMagic(OrderMagicNumber()))
+            ClosePosition(OrderTicket(), reason);
+    }
+}
+
+//+------------------------------------------------------------------+
+//| STAGED POSITION MANAGEMENT                                        |
+//| ONE position per signal: TP1 -> close ~1/3 + SL to breakeven,     |
+//| TP2 -> close another ~1/3 + ATR trail remainder, TP3/final SL     |
+//| exits the rest. NEVER opens additional full positions.            |
+//+------------------------------------------------------------------+
+void PAT_ManagePositions()
+{
+    int total = OrdersTotal();
+    for(int i = total - 1; i >= 0; i--)
+    {
+        if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+        if(OrderSymbol() != g_symbol) continue;
+        if(!PAT_IsPatMagic(OrderMagicNumber())) continue;
 
         int    ticket   = OrderTicket();
+        int    magic    = OrderMagicNumber();
         int    type     = OrderType();
         double openPx   = OrderOpenPrice();
         double sl       = OrderStopLoss();
         double tp       = OrderTakeProfit();
+        double curLots  = OrderLots();
         datetime openTime = OrderOpenTime();
-        double profit   = OrderProfit();
-        double swap     = OrderSwap();
-        double commission = OrderCommission();
 
-        // ─── 1. Check max holding time ───
+        // Max holding time
         if(MaxHoldHours > 0)
         {
             int holdSec = (int)(TimeCurrent() - openTime);
             if(holdSec >= MaxHoldHours * 3600)
             {
                 Print("MAX HOLD TIME reached: ticket=", ticket, " held=", holdSec/3600, "h | Closing...");
+                PAT_SetForcedReason(magic, "MAX_HOLD_TIME");
                 ClosePosition(ticket, "MAX_HOLD_TIME");
                 continue;
             }
         }
 
-        // ─── 2. Check swap cutoff — close before rollover ───
-        if(AvoidSwapCharges)
+        // Swap cutoff
+        if(AvoidSwapCharges && IsNearSwapTime())
         {
-            if(IsNearSwapTime())
-            {
-                Print("SWAP CUTOFF: closing ticket=", ticket, " before swap charge | profit=", profit, " swap=", swap);
-                ClosePosition(ticket, "SWAP_AVOIDANCE");
-                continue;
-            }
+            Print("SWAP CUTOFF: closing ticket=", ticket, " before swap charge");
+            PAT_SetForcedReason(magic, "SWAP_AVOIDANCE");
+            ClosePosition(ticket, "SWAP_AVOIDANCE");
+            continue;
         }
 
-        // ─── 3. Break-even: move SL to entry + spread/cost buffer after 1R profit ───
-        // Cost-aware break-even: SL = entry + spread buffer (not just entry)
-        // This prevents a "break-even" stop from becoming a small realized loss
-        // due to spread, commission, and execution costs.
-        if(UseBreakEven && sl != openPx)
+        int stage = PAT_LoadStage(magic);
+        bool isBuy = (type == OP_BUY);
+        double point = MarketInfo(g_symbol, MODE_POINT);
+        int digits = (int)MarketInfo(g_symbol, MODE_DIGITS);
+
+        int idx = PAT_RegFind(magic);
+        double tp1 = (idx >= 0) ? g_regTP1[idx] : 0;
+        double tp2 = (idx >= 0) ? g_regTP2[idx] : 0;
+        double origLot = (idx >= 0) ? g_regOrigLot[idx] : curLots;
+        double sl0 = (idx >= 0) ? g_regSL0[idx] : 0;
+
+        // ── STAGE 0 -> 1: TP1 hit — partial close + breakeven ──
+        if(UsePartialClose && stage == 0 && tp1 > 0)
         {
-            double risk = MathAbs(openPx - g_sl); // original SL distance (immutable 1R)
-            if(risk > 0)
+            bool tp1Hit = isBuy ? (Bid >= tp1) : (Ask <= tp1);
+            if(tp1Hit)
             {
-                double currentProfitR = 0;
-                double spread = MarketInfo(g_symbol, MODE_SPREAD) * MarketInfo(g_symbol, MODE_POINT);
-                double digits = (int)MarketInfo(g_symbol, MODE_DIGITS);
-                if(type == OP_BUY)
-                    currentProfitR = (Bid - openPx) / risk;
-                else
-                    currentProfitR = (openPx - Ask) / risk;
-
-                if(currentProfitR >= BreakEvenTriggerR)
+                if(PAT_DoPartial(ticket, magic, isBuy, origLot, TP1ClosePct, "tp1", tp))
                 {
-                    // Cost-aware break-even: add spread buffer above entry for BUY, below for SELL
-                    double beSL = 0;
-                    if(type == OP_BUY)
-                        beSL = NormalizeDouble(openPx + spread, (int)digits); // entry + spread
-                    else
-                        beSL = NormalizeDouble(openPx - spread, (int)digits); // entry - spread
-                    Print("BREAK-EVEN: moving SL to entry+spread for ticket=", ticket, " | profit R=", currentProfitR, " BE_SL=", beSL);
-                    if(OrderModify(ticket, openPx, beSL, tp, 0, clrYellow))
-                        Print("Break-even set: ticket=", ticket, " SL=", beSL);
-                    else
-                        Print("Break-even FAILED: error=", GetLastError());
-                }
-            }
-        }
-
-        // ─── 4. Trailing stop: move SL behind price (with broker stop level validation) ───
-        if(UseTrailingStop)
-        {
-            double atr = GetATR(14);
-            if(atr > 0)
-            {
-                double trailDist = atr * TrailingATRMult;
-                double stopLevel = MarketInfo(g_symbol, MODE_STOPLEVEL) * MarketInfo(g_symbol, MODE_POINT);
-                double freezeLevel = MarketInfo(g_symbol, MODE_FREEZELEVEL) * MarketInfo(g_symbol, MODE_POINT);
-                int digits = (int)MarketInfo(g_symbol, MODE_DIGITS);
-
-                if(type == OP_BUY)
-                {
-                    double newSL = NormalizeDouble(Bid - trailDist, digits);
-                    // Monotonic: only move SL upward (BUY)
-                    // Broker stop level: SL must be at least stopLevel below current Bid
-                    double minSL = NormalizeDouble(Bid - stopLevel, digits);
-                    if(newSL > minSL)
-                        newSL = minSL; // respect broker stop level
-                    // Freeze level: don't modify if price is within freeze level of SL
-                    if(MathAbs(Bid - sl) < freezeLevel)
-                        continue; // skip — too close to freeze level
-                    // Only trail above entry and above current SL
-                    if(newSL > sl && newSL > openPx)
+                    PAT_SaveStage(magic, 1);
+                    stage = 1;
+                    if(UseBreakEven && sl0 > 0)
                     {
-                        if(OrderModify(ticket, openPx, newSL, tp, 0, clrAqua))
-                            Print("Trailing BUY: ticket=", ticket, " SL=", sl, " -> ", newSL);
-                        else
-                            Print("Trailing BUY FAILED: ticket=", ticket, " error=", GetLastError());
-                    }
-                }
-                else if(type == OP_SELL)
-                {
-                    double newSL = NormalizeDouble(Ask + trailDist, digits);
-                    // Monotonic: only move SL downward (SELL)
-                    double maxSL = NormalizeDouble(Ask + stopLevel, digits);
-                    if(newSL < maxSL)
-                        newSL = maxSL; // respect broker stop level
-                    if(MathAbs(Ask - sl) < freezeLevel)
-                        continue; // skip — too close to freeze level
-                    if(newSL < sl && newSL < openPx)
-                    {
-                        if(OrderModify(ticket, openPx, newSL, tp, 0, clrAqua))
-                            Print("Trailing SELL: ticket=", ticket, " SL=", sl, " -> ", newSL);
-                        else
-                            Print("Trailing SELL FAILED: ticket=", ticket, " error=", GetLastError());
+                        double spread = MarketInfo(g_symbol, MODE_SPREAD) * point;
+                        double beSL = isBuy ? NormalizeDouble(openPx + spread, digits)
+                                            : NormalizeDouble(openPx - spread, digits);
+                        bool beSideOk = isBuy ? (beSL < Bid) : (beSL > Ask); // must be valid vs current price
+                        if(beSideOk && OrderSelect(ticket, SELECT_BY_TICKET))
+                            OrderModify(ticket, openPx, beSL, tp, 0, clrYellow);
+                        // if remainder ticket changed, retry below via stage>=1 maintenance
                     }
                 }
             }
         }
 
-        // ─── 5. Close at TP2 — if price reaches TP2, close the position ───
-        if(CloseAtTP2 && g_tp2 > 0)
+        // ── STAGE 1 -> 2: TP2 hit — partial close + arm trailing ──
+        if(UsePartialClose && stage == 1 && tp2 > 0)
         {
-            if(type == OP_BUY && Bid >= g_tp2)
+            bool tp2Hit = isBuy ? (Bid >= tp2) : (Ask <= tp2);
+            if(tp2Hit)
             {
-                Print("TP2 HIT: closing BUY ticket=", ticket, " Bid=", Bid, " TP2=", g_tp2);
-                ClosePosition(ticket, "TP2");
-                continue;
+                if(PAT_DoPartial(ticket, magic, isBuy, origLot, TP2ClosePct, "tp2", tp))
+                {
+                    PAT_SaveStage(magic, 2);
+                    stage = 2;
+                }
             }
-            else if(type == OP_SELL && Ask <= g_tp2)
-            {
-                Print("TP2 HIT: closing SELL ticket=", ticket, " Ask=", Ask, " TP2=", g_tp2);
-                ClosePosition(ticket, "TP2");
-                continue;
-            }
+        }
+
+        // ── STAGE >= 2: ATR trail the remainder (monotonic) ──
+        if(stage >= 2 && UseTrailingStop)
+            PAT_TrailRemainder(ticket, isBuy, openPx, tp, digits, point);
+
+        // ── TP3 backup close (in case position TP was rejected/removed) ──
+        if(tp > 0 && ((isBuy && Bid >= tp) || (!isBuy && Ask <= tp)))
+        {
+            // Broker-side TP should fill this; defensive close if it did not.
+            PAT_SetForcedReason(magic, ""); // let proximity classify as tp3
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Partial close ~fraction% of ORIGINAL lot, respecting step/min.    |
+//| Returns true if a partial close executed (remainder continues).   |
+//| If broker minimums prevent a sane split, closes FULL remainder.   |
+//+------------------------------------------------------------------+
+bool PAT_DoPartial(int ticket, int magic, bool isBuy, double origLot,
+                   double pct, string reason, double posTP)
+{
+    if(!OrderSelect(ticket, SELECT_BY_TICKET)) return false;
+    if(OrderCloseTime() != 0) return false;
+
+    double curLots = OrderLots();
+    double minLot  = MarketInfo(g_symbol, MODE_MINLOT);
+    double step    = MarketInfo(g_symbol, MODE_LOTSTEP);
+    double closeLots = origLot * (pct / 100.0);
+    if(step > 0) closeLots = MathFloor(closeLots / step + 0.0000001) * step;
+    closeLots = NormalizeDouble(closeLots, 2);
+
+    bool closeFull = false;
+    if(closeLots < minLot) closeFull = true;                       // slice below broker min
+    else if(curLots - closeLots < minLot - 0.0000001) closeFull = true; // remainder below min
+
+    RefreshRates();
+    double px = isBuy ? Bid : Ask;
+
+    if(closeFull)
+    {
+        Print("PARTIAL(", reason, "): remainder ", DoubleToString(curLots, 2),
+              " too small to split — closing FULL at TP level");
+        PAT_SetForcedReason(magic, "");
+        ClosePosition(ticket, reason);
+        return false;
+    }
+
+    bool ok = OrderClose(ticket, closeLots, px, PAT_GetMaxSlippage(""), clrOrange);
+    if(ok)
+    {
+        double estPnl = (isBuy ? (px - OrderOpenPrice()) : (OrderOpenPrice() - px))
+                        * PAT_PointValue() * closeLots;
+        Print("PARTIAL ", reason, ": closed ", DoubleToString(closeLots, 2),
+              " of ", DoubleToString(origLot, 2), " @ ", DoubleToString(px, _Digits));
+        int idx = PAT_RegFind(magic);
+        string sig = (idx >= 0) ? g_regSig[idx] : "";
+        string strat = (idx >= 0) ? g_regStrat[idx] : "";
+        PAT_ReportResult(magic, sig, strat, reason, OrderOpenPrice(), px, closeLots, estPnl, true);
+
+        // MT4 partial close: remainder continues under a NEW ticket with the
+        // SAME magic. Nothing to re-key (state is keyed by magic).
+    }
+    else
+        Print("PARTIAL ", reason, " FAILED: ticket=", ticket, " err=", GetLastError());
+    return ok;
+}
+
+//+------------------------------------------------------------------+
+//| Monotonic ATR trailing for the stage>=2 remainder                 |
+//+------------------------------------------------------------------+
+void PAT_TrailRemainder(int ticket, bool isBuy, double openPx, double tp,
+                        int digits, double point)
+{
+    if(!OrderSelect(ticket, SELECT_BY_TICKET)) return;
+    if(OrderCloseTime() != 0) return;
+
+    double atr = GetATR(14);
+    if(atr <= 0) return;
+    double trailDist = atr * TrailingATRMult;
+    double stopLevel = MarketInfo(g_symbol, MODE_STOPLEVEL) * point;
+    double freezeLevel = MarketInfo(g_symbol, MODE_FREEZELEVEL) * point;
+    double sl = OrderStopLoss();
+
+    RefreshRates();
+    if(isBuy)
+    {
+        double newSL = NormalizeDouble(Bid - trailDist, digits);
+        double minSL = NormalizeDouble(Bid - stopLevel, digits);
+        if(newSL > minSL) newSL = minSL;
+        if(freezeLevel > 0 && MathAbs(Bid - sl) < freezeLevel) return;
+        if(newSL > sl && newSL > openPx)
+        {
+            if(OrderModify(ticket, OrderOpenPrice(), newSL, tp, 0, clrAqua))
+                Print("TRAIL BUY: ticket=", ticket, " SL=", sl, " -> ", newSL);
+        }
+    }
+    else
+    {
+        double newSL = NormalizeDouble(Ask + trailDist, digits);
+        double maxSL = NormalizeDouble(Ask + stopLevel, digits);
+        if(newSL < maxSL) newSL = maxSL;
+        if(freezeLevel > 0 && MathAbs(Ask - sl) < freezeLevel) return;
+        if((sl == 0 || newSL < sl) && newSL < openPx)
+        {
+            if(OrderModify(ticket, OrderOpenPrice(), newSL, tp, 0, clrAqua))
+                Print("TRAIL SELL: ticket=", ticket, " SL=", sl, " -> ", newSL);
         }
     }
 }
@@ -512,18 +1113,16 @@ bool ClosePosition(int ticket, string reason)
     else if(type == OP_SELL)
         closePrice = Ask;
     else
-        return false; // Not a market order
+        return false;
+
+    RefreshRates();
+    if(type == OP_BUY) closePrice = Bid; else closePrice = Ask;
 
     bool ok = OrderClose(ticket, OrderLots(), closePrice, 5, clrOrange);
     if(ok)
     {
         double netProfit = OrderProfit() + OrderSwap() + OrderCommission();
-        Print("CLOSED: ticket=", ticket, " reason=", reason,
-              " | gross=", OrderProfit(), " swap=", OrderSwap(), " comm=", OrderCommission(),
-              " | NET=", netProfit);
-        PAT_Append(PAT_TICK_FILE, "CLOSE_ACK|{\"ticket\":" + IntegerToString(ticket) +
-                   ",\"reason\":\"" + reason + "\"" +
-                   ",\"net_pnl\":" + DoubleToString(netProfit, 2) + "}\n");
+        Print("CLOSED: ticket=", ticket, " reason=", reason, " | NET=", netProfit);
     }
     else
     {
@@ -537,35 +1136,25 @@ bool ClosePosition(int ticket, string reason)
 //+------------------------------------------------------------------+
 bool IsNearSwapTime()
 {
-    // Server time
     int hour = TimeHour(TimeCurrent());
     int minute = TimeMinute(TimeCurrent());
     int dayOfWeek = TimeDayOfWeek(TimeCurrent());
 
-    // Triple swap day check — don't open new positions (but still close existing ones)
-    // 0=Sunday, 1=Monday, ..., 3=Wednesday, ..., 5=Friday
-
-    // Close all positions SwapCutoffBuffer minutes before the cutoff hour
     int cutoffMinute = SwapCutoffHour * 60 - SwapCutoffBuffer;
     int nowMinute = hour * 60 + minute;
 
     if(nowMinute >= cutoffMinute && nowMinute < SwapCutoffHour * 60 + 30)
     {
-        // Only close on trading days (Mon-Fri), not on weekends
         if(dayOfWeek >= 1 && dayOfWeek <= 5)
             return true;
     }
     return false;
 }
 
-//+------------------------------------------------------------------+
-//| Check if today is triple swap day (typically Wednesday)          |
-//+------------------------------------------------------------------+
 bool IsTripleSwapDay()
 {
     if(!AvoidTripleSwapDay)
         return false;
-
     int dayOfWeek = TimeDayOfWeek(TimeCurrent());
     if(TripleSwapDay == "Wednesday" && dayOfWeek == 3)
         return true;
@@ -576,17 +1165,13 @@ bool IsTripleSwapDay()
     return false;
 }
 
-//+------------------------------------------------------------------+
-//| Get ATR value using iATR                                         |
-//+------------------------------------------------------------------+
 double GetATR(int period)
 {
     return iATR(g_symbol, 0, period, 0);
 }
 
 //+------------------------------------------------------------------+
-//| SLIPPAGE MONITORING (NEW v1.07)                                   |
-//| Checks actual fill price vs requested price after order execution |
+//| SLIPPAGE MONITORING                                               |
 //+------------------------------------------------------------------+
 void CheckSlippage(int ticket, string direction, double requestedPrice)
 {
@@ -599,7 +1184,6 @@ void CheckSlippage(int ticket, string direction, double requestedPrice)
     double slippagePoints = 0;
     if(point > 0) slippagePoints = slippage / point;
 
-    // Report slippage to Windows Agent for database storage
     string slipMsg = "SLIPPAGE_EVENT|{";
     slipMsg += "\"ticket\":" + IntegerToString(ticket);
     slipMsg += ",\"symbol\":\"" + g_symbol + "\"";
@@ -614,13 +1198,12 @@ void CheckSlippage(int ticket, string direction, double requestedPrice)
     slipMsg += "}";
     PAT_Append(PAT_TICK_FILE, slipMsg + "\n");
 
-    // Reject if slippage exceeds limit
     if(RejectOnHighSlippage && MaxSlippagePoints > 0 && slippagePoints > MaxSlippagePoints)
     {
         g_slippageRejects++;
         Print("SLIPPAGE EXCEEDED: ticket=", ticket, " requested=", requestedPrice,
               " filled=", filledPrice, " slip=", slippagePoints, " points (max=", MaxSlippagePoints, ")");
-        // Close the position immediately — slippage too high
+        PAT_SetForcedReason(OrderMagicNumber(), "SLIPPAGE_REJECT");
         ClosePosition(ticket, "SLIPPAGE_REJECT");
     }
     else
@@ -631,14 +1214,12 @@ void CheckSlippage(int ticket, string direction, double requestedPrice)
 }
 
 //+------------------------------------------------------------------+
-//| CAPITAL PROTECTION (NEW v1.07)                                    |
-//| Tracks daily P&L and blocks trading when loss exceeds 5% of capital|
+//| CAPITAL PROTECTION                                                |
 //+------------------------------------------------------------------+
 void UpdateCapitalProtection()
 {
     datetime today = TimeDay(TimeCurrent()) + TimeMonth(TimeCurrent()) * 100 + TimeYear(TimeCurrent()) * 10000;
 
-    // New trading day — reset daily counters
     if(g_currentDay != today)
     {
         g_currentDay = today;
@@ -649,13 +1230,12 @@ void UpdateCapitalProtection()
         Print("NEW TRADING DAY: start balance=", g_dayStartBalance);
     }
 
-    // Calculate daily P&L from closed trades today
     g_dailyPnL = 0;
     int total = OrdersHistoryTotal();
     for(int i = 0; i < total; i++)
     {
         if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
-        if(OrderSymbol() != g_symbol || OrderMagicNumber() != MagicNumber) continue;
+        if(OrderSymbol() != g_symbol || !PAT_IsPatMagic(OrderMagicNumber())) continue;
         if(OrderCloseTime() == 0) continue;
 
         datetime closeDay = TimeDay(OrderCloseTime()) + TimeMonth(OrderCloseTime()) * 100 + TimeYear(OrderCloseTime()) * 10000;
@@ -667,38 +1247,28 @@ void UpdateCapitalProtection()
     if(g_dayStartBalance > 0)
         lossPct = (g_dailyPnL / g_dayStartBalance) * 100;
 
-    // Dynamic thresholds for small accounts — prevents premature blocking on $50 accounts
-    // Tier 1 (< $100): 3.5x thresholds — $50 * 14% = $7 loss before soft halt (2-3 losing trades)
-    // Tier 2 ($100-$200): 2x thresholds — $150 * 8% = $12 loss before soft halt
-    // Tier 3 (>= $200): normal thresholds — 4% soft halt
     double effSoftHalt = SoftHaltLossPct;
     double effHardHalt = HardHaltLossPct;
     double effWarning  = WarningLossPct;
-    double minAbsLoss   = 1.0;  // Minimum absolute loss ($) to trigger any protection
+    double minAbsLoss   = 1.0;
     if(AccountBalance() < 100)
     {
-        effSoftHalt = SoftHaltLossPct * 3.5;  // 4% -> 14% ($7 on $50)
-        effHardHalt = HardHaltLossPct * 3.5;  // 6% -> 21% ($10.50 on $50)
-        effWarning  = WarningLossPct * 3.5;   // 3% -> 10.5% ($5.25 on $50)
-        minAbsLoss   = 3.0;                    // Don't block unless loss > $3
+        effSoftHalt = SoftHaltLossPct * 3.5;
+        effHardHalt = HardHaltLossPct * 3.5;
+        effWarning  = WarningLossPct * 3.5;
+        minAbsLoss   = 3.0;
     }
     else if(AccountBalance() < 200)
     {
-        effSoftHalt = SoftHaltLossPct * 2.0;  // 4% -> 8%
-        effHardHalt = HardHaltLossPct * 2.0;  // 6% -> 12%
-        effWarning  = WarningLossPct * 2.0;   // 3% -> 6%
-        minAbsLoss   = 2.0;                    // Don't block unless loss > $2
+        effSoftHalt = SoftHaltLossPct * 2.0;
+        effHardHalt = HardHaltLossPct * 2.0;
+        effWarning  = WarningLossPct * 2.0;
+        minAbsLoss   = 2.0;
     }
 
-    // Minimum absolute loss floor — prevents blocking on tiny losses
-    // that are within normal trading range for micro accounts
     if(g_dailyPnL > -minAbsLoss)
-    {
-        // Loss too small to trigger protection — allow trading
         return;
-    }
 
-    // Warning
     if(lossPct <= -effWarning && !g_tradingBlocked)
     {
         string warnMsg = "CAPITAL_WARNING|{";
@@ -709,20 +1279,16 @@ void UpdateCapitalProtection()
         warnMsg += ",\"action\":\"WARNED\"";
         warnMsg += "}";
         PAT_Append(PAT_TICK_FILE, warnMsg + "\n");
-        Print("CAPITAL WARNING: daily P&L=", g_dailyPnL, " (", lossPct, "%) — approaching limit");
+        Print("CAPITAL WARNING: daily P&L=", g_dailyPnL, " (", lossPct, "%)");
     }
 
-    // ADDON Phase 4: Two-stage halt system
-    // Soft halt at -4%: block new entries, let existing trades run naturally
     if(lossPct <= -effSoftHalt && !g_tradingBlocked)
     {
         g_tradingBlocked = true;
-        Print("*** CAPITAL PROTECTION (SOFT): Daily loss ", lossPct, "% — new entries blocked, existing trades continue ***");
+        Print("*** CAPITAL PROTECTION (SOFT): Daily loss ", lossPct, "% — new entries blocked ***");
         string softMsg = "CAPITAL_PROTECTION|{\"event_type\":\"SOFT_HALT\",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + ",\"action\":\"BLOCKED_NEW_ENTRIES_ONLY\"}";
         PAT_Append(PAT_TICK_FILE, softMsg + "\n");
-        // Do NOT close existing positions at soft halt
     }
-    // Hard halt at -6%: emergency close all positions
     if(lossPct <= -effHardHalt && !g_hardHaltTriggered)
     {
         g_hardHaltTriggered = true;
@@ -732,26 +1298,13 @@ void UpdateCapitalProtection()
         blockMsg += "\"event_type\":\"DAILY_LOSS_LIMIT_HIT\"";
         blockMsg += ",\"daily_pnl\":" + DoubleToString(g_dailyPnL, 2);
         blockMsg += ",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2);
-        blockMsg += ",\"max_loss_pct\":" + DoubleToString(MaxDailyLossPct, 1);
         blockMsg += ",\"balance\":" + DoubleToString(AccountBalance(), 2);
-        blockMsg += ",\"equity\":" + DoubleToString(AccountEquity(), 2);
-        blockMsg += ",\"open_positions\":" + IntegerToString(CountOpenPositions());
         blockMsg += ",\"action\":\"BLOCKED_NEW_TRADES\"";
         blockMsg += "}";
         PAT_Append(PAT_TICK_FILE, blockMsg + "\n");
 
-        // Emergency close all positions
         if(EmergencyCloseAll)
-        {
-            Print("*** EMERGENCY CLOSE: closing all open positions ***");
-            int totalPos = OrdersTotal();
-            for(int i = totalPos - 1; i >= 0; i--)
-            {
-                if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
-                if(OrderSymbol() == g_symbol && OrderMagicNumber() == MagicNumber)
-                    ClosePosition(OrderTicket(), "EMERGENCY_CAPITAL_PROTECTION");
-            }
-        }
+            CloseAllPatPositions("EMERGENCY_CAPITAL_PROTECTION");
     }
 }
 
@@ -855,7 +1408,6 @@ void RequestLicenseValidation()
 //+------------------------------------------------------------------+
 void ReadFromAgent()
 {
-    // Read license response from PAT_LICENSE_FILE (written by Windows Agent every 3s)
     if(FileIsExist(PAT_LICENSE_FILE, FILE_COMMON))
     {
         int lh = FileOpen(PAT_LICENSE_FILE, FILE_READ|FILE_TXT|FILE_COMMON);
@@ -872,7 +1424,6 @@ void ReadFromAgent()
         }
     }
 
-    // Read signals from PAT_SIGNAL_FILE (same file Windows Agent writes to)
     if(!FileIsExist(PAT_SIGNAL_FILE, FILE_COMMON))
         return;
 
@@ -891,13 +1442,12 @@ void ReadFromAgent()
 
     g_signalsReceived++;
 
-    // Parse lines
     int pos = 0;
     while(pos < StringLen(content))
     {
         int next = StringFind(content, "\n", pos);
         if(next < 0) next = StringLen(content);
-        
+
         string line = StringSubstr(content, pos, next - pos);
         line = StringTrimLeft(StringTrimRight(line));
         if(StringLen(line) > 0)
@@ -907,7 +1457,7 @@ void ReadFromAgent()
             {
                 string msgType = StringSubstr(line, 0, sep);
                 string payload = StringSubstr(line, sep + 1);
-                
+
                 if(msgType == "SIGNAL")
                     HandleSignal(payload);
                 else if(msgType == "LICENSE_RESPONSE" || msgType == "LICENSE")
@@ -921,6 +1471,7 @@ void ReadFromAgent()
 //+------------------------------------------------------------------+
 void HandleSignal(string json)
 {
+    g_lastSignalJSON   = json;
     g_signalID        = ExtractJSONString(json, "ID");
     g_signalDirection = ExtractJSONString(json, "Direction");
     g_signalGrade     = ExtractJSONString(json, "Grade");
@@ -956,7 +1507,6 @@ void HandleSignal(string json)
     if(g_licenseStatus != "ACTIVE")
         return;
 
-    // NEW v1.06: Don't open new positions near swap time
     if(AvoidSwapCharges && IsNearSwapTime())
     {
         Print("SWAP AVOIDANCE: skipping signal near swap cutoff — ", g_signalDirection, " ", g_signalStrategy);
@@ -964,26 +1514,16 @@ void HandleSignal(string json)
         return;
     }
 
-    // NEW v1.06: Don't open new positions on triple swap day
     if(IsTripleSwapDay())
     {
-        Print("TRIPLE SWAP DAY: skipping signal to avoid 3x swap charge — ", g_signalDirection, " ", g_signalStrategy);
+        Print("TRIPLE SWAP DAY: skipping signal — ", g_signalDirection, " ", g_signalStrategy);
         g_signalsFiltered++;
         return;
     }
 
-    // NEW v1.07: Capital protection — block new trades if daily loss limit hit
     if(g_tradingBlocked)
     {
         Print("CAPITAL PROTECTION: trading blocked — daily loss limit reached");
-        g_signalsFiltered++;
-        return;
-    }
-
-    // NEW v1.07: Check if we're in rollover period (high spread/slippage)
-    if(AvoidRolloverSlippage && IsNearSwapTime())
-    {
-        Print("ROLLOVER SLIPPAGE: skipping signal — spread widened during rollover");
         g_signalsFiltered++;
         return;
     }
@@ -1026,151 +1566,190 @@ void HandleLicenseResponse(string json)
 }
 
 //+------------------------------------------------------------------+
-//| FIXED v1.06: Now validates TP1 before placing order               |
+//| EXECUTION — BUY                                                   |
+//| Fail-closed: validates SL/TP sides + full pre-trade gate first.   |
+//| Opens ONE position with the TOTAL lot; TP set to TP3 (final).     |
+//| TP1/TP2 are taken as EA-managed PARTIAL closes.                   |
 //+------------------------------------------------------------------+
 void ExecuteBuy()
 {
-    // FIXED: validate ALL critical levels including TP1
-    if(g_entry <= 0 || g_sl <= 0 || g_tp1 <= 0)
+    // 1. WRONG-SIDE SL/TP REJECT (highest priority — abort, never clamp)
+    double finalTP = (g_tp3 > 0) ? g_tp3 : g_tp1;
+    if(!PAT_ValidateLevels(true, g_entry, g_sl, finalTP)) return;
+
+    // 2. Strategy magic + comment
+    int magicBase = PAT_StrategyMagicBase(g_signalStrategy);
+    if(magicBase == 0)
     {
-        Print("ExecuteBuy: INVALID levels — entry:", g_entry, " sl:", g_sl, " tp1:", g_tp1, " | SKIPPING (no trade without TP)");
+        Print("REJECTED unknown_strategy: ", g_signalStrategy);
         return;
     }
+    int magic = PAT_NextMagic(magicBase);
+    string comment = PAT_StrategyPrefix(g_signalStrategy) + PAT_ShortSignalID(g_signalID);
 
-    // NEW: Don't open if we already have max positions
-    if(CountOpenPositions() >= 3)
-    {
-        Print("ExecuteBuy: max positions reached, skipping");
-        return;
-    }
-
-    double vol = CalculateLotSize();
+    // 3. Lot sizing (risk-based; reject instead of forcing min lot)
+    double vol = 0;
+    if(UseAutoLotSizing)
+        vol = PAT_CalcLotSize(AccountEquity(), MathAbs(g_entry - g_sl));
+    if(vol <= 0) vol = PAT_NormalizeLot(BaseLot);
     if(vol <= 0)
     {
-        Print("ExecuteBuy: lot size = 0 (equity too small for min lot) — using minimum lot");
-        vol = MarketInfo(g_symbol, MODE_MINLOT);
+        Print("REJECTED lot_below_min: computed lot below broker minimum — refusing to force size");
+        return;
     }
-    Print("ExecuteBuy: vol=", vol, " entry=", g_entry, " sl=", g_sl, " tp1=", g_tp1, " tp2=", g_tp2);
-    int ticket = OrderSend(g_symbol, OP_BUY, vol, Ask, MaxSlippagePoints, g_sl, g_tp1, "PAT:" + g_signalID, MagicNumber, 0, clrGreen);
+
+    // 4. EA-side risk gate (spread, drift, TTL, caps, risk$, martingale, margin)
+    if(!PAT_PreTradeGate(true, vol, g_signalStrategy)) return;
+
+    Print("ExecuteBuy: vol=", DoubleToString(vol, 2), " entry=", DoubleToString(Ask, _Digits),
+          " sl=", DoubleToString(g_sl, _Digits), " tp3=", DoubleToString(finalTP, _Digits),
+          " magic=", magic, " comment=", comment);
+
+    RefreshRates();
+    int ticket = OrderSend(g_symbol, OP_BUY, vol, Ask, PAT_GetMaxSlippage(g_signalStrategy),
+                           g_sl, finalTP, comment, magic, 0, clrGreen);
     if(ticket > 0)
     {
         g_lastExecutedSignalID = g_signalID;
-        Print("BUY executed: ticket=", ticket, " vol=", vol, " SL=", g_sl, " TP1=", g_tp1);
-        PAT_Append(PAT_TICK_FILE, "EXECUTION_ACK|{\"signal_id\":\"" + g_signalID + "\",\"status\":\"FILLED\"}\n");
-        CheckSlippage(ticket, "BUY", Ask); // NEW v1.07: monitor slippage
+        PAT_RegPut(magic, g_signalID, g_signalStrategy, Ask, g_sl, g_tp1, g_tp2, g_tp3, vol);
+        PAT_SaveStage(magic, 0);
+        GlobalVariableSet(PAT_GVName(magic, "OL"), vol);
+        Print("BUY executed: ticket=", ticket, " magic=", magic, " vol=", DoubleToString(vol, 2),
+              " SL=", DoubleToString(g_sl, _Digits), " TP3=", DoubleToString(finalTP, _Digits));
+        string ack = "EXECUTION_ACK|{";
+        ack += "\"signal_id\":\"" + g_signalID + "\"";
+        ack += ",\"status\":\"FILLED\"";
+        ack += ",\"strategy_id\":\"" + g_signalStrategy + "\"";
+        ack += ",\"magic\":" + IntegerToString(magic);
+        ack += ",\"ticket\":" + IntegerToString(ticket);
+        ack += ",\"entry\":" + DoubleToString(Ask, _Digits);
+        ack += ",\"sl\":" + DoubleToString(g_sl, _Digits);
+        ack += ",\"tp\":" + DoubleToString(finalTP, _Digits);
+        ack += "}\n";
+        PAT_Append(PAT_TICK_FILE, ack);
+        CheckSlippage(ticket, "BUY", Ask);
     }
     else
     {
-        Print("BUY FAILED: error=", GetLastError(), " entry=", g_entry, " sl=", g_sl, " tp1=", g_tp1);
+        Print("BUY FAILED: error=", GetLastError(), " entry=", g_entry, " sl=", g_sl, " tp=", finalTP);
     }
 }
 
 void ExecuteSell()
 {
-    if(g_entry <= 0 || g_sl <= 0 || g_tp1 <= 0)
+    double finalTP = (g_tp3 > 0) ? g_tp3 : g_tp1;
+    if(!PAT_ValidateLevels(false, g_entry, g_sl, finalTP)) return;
+
+    int magicBase = PAT_StrategyMagicBase(g_signalStrategy);
+    if(magicBase == 0)
     {
-        Print("ExecuteSell: INVALID levels — entry:", g_entry, " sl:", g_sl, " tp1:", g_tp1, " | SKIPPING (no trade without TP)");
+        Print("REJECTED unknown_strategy: ", g_signalStrategy);
         return;
     }
+    int magic = PAT_NextMagic(magicBase);
+    string comment = PAT_StrategyPrefix(g_signalStrategy) + PAT_ShortSignalID(g_signalID);
 
-    if(CountOpenPositions() >= 3)
-    {
-        Print("ExecuteSell: max positions reached, skipping");
-        return;
-    }
-
-    double vol = CalculateLotSize();
+    double vol = 0;
+    if(UseAutoLotSizing)
+        vol = PAT_CalcLotSize(AccountEquity(), MathAbs(g_entry - g_sl));
+    if(vol <= 0) vol = PAT_NormalizeLot(BaseLot);
     if(vol <= 0)
     {
-        Print("ExecuteSell: lot size = 0 (equity too small for min lot) — using minimum lot");
-        vol = MarketInfo(g_symbol, MODE_MINLOT);
+        Print("REJECTED lot_below_min: computed lot below broker minimum — refusing to force size");
+        return;
     }
-    Print("ExecuteSell: vol=", vol, " entry=", g_entry, " sl=", g_sl, " tp1=", g_tp1, " tp2=", g_tp2);
-    int ticket = OrderSend(g_symbol, OP_SELL, vol, Bid, MaxSlippagePoints, g_sl, g_tp1, "PAT:" + g_signalID, MagicNumber, 0, clrRed);
+
+    if(!PAT_PreTradeGate(false, vol, g_signalStrategy)) return;
+
+    Print("ExecuteSell: vol=", DoubleToString(vol, 2), " entry=", DoubleToString(Bid, _Digits),
+          " sl=", DoubleToString(g_sl, _Digits), " tp3=", DoubleToString(finalTP, _Digits),
+          " magic=", magic, " comment=", comment);
+
+    RefreshRates();
+    int ticket = OrderSend(g_symbol, OP_SELL, vol, Bid, PAT_GetMaxSlippage(g_signalStrategy),
+                           g_sl, finalTP, comment, magic, 0, clrRed);
     if(ticket > 0)
     {
         g_lastExecutedSignalID = g_signalID;
-        Print("SELL executed: ticket=", ticket, " vol=", vol, " SL=", g_sl, " TP1=", g_tp1);
-        PAT_Append(PAT_TICK_FILE, "EXECUTION_ACK|{\"signal_id\":\"" + g_signalID + "\",\"status\":\"FILLED\"}\n");
-        CheckSlippage(ticket, "SELL", Bid); // NEW v1.07: monitor slippage
+        PAT_RegPut(magic, g_signalID, g_signalStrategy, Bid, g_sl, g_tp1, g_tp2, g_tp3, vol);
+        PAT_SaveStage(magic, 0);
+        GlobalVariableSet(PAT_GVName(magic, "OL"), vol);
+        Print("SELL executed: ticket=", ticket, " magic=", magic, " vol=", DoubleToString(vol, 2),
+              " SL=", DoubleToString(g_sl, _Digits), " TP3=", DoubleToString(finalTP, _Digits));
+        string ack = "EXECUTION_ACK|{";
+        ack += "\"signal_id\":\"" + g_signalID + "\"";
+        ack += ",\"status\":\"FILLED\"";
+        ack += ",\"strategy_id\":\"" + g_signalStrategy + "\"";
+        ack += ",\"magic\":" + IntegerToString(magic);
+        ack += ",\"ticket\":" + IntegerToString(ticket);
+        ack += ",\"entry\":" + DoubleToString(Bid, _Digits);
+        ack += ",\"sl\":" + DoubleToString(g_sl, _Digits);
+        ack += ",\"tp\":" + DoubleToString(finalTP, _Digits);
+        ack += "}\n";
+        PAT_Append(PAT_TICK_FILE, ack);
+        CheckSlippage(ticket, "SELL", Bid);
     }
     else
     {
-        Print("SELL FAILED: error=", GetLastError(), " entry=", g_entry, " sl=", g_sl, " tp1=", g_tp1);
+        Print("SELL FAILED: error=", GetLastError(), " entry=", g_entry, " sl=", g_sl, " tp=", finalTP);
     }
 }
 
 //+------------------------------------------------------------------+
-//| Count open positions with our magic number                         |
+//| Magic allocation: strategy base + offset within its 100-range     |
 //+------------------------------------------------------------------+
-int CountOpenPositions()
+int PAT_NextMagic(int magicBase)
 {
-    int count = 0;
+    string seqName = "PAT_MAGIC_SEQ";
+    if(GlobalVariableCheck(seqName))
+        g_magicSeq = (int)GlobalVariableGet(seqName);
+    for(int attempt = 0; attempt < 100; attempt++)
+    {
+        int magic = magicBase + (g_magicSeq % 100);
+        g_magicSeq++;
+        GlobalVariableSet(seqName, g_magicSeq);
+        if(!PAT_MagicInUse(magic) && PAT_RegFind(magic) < 0) return magic;
+    }
+    return magicBase; // fallback: all offsets busy (should not happen with caps of 2)
+}
+
+bool PAT_MagicInUse(int magic)
+{
     int total = OrdersTotal();
     for(int i = 0; i < total; i++)
     {
         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
-        if(OrderSymbol() == g_symbol && OrderMagicNumber() == MagicNumber)
-            count++;
+        if(OrderMagicNumber() == magic && OrderSymbol() == g_symbol) return true;
     }
-    return count;
-}
-
-//+------------------------------------------------------------------+
-double CalculateLotSize()
-{
-    double balance = AccountBalance();
-    double risk = balance * 0.01;
-    double slDist = MathAbs(g_entry - g_sl);
-    double tickVal = MarketInfo(g_symbol, MODE_TICKVALUE);
-    double tickSize = MarketInfo(g_symbol, MODE_TICKSIZE);
-    if(slDist <= 0 || tickVal <= 0 || tickSize <= 0) return 0.01;
-    double lot = risk / ((slDist / tickSize) * tickVal);
-    double minLot = MarketInfo(g_symbol, MODE_MINLOT);
-    double maxLot = MarketInfo(g_symbol, MODE_MAXLOT);
-    double step = MarketInfo(g_symbol, MODE_LOTSTEP);
-    lot = MathMax(minLot, MathMin(maxLot, lot));
-    return MathRound(lot / step) * step;
-}
-
-//+------------------------------------------------------------------+
-bool IsStrategyEnabled(string stratID)
-{
-    if(stratID == "STANDARD_SCALPING") return ReceiveStandardScalping;
-    if(stratID == "ULTRA_SCALPING")    return ReceiveUltraScalping;
-    if(stratID == "STANDARD_SWING")    return ReceiveStandardSwing;
-    if(stratID == "TREND_SWING")       return ReceiveTrendSwing;
     return false;
 }
 
-bool IsDirectionEnabled(string dir)
+string PAT_ShortSignalID(string signalID)
 {
-    if(dir == "BUY")            return ReceiveBuy;
-    if(dir == "SELL")            return ReceiveSell;
-    if(dir == "BUY_CANDIDATE")   return ReceiveBuyCandidate;
-    if(dir == "SELL_CANDIDATE")  return ReceiveSellCandidate;
-    return false;
+    // MT4 comments are limited (~31 chars); prefix is 7, keep up to 22 of id
+    if(StringLen(signalID) > 22) return StringSubstr(signalID, 0, 22);
+    return signalID;
 }
 
 //+------------------------------------------------------------------+
 void UpdatePanel()
 {
-    string p = "═══ Predict-A-Trade v1.07 ═══\n";
+    string p = "=== Predict-A-Trade v1.08 ===\n";
     p += "Agent:    " + g_connection + "\n";
     p += "License:  " + g_licenseStatus + " (" + g_licensePlan + ")\n";
     p += "Lic.Key:  " + (g_licenseKey == "" ? "NOT SET" : StringSubstr(g_licenseKey, 0, 12) + "...") + "\n";
     p += "Account:  " + g_accountID + "\n";
     p += "Symbol:   " + g_symbol + "\n";
     p += "Mode:     " + (AutoExecute ? "AUTO EXECUTE" : "SIGNAL ONLY") + "\n";
-    p += "Open Pos: " + IntegerToString(CountOpenPositions()) + "\n";
-    p += "──────────────────────────────\n";
+    p += "Open Pos: " + IntegerToString(PAT_CountPatPositions()) + "\n";
+    p += "-----------------------------\n";
     p += "Signals:  " + IntegerToString(g_signalsReceived) + " recv, " + IntegerToString(g_signalsDisplayed) + " shown, " + IntegerToString(g_signalsFiltered) + " filtered\n";
     p += "Strats:   ";
     if(ReceiveStandardScalping) p += "SS ";
     if(ReceiveUltraScalping)    p += "US ";
     if(ReceiveStandardSwing)    p += "SW ";
     if(ReceiveTrendSwing)      p += "TW\n";
-    p += "──────────────────────────────\n";
+    p += "-----------------------------\n";
     p += "Signal:   " + g_signalDirection + "\n";
     if(g_signalDirection != "NONE" && g_signalDirection != "EXPIRED")
     {
@@ -1185,12 +1764,13 @@ void UpdatePanel()
         p += "TP2:      " + DoubleToString(g_tp2, 2) + "\n";
         p += "TP3:      " + DoubleToString(g_tp3, 2) + "\n";
     }
-    p += "──────────────────────────────\n";
+    p += "-----------------------------\n";
     p += "Ticks:    " + IntegerToString(g_tickCount) + "\n";
     p += "Time:     " + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\n";
     p += "Slip rejects: " + IntegerToString(g_slippageRejects) + "\n";
     p += "Daily P&L: " + DoubleToString(g_dailyPnL, 2) + "\n";
-    if(g_tradingBlocked) p += "*** TRADING BLOCKED ***\n";
+    if(g_tradingBlocked) p += "*** TRADING BLOCKED (daily loss) ***\n";
+    if(g_equityHalted)   p += "*** HALTED: EQUITY FLOOR ***\n";
     if(AvoidSwapCharges)
     {
         p += "Swap cutoff: " + IntegerToString(SwapCutoffHour) + ":00 (-" + IntegerToString(SwapCutoffBuffer) + "min)\n";
@@ -1237,6 +1817,8 @@ double ExtractJSONDouble(string json, string key)
     return StringToDouble(v);
 }
 
+//+------------------------------------------------------------------+
+//| File I/O — append-safe (FILE_READ|FILE_WRITE + SEEK_END)          |
 //+------------------------------------------------------------------+
 void PAT_Write(string filename, string content)
 {

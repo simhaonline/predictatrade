@@ -37,6 +37,29 @@ type Config struct {
 	MaxCostToTarget float64
 	MaxExposure     float64
 
+	// Capital protection (R1-R7, EV1-EV3, PT/P&L)
+	EnableShorts              bool             // ENABLE_SHORTS — false suppresses SELL at generation
+	MaxRiskPerTradePct        float64          // MAX_RISK_PER_TRADE_PCT (default 1.5% of equity)
+	MaxSameDirectionPositions int              // MAX_SAME_DIRECTION_POSITIONS
+	MaxTotalPositions         int              // MAX_TOTAL_POSITIONS
+	MaxPerStrategyPositions   int              // MAX_PER_STRATEGY_POSITIONS
+	MaxDailyLossPct           float64          // MAX_DAILY_LOSS_PCT (negative halt threshold magnitude)
+	MaxWeeklyLossPct          float64          // MAX_WEEKLY_LOSS_PCT
+	MaxMonthlyLossPct         float64          // MAX_MONTHLY_LOSS_PCT
+	MaxDailyProfitPct         float64          // MAX_DAILY_PROFIT_PCT profit lock
+	MaxWeeklyProfitPct        float64          // MAX_WEEKLY_PROFIT_PCT profit lock
+	MartingaleMaxLotRatio     float64          // MARTINGALE_MAX_LOT_RATIO vs per-strategy base lot
+	BaseLots                  map[string]float64 // BASE_LOT_{STRATEGY}
+	EdgeMinProfitFactor       float64          // EDGE_MIN_PROFIT_FACTOR
+	EdgeMinExpectancyR        float64          // EDGE_MIN_EXPECTANCY_R
+	EdgeMinSampleSize         int              // EDGE_MIN_SAMPLE_SIZE
+	EdgeLookbackTrades        int              // EDGE_LOOKBACK_TRADES
+	MaxMarginUsagePct         float64          // MAX_MARGIN_USAGE_PCT of free margin
+	DefaultLeverage           int              // DEFAULT_LEVERAGE when broker snapshot lacks leverage
+	CostToTP1MaxPct           float64          // COST_TO_TP1_MAX_PCT for scalping strategies
+	SlippageCostPoints        float64          // SLIPPAGE_COST_POINTS (price units) added to round-trip cost
+	CommissionCostPoints      float64          // COMMISSION_COST_POINTS (price units) added to round-trip cost
+
 	// CORS/origin validation
 	AllowedOrigins []string
 
@@ -140,6 +163,35 @@ func Default() *Config {
 		MinRR:           getEnvFloat("MIN_RR", 1.5),
 		MaxCostToTarget: getEnvFloat("MAX_COST_TO_TARGET", 0.35),
 		MaxExposure:     getEnvFloat("MAX_EXPOSURE", 5.0),
+
+		// Capital protection — fail-safe defaults; nesting validated at startup.
+		EnableShorts:             getEnvBoolDefaultTrue("ENABLE_SHORTS"),
+		MaxRiskPerTradePct:       getEnvFloat("MAX_RISK_PER_TRADE_PCT", 1.5),
+		MaxSameDirectionPositions: getEnvInt("MAX_SAME_DIRECTION_POSITIONS", 1),
+		MaxTotalPositions:        getEnvInt("MAX_TOTAL_POSITIONS", 2),
+		MaxPerStrategyPositions:  getEnvInt("MAX_PER_STRATEGY_POSITIONS", 1),
+		MaxDailyLossPct:          getEnvFloat("MAX_DAILY_LOSS_PCT", 2.0),
+		MaxWeeklyLossPct:         getEnvFloat("MAX_WEEKLY_LOSS_PCT", 4.0),
+		MaxMonthlyLossPct:        getEnvFloat("MAX_MONTHLY_LOSS_PCT", 5.0),
+		MaxDailyProfitPct:        getEnvFloat("MAX_DAILY_PROFIT_PCT", 5.0),
+		MaxWeeklyProfitPct:       getEnvFloat("MAX_WEEKLY_PROFIT_PCT", 12.0),
+		MartingaleMaxLotRatio:    getEnvFloat("MARTINGALE_MAX_LOT_RATIO", 1.0),
+		BaseLots: map[string]float64{
+			"STANDARD_SCALPING": getEnvFloat("BASE_LOT_STANDARD_SCALPING", 0.01),
+			"ULTRA_SCALPING":    getEnvFloat("BASE_LOT_ULTRA_SCALPING", 0.01),
+			"STANDARD_SWING":    getEnvFloat("BASE_LOT_STANDARD_SWING", 0.01),
+			"TREND_SWING":       getEnvFloat("BASE_LOT_TREND_SWING", 0.01),
+			"MARNIE_FIB":        getEnvFloat("BASE_LOT_MARNIE_FIB", 0.01),
+		},
+		EdgeMinProfitFactor: getEnvFloat("EDGE_MIN_PROFIT_FACTOR", 1.2),
+		EdgeMinExpectancyR:  getEnvFloat("EDGE_MIN_EXPECTANCY_R", 0.2),
+		EdgeMinSampleSize:   getEnvInt("EDGE_MIN_SAMPLE_SIZE", 50),
+		EdgeLookbackTrades:  getEnvInt("EDGE_LOOKBACK_TRADES", 50),
+		MaxMarginUsagePct:   getEnvFloat("MAX_MARGIN_USAGE_PCT", 30.0),
+		DefaultLeverage:     getEnvInt("DEFAULT_LEVERAGE", 500),
+		CostToTP1MaxPct:     getEnvFloat("COST_TO_TP1_MAX_PCT", 0.30),
+		SlippageCostPoints:  getEnvFloat("SLIPPAGE_COST_POINTS", 0.10),
+		CommissionCostPoints: getEnvFloat("COMMISSION_COST_POINTS", 0.06),
 		AllowedOrigins:  strings.Split(getEnv("ALLOWED_ORIGINS", "https://platform.predictatrade.com,https://predictatrade.com"), ","),
 		LogLevel:        getEnv("LOG_LEVEL", "info"),
 
@@ -277,6 +329,28 @@ func (c *Config) Validate() error {
 		if os.Getenv("DB_ALLOW_INSECURE_DEV") != "true" {
 			return fmt.Errorf("DATABASE_URL contains an insecure hardcoded password — supply credentials via production secret or set DB_ALLOW_INSECURE_DEV=true for local Docker")
 		}
+	}
+
+	// Capital-protection nesting validation (R4): loss caps must nest
+	// daily < weekly < monthly, and profit locks must be >= loss magnitudes.
+	// Unsafe config refuses to start (fail-closed at boot).
+	if c.MaxDailyLossPct <= 0 || c.MaxWeeklyLossPct <= 0 || c.MaxMonthlyLossPct <= 0 {
+		return fmt.Errorf("capital protection: MAX_DAILY_LOSS_PCT/MAX_WEEKLY_LOSS_PCT/MAX_MONTHLY_LOSS_PCT must be > 0 (got %v/%v/%v)", c.MaxDailyLossPct, c.MaxWeeklyLossPct, c.MaxMonthlyLossPct)
+	}
+	if !(c.MaxDailyLossPct < c.MaxWeeklyLossPct && c.MaxWeeklyLossPct < c.MaxMonthlyLossPct) {
+		return fmt.Errorf("capital protection: loss caps must nest daily < weekly < monthly (got daily=%v weekly=%v monthly=%v)", c.MaxDailyLossPct, c.MaxWeeklyLossPct, c.MaxMonthlyLossPct)
+	}
+	if c.MaxDailyProfitPct <= 0 || c.MaxWeeklyProfitPct <= 0 {
+		return fmt.Errorf("capital protection: MAX_DAILY_PROFIT_PCT/MAX_WEEKLY_PROFIT_PCT must be > 0 (got %v/%v)", c.MaxDailyProfitPct, c.MaxWeeklyProfitPct)
+	}
+	if !(c.MaxDailyProfitPct >= c.MaxDailyLossPct && c.MaxWeeklyProfitPct >= c.MaxWeeklyLossPct) {
+		return fmt.Errorf("capital protection: profit locks must be >= loss magnitudes (daily %v>=%v, weekly %v>=%v)", c.MaxDailyProfitPct, c.MaxDailyLossPct, c.MaxWeeklyProfitPct, c.MaxWeeklyLossPct)
+	}
+	if c.MaxRiskPerTradePct <= 0 || c.MaxRiskPerTradePct > 100 {
+		return fmt.Errorf("capital protection: MAX_RISK_PER_TRADE_PCT must be in (0,100], got %v", c.MaxRiskPerTradePct)
+	}
+	if c.MartingaleMaxLotRatio < 1.0 {
+		return fmt.Errorf("capital protection: MARTINGALE_MAX_LOT_RATIO must be >= 1.0 (anti-martingale), got %v", c.MartingaleMaxLotRatio)
 	}
 
 	return nil
@@ -477,4 +551,13 @@ func getEnvBool(key string, def bool) bool {
 		return def
 	}
 	return v == "true" || v == "1" || v == "TRUE"
+}
+
+// getEnvBoolDefaultTrue returns true unless the env var is explicitly false/0.
+func getEnvBoolDefaultTrue(key string) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return true
+	}
+	return !(v == "false" || v == "0" || v == "FALSE")
 }

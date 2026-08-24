@@ -55,6 +55,23 @@ type GateInput struct {
 	// Structural levels for StopHuntFilterGate
 	StructuralLow  float64 // nearest swing low (0 = not available)
 	StructuralHigh float64 // nearest swing high (0 = not available)
+
+	// ─── Capital-protection inputs (R1-R7) ───
+	Direction        types.Direction // BUY or SELL (zero for non-directional evaluation)
+	AccountEquity    float64         // broker snapshot equity (0 = unavailable → fail-closed)
+	AccountFreeMargin float64        // broker snapshot free margin
+	AccountLeverage  float64         // broker leverage (0 → risk.DefaultLeverage)
+	SymbolTickValue  float64         // broker symbol tick value (0 → XAUUSD default)
+	SymbolTickSize   float64         // broker symbol tick size (0 → XAUUSD default)
+	LotStep          float64         // broker lot step (0 → 0.01)
+	RequestedLot     float64         // candidate base lot for this strategy
+	// Position census from the broker snapshot. PositionsKnown=false means
+	// no broker positions data has arrived — the caps gate must DEGRADE,
+	// never claim safety it cannot verify.
+	PositionsKnown       bool
+	OpenBuyPositions     int
+	OpenSellPositions    int
+	StrategyOpenPositions int // per-strategy open-position estimate (engine-issued signals)
 }
 
 // GateEvaluation records the result of a single gate check.
@@ -105,6 +122,29 @@ func (r *Registry) Register(g Gate) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.gates[g.ID()] = g
+}
+
+// RegisterOrdered adds a gate and inserts it into the short-circuit
+// evaluation order immediately after `after`. If `after` is not present in
+// the order slice the gate is appended at the end. Gates registered with
+// plain Register are evaluated only if already present in the order.
+func (r *Registry) RegisterOrdered(g Gate, after types.GateID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.gates[g.ID()] = g
+	idx := -1
+	for i, id := range r.order {
+		if id == after {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		r.order = append(r.order, g.ID())
+		return
+	}
+	next := append([]types.GateID{g.ID()}, r.order[idx+1:]...)
+	r.order = append(r.order[:idx+1], next...)
 }
 
 // UpdateState updates the cached state for a gate (called by background goroutines).

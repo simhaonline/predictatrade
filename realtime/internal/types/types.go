@@ -241,6 +241,15 @@ const (
 	GateExecutionPermit   GateID = "execution_permission"
 	GateStopHuntFilter    GateID = "stop_hunt_filter"
 	GateMinATR            GateID = "min_atr"
+
+	// Capital-protection gates (R1-R7, EV1-EV3, PT1-PT4)
+	GateWrongSideSL      GateID = "wrong_side_sl"
+	GateRiskOversize     GateID = "risk_oversize"
+	GatePositionCaps     GateID = "position_caps"
+	GateDailyLoss        GateID = "daily_loss"
+	GateProfitTarget     GateID = "profit_target"
+	GateMartingaleBan    GateID = "martingale_ban"
+	GateEdgeValidation   GateID = "edge_validation"
 )
 
 // NoTradeReason represents a standardized NO-TRADE reason (SOW Section 18).
@@ -429,6 +438,13 @@ type Signal struct {
 	// Deterministic hash (prompt.md Section 38)
 	InputHash   string
 	DecisionHash string
+
+	// Capital-protection sizing annotations (R1/R7) — populated by the engine
+	// from broker-account snapshot data; zero until account data is available.
+	SuggestedLot     decimal.Decimal // recommended lot (floored to lot step)
+	RiskDollars      decimal.Decimal // $ risk at requested lot
+	RiskPctOfEquity  decimal.Decimal // requested-lot risk as % of equity
+	SLDistancePoints decimal.Decimal // |entry - SL| in price points
 
 	// Dominance (prompt.md Section 23)
 	Dominance   float64
