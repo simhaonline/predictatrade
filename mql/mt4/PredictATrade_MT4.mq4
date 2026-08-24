@@ -75,15 +75,20 @@ input double  TP3ClosePercent  = 20.0; // Close remaining 20% at TP3
 input double  TP3TrailATRMult  = 1.5;  // Trail remaining by 1.5*ATR after TP3
 
 // ─── Constants ───
-#define PAT_TICK_FILE   "pat_ticks.txt"
+#define PAT_TICK_FILE   "PAT_ticks.txt"
 #define PAT_SIGNAL_FILE "PAT_signals.txt"
 #define PAT_LICENSE_FILE "PAT_license.txt"
-#define PAT_HEARTBEAT   "pat_heartbeat.txt"
+#define PAT_HEARTBEAT   "PAT_heartbeat.txt"
 
 // ─── Global state ───
 string  g_connection      = "OFFLINE";
 string  g_licenseStatus    = "PENDING";
 string  g_licensePlan      = "";
+string  g_licenseKey       = "";
+string  g_authStatus       = "UNKNOWN";
+string  g_deviceStatus     = "UNKNOWN";
+string  g_sessionStatus    = "UNKNOWN";
+string  g_tradingStatus    = "UNKNOWN";
 string  g_accountID        = "";
 string  g_symbol           = "";
 string  g_signalID         = "";
@@ -95,6 +100,7 @@ string  g_lastExecutedSignalID = "";
 datetime g_signalTime      = 0;
 uint    g_lastTickSend     = 0;
 int     g_tickCount        = 0;
+int     g_signalsReceived = 0;
 int     g_signalsDisplayed = 0;
 int     g_signalsFiltered  = 0;
 // Capital protection state (NEW v1.07)
@@ -278,11 +284,30 @@ int OnInit()
         g_symbol = Symbol();
 
     g_accountID = IntegerToString(AccountNumber());
+    g_licenseKey = LicenseKey;
     g_connection = "OFFLINE";
     g_licenseStatus = "PENDING";
-    SendInitMessage();
-    Print("Predict-A-Trade MT4 EA v1.06 initialized | Symbol: ", g_symbol,
-          " | Account: ", g_accountID, " | Swap avoidance: ", AvoidSwapCharges);
+
+    Print("Predict-A-Trade MT4 EA v1.07 initializing...");
+    Print("Symbol: ", g_symbol);
+    Print("Account: ", g_accountID);
+    Print("License Key: ", (g_licenseKey == "" ? "NOT SET — SIGNALS WILL BE IGNORED" : g_licenseKey));
+
+    if(FileIsExist(PAT_HEARTBEAT, FILE_COMMON))
+    {
+        g_connection = "CONNECTED";
+        Print("Windows Agent detected (heartbeat found in common folder)");
+        SendInitMessage();
+        RequestLicenseValidation();
+    }
+    else
+    {
+        g_connection = "OFFLINE";
+        Print("WARNING: Windows Agent not detected.");
+        Print("Ensure pat-agent.exe is running on this machine.");
+    }
+
+    UpdatePanel();
     return(INIT_SUCCEEDED);
 }
 
@@ -812,6 +837,23 @@ void SendInitMessage()
 }
 
 //+------------------------------------------------------------------+
+void RequestLicenseValidation()
+{
+    string msg = "LICENSE_CHECK|{"account":"" + g_accountID +
+                 "","broker":"" + AccountCompany() +
+                 "","symbol":"" + g_symbol +
+                 "","license_key":"" + g_licenseKey +
+                 "","balance":" + DoubleToStr(AccountBalance(), 2) +
+                 ","equity":" + DoubleToStr(AccountEquity(), 2) +
+                 ","profit":" + DoubleToStr(AccountProfit(), 2) +
+                 ","open_positions":" + IntegerToString(OrdersTotal()) +
+                 "}
+";
+    PAT_Append(PAT_TICK_FILE, msg);
+    Print("License validation requested - balance: ", AccountBalance());
+}
+
+//+------------------------------------------------------------------+
 void ReadFromAgent()
 {
     // Read license response from PAT_LICENSE_FILE (written by Windows Agent every 3s)
@@ -847,6 +889,8 @@ void ReadFromAgent()
     FileDelete(PAT_SIGNAL_FILE, FILE_COMMON);
 
     if(StringLen(content) == 0) return;
+
+    g_signalsReceived++;
 
     // Parse lines
     int pos = 0;
@@ -971,8 +1015,15 @@ void HandleLicenseResponse(string json)
     string oldStatus = g_licenseStatus;
     g_licenseStatus = ExtractJSONString(json, "status");
     g_licensePlan   = ExtractJSONString(json, "plan");
+    g_authStatus    = ExtractJSONString(json, "auth");
+    g_deviceStatus  = ExtractJSONString(json, "device");
+    g_sessionStatus = ExtractJSONString(json, "session");
+    g_tradingStatus = ExtractJSONString(json, "trading");
     if(oldStatus != g_licenseStatus)
-        Print("License status: ", oldStatus, " -> ", g_licenseStatus, " Plan: ", g_licensePlan);
+        Print("License status: ", oldStatus, " -> ", g_licenseStatus,
+              " Plan:", g_licensePlan, " Auth:", g_authStatus,
+              " Device:", g_deviceStatus, " Session:", g_sessionStatus,
+              " Trading:", g_tradingStatus);
 }
 
 //+------------------------------------------------------------------+
@@ -1105,46 +1156,48 @@ bool IsDirectionEnabled(string dir)
 //+------------------------------------------------------------------+
 void UpdatePanel()
 {
-    string p = "══════ PREDICT-A-TRADE v1.06 ══════\n";
-    p += "Connection: " + g_connection + "\n";
-    p += "License:    " + g_licenseStatus + " (" + g_licensePlan + ")\n";
-    p += "Symbol:     " + g_symbol + "\n";
-    p += "Open Pos:   " + IntegerToString(CountOpenPositions()) + "\n";
-    p += "────────────────────────────────\n";
+    string p = "═══ Predict-A-Trade v1.07 ═══\n";
+    p += "Agent:    " + g_connection + "\n";
+    p += "License:  " + g_licenseStatus + " (" + g_licensePlan + ")\n";
+    p += "Lic.Key:  " + (g_licenseKey == "" ? "NOT SET" : StringSubstr(g_licenseKey, 0, 12) + "...") + "\n";
+    p += "Account:  " + g_accountID + "\n";
+    p += "Symbol:   " + g_symbol + "\n";
+    p += "Mode:     " + (AutoExecute ? "AUTO EXECUTE" : "SIGNAL ONLY") + "\n";
+    p += "Open Pos: " + IntegerToString(CountOpenPositions()) + "\n";
+    p += "──────────────────────────────\n";
+    p += "Signals:  " + IntegerToString(g_signalsReceived) + " recv, " + IntegerToString(g_signalsDisplayed) + " shown, " + IntegerToString(g_signalsFiltered) + " filtered\n";
+    p += "Strats:   ";
+    if(ReceiveStandardScalping) p += "SS ";
+    if(ReceiveUltraScalping)    p += "US ";
+    if(ReceiveStandardSwing)    p += "SW ";
+    if(ReceiveTrendSwing)      p += "TW\n";
+    p += "──────────────────────────────\n";
+    p += "Signal:   " + g_signalDirection + "\n";
     if(g_signalDirection != "NONE" && g_signalDirection != "EXPIRED")
     {
-        p += "Signal:    " + g_signalDirection + "\n";
-        p += "Strategy:  " + g_signalStrategy + "\n";
-        p += "Grade:     " + g_signalGrade + "\n";
-        p += "Score:     " + DoubleToString(g_rawScore, 1) + "\n";
-        p += "Entry:     " + DoubleToString(g_entry, 2) + "\n";
-        p += "SL:        " + DoubleToString(g_sl, 2) + "\n";
-        p += "TP1:       " + DoubleToString(g_tp1, 2) + "\n";
-        p += "TP2:       " + DoubleToString(g_tp2, 2) + "\n";
-        p += "TP3:       " + DoubleToString(g_tp3, 2) + "\n";
+        p += "Strategy: " + g_signalStrategy + "\n";
+        p += "Grade:    " + g_signalGrade + "\n";
+        p += "Class:    " + g_signalClass + "\n";
+        p += "Score:    " + DoubleToString(g_rawScore, 1) + "\n";
+        p += "Prob:     " + (g_calibProb > 0 ? DoubleToString(g_calibProb * 100, 1) + "%" : "Pending") + "\n";
+        p += "Entry:    " + DoubleToString(g_entry, 2) + "\n";
+        p += "SL:       " + DoubleToString(g_sl, 2) + "\n";
+        p += "TP1:      " + DoubleToString(g_tp1, 2) + "\n";
+        p += "TP2:      " + DoubleToString(g_tp2, 2) + "\n";
+        p += "TP3:      " + DoubleToString(g_tp3, 2) + "\n";
     }
-    else
-    {
-        p += "No active signal\n";
-    }
-    p += "────────────────────────────────\n";
-    p += "Ticks sent: " + IntegerToString(g_tickCount) + "\n";
-    p += "Signals shown: " + IntegerToString(g_signalsDisplayed) + "\n";
-    p += "Signals filtered: " + IntegerToString(g_signalsFiltered) + "\n";
-    p += "Slippage rejects: " + IntegerToString(g_slippageRejects) + "\n";
-    p += "Max slippage: " + IntegerToString(MaxSlippagePoints) + " pts\n";
+    p += "──────────────────────────────\n";
+    p += "Ticks:    " + IntegerToString(g_tickCount) + "\n";
+    p += "Time:     " + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\n";
+    p += "Slip rejects: " + IntegerToString(g_slippageRejects) + "\n";
     p += "Daily P&L: " + DoubleToString(g_dailyPnL, 2) + "\n";
-    if(g_tradingBlocked) p += "*** TRADING BLOCKED (capital protection) ***\n";
-    p += "Max daily loss: " + DoubleToString(MaxDailyLossPct, 1) + "%\n";
-
-    // Swap avoidance status
+    if(g_tradingBlocked) p += "*** TRADING BLOCKED ***\n";
     if(AvoidSwapCharges)
     {
         p += "Swap cutoff: " + IntegerToString(SwapCutoffHour) + ":00 (-" + IntegerToString(SwapCutoffBuffer) + "min)\n";
         if(IsNearSwapTime()) p += "*** SWAP CUTOFF ACTIVE ***\n";
         if(IsTripleSwapDay()) p += "*** TRIPLE SWAP DAY ***\n";
     }
-
     Comment(p);
 }
 

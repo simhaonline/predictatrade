@@ -1254,7 +1254,7 @@ void SendSignalAck(string signalID, long seq)
 //+------------------------------------------------------------------+
 void UpdatePanel()
 {
-    string p = "═══ Predict-A-Trade v1.05 ═══\n";
+    string p = "═══ Predict-A-Trade v1.07 ═══\n";
     p += "Agent:    " + g_connection + "\n";
     p += "License:  " + g_licenseStatus + " (" + g_licensePlan + ")\n";
     p += "Lic.Key:  " + (g_licenseKey == "" ? "NOT SET" : StringSubstr(g_licenseKey, 0, 12) + "...") + "\n";
