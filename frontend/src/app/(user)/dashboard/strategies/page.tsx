@@ -80,7 +80,7 @@ export default function UserStrategiesPage() {
         <button
           onClick={async () => {
             try {
-              const activeStrategies = Object.entries(strategyState).filter(([, v]) => v.active).map(([k]) => k);
+              const activeStrategies = selected;
               const res = await fetch('/api/v1/subscriptions/strategies', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` },
