@@ -80,3 +80,22 @@ func HandleHealth(e *Engine) http.HandlerFunc {
 		})
 	}
 }
+
+// HandleValidationStatus serves GET /api/v1/cross-market/validation
+func HandleValidationStatus(e *Engine) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"mode":                  "shadow",
+			"calendar_days":         0,
+			"usable_shadow_days":    0,
+			"total_candidates":      0,
+			"resolved_outcomes":     0,
+			"minimum_days_required": 30,
+			"ablation_ready":        false,
+			"walk_forward_ready":    false,
+			"activation_eligible":   false,
+			"message":               "Validation infrastructure ready. Shadow data collection in progress.",
+		})
+	}
+}

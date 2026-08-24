@@ -56,6 +56,16 @@ type Config struct {
 	MLEnabled   bool
 	ModelsDir    string
 
+	// Cross-Market Macro Engine
+	CrossMarketMode      string // disabled|shadow|active
+	CrossMarketEnabled   bool
+	EURUSDEnabled        bool
+	RealYieldEnabled     bool
+	RealYieldProvider    string // fmp|fred|disabled
+	VIXEnabled           bool
+	BTCEnabled           bool
+	OilEnabled           bool
+
 	// News / Economic Calendar
 	NewsProvider            string // disabled|fmp|...
 	NewsMode                string // OFF|PROTECT_ONLY|EVENT_BREAKOUT
@@ -131,6 +141,16 @@ func Default() *Config {
 		MaxExposure:     getEnvFloat("MAX_EXPOSURE", 5.0),
 		AllowedOrigins:  strings.Split(getEnv("ALLOWED_ORIGINS", "https://platform.predictatrade.com,https://predictatrade.com"), ","),
 		LogLevel:        getEnv("LOG_LEVEL", "info"),
+
+		// Cross-Market Macro Engine
+		CrossMarketMode:      getEnv("CROSS_MARKET_MODE", "shadow"),
+		CrossMarketEnabled:   getEnvBool("CROSS_MARKET_ENABLED", true),
+		EURUSDEnabled:        getEnvBool("EURUSD_ENABLED", true),
+		RealYieldEnabled:     getEnvBool("REAL_YIELD_ENABLED", false),
+		RealYieldProvider:    getEnv("REAL_YIELD_PROVIDER", "disabled"),
+		VIXEnabled:           getEnvBool("VIX_ENABLED", false),
+		BTCEnabled:           getEnvBool("BTC_ENABLED", false),
+		OilEnabled:           getEnvBool("OIL_ENABLED", false),
 
 		// COT provider — optional, fails safe if not configured
 		FMPAPIKey:  getEnv("FMP_API_KEY", ""),

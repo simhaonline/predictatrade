@@ -125,3 +125,11 @@ func (p *Persister) SaveProviderHealth(ctx context.Context, provider string, sta
 	`, now, id, provider, status, lastSuccess, lastError, errorCount, latencyMs)
 	return err
 }
+
+// GetDB returns the underlying database connection for use by validation persister.
+func (p *Persister) GetDB() *sql.DB {
+	if p == nil {
+		return nil
+	}
+	return p.db
+}

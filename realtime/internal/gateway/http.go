@@ -81,6 +81,7 @@ func (h *HTTPServer) registerRoutes() {
 	if h.crossMarketEngine != nil {
 		h.mux.HandleFunc("/api/v1/cross-market/current", crossmarket.HandleCurrent(h.crossMarketEngine))
 		h.mux.HandleFunc("/api/v1/cross-market/health", crossmarket.HandleHealth(h.crossMarketEngine))
+		h.mux.HandleFunc("/api/v1/cross-market/validation", crossmarket.HandleValidationStatus(h.crossMarketEngine))
 	}
 }
 

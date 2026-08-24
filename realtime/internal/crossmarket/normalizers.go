@@ -194,3 +194,38 @@ func directionWord(v float64) string {
 func formatPercentile(p float64) string {
 	return formatFloat(p*100) + "%"
 }
+
+// NormalizeOil converts WTI/Brent price movement into an inflation context score.
+func NormalizeOil(oilValue, oilPrevValue float64, timestamp time.Time) DriverSnapshot {
+	change := oilValue - oilPrevValue
+	pctChange := 0.0
+	if oilPrevValue > 0 {
+		pctChange = (change / oilPrevValue) * 100
+	}
+
+	// Rising oil = inflation pressure = mildly supportive for gold as inflation hedge
+	// But this is LOW weight — oil is a secondary contextual input
+	impact := pctChange * 1.5 // scale down significantly
+	impact = math.Max(-30, math.Min(30, impact))
+
+	dir := DirNeutral
+	if impact > 8 {
+		dir = DirBullish
+	} else if impact < -8 {
+		dir = DirBearish
+	}
+
+	return DriverSnapshot{
+		Name:        DriverOil,
+		RawValue:    oilValue,
+		NormalizedValue: impact,
+		ImpactScore: impact,
+		Direction:   dir,
+		Confidence:  0.3, // LOW confidence
+		Quality:     QualityConnected,
+		Source:      "twelvedata",
+		Timeframe:   "intraday",
+		Reason:      "Oil " + formatFloat(pctChange) + "% — inflation context",
+		Timestamp:   timestamp,
+	}
+}

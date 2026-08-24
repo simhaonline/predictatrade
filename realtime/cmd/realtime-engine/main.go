@@ -812,9 +812,6 @@ func main() {
 	})
 
 	// ─── Cross-Market Confluence Engine ───
-	// Shadow mode by default — calculates scores but does NOT modify production signals.
-	// Reuses existing DXY/COT providers as driver inputs.
-	// Mode is controlled by CROSS_MARKET_MODE env var (disabled|shadow|active).
 	xmConfig := crossmarket.DefaultConfig()
 	xmMode := os.Getenv("CROSS_MARKET_MODE")
 	if xmMode != "" {
@@ -823,13 +820,16 @@ func main() {
 	if os.Getenv("CROSS_MARKET_ENABLED") == "false" {
 		xmConfig.Mode = crossmarket.ModeDisabled
 	}
-	// Cross-market persister (best-effort, never blocks)
+
+	// Cross-market persister + validation persister
 	var xmPersister *crossmarket.Persister
+	var xmValidation *crossmarket.ValidationPersister
 	if cfg.DBURL != "" {
 		xmp, err := crossmarket.NewPersisterFromURL(cfg.DBURL)
 		if err == nil {
 			xmPersister = xmp
 			defer xmPersister.Close()
+			xmValidation = crossmarket.NewValidationPersister(xmp.GetDB())
 		}
 	}
 
@@ -844,6 +844,14 @@ func main() {
 			snap := crossmarket.NormalizeDXY(value, prevValue, ts)
 			xmEngine.UpdateDriver(snap)
 			xmEngine.Correlation().AddDXY(value)
+			// Extract EURUSD from DXY components (no duplicate API call)
+			dxySnap := dxyProvider.GetSnapshot()
+			if dxySnap != nil && dxySnap.Components != nil {
+				eurusdSnap := marketdata.ExtractEURUSDFromDXY(dxySnap)
+				if eurusdSnap.Status == "AVAILABLE" {
+					xmEngine.UpdateDriver(crossmarket.NormalizeEURUSD(eurusdSnap.Price, prevValue, ts))
+				}
+			}
 		})
 	}
 
@@ -855,7 +863,6 @@ func main() {
 		})
 	}
 
-
 	httpServer := gateway.NewHTTPServer(wsHub, persister, stateMgr, agentHub, agentProvider, valkeyCache, xmEngine)
 	go func() {
 		addr := fmt.Sprintf("%s:%d", cfg.HTTPHost, cfg.HTTPPort)
@@ -864,6 +871,34 @@ func main() {
 			log.Error().Err(err).Msg("HTTP server failed")
 		}
 	}()
+
+	// ─── Twelve Data Multi-Symbol Provider (VIX, BTC, Oil, EURUSD) ───
+	tdProvider := marketdata.NewTwelveDataProvider(cfg.TwelveDataAPIKey)
+	if tdProvider.IsConfigured() {
+		log.Info().Msg("Twelve Data multi-symbol provider configured — VIX/BTC/Oil/EURUSD available")
+	} else {
+		log.Info().Msg("Twelve Data multi-symbol provider not configured — VIX/BTC/Oil/EURUSD remain UNAVAILABLE")
+	}
+	go tdProvider.StartRefreshLoop(ctx, 5, func(canonical string, snap *marketdata.MacroAssetSnapshot) {
+		now := time.Now().UTC()
+		prevPrice := tdProvider.GetPrevPrice(canonical)
+		switch canonical {
+		case "EURUSD":
+			xmEngine.UpdateDriver(crossmarket.NormalizeEURUSD(snap.Price, prevPrice, now))
+		case "VIX":
+			xmEngine.UpdateDriver(crossmarket.NormalizeVIX(snap.Price, prevPrice, now))
+		case "BTCUSD":
+			xmEngine.UpdateDriver(crossmarket.NormalizeBTC(snap.Price, prevPrice, now))
+		case "WTI":
+			xmEngine.UpdateDriver(crossmarket.NormalizeOil(snap.Price, prevPrice, now))
+		}
+	}, func(msg string, err error) {
+		if err != nil {
+			log.Warn().Err(err).Str("component", "twelvedata_multi").Msg(msg)
+		} else {
+			log.Info().Str("component", "twelvedata_multi").Msg(msg)
+		}
+	})
 
 	go aggregator.FlushClosedCandles(ctx)
 
@@ -986,7 +1021,7 @@ func main() {
 				}
 				processCandle(candle, featureReg, stateMgr, strategies, engine, mlEngine, ollamaClient, healthManager, staleChecker,
 					calibConsumer, reconciler, wsHub, agentHub, persister, gateRegistry,
-					cooldownMgr, dupChecker, ptbEngine, auditLogger, xmEngine, xmPersister)
+					cooldownMgr, dupChecker, ptbEngine, auditLogger, xmEngine, xmPersister, xmValidation)
 			}
 		}
 	}()
@@ -1053,7 +1088,7 @@ func processTick(tick *types.Tick, validator *marketdata.TickValidator, staleDet
 	}
 }
 
-func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr *features.StateManager, strategies []strategy.Strategy, engine *sigengine.Engine, mlEngine *mlengine.MLEngine, ollamaClient *ollama.OllamaClient, healthManager *health.Manager, staleChecker *health.StaleChecker, calibConsumer *calibration.Consumer, reconciler *reconciliation.Reconciler, wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, persister *marketdata.Persister, gateRegistry *gates.Registry, cooldownMgr *sigengine.CooldownManager, dupChecker *sigengine.DuplicateChecker, ptbEngine *ptb.Engine, auditLogger *audit.Logger, xmEngine *crossmarket.Engine, xmPersister *crossmarket.Persister) {
+func processCandle(candle *types.Candle, featureReg *features.Registry, stateMgr *features.StateManager, strategies []strategy.Strategy, engine *sigengine.Engine, mlEngine *mlengine.MLEngine, ollamaClient *ollama.OllamaClient, healthManager *health.Manager, staleChecker *health.StaleChecker, calibConsumer *calibration.Consumer, reconciler *reconciliation.Reconciler, wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, persister *marketdata.Persister, gateRegistry *gates.Registry, cooldownMgr *sigengine.CooldownManager, dupChecker *sigengine.DuplicateChecker, ptbEngine *ptb.Engine, auditLogger *audit.Logger, xmEngine *crossmarket.Engine, xmPersister *crossmarket.Persister, xmValidation *crossmarket.ValidationPersister) {
 	if candle == nil { return }
 	observability.CandlesGenerated.WithLabelValues(candle.Symbol, string(candle.Timeframe)).Inc()
 
