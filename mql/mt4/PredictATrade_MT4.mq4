@@ -107,6 +107,7 @@ input bool    UseAutoLotSizing = true; // Calculate lot size from risk % and sto
 string  g_connection      = "OFFLINE";
 string  g_licenseStatus    = "PENDING";
 string  g_licensePlan      = "";
+string  g_allowedStrategies = "";  // Server-provided from license
 string  g_licenseKey       = "";
 string  g_authStatus       = "UNKNOWN";
 string  g_deviceStatus     = "UNKNOWN";

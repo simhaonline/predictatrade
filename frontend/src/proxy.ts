@@ -25,7 +25,14 @@ function homeRouteForRole(role: string | null): string {
 }
 
 export function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  const { pathname, host } = request.nextUrl;
+  // The live subdomain (live.predictatrade.com) is a PUBLIC 5-minute preview
+  // funnel served by the standalone live-terminal edge. Anonymous visitors must
+  // NEVER be bounced to platform login from this host — that broke the funnel
+  // (prompt.md §1–§2: the registration wall, not a redirect, is the boundary).
+  if (host.includes('live.predictatrade.com')) {
+    return NextResponse.next();
+  }
   const token = request.cookies.get('pat_access_token')?.value;
   const role = getRoleFromToken(token);
   const isAuthenticated = role !== null;
