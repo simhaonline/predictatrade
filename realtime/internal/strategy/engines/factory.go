@@ -11,42 +11,42 @@ import (
 var defaultConfigs = map[EngineType]EngineConfig{
 	UltraScalp: {
 		Type:            UltraScalp,
-		MinAbsATR:       3.0,  // Lowered from 12.0 — XAUUSD ATR can be 3-8 during quiet hours
-		IgnoreStructure: true, // Bypass structural low — prevents stop hunt
-		AllowedRegimes:  []string{}, // ALL regimes — don't restrict, let scoring handle it
+		MinAbsATR:       3.0,
+		IgnoreStructure: true,
+		AllowedRegimes:  []string{},
 		MinGrade:        "A",
-		OverrideSL:      1.0,
-		OverrideTPs:     [3]float64{2.0, 3.0, 4.0},
+		OverrideSL:      0.5,              // Tight SL = 0.5 * ATR ≈ 3-4 points
+		OverrideTPs:     [3]float64{0.5, 0.8, 1.2},  // Micro profit: TP1≈3-4pts, TP2≈5-6pts, TP3≈8-10pts
 		OverrideExpiry:  5,
 	},
 	StdScalp: {
 		Type:            StdScalp,
 		MinAbsATR:       2.0,
-		IgnoreStructure: true,  // Pure ATR SL — consistent R:R
+		IgnoreStructure: true,
 		AllowedRegimes:  []string{},
 		MinGrade:        "A",
-		OverrideSL:      1.2,
-		OverrideTPs:     [3]float64{2.5, 4.0, 6.0},  // R:R = 2.5/1.2 = 2.08 > 2.0
+		OverrideSL:      0.8,              // Tighter SL = 0.8 * ATR ≈ 6-7 points
+		OverrideTPs:     [3]float64{1.0, 1.5, 2.5},  // TP1≈7-8pts, TP2≈10-12pts, TP3≈18-20pts
 		OverrideExpiry:  10,
 	},
 	StdSwing: {
 		Type:            StdSwing,
 		MinAbsATR:       2.0,
-		IgnoreStructure: true,  // Pure ATR SL — structural low makes R:R inconsistent
+		IgnoreStructure: true,
 		AllowedRegimes:  []string{},
 		MinGrade:        "A",
-		OverrideSL:      1.5,   // Reduced from 2.0 to improve R:R ratio
-		OverrideTPs:     [3]float64{3.5, 6.0, 10.0},  // TP1 raised to ensure R:R > 2.0
+		OverrideSL:      1.0,              // SL = 1.0 * ATR
+		OverrideTPs:     [3]float64{2.0, 3.5, 5.0},  // TP1≈14pts, TP2≈25pts, TP3≈35pts
 		OverrideExpiry:  60,
 	},
 	TrendSwng: {
 		Type:            TrendSwng,
-		MinAbsATR:       3.0,  // Lowered from 12.0 — allow trend trades in moderate vol
+		MinAbsATR:       3.0,
 		IgnoreStructure: true,
-		AllowedRegimes:  []string{}, // ALL regimes — let scoring handle regime filtering
+		AllowedRegimes:  []string{},
 		MinGrade:        "A",
-		OverrideSL:      2.5,
-		OverrideTPs:     [3]float64{4.0, 6.5, 10.0},
+		OverrideSL:      1.5,              // SL = 1.5 * ATR
+		OverrideTPs:     [3]float64{3.0, 5.0, 8.0},  // TP1≈21pts, TP2≈35pts, TP3≈56pts
 		OverrideExpiry:  240,
 	},
 }
