@@ -1296,17 +1296,21 @@ async function lpInit() {
   if (authToken) {
     LP.state = "AUTHENTICATED";
     lpPill().style.display = "none";
-    return; // entitlement enforced server-side via Authorization header
+    return true; // entitlement enforced server-side via Authorization header
   }
+  let ok = false;
   try {
     const r = await fetch("/api/v1/live-preview/status", { cache: "no-store" });
     const p = await r.json();
-    if (r.status === 403 || p.registration_required) { lpHandleStatusPayload(p); lpShowWall(p.code); return; }
+    if (r.status === 403 || p.registration_required) { lpHandleStatusPayload(p); lpShowWall(p.code); return false; }
     lpHandleStatusPayload(p);
+    ok = LP.state === "ANONYMOUS_ACTIVE" || LP.state === "DISABLED";
   } catch {
     // Fail-safe: cannot reach trial service → do NOT unlock data (§47).
     lpShowWall("LIVE_ACCESS_UNAVAILABLE");
+    return false;
   }
+  return ok;
   // Re-sync with the backend every 30s (never trust local elapsed time alone)
   LP.pollTimer = setInterval(async () => {
     if (LP.state !== "ANONYMOUS_ACTIVE" && LP.state !== "ANONYMOUS_EXPIRING") return;
@@ -1340,15 +1344,20 @@ async function lpInit() {
   };
 })();
 
-lpInit();
+// Trial bootstrap FIRST — data polls start only once access is resolved so
+// parallel cookie-less fetches never race the trial creation.
 window.__pat_intervals = [];
-window.__pat_intervals.push(setInterval(pollSnapshot, 2000));
-window.__pat_intervals.push(setInterval(pollMarketState, 5000));
-window.__pat_intervals.push(setInterval(pollEngines, 5000));
-window.__pat_intervals.push(setInterval(() => { pollInfra(); }, 10000));
-window.__pat_intervals.push(setInterval(pollCandles, 15000));
-window.__pat_intervals.push(setInterval(pollNews, 60000));
-window.__pat_intervals.push(setInterval(pollSignals, 10000));
+lpInit().then((allowed) => {
+  if (!allowed) return;
+  window.__pat_intervals.push(setInterval(pollSnapshot, 2000));
+  window.__pat_intervals.push(setInterval(pollMarketState, 5000));
+  window.__pat_intervals.push(setInterval(pollEngines, 5000));
+  window.__pat_intervals.push(setInterval(() => { pollInfra(); }, 10000));
+  window.__pat_intervals.push(setInterval(pollCandles, 15000));
+  window.__pat_intervals.push(setInterval(pollNews, 60000));
+  window.__pat_intervals.push(setInterval(pollSignals, 10000));
+  pollSnapshot(); pollMarketState(); pollCandles(); pollEngines(); pollInfra(); pollNews(); pollSignals();
+});
 wsConnect();
 new ResizeObserver(() => chart.resize()).observe($("priceChart"));
 

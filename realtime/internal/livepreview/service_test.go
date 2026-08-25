@@ -94,7 +94,7 @@ func TestTamperedCookieRejected(t *testing.T) {
 // Expiry: after expiration access is denied with LIVE_PREVIEW_EXPIRED.
 func TestExpiredTrialDenied(t *testing.T) {
 	s := New(cfg(), NewMemStore())
-	d := s.Evaluate(httptest.NewRequest("GET", "/", nil))
+	d := s.Evaluate(httptest.NewRequest("GET", "/", nil), true)
 	token := *d.NewCookie
 	tk := d.Trial
 	tk.ExpiresAt = time.Now().UTC().Add(-time.Second)
@@ -158,7 +158,7 @@ func TestSharedIPDifferentUAAllowed(t *testing.T) {
 // §47: storage failure fails CLOSED.
 func TestStoreFailureFailsClosed(t *testing.T) {
 	s := New(cfg(), failingStore{})
-	d := s.Evaluate(httptest.NewRequest("GET", "/", nil))
+	d := s.Evaluate(httptest.NewRequest("GET", "/", nil), true)
 	if d.Allowed {
 		t.Fatal("must fail closed when the trial store is unavailable")
 	}
@@ -186,7 +186,7 @@ func (e *testErr) Error() string { return e.s }
 // §42: multi-tab / multi-socket — same cookie resolves the SAME trial.
 func TestSameCookieSameTrial(t *testing.T) {
 	s := New(cfg(), NewMemStore())
-	d := s.Evaluate(httptest.NewRequest("GET", "/", nil))
+	d := s.Evaluate(httptest.NewRequest("GET", "/", nil), true)
 	token := *d.NewCookie
 
 	r1 := reqWithCookie(httptest.NewRequest("GET", "/", nil), "pat_live_trial", token)
@@ -203,7 +203,7 @@ func TestSameCookieSameTrial(t *testing.T) {
 // §13: WS revalidation hook.
 func TestTokenActiveRevalidation(t *testing.T) {
 	s := New(cfg(), NewMemStore())
-	d := s.Evaluate(httptest.NewRequest("GET", "/", nil))
+	d := s.Evaluate(httptest.NewRequest("GET", "/", nil), true)
 	hash := d.Trial.TokenHash
 	if !s.IsTokenActive(hash) {
 		t.Fatal("active trial must validate")
@@ -220,7 +220,7 @@ func TestTokenActiveRevalidation(t *testing.T) {
 // §85: status payload exposes only the allowed fields.
 func TestStatusPayloadShape(t *testing.T) {
 	s := New(cfg(), NewMemStore())
-	d := s.Evaluate(httptest.NewRequest("GET", "/", nil))
+	d := s.Evaluate(httptest.NewRequest("GET", "/", nil), true)
 	p := s.StatusFor(d)
 	if p.Status != "ACTIVE" || p.RemainingSeconds <= 0 || p.RegistrationRequired {
 		t.Fatalf("unexpected payload: %+v", p)
@@ -252,7 +252,7 @@ func TestDisabledFlagAllowsAll(t *testing.T) {
 	c := cfg()
 	c.Enabled = false
 	s := New(c, NewMemStore())
-	d := s.Evaluate(httptest.NewRequest("GET", "/", nil))
+	d := s.Evaluate(httptest.NewRequest("GET", "/", nil), true)
 	if !d.Allowed {
 		t.Fatal("disabled preview must not block (rollback path)")
 	}
