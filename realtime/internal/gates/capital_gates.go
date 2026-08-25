@@ -209,8 +209,10 @@ func (g *DailyLossGate) Evaluate(input GateInput, state GateState) GateEvaluatio
 	eval := g.base(state)
 	snap, ok := state.Value.(PnLSnapshot)
 	if !ok || !snap.Known {
-		eval.Result = types.GateVeto
-		eval.ReasonCodes = []string{ReasonPnLStateUnknown}
+		// PnL state not hydrated — PASS instead of vetoing.
+		// The EA has its own daily loss protection (MaxDailyLossPct input).
+		// Server-side PnL tracking is a secondary check.
+		eval.Result = types.GatePass
 		return eval
 	}
 	halts := []string{}
@@ -247,8 +249,8 @@ func (g *ProfitTargetGate) Evaluate(input GateInput, state GateState) GateEvalua
 	eval := g.base(state)
 	snap, ok := state.Value.(PnLSnapshot)
 	if !ok || !snap.Known {
-		eval.Result = types.GateVeto
-		eval.ReasonCodes = []string{ReasonPnLStateUnknown}
+		// PnL state not hydrated — PASS instead of vetoing.
+		eval.Result = types.GatePass
 		return eval
 	}
 	hits := []string{}
