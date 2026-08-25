@@ -72,6 +72,12 @@ class BacktestConfig:
     monte_carlo_runs: int = 1000
     sensitivity_enabled: bool = False
 
+    # Per-filter edge reporting (SOW v1.15 quant gate): when enabled, the engine
+    # records counterfactual would-be net expectancy for every candidate trade
+    # removed by a risk gate, so the incremental edge of each filter is measurable.
+    # Disabled by default to avoid slowing walk-forward folds.
+    filter_contribution_enabled: bool = False
+
 
 @dataclass
 class BacktestRunResult:
@@ -89,6 +95,7 @@ class BacktestRunResult:
     bars_processed: int = 0
     duration_seconds: float = 0.0
     status: str = "COMPLETED"  # COMPLETED, FAILED, DATA_QUALITY_FAILED
+    filter_contribution: Optional[Dict] = None  # reason -> contribution stats
 
 
 class BacktestEngine:
@@ -235,10 +242,16 @@ class BacktestEngine:
                     else:
                         self.blocked_count += 1
                         self.blocked_signals.append({
+                            "idx": i,
                             "timestamp": candle.timestamp.isoformat(),
                             "reason": reason,
                             "direction": signal.direction,
                             "strategy_id": signal.strategy_id,
+                            "entry_price": signal.entry_price,
+                            "stop_loss": signal.stop_loss,
+                            "tp1": signal.tp1, "tp2": signal.tp2, "tp3": signal.tp3,
+                            "regime": signal.regime, "session": signal.session,
+                            "confluence": signal.confluence, "raw_score": signal.raw_score,
                         })
 
                 elif signal.direction == "NO_TRADE":
@@ -272,6 +285,10 @@ class BacktestEngine:
 
         # 9. Build manifest
         manifest = self._build_manifest(candles, data_meta, dq_report)
+
+        # 9b. Per-filter edge reporting (counterfactual would-be net expectancy)
+        if self.config.filter_contribution_enabled:
+            result.filter_contribution = self._analyze_filter_contribution(candles)
 
         duration = time_module.time() - start_time
 
@@ -485,3 +502,78 @@ class BacktestEngine:
             "blocked_count": self.blocked_count,
             "status": "COMPLETED",
         }
+
+    def _analyze_filter_contribution(self, candles: List[HistoricalCandle]) -> Dict:
+        """Measure incremental edge of each risk-gate filter.
+
+        For every candidate trade (direction BUY/SELL) that was REMOVED by a
+        risk gate, simulate the trade as if the gate had not fired (using the
+        same execution model and exit logic as the live run) and record the
+        counterfactual net expectancy. This makes the edge contributed by each
+        filter measurable rather than assumed. Trade logic of the actual run is
+        NOT changed — this is a post-hoc shadow simulation over recorded
+        candidates.
+        """
+        contract = self.config.execution_config.contract_size
+        contrib: Dict[str, Dict] = {}
+        for b in self.blocked_signals:
+            if b["direction"] not in ("BUY", "SELL"):
+                continue  # only removed candidates (strategy produced a direction)
+            reason = b["reason"]
+            idx = b["idx"]
+            if idx < 0 or idx >= len(candles):
+                continue
+            entry_candle = candles[idx]
+            order = OrderEvent(
+                timestamp=entry_candle.timestamp,
+                direction=b["direction"],
+                size=0.01,
+                stop_loss=b["stop_loss"],
+                take_profit=b["tp1"],
+                signal_id=b["strategy_id"],
+            )
+            atr = self._get_current_atr()
+            try:
+                fill = self.execution_sim.execute(order, entry_candle, atr)
+            except Exception:
+                continue
+            if fill.fill_status == "REJECTED":
+                continue
+
+            pf = Portfolio(
+                initial_balance=self.config.initial_balance,
+                contract_size=contract,
+                trailing_stop_enabled=self.config.trailing_stop_enabled,
+                trailing_atr_multiplier=self.config.trailing_atr_multiplier,
+                break_even_enabled=self.config.break_even_enabled,
+                break_even_trigger_r=self.config.break_even_trigger_r,
+                conservative_sl_tp=self.config.conservative_sl_tp,
+            )
+            pf.open_position(
+                fill=fill, signal_id=b["strategy_id"], strategy_id=b["strategy_id"],
+                stop_loss=b["stop_loss"], take_profit=b["tp1"],
+                tp1=b["tp1"], tp2=b["tp2"], tp3=b["tp3"],
+                regime=b["regime"], session=b["session"], confluence=b["confluence"],
+            )
+            closed = False
+            for j in range(idx + 1, len(candles)):
+                exits = pf.update_positions(candles[j], atr)
+                if exits:
+                    closed = True
+                    break
+            if not closed and pf.positions:
+                pf.close_all_positions(candles[-1])
+
+            net = pf.closed_trades[-1].pnl if pf.closed_trades else 0.0
+            c = contrib.setdefault(reason, {
+                "removed": 0, "net_pnl": 0.0, "gross_pnl": 0.0, "wins": 0,
+            })
+            c["removed"] += 1
+            c["net_pnl"] += net
+            if net > 0:
+                c["wins"] += 1
+        for c in contrib.values():
+            n = c["removed"]
+            c["net_expectancy"] = (c["net_pnl"] / n) if n else 0.0
+            c["win_rate_pct"] = (100.0 * c["wins"] / n) if n else 0.0
+        return contrib

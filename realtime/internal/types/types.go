@@ -333,6 +333,14 @@ type Signal struct {
 	LongScore           decimal.Decimal
 	ShortScore          decimal.Decimal
 	CalibratedProbability decimal.Decimal
+
+	// Probability is the calibrated win probability derived from a research-trained
+	// calibration model loaded from CALIBRATION_DIR (env, default ./calibration).
+	// It is set ONLY when a matching, schema-versioned calibration file exists;
+	// otherwise it stays 0 and ProbabilityCalibrated stays false, so subscribers
+	// NEVER see a fabricated probability (AGENTS.md / SOW Section 16).
+	Probability          float64
+	ProbabilityCalibrated bool
 	EntryPrice          decimal.Decimal
 	EntryZoneLow        decimal.Decimal
 	EntryZoneHigh       decimal.Decimal

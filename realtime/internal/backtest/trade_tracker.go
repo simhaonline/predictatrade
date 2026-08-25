@@ -221,9 +221,10 @@ func (t *TradeTracker) checkPosition(pos *OpenPosition, candle *types.Candle, ba
 		risk = pos.OriginalSL.Sub(pos.EntryPrice)
 	}
 
-	// Subtract costs
+	// Subtract costs (spread, commission, slippage, swap) — NEVER assume zero cost.
 	spreadCost := t.config.Spread.Mul(pos.Size)
 	commissionCost := t.config.Commission.Mul(pos.Size)
+	slippageCost := t.config.Slippage.Mul(pos.Size).Mul(t.config.ContractSize)
 
 	// Swap cost: charge per overnight holding period
 	// Each day held overnight = 1 swap charge. Triple swap on the configured day.
@@ -236,7 +237,7 @@ func (t *TradeTracker) checkPosition(pos *OpenPosition, candle *types.Candle, ba
 		}
 	}
 
-	totalCost := spreadCost.Add(commissionCost).Add(swapCost)
+	totalCost := spreadCost.Add(commissionCost).Add(slippageCost).Add(swapCost)
 	pnl = pnl.Sub(totalCost)
 
 	var realizedR decimal.Decimal
@@ -266,6 +267,7 @@ func (t *TradeTracker) checkPosition(pos *OpenPosition, candle *types.Candle, ba
 		RealizedR:      realizedR,
 		SpreadCost:     spreadCost,
 		CommissionCost: commissionCost,
+		SlippageCost:   slippageCost,
 		SwapCost:       swapCost,
 		Regime:         pos.Regime,
 		Session:        pos.Session,
@@ -336,6 +338,7 @@ func (t *TradeTracker) CloseAllPositions(candle *types.Candle, barIdx int) []Tra
 
 		spreadCost := t.config.Spread.Mul(pos.Size)
 		commissionCost := t.config.Commission.Mul(pos.Size)
+		slippageCost := t.config.Slippage.Mul(pos.Size).Mul(t.config.ContractSize)
 
 		// Swap cost for EOD close
 		swapCost := decimal.Zero
@@ -347,7 +350,7 @@ func (t *TradeTracker) CloseAllPositions(candle *types.Candle, barIdx int) []Tra
 			}
 		}
 
-		pnl = pnl.Sub(spreadCost.Add(commissionCost).Add(swapCost))
+		pnl = pnl.Sub(spreadCost.Add(commissionCost).Add(slippageCost).Add(swapCost))
 
 		var realizedR decimal.Decimal
 		if !risk.IsZero() {
@@ -376,6 +379,7 @@ func (t *TradeTracker) CloseAllPositions(candle *types.Candle, barIdx int) []Tra
 			RealizedR:      realizedR,
 			SpreadCost:     spreadCost,
 			CommissionCost: commissionCost,
+			SlippageCost:   slippageCost,
 			Regime:         pos.Regime,
 			Session:       pos.Session,
 			RawScore:       pos.RawScore,

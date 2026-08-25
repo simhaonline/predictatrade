@@ -141,6 +141,12 @@ class ReportGenerator:
         dq_summary = result.data_quality.summary()
         artifacts["data_quality"] = self._write_json(dq_summary, run_dir, "data_quality.json")
 
+        # filter_contribution.json (per-filter edge reporting)
+        if result.filter_contribution:
+            artifacts["filter_contribution"] = self._write_json(
+                result.filter_contribution, run_dir, "filter_contribution.json"
+            )
+
         # run_manifest.json
         if result.manifest:
             manifest = RunManifest(
