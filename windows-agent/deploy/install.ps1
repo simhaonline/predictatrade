@@ -65,7 +65,8 @@ $nssmDest = Join-Path $InstallDir $NssmExe
 $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($svc) {
     if ($svc.Status -eq "Running") {
-        Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+        if (Test-Path $nssmDest) { & $nssmDest stop $ServiceName 2>&1 | Out-Null }
+        else { Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue }
         Start-Sleep -Seconds 3
     }
     Write-Host "  OK: Service stopped"
@@ -99,9 +100,22 @@ try {
     exit 1
 }
 
-# Step 6: No NSSM needed — agent has native Windows Service support
-Write-Host "[6/9] Agent has native Windows Service support (no NSSM required)"
+# Step 6: Download NSSM (service manager — wraps the agent as a Windows service)
+Write-Host "[6/9] Downloading NSSM (service manager)..."
+$is64bit = [Environment]::Is64BitOperatingSystem
+$nssmArch = if ($is64bit) { "nssm/win64/nssm.exe" } else { "nssm/win32/nssm.exe" }
 $nssmDownloaded = $false
+try {
+    if (Test-Path $nssmDest) { Remove-Item $nssmDest -Force -ErrorAction SilentlyContinue }
+    Invoke-WebRequest -Uri "$BaseUrl/$nssmArch" -OutFile $nssmDest -UseBasicParsing -TimeoutSec 60
+    Unblock-File -Path $nssmDest -ErrorAction SilentlyContinue
+    if (Test-Path $nssmDest) {
+        $nssmDownloaded = $true
+        Write-Host "  OK: Downloaded nssm.exe"
+    }
+} catch {
+    Write-Host "  WARN: NSSM download failed: $_"
+}
 
 # Step 6b: Download supporting scripts
 Write-Host "[6b/9] Downloading supporting scripts..."
@@ -129,28 +143,41 @@ if (-not (Test-Path $settingsPath)) {
     Write-Host "  OK: Preserving existing settings.json"
 }
 
-# Step 7: Remove old service and create fresh using native sc.exe
-Write-Host "[7/9] Creating Windows service (native SCM)..."
+# Step 7: Remove old service and create fresh with NSSM
+Write-Host "[7/9] Creating Windows service with NSSM..."
 if ($svc) {
-    sc.exe delete $ServiceName 2>&1 | Out-Null
+    if ($nssmDownloaded) { & $nssmDest remove $ServiceName confirm 2>&1 | Out-Null }
+    else { sc.exe delete $ServiceName 2>&1 | Out-Null }
     Start-Sleep -Seconds 2
 }
 
-# Use sc.exe to create the service — the agent uses svc.Run() to communicate
-# directly with the Windows Service Control Manager (no NSSM wrapper needed)
-$scResult = sc.exe create $ServiceName binPath= $agentPath start= auto 2>&1
-Write-Host "  sc.exe create result: $scResult"
-sc.exe description $ServiceName "Predict-A-Trade XAUUSD Windows Agent" 2>&1 | Out-Null
-sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/10000/restart/30000 2>&1 | Out-Null
-Write-Host "  OK: Service created with auto-restart (5s/10s/30s)"
+if ($nssmDownloaded -and (Test-Path $nssmDest)) {
+    & $nssmDest install $ServiceName $agentPath 2>&1 | Out-Null
+    & $nssmDest set $ServiceName AppDirectory $InstallDir 2>&1 | Out-Null
+    & $nssmDest set $ServiceName AppStdout (Join-Path $logsDir "stdout.log") 2>&1 | Out-Null
+    & $nssmDest set $ServiceName AppStderr (Join-Path $logsDir "stderr.log") 2>&1 | Out-Null
+    & $nssmDest set $ServiceName AppRotateFiles 1 2>&1 | Out-Null
+    & $nssmDest set $ServiceName AppRotateOnline 1 2>&1 | Out-Null
+    & $nssmDest set $ServiceName AppNoConsole 1 2>&1 | Out-Null
+    & $nssmDest set $ServiceName AppExit Default Restart 2>&1 | Out-Null
+    & $nssmDest set $ServiceName AppExit 0 Exit 2>&1 | Out-Null
+    & $nssmDest set $ServiceName AppRestartDelay 5000 2>&1 | Out-Null
+    & $nssmDest set $ServiceName DisplayName "Predict-A-Trade XAUUSD Agent" 2>&1 | Out-Null
+    & $nssmDest set $ServiceName Description "Predict-A-Trade XAUUSD Windows Agent" 2>&1 | Out-Null
+    & $nssmDest set $ServiceName Start SERVICE_AUTO_START 2>&1 | Out-Null
+    Write-Host "  OK: Service created with NSSM (auto-restart on crash)"
+} else {
+    Write-Host "  Fallback: Using sc.exe..."
+    sc.exe create $ServiceName binPath= $agentPath start= auto 2>&1 | Out-Null
+    sc.exe description $ServiceName "Predict-A-Trade XAUUSD Windows Agent" 2>&1 | Out-Null
+}
 
 # Step 8: Start the service
 Write-Host "[8/9] Starting service..."
-try {
-    Start-Service -Name $ServiceName -ErrorAction Stop
-    Write-Host "  OK: Start command sent"
-} catch {
-    Write-Host "  Start-Service result: $_"
+if ($nssmDownloaded) {
+    & $nssmDest start $ServiceName 2>&1 | Out-Null
+} else {
+    try { Start-Service -Name $ServiceName -ErrorAction SilentlyContinue } catch {}
 }
 Start-Sleep -Seconds 3
 
@@ -178,7 +205,7 @@ if ($svcCheck -and $svcCheck.Status -eq "Running") {
 
 # Step 9: Save version + verify health endpoint
 Write-Host "[9/9] Finalizing..."
-$serverVersion = "1.2.21"
+$serverVersion = "1.2.26"
 Set-Content -Path (Join-Path $InstallDir "version.txt") -Value $serverVersion -NoNewline
 
 # Try to verify health endpoint
