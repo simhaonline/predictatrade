@@ -182,10 +182,72 @@ export class WebSocketManager {
       this.ws.onmessage = (ev) => {
         try {
           const raw = JSON.parse(ev.data);
-          // The Go engine sends EventEnvelope objects with uppercase type names
-          // (e.g. "SIGNAL", "MARKET_STATE", "AGENT_STATUS", "SNAPSHOT", "GATE")
-          // and PascalCase payload fields. Normalize to the frontend's expected
-          // lowercase type names and camelCase payload fields.
+          
+          // ── Resilient Relay Format ──
+          // The relay sends a combined JSON: {status, engine_online, market_snapshot, 
+          // system_health, agents_status, signals}
+          // Parse and dispatch as individual typed events.
+          if (raw.status === "LIVE" || raw.status === "DEGRADED" || raw.status === "STALE") {
+            // Market snapshot → emit as "market" event
+            if (raw.market_snapshot) {
+              const ms = raw.market_snapshot;
+              if (ms.tick || ms.indicators) {
+                const tick = ms.tick || {};
+                this.listeners.forEach(cb => cb({
+                  type: "market",
+                  payload: {
+                    symbol: String(ms.Symbol || tick.symbol || "XAUUSD"),
+                    bid: Number(tick.bid || ms.Bid || 0),
+                    ask: Number(tick.ask || ms.Ask || 0),
+                    spread: Number(tick.spread || ms.Spread || 0),
+                    timestamp: String(ms.timestamp || tick.timestamp || new Date().toISOString()),
+                    session: String(ms.session || ms.indicators?.session || ""),
+                  }
+                }));
+              }
+            }
+            // System health → emit as "agent" event
+            if (raw.system_health) {
+              const sh = raw.system_health;
+              const ms = sh.market_source || {};
+              this.listeners.forEach(cb => cb({
+                type: "agent",
+                payload: {
+                  agentId: "relay",
+                  connected: true,
+                  lastSeen: String(sh.timestamp || new Date().toISOString()),
+                }
+              }));
+            }
+            // Signals → emit as "signal" events
+            if (raw.signals) {
+              const sigs = raw.signals.signals || raw.signals;
+              if (Array.isArray(sigs)) {
+                for (const s of sigs.slice(0, 5)) {
+                  const dir = String(s.Direction || s.direction || "NO-TRADE");
+                  if (dir === "BUY" || dir === "SELL" || dir === "BUY_CANDIDATE" || dir === "SELL_CANDIDATE") {
+                    this.listeners.forEach(cb => cb({
+                      type: "signal",
+                      payload: {
+                        id: String(s.ID || s.id || ""),
+                        direction: dir as any,
+                        probability: Number(s.CalibratedProbability || s.calibratedProbability || 0),
+                        entryPrice: Number(s.EntryPrice || s.entryPrice || 0),
+                        stopLoss: Number(s.StopLoss || s.stopLoss || 0),
+                        takeProfit: Number(s.TP1 || s.tp1 || 0),
+                        strategy: String(s.StrategyID || s.strategy || ""),
+                        timestamp: String(s.CreatedAt || s.created_at || s.timestamp || new Date().toISOString()),
+                        status: String(s.Status || s.status || "ACTIVE") as any,
+                      }
+                    }));
+                  }
+                }
+              }
+            }
+            return;
+          }
+          
+          // ── Legacy format (direct engine WebSocket) ──
           const msg = normalizeWsMessage(raw);
           if (msg) {
             this.listeners.forEach(cb => cb(msg));

@@ -12,7 +12,7 @@ COPY . .
 # MUST be provided as build args (runtime env_file alone is NOT enough).
 ARG NEXT_PUBLIC_API_BASE_URL=https://api.predictatrade.com/api/v1
 ARG NEXT_PUBLIC_API_URL=https://api.predictatrade.com/api/v1
-ARG NEXT_PUBLIC_WS_URL=wss://live.predictatrade.com/ws/v1
+ARG NEXT_PUBLIC_WS_URL=wss://platform.predictatrade.com/ws/v1/relay
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL

@@ -170,7 +170,7 @@ services:
         # Baked into the client bundle at build time (must match the public API origin).
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://api.predictatrade.com/api/v1}
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.predictatrade.com/api/v1}
-        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-wss://live.predictatrade.com/ws/v1}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-wss://platform.predictatrade.com/ws/v1/relay}
     container_name: pat-frontend
     env_file:
       - ./infra/env/frontend.env
