@@ -1,0 +1,15 @@
+{
+  "symbol": "XAUUSDT",
+  "strategy_id": "STANDARD_SCALPING",
+  "strategy_mode": "ptb",
+  "primary_timeframe": "M5",
+  "initial_balance": 10000.0,
+  "random_seed": 42,
+  "max_risk_per_trade": 0.02,
+  "max_daily_loss_percent": 2.0,
+  "min_rr": 1.0,
+  "trailing_stop_enabled": true,
+  "trailing_atr_multiplier": 2.0,
+  "break_even_enabled": true,
+  "conservative_sl_tp": true
+}

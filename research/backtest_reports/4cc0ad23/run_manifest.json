@@ -1,0 +1,79 @@
+{
+  "run_id": "4cc0ad23",
+  "symbol": "XAUUSDT",
+  "strategy": "STANDARD_SCALPING",
+  "strategy_mode": "ptb",
+  "timeframe": "M5",
+  "start_timestamp": "2025-01-01T00:00:00+00:00",
+  "end_timestamp": "2025-01-02T09:15:00+00:00",
+  "initial_balance": 10000.0,
+  "configuration": {
+    "symbol": "XAUUSDT",
+    "strategy_id": "STANDARD_SCALPING",
+    "strategy_mode": "ptb",
+    "primary_timeframe": "M5",
+    "initial_balance": 10000.0,
+    "random_seed": 42,
+    "max_risk_per_trade": 0.02,
+    "max_daily_loss_percent": 2.0,
+    "min_rr": 1.0,
+    "trailing_stop_enabled": true,
+    "trailing_atr_multiplier": 2.0,
+    "break_even_enabled": true,
+    "conservative_sl_tp": true
+  },
+  "random_seed": 42,
+  "execution_assumptions": {
+    "spread_model": "fixed",
+    "fixed_spread": 0.3,
+    "slippage_model": "fixed",
+    "fixed_slippage": 0.05,
+    "commission_per_lot": 7.0,
+    "latency_ms": 0,
+    "partial_fill_probability": 0.0,
+    "conservative_sl_tp": true
+  },
+  "spread_model": "fixed",
+  "slippage_model": "fixed",
+  "commission": 7.0,
+  "latency_assumptions": {
+    "latency_ms": 0
+  },
+  "partial_fill_assumptions": {
+    "probability": 0.0
+  },
+  "data_source": "UNKNOWN",
+  "data_hash": "",
+  "feature_version": "1.0",
+  "model_version": "1.0.0",
+  "git_commit_sha": "",
+  "application_version": "1.0.0",
+  "start_time": "2026-08-25T15:37:15.317093+00:00",
+  "completion_time": "2026-08-25T15:37:15.317106+00:00",
+  "status": "COMPLETED",
+  "metrics": {
+    "run_id": "4cc0ad23",
+    "status": "COMPLETED",
+    "bars_processed": 400,
+    "trades": 0,
+    "no_trade_decisions": 400,
+    "blocked_signals": 0,
+    "duration_seconds": 0.058533430099487305,
+    "initial_balance": 10000.0,
+    "final_balance": 10000.0,
+    "total_return_pct": 0.0,
+    "sharpe_ratio": 0.0,
+    "sortino_ratio": 0.0,
+    "max_drawdown_pct": 0.0,
+    "win_rate_pct": 0.0,
+    "profit_factor": 0.0,
+    "total_trades": 0
+  },
+  "artifact_locations": {
+    "summary": "backtest_reports/4cc0ad23/summary.json",
+    "equity": "backtest_reports/4cc0ad23/equity.csv",
+    "metrics": "backtest_reports/4cc0ad23/metrics.json",
+    "configuration": "backtest_reports/4cc0ad23/configuration.json",
+    "data_quality": "backtest_reports/4cc0ad23/data_quality.json"
+  }
+}
