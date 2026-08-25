@@ -1,5 +1,5 @@
 "use client";
-import { useState, Suspense, useRef, useEffect } from "react";
+import { useState, Suspense, useMemo } from "react";
 import Link from "next/link";
 import { customInstance } from "@/lib/axios-instance";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -26,17 +26,15 @@ function RegisterForm() {
   const [optInSms, setOptInSms] = useState(false);
   const [optInPhone, setOptInPhone] = useState(false);
 
-  const [passwordStrength, setPasswordStrength] = useState(0);
-
-  // Password strength calculation
-  useEffect(() => {
+  // Password strength calculation (memoized — no setState in effect)
+  const passwordStrength = useMemo(() => {
     let score = 0;
     if (password.length >= 8) score++;
     if (password.length >= 12) score++;
     if (/[A-Z]/.test(password)) score++;
     if (/[0-9]/.test(password)) score++;
     if (/[^A-Za-z0-9]/.test(password)) score++;
-    setPasswordStrength(score);
+    return score;
   }, [password]);
 
   const requiredConsents = agreeToTerms && acknowledgePrivacy && acknowledgeDataProcessing;

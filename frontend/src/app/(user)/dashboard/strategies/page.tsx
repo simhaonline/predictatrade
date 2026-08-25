@@ -73,7 +73,7 @@ export default function UserStrategiesPage() {
 
       <DegradedNote>
         Strategy preferences are now persisted via <strong>PATCH /subscriptions/strategies</strong>.
-        Selections are validated against your plan's allowed strategies and saved to the server.
+        Selections are validated against your plan&apos;s allowed strategies and saved to the server.
       </DegradedNote>
 
       <div className="flex items-center gap-3">

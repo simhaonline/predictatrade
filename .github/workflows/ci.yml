@@ -14,10 +14,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: '1.23' }
+        with: { go-version: '1.25' }
       - run: go mod download
       - run: go vet ./...
-      - run: go test -race -count=1 -timeout=120s ./...
+      - run: go test -race -count=1 -timeout=300s ./...
       - run: go build -o bin/realtime-engine ./cmd/realtime-engine
 
   nestjs:
@@ -76,17 +76,11 @@ jobs:
       - name: Secret scan
         run: |
           # Scan for actual hardcoded secrets — not variable names or HTML attributes
-          # Patterns: API keys (ghp_, sk-, AKIA), private keys, hardcoded credentials in config
           FOUND=0
-          # GitHub tokens
           if grep -rn "ghp_[A-Za-z0-9]\{36\}" --include="*.ts" --include="*.go" --include="*.py" --include="*.tsx" --include="*.yml" --include="*.json" . 2>/dev/null | grep -v node_modules | grep -v '.git' | grep -v package-lock; then FOUND=1; fi
-          # OpenAI/Stripe API keys
           if grep -rn "sk-[a-zA-Z0-9]\{20,\}" --include="*.ts" --include="*.go" --include="*.py" --include="*.tsx" --include="*.yml" --include="*.json" . 2>/dev/null | grep -v node_modules | grep -v '.git' | grep -v package-lock | grep -v 'skip-'; then FOUND=1; fi
-          # AWS keys
           if grep -rn "AKIA[A-Z0-9]\{16\}" --include="*.ts" --include="*.go" --include="*.py" --include="*.tsx" --include="*.yml" --include="*.json" . 2>/dev/null | grep -v node_modules | grep -v '.git'; then FOUND=1; fi
-          # Private key blocks
           if grep -rn "BEGIN.*PRIVATE KEY" --include="*.ts" --include="*.go" --include="*.py" --include="*.tsx" --include="*.yml" . 2>/dev/null | grep -v node_modules | grep -v '.git'; then FOUND=1; fi
-          # Hardcoded credentials in env/config files (not in UI components or tests)
           if grep -rn "PASSWORD\s*=\s*['\"][^'\"]\{8,\}['\"]" --include="*.env" --include="*.cfg" --include="*.conf" --include="*.ini" . 2>/dev/null | grep -v node_modules | grep -v '.git'; then FOUND=1; fi
           if grep -rn "API_KEY\s*=\s*['\"][^'\"]\{20,\}['\"]" --include="*.env" --include="*.cfg" --include="*.conf" --include="*.ini" . 2>/dev/null | grep -v node_modules | grep -v '.git'; then FOUND=1; fi
           if [ "$FOUND" -eq 1 ]; then

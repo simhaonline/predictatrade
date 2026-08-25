@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { customInstance } from "@/lib/axios-instance";
 import { useRouter } from "next/navigation";
@@ -15,12 +15,10 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [justRegistered, setJustRegistered] = useState(false);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("registered") === "1") setJustRegistered(true);
-  }, []);
+  const [justRegistered] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get("registered") === "1";
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
