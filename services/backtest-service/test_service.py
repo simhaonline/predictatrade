@@ -59,10 +59,31 @@ def client():
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "research", "src")))
     from fastapi.testclient import TestClient
     from main import app  # service module
-    return TestClient(app)
+    yield TestClient(app)
+    # Clean up seeded candles so other suites reading XAUUSDT M5 stay isolated.
+    c = psycopg2.connect(DB_URL)
+    try:
+        with c.cursor() as cur:
+            cur.execute("DELETE FROM market.candles WHERE symbol=%s AND timeframe=%s AND source=%s",
+                        (SYMBOL, TF, "PYTEST_SVC"))
+        c.commit()
+    finally:
+        c.close()
 
 
 def test_backtest_service_flow(client):
+    # actual time range of seeded candles (synthetic generator stamps recent dates)
+    c = psycopg2.connect(DB_URL)
+    try:
+        with c.cursor() as cur:
+            cur.execute("SELECT min(time), max(time) FROM market.candles "
+                        "WHERE symbol=%s AND timeframe=%s AND source=%s", (SYMBOL, TF, "PYTEST_SVC"))
+            lo, hi = cur.fetchone()
+    finally:
+        c.close()
+    start_s = lo.strftime("%Y-%m-%d")
+    end_s = hi.strftime("%Y-%m-%d")
+
     # 1) missing data path
     r = client.post("/backtest", json={"symbol": "NOPE", "strategy": "STANDARD_SCALPING",
                                         "timeframe": "M5", "start": "2024-01-01", "end": "2024-02-01"})
@@ -70,7 +91,8 @@ def test_backtest_service_flow(client):
 
     # 2) run on stored data
     r = client.post("/backtest", json={"symbol": SYMBOL, "strategy": "STANDARD_SCALPING",
-                                        "timeframe": TF, "start": "2024-01-01", "end": "2024-12-31",
+                                        "timeframe": TF, "start": start_s, "end": end_s,
+                                        "source": "PYTEST_SVC",
                                         "balance": 10000.0, "seed": 42})
     assert r.status_code == 200, r.text
     body = r.json()
@@ -90,3 +112,13 @@ def test_backtest_service_flow(client):
     r = client.get("/backtest", params={"symbol": SYMBOL})
     assert r.status_code == 200
     assert any(item["run_id"] == run_id for item in r.json())
+
+    # cleanup the run we created so trading.backtest_runs stays isolated
+    cc = psycopg2.connect(DB_URL)
+    try:
+        with cc.cursor() as cur:
+            cur.execute("DELETE FROM trading.backtest_artifacts WHERE run_id=%s", (run_id,))
+            cur.execute("DELETE FROM trading.backtest_runs WHERE run_id=%s", (run_id,))
+        cc.commit()
+    finally:
+        cc.close()

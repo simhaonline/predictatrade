@@ -140,6 +140,28 @@ services:
       timeout: 5s
       retries: 10
 
+  backtest:
+    build:
+      context: .
+      dockerfile: services/backtest-service/Dockerfile
+    container_name: pat-backtest
+    environment:
+      - BACKTEST_DB_URL=postgresql://pat_admin:pat_local_dev_only@postgres:5432/predictatrade?sslmode=disable
+      - PAT_RESEARCH_SRC=/app/research/src
+    ports:
+      - "8088:8088"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - pat-net
+    restart: always
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8088/health').status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
   frontend:
     build:
       context: ./frontend

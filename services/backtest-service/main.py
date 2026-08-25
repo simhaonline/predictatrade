@@ -55,6 +55,7 @@ class BacktestRequest(BaseModel):
     timeframe: str = "M5"
     start: Optional[str] = None
     end: Optional[str] = None
+    source: Optional[str] = None
     balance: float = 10000.0
     seed: int = 42
 
@@ -100,7 +101,7 @@ def run_backtest(req: BacktestRequest):
 
     start = _parse_dt(req.start)
     end = _parse_dt(req.end)
-    candles, meta = DataLoader.from_database(DB_URL, req.symbol, req.timeframe, start, end)
+    candles, meta = DataLoader.from_database(DB_URL, req.symbol, req.timeframe, start, end, req.source)
     if not candles:
         raise HTTPException(404,
             f"no candles in market.candles for {req.symbol} {req.timeframe} "

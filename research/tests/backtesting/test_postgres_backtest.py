@@ -70,7 +70,7 @@ def test_postgres_backtest_roundtrip():
     ])
 
     # 2) Load from TimescaleDB (the path a user triggers online).
-    candles, meta = DataLoader.from_database(DB_URL, SYMBOL, TIMEFRAME)
+    candles, meta = DataLoader.from_database(DB_URL, SYMBOL, TIMEFRAME, source=SOURCE)
     assert len(candles) == 400, f"expected 400 candles from DB, got {len(candles)}"
 
     # 3) Run backtest on stored data and persist the report.
