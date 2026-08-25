@@ -1,14 +1,18 @@
-import { Controller, Get, Post, Patch, Put, Param, Query, Body, UseGuards, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Put, Param, Query, Body, UseGuards, BadRequestException, Inject } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../common/guards/admin.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { InjectPool } from '../../common/database.module';
+import { DB_POOL } from '../../common/database.module';
+import { Pool } from 'pg';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AdminController {
-  constructor(private adminService: AdminService) {}
+  constructor(
+    private adminService: AdminService,
+    @Inject(DB_POOL) private pool: Pool,
+  ) {}
 
   @Get('overview')
   async overview() {
