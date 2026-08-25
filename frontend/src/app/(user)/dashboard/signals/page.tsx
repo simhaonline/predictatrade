@@ -2,6 +2,8 @@
 import { useQuery } from "@tanstack/react-query";
 import React from "react";
 import { customInstance } from "@/lib/axios-instance";
+import { visibleStrategies, type SubscriptionContext } from "@/lib/subscription-access";
+import { fetchLicenses } from "@/lib/user-licensing-api";
 import { format } from "date-fns";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { getGlobalWs, type WsMessage, type SignalEvent } from "@/lib/websocket";
@@ -70,6 +72,15 @@ export default function UserSignalsPage() {
   const [filterDirection, setFilterDirection] = useState("ALL");
   const [filterRegime, setFilterRegime] = useState("ALL");
 
+  // Fetch user's license to determine allowed strategies
+  const { data: licenses } = useQuery({
+    queryKey: ["user-licenses-signals"],
+    queryFn: async () => fetchLicenses(),
+  });
+  const userLicense = licenses?.[0];
+  const allowedStrategies: string[] = (userLicense as any)?.allowed_strategies || [];
+  const userPlan: string = (userLicense as any)?.plan || "FREE";
+
   const { data: signalsData, isLoading, error, refetch } = useQuery<{ signals: EngineSignal[] }>({
     queryKey: ["engine-signals-user"],
     queryFn: async () => {
@@ -92,7 +103,13 @@ export default function UserSignalsPage() {
   }, [ws]);
 
   const restSignals = signalsData?.signals ?? [];
-  const combinedSignals = liveSignals.length > 0 ? liveSignals : restSignals;
+  const allSignals = liveSignals.length > 0 ? liveSignals : restSignals;
+  // CRITICAL: Filter signals by user's subscription plan
+  // FREE users only see signals for strategies their plan includes
+  // This prevents showing premium signals to free users
+  const combinedSignals = allowedStrategies.length > 0
+    ? allSignals.filter(s => allowedStrategies.includes(s.StrategyID))
+    : []; // No license = no signals
 
   const regimes = useMemo(() => Array.from(new Set(combinedSignals.map((s) => s.Regime).filter(Boolean) as string[])), [combinedSignals]);
 

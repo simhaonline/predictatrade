@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
+import { fetchLicenses } from "@/lib/user-licensing-api";
 import { getGlobalWs, type WsMessage } from "@/lib/websocket";
 import { format } from "date-fns";
 
@@ -17,6 +18,13 @@ interface EngineSignal {
 
 export function SignalPipeline() {
   const [wsSignals, setWsSignals] = useState<EngineSignal[]>([]);
+
+  // Fetch user's license to filter signals by subscription plan
+  const { data: licenses } = useQuery({
+    queryKey: ["user-licenses-pipeline"],
+    queryFn: async () => fetchLicenses(),
+  });
+  const allowedStrategies: string[] = (licenses?.[0] as any)?.allowed_strategies || [];
   const wsBuffer = useRef<EngineSignal[]>([]);
   const ws = getGlobalWs();
 
@@ -48,7 +56,11 @@ export function SignalPipeline() {
   }, [ws]);
 
   const restSignals = (engineData?.signals ?? []).filter(s => s.Direction !== "NO-TRADE").slice(0, 10);
-  const displaySignals = wsSignals.length > 0 ? wsSignals : restSignals;
+  const allDisplaySignals = wsSignals.length > 0 ? wsSignals : restSignals;
+  // Filter by user's subscription — only show strategies their plan includes
+  const displaySignals = allowedStrategies.length > 0
+    ? allDisplaySignals.filter(s => allowedStrategies.includes(s.StrategyID))
+    : []; // No license = no signals
 
   const dirColor = (dir: string): string => {
     if (dir === "BUY") return "text-pat-success";
