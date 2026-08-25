@@ -169,6 +169,18 @@ func computeEntrySLTP(state *features.MarketState, direction types.Direction, cf
 	}
 	entry = state.CurrentPrice
 	atr := state.Indicators.ATR
+
+	// ─── PRIORITY: Check database exit profile (percentage mode) FIRST ───
+	// This is the authoritative SL/TP source. ATR multipliers are only a fallback.
+	exitProfile := LoadExitProfile(string(cfg.StrategyID))
+	if exitProfile != nil && exitProfile.CalculationMode == "PERCENTAGE" {
+		pSL, pTP1, pTP2, pTP3 := computePercentageSLTP(entry, direction, atr, exitProfile)
+		if !pSL.IsZero() {
+			return entry, pSL, pTP1, pTP2, pTP3
+		}
+	}
+
+	// Fallback: ATR multiplier mode (only used if no exit profile or percentage failed)
 	if direction == types.DirectionBuy {
 		sl = entry.Sub(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL)))
 		tp1 = entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP1)))
@@ -658,12 +670,6 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 	// Regime + session checks
 	result.ReasonCodes = append(result.ReasonCodes, checkRegimeSession(state, s.cfg)...)
 	if len(result.ReasonCodes) > 0 {
-		return result
-	}
-
-	// HARD FILTER: Block when ADX < 20 (ranging = no directional edge)
-	if !adxTrendFilter(state, 20.0) {
-		result.ReasonCodes = append(result.ReasonCodes, types.NoTradeReason("LOW_ADX_NO_TREND"))
 		return result
 	}
 

@@ -93,10 +93,21 @@ func BuildTradeGeometry(state *features.MarketState, direction types.Direction, 
 	// Restore original ATR
 	state.Indicators.ATR = originalATR
 
-	// If structural SL failed, fall back to ATR-based SL using our entry
+	// If structural SL failed, check exit profile FIRST, then ATR fallback
 	if sl.IsZero() {
+		exitProfile := LoadExitProfile(string(cfg.StrategyID))
+		if exitProfile != nil && exitProfile.CalculationMode == "PERCENTAGE" {
+			pSL, pTP1, pTP2, pTP3 := computePercentageSLTP(geo.Entry, direction, atr, exitProfile)
+			if !pSL.IsZero() {
+				geo.StopLoss = pSL
+				geo.TP1 = pTP1
+				geo.TP2 = pTP2
+				geo.TP3 = pTP3
+				return geo
+			}
+		}
+		// Final fallback: ATR multiplier mode
 		if direction == types.DirectionBuy {
-
 			sl = geo.Entry.Sub(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL)))
 			tp1 = geo.Entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP1)))
 			tp2 = geo.Entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2)))

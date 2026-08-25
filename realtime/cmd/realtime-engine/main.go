@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"flag"
 	"math"
@@ -201,34 +200,8 @@ func main() {
 	configPath := flag.String("config", "", "Path to config file")
 	flag.Parse()
 
-	// Initialize database connection for exit profile configuration
-	dbUrl := os.Getenv("DATABASE_URL")
-	if dbUrl == "" {
-		dbUrlBytes, err := os.ReadFile("/srv/predictatrade/xauusd/database_url.txt")
-		if err == nil {
-			dbUrl = strings.TrimSpace(string(dbUrlBytes))
-		}
-	}
-	if dbUrl != "" {
-		pool, err := sql.Open("pgx", dbUrl)
-		if err == nil {
-			pool.SetMaxOpenConns(5)
-			pool.SetMaxIdleConns(2)
-			// Verify connection with Ping
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			err = pool.PingContext(ctx)
-			cancel()
-			if err == nil {
-				strategy.InitExitProfileDB(pool)
-			strategy.ClearProfileCache() // force fresh load from DB
-				observability.Log.Info().Msg("Database connected for exit profile configuration")
-			} else {
-				observability.Log.Warn().Err(err).Msg("DB Ping failed — using fallback ATR multipliers")
-			}
-		} else {
-			observability.Log.Warn().Err(err).Msg("Failed to open DB — using fallback ATR multipliers")
-		}
-	}
+	// Exit profile DB will be initialized after persister is created below
+	// (using the persister's already-connected DB pool)
 	cfg := config.Default()
 	_ = configPath
 	if err := cfg.Validate(); err != nil {
@@ -317,6 +290,12 @@ func main() {
 	if cfg.DBURL != "" {
 		var err error
 		persister, err = marketdata.NewPersister(cfg.DBURL)
+		if err == nil && persister != nil {
+			// Use persister's DB pool for exit profile configuration
+			strategy.InitExitProfileDB(persister.GetDB())
+			strategy.ClearProfileCache()
+			observability.Log.Info().Msg("Database connected for exit profile configuration")
+		}
 		if err != nil {
 			log.Warn().Err(err).Msg("DB connection failed — running without persistence")
 			persister = nil

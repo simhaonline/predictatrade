@@ -109,8 +109,12 @@ func computePercentageSLTP(
 ) (sl, tp1, tp2, tp3 decimal.Decimal) {
 
 	if entry.IsZero() || cfg == nil {
+		log.Printf("[PCT_SLTP] entry=0 or cfg=nil — returning zeros")
 		return decimal.Zero, decimal.Zero, decimal.Zero, decimal.Zero
 	}
+
+	log.Printf("[PCT_SLTP] called: entry=%.2f mode=%s stop_pct=%.6f tp1_pct=%.6f min_atr=%.2f",
+		entry.InexactFloat64(), cfg.CalculationMode, cfg.StopPct, cfg.TP1Pct, cfg.MinStopATRMult)
 
 	if cfg.CalculationMode == "ATR" {
 		// Legacy ATR mode — use the old ATR multiplier approach
@@ -157,6 +161,11 @@ func computePercentageSLTP(
 		tp2 = entry.Sub(tp2Dist)
 		tp3 = entry.Sub(tp3Dist)
 	}
+
+	log.Printf("[PCT_SLTP] result: SL=%.2f TP1=%.2f SL_dist=%.2f TP1_dist=%.2f RR=%.2f",
+		sl.InexactFloat64(), tp1.InexactFloat64(),
+		slDist.InexactFloat64(), tp1Dist.InexactFloat64(),
+		tp1Dist.Div(slDist).InexactFloat64())
 
 	return sl, tp1, tp2, tp3
 }
