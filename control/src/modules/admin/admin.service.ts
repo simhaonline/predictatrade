@@ -329,10 +329,17 @@ export class AdminService {
     const id = licenseKey ? crypto.randomUUID() : crypto.randomUUID();
     const key = licenseKey || `PAT-${id.slice(0, 8).toUpperCase()}-${id.slice(9, 13).toUpperCase()}-${id.slice(14, 18).toUpperCase()}-${id.slice(19, 23).toUpperCase()}-${id.slice(24, 36).toUpperCase()}`;
 
+    // Copy allowed_strategies from the plan to the license
+    const planStrategies = await this.pool.query(
+      'SELECT allowed_strategies FROM control.plans WHERE id = $1',
+      [planId],
+    );
+    const allowedStrategies = planStrategies.rows[0]?.allowed_strategies || '[]';
+
     const r = await this.pool.query(
-      `INSERT INTO licensing.licenses (id, user_id, plan_id, status, license_key, issued_at, valid_from, max_devices, max_mt_accounts, created_by, created_at, updated_at)
-       VALUES ($1, $2, $3, 'ACTIVE', $4, now(), now(), 2, 2, $5, now(), now()) RETURNING *`,
-      [id, userId, planId, key, actorId],
+      `INSERT INTO licensing.licenses (id, user_id, plan_id, status, license_key, issued_at, valid_from, max_devices, max_mt_accounts, allowed_strategies, created_by, created_at, updated_at)
+       VALUES ($1, $2, $3, 'ACTIVE', $4, now(), now(), 2, 2, $5, $6, now(), now()) RETURNING *`,
+      [id, userId, planId, key, actorId, allowedStrategies],
     );
 
     // Audit the license assignment

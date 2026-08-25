@@ -1,10 +1,11 @@
-import { Controller, Post, Get, Body, Param, Query, Res, UseGuards, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Query, Res, UseGuards, HttpStatus, UnauthorizedException } from '@nestjs/common';
 import { Response } from 'express';
 import { BacktestService } from './backtest.service';
 import { RunBacktestDto } from './backtest.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../common/guards/admin.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import * as jwt from 'jsonwebtoken';
 
 @Controller('backtest')
 export class BacktestController {
@@ -43,9 +44,22 @@ export class BacktestController {
     return this.backtestService.runBacktest(dto, userId, isAdmin);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Get('runs/:runId/download')
-  async downloadRun(@Param('runId') runId: string, @Query('format') format: string, @Res() res: Response) {
+  async downloadRun(
+    @Param('runId') runId: string,
+    @Query('format') format: string,
+    @Query('token') token: string,
+    @Res() res: Response,
+  ) {
+    // Downloads are triggered via window.open() which cannot set an Authorization
+    // header, so the frontend passes the JWT as a ?token= query param. Validate it
+    // here instead of relying on JwtAuthGuard (which only reads the header).
+    try {
+      if (!token) throw new Error('missing token');
+      jwt.verify(token, process.env.JWT_SECRET || '');
+    } catch {
+      throw new UnauthorizedException('Invalid or missing token');
+    }
     if (format === 'csv') {
       const csv = await this.backtestService.getRunTradesCSV(runId);
       res.setHeader('Content-Type', 'text/csv');

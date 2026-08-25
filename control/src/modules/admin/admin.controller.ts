@@ -3,6 +3,7 @@ import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../common/guards/admin.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { InjectPool } from '../../common/database.module';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -60,6 +61,15 @@ export class AdminController {
   @Get('payouts/stats')
   async payoutStats() {
     return this.adminService.payoutStats();
+  }
+
+  @Get('plans')
+  async listPlans() {
+    const r = await this.pool.query(
+      'SELECT id, code, name, monthly_price, currency, allowed_strategies FROM control.plans WHERE code != $1 ORDER BY monthly_price ASC',
+      ['BASIC'],
+    );
+    return r.rows;
   }
 
   @Get('licenses')
