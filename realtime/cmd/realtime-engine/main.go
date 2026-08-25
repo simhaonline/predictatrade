@@ -213,6 +213,7 @@ func main() {
 			cancel()
 			if err == nil {
 				strategy.InitExitProfileDB(pool)
+			strategy.ClearProfileCache() // force fresh load from DB
 				observability.Log.Info().Msg("Database connected for exit profile configuration")
 			} else {
 				observability.Log.Warn().Err(err).Msg("DB Ping failed — using fallback ATR multipliers")
@@ -1012,9 +1013,9 @@ func main() {
 		_, err := persister.GetDB().ExecContext(ctxTR, `
 			INSERT INTO trading.trade_results
 				(signal_id, account_id, strategy_id, symbol, direction,
-				 broker_ticket, entry_price, exit_price, lot_size, pnl, close_reason, is_win, is_loss)
+				 broker_ticket, entry_price, exit_price, lot_size, pnl, close_reason, is_win, is_loss, trading_day)
 			VALUES ($1,$2,$3,'XAUUSD','',
-				 $4,$5,$6,$7,$8,$9,$10,$11)`,
+				 $4,$5,$6,$7,$8,$9,$10,$11,CURRENT_DATE)`,
 			signalID, "agent:"+agentID, tr.StrategyID,
 			fmt.Sprintf("%d", tr.Ticket), tr.Entry, tr.Exit, tr.Lot,
 			tr.RealizedPnL, reason, isWin, isLoss)
@@ -2859,7 +2860,7 @@ func registerGates(reg *gates.Registry, cfg *config.Config) *gates.PositionCapsG
 	reg.Register(&gates.DataQualityGate{})
 	reg.Register(&gates.SessionGate{})
 	reg.Register(&gates.NewsGate{})
-	reg.Register(&gates.SpreadGate{MaxSpreadAbsolute: 0.50, MaxSpreadToATR: 0.30})
+	reg.Register(&gates.SpreadGate{MaxSpreadAbsolute: 0.35, MaxSpreadToATR: 0.20})
 	// Phase 3: New precision gates
 	reg.Register(&gates.StopHuntFilterGate{MinDistanceATR: 1.5})
 	reg.Register(&gates.MinAbsoluteATRGate{MinATR: 2.0}) // Global minimum; per-strategy overrides via engine

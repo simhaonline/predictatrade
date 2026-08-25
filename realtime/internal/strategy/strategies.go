@@ -194,13 +194,19 @@ func computeEntrySLTP(state *features.MarketState, direction types.Direction, cf
 // (45%+) still generate meaningful scores.
 // Above threshold, the score is linearly mapped to [0, 1].
 func phi(x float64) float64 {
-	if x < 0.45 {
+	// Stricter phi: only boost signals above 55% of max evidence.
+	// Below 55%: zero (no inflation of weak signals).
+	// 55%-100%: linear boost from 0.55 to 1.0.
+	// This prevents mediocre signals (score 40-50) from being
+	// inflated above the trade threshold (60) and executing as
+	// low-confidence trades that tend to lose.
+	if x < 0.55 {
 		return 0
 	}
 	if x >= 1.0 {
 		return 1.0
 	}
-	return 0.45 + 0.55*(x-0.45)/0.55
+	return 0.55 + 0.45*(x-0.55)/0.45
 }
 
 // computeStructuralSLTP calculates SL using structural low + ATR buffer + spread adjustment.

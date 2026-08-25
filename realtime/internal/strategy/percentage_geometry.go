@@ -34,6 +34,13 @@ var (
 	dbPool          *sql.DB
 )
 
+// ClearProfileCache clears all cached exit profiles (call after DB updates).
+func ClearProfileCache() {
+	profileCacheMu.Lock()
+	defer profileCacheMu.Unlock()
+	profileCache = make(map[string]*ExitProfileConfig)
+}
+
 // InitExitProfileDB sets the database connection for loading exit profiles.
 func InitExitProfileDB(pool *sql.DB) {
 	dbPool = pool

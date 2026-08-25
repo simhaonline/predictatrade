@@ -34,33 +34,33 @@ func DefaultCandidateThresholds() map[types.StrategyID]CandidateThresholdConfig 
 	return map[types.StrategyID]CandidateThresholdConfig{
 		types.StrategyStandardScalping: {
 			StrategyID:        types.StrategyStandardScalping,
-			CandidateThreshold: 30,  // lowered from 40
-			TradeThreshold:    50,   // lowered from 65 — was unreachable
-			Version:           "1.1.0",
+			CandidateThreshold: 35,  // raised from 30
+			TradeThreshold:    60,   // raised from 50 — only high-confidence signals execute
+			Version:           "1.2.0",
 		},
 		types.StrategyUltraScalping: {
 			StrategyID:        types.StrategyUltraScalping,
-			CandidateThreshold: 30,  // lowered from 40
-			TradeThreshold:    50,   // lowered from 65 — was unreachable
-			Version:           "1.1.0",
+			CandidateThreshold: 35,  // raised from 30
+			TradeThreshold:    60,   // raised from 50 — only high-confidence signals execute
+			Version:           "1.2.0",
 		},
 		types.StrategyStandardSwing: {
 			StrategyID:        types.StrategyStandardSwing,
-			CandidateThreshold: 25,  // lowered from 35
-			TradeThreshold:    40,   // lowered from 55
-			Version:           "1.1.0",
+			CandidateThreshold: 30,  // raised from 25
+			TradeThreshold:    50,   // raised from 40 — only high-confidence signals execute
+			Version:           "1.2.0",
 		},
 		types.StrategyTrendSwing: {
 			StrategyID:        types.StrategyTrendSwing,
-			CandidateThreshold: 20,  // lowered from 30
-			TradeThreshold:    35,   // lowered from 50
-			Version:           "1.1.0",
+			CandidateThreshold: 25,  // raised from 20
+			TradeThreshold:    45,   // raised from 35 — only high-confidence signals execute
+			Version:           "1.2.0",
 		},
 		types.StrategyMarnieFib: {
 			StrategyID:        types.StrategyMarnieFib,
-			CandidateThreshold: 15,  // lowered from 25
-			TradeThreshold:    30,   // lowered from 40
-			Version:           "1.1.0",
+			CandidateThreshold: 20,  // raised from 15
+			TradeThreshold:    40,   // raised from 30 — only high-confidence signals execute
+			Version:           "1.2.0",
 		},
 	}
 }
