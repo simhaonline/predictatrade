@@ -109,6 +109,12 @@ func main() {
 	// Browser WebSocket → guarded proxy with mid-connection sweep
 	mux.HandleFunc("/ws", lt.handleWS)
 	mux.HandleFunc("/ws/v1", lt.handleWS)
+	// Windows Agent WebSocket → trusted internal traffic. Bypasses the
+	// anonymous preview guard entirely; the upstream engine authenticates
+	// the agent itself (prompt §65: never apply anonymous middleware to
+	// trusted service-to-service traffic).
+	mux.HandleFunc("/ws/v1/agent", lt.handleAgentWS)
+	mux.HandleFunc("/ws/agent", lt.handleAgentWS)
 	// Static terminal
 	mux.Handle("/", lt.staticHandler())
 
@@ -357,6 +363,14 @@ func (lt *liveTerminal) handleWS(w http.ResponseWriter, r *http.Request) {
 		tokenHash = d.Trial.TokenHash
 	}
 	lt.proxyWS(w, r, tokenHash)
+}
+
+// handleAgentWS tunnels the Windows Agent WebSocket to the upstream engine
+// without the anonymous preview guard. The agent is trusted internal traffic
+// authenticated by the engine; applying the public anonymous gate here would
+// break all agent connectivity (prompt §65).
+func (lt *liveTerminal) handleAgentWS(w http.ResponseWriter, r *http.Request) {
+	lt.proxyWS(w, r, "") // empty tokenHash → no anonymous sweep registration
 }
 
 // proxyWS dials the upstream engine and pipes frames both ways. The conn is

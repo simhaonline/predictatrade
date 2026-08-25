@@ -1290,6 +1290,7 @@ async function lpInit() {
   if (authToken) {
     LP.state = "AUTHENTICATED";
     lpPill().style.display = "none";
+    wsConnect(); // cookie/token already resolved above
     return true; // entitlement enforced server-side via Authorization header
   }
   let ok = false;
@@ -1299,13 +1300,15 @@ async function lpInit() {
     if (r.status === 403 || p.registration_required) { lpHandleStatusPayload(p); lpShowWall(p.code); return false; }
     lpHandleStatusPayload(p);
     ok = LP.state === "ANONYMOUS_ACTIVE" || LP.state === "DISABLED";
+    wsConnect(); // cookie now set by the /status response above
   } catch {
     // Fail-safe: cannot reach trial service → do NOT unlock data (§47).
     lpShowWall("LIVE_ACCESS_UNAVAILABLE");
     return false;
   }
-  return ok;
-  // Re-sync with the backend every 30s (never trust local elapsed time alone)
+  // Tick the countdown every second (presentation only — authority is server-side).
+  LP.tickTimer = setInterval(lpRenderCountdown, 1000);
+  // Re-sync with the backend every 30s (never trust local elapsed time alone).
   LP.pollTimer = setInterval(async () => {
     if (LP.state !== "ANONYMOUS_ACTIVE" && LP.state !== "ANONYMOUS_EXPIRING") return;
     try {
@@ -1315,7 +1318,7 @@ async function lpInit() {
       else if (p.trial_expires_at) LP.expiresAt = new Date(p.trial_expires_at).getTime();
     } catch {}
   }, 30000);
-  LP.tickTimer = setInterval(lpRenderCountdown, 1000);
+  return ok;
 }
 
 /* Wrap fetch so any protected-endpoint denial instantly locks the UI (§37/§38). */
@@ -1352,7 +1355,6 @@ lpInit().then((allowed) => {
   window.__pat_intervals.push(setInterval(pollSignals, 10000));
   pollSnapshot(); pollMarketState(); pollCandles(); pollEngines(); pollInfra(); pollNews(); pollSignals();
 });
-wsConnect();
 new ResizeObserver(() => chart.resize()).observe($("priceChart"));
 
 /* ── PWA service worker registration ── */
