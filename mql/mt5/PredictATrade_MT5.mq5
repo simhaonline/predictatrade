@@ -1291,10 +1291,174 @@ void ReadFromAgent()
                     HandleSignal(payload);
                 else if(msgType == "LICENSE_RESPONSE" || msgType == "LICENSE")
                     HandleLicenseResponse(payload);
+                else if(msgType == "CLOSE_POSITION")
+                    HandleClosePosition(payload);
+                else if(msgType == "EMERGENCY_STOP")
+                    HandleEmergencyStop(payload);
+                else if(msgType == "KILL_SWITCH")
+                    HandleKillSwitch(payload);
             }
             PAT_Clear(PAT_SIGNAL_FILE);
         }
     }
+}
+
+//+------------------------------------------------------------------+
+//| Server-side SL enforcement: CLOSE_POSITION command               |
+//| Closes a specific position by ticket or magic number              |
+//+------------------------------------------------------------------+
+void HandleClosePosition(string payload)
+{
+    int ticket = (int)ExtractJSONInt(payload, "ticket");
+    long magic = ExtractJSONLong(payload, "magic");
+    string reason = ExtractJSONString(payload, "reason");
+
+    Print("CLOSE_POSITION command from server: ticket=", ticket, " magic=", magic, " reason=", reason);
+
+    // Try to close by ticket first
+    if(ticket > 0)
+    {
+        if(PositionSelectByTicket(ticket))
+        {
+            if(trade.PositionClose(ticket))
+            {
+                Print("CLOSE_POSITION: ticket=", ticket, " closed successfully");
+                PAT_SetForcedReason(ticket, "SERVER_CLOSE_POSITION");
+                string ack = "CLOSE_ACK|{\"ticket\":"" + IntegerToString(ticket) +
+                             "",\"reason\":\"SERVER_CLOSE_POSITION\",\"status\":\"CLOSED\"}\n";
+                PAT_Append(PAT_TICK_FILE, ack);
+            }
+            else
+            {
+                Print("CLOSE_POSITION: FAILED to close ticket=", ticket, " err=", trade.ResultRetcode());
+            }
+            return;
+        }
+    }
+
+    // Fall back to closing by magic number
+    if(magic > 0)
+    {
+        int total = PositionsTotal();
+        for(int i = total - 1; i >= 0; i--)
+        {
+            ulong t = PositionGetTicket(i);
+            if(t == 0) continue;
+            if(PositionGetInteger(POSITION_MAGIC) == magic)
+            {
+                if(trade.PositionClose(t))
+                {
+                    Print("CLOSE_POSITION: magic=", magic, " ticket=", t, " closed");
+                    PAT_SetForcedReason(t, "SERVER_CLOSE_POSITION");
+                }
+            }
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Server-side emergency stop: close ALL PAT positions and halt     |
+//+------------------------------------------------------------------+
+void HandleEmergencyStop(string payload)
+{
+    string reason = ExtractJSONString(payload, "reason");
+    Print("*** EMERGENCY_STOP from server: reason=", reason, " — CLOSING ALL PAT POSITIONS ***");
+
+    // Close all PAT-managed positions
+    int total = PositionsTotal();
+    for(int i = total - 1; i >= 0; i--)
+    {
+        ulong ticket = PositionGetTicket(i);
+        if(ticket == 0) continue;
+        if(!PAT_IsPatMagic(PositionGetInteger(POSITION_MAGIC))) continue;
+
+        PAT_SetForcedReason(ticket, "SERVER_EMERGENCY_STOP");
+        if(trade.PositionClose(ticket))
+            Print("EMERGENCY_STOP: closed ticket=", ticket);
+        else
+            Print("EMERGENCY_STOP: FAILED to close ticket=", ticket, " err=", trade.ResultRetcode());
+    }
+
+    // Set halt flag
+    g_tradingStatus = "EMERGENCY_HALT";
+    GlobalVariableSet("PAT_EQUITY_HALT", 1);
+    g_equityHalted = true;
+
+    Print("*** EMERGENCY_STOP complete — trading HALTED until manual re-enable ***");
+}
+
+//+------------------------------------------------------------------+
+//| Server-side kill switch: close ALL and stop EA                   |
+//+------------------------------------------------------------------+
+void HandleKillSwitch(string payload)
+{
+    Print("*** KILL_SWITCH from server — CLOSING ALL POSITIONS AND STOPPING EA ***");
+
+    // Close all PAT-managed positions
+    int total = PositionsTotal();
+    for(int i = total - 1; i >= 0; i--)
+    {
+        ulong ticket = PositionGetTicket(i);
+        if(ticket == 0) continue;
+        if(!PAT_IsPatMagic(PositionGetInteger(POSITION_MAGIC))) continue;
+
+        PAT_SetForcedReason(ticket, "SERVER_KILL_SWITCH");
+        trade.PositionClose(ticket);
+    }
+
+    // Set halt and remove EA
+    g_tradingStatus = "KILL_SWITCH";
+    GlobalVariableSet("PAT_EQUITY_HALT", 1);
+    g_equityHalted = true;
+
+    // Report deinit
+    string deinitMsg = "DEINIT|{\"reason\":\"SERVER_KILL_SWITCH\",\"closed_positions\":true}\n";
+    PAT_Append(PAT_TICK_FILE, deinitMsg);
+
+    Print("*** KILL_SWITCH complete — EA stopped ***");
+    ExpertRemove();
+}
+
+//+------------------------------------------------------------------+
+//| Build position details JSON for MARKET_SNAPSHOT (server SL monitor)|
+//+------------------------------------------------------------------+
+string PAT_BuildPositionDetails()
+{
+    string details = "[";
+    bool first = true;
+    int total = PositionsTotal();
+    for(int i = 0; i < total; i++)
+    {
+        ulong ticket = PositionGetTicket(i);
+        if(ticket == 0) continue;
+        if(PositionGetString(POSITION_SYMBOL) != g_symbol) continue;
+
+        long magic = PositionGetInteger(POSITION_MAGIC);
+        if(!PAT_IsPatMagic(magic)) continue;
+
+        if(!first) details += ",";
+        first = false;
+
+        double sl = PositionGetDouble(POSITION_SL);
+        double tp = PositionGetDouble(POSITION_TP);
+        double vol = PositionGetDouble(POSITION_VOLUME);
+        double openPx = PositionGetDouble(POSITION_PRICE_OPEN);
+        double profit = PositionGetDouble(POSITION_PROFIT);
+        long ptype = PositionGetInteger(POSITION_TYPE);
+        string typeStr = (ptype == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+
+        details += "{\"ticket\":" + IntegerToString((long)ticket);
+        details += ",\"magic\":" + IntegerToString(magic);
+        details += ",\"type\":\"" + typeStr + "\"";
+        details += ",\"volume\":"" + DoubleToString(vol, 2) + """;
+        details += ",\"open_price\":"" + DoubleToString(openPx, _Digits) + """;
+        details += ",\"sl\":"" + DoubleToString(sl, _Digits) + """;
+        details += ",\"tp\":"" + DoubleToString(tp, _Digits) + """;
+        details += ",\"profit\":"" + DoubleToString(profit, 2) + """;
+        details += ",\"symbol\":\"" + g_symbol + ""}";
+    }
+    details += "]";
+    return details;
 }
 
 //+------------------------------------------------------------------+

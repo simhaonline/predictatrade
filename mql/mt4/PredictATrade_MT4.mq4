@@ -1466,10 +1466,165 @@ void ReadFromAgent()
                     HandleSignal(payload);
                 else if(msgType == "LICENSE_RESPONSE" || msgType == "LICENSE")
                     HandleLicenseResponse(payload);
+                else if(msgType == "CLOSE_POSITION")
+                    HandleClosePosition(payload);
+                else if(msgType == "EMERGENCY_STOP")
+                    HandleEmergencyStop(payload);
+                else if(msgType == "KILL_SWITCH")
+                    HandleKillSwitch(payload);
             }
         }
         pos = next + 1;
     }
+}
+
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Server-side SL enforcement: CLOSE_POSITION command               |
+//+------------------------------------------------------------------+
+void HandleClosePosition(string payload)
+{
+    int ticket = (int)ExtractJSONInt(payload, "ticket");
+    long magic = ExtractJSONLong(payload, "magic");
+    string reason = ExtractJSONString(payload, "reason");
+
+    Print("CLOSE_POSITION from server: ticket=", ticket, " magic=", magic, " reason=", reason);
+
+    if(ticket > 0)
+    {
+        if(OrderSelect(ticket, SELECT_BY_TICKET))
+        {
+            int type = OrderType();
+            bool isBuy = (type == OP_BUY);
+            double closePrice = isBuy ? MarketInfo(g_symbol, MODE_BID) : MarketInfo(g_symbol, MODE_ASK);
+            if(OrderClose(ticket, OrderLots(), closePrice, 10, clrRed))
+            {
+                Print("CLOSE_POSITION: ticket=", ticket, " closed");
+                PAT_SetForcedReason(ticket, "SERVER_CLOSE_POSITION");
+            }
+            else
+                Print("CLOSE_POSITION: FAILED ticket=", ticket, " err=", GetLastError());
+            return;
+        }
+    }
+
+    if(magic > 0)
+    {
+        int total = OrdersTotal();
+        for(int i = total - 1; i >= 0; i--)
+        {
+            if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+            {
+                if(OrderMagicNumber() == magic && OrderSymbol() == g_symbol)
+                {
+                    bool isBuy = (OrderType() == OP_BUY);
+                    double closePrice = isBuy ? MarketInfo(g_symbol, MODE_BID) : MarketInfo(g_symbol, MODE_ASK);
+                    PAT_SetForcedReason(OrderTicket(), "SERVER_CLOSE_POSITION");
+                    OrderClose(OrderTicket(), OrderLots(), closePrice, 10, clrRed);
+                }
+            }
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Server-side emergency stop: close ALL PAT positions and halt     |
+//+------------------------------------------------------------------+
+void HandleEmergencyStop(string payload)
+{
+    string reason = ExtractJSONString(payload, "reason");
+    Print("*** EMERGENCY_STOP from server: reason=", reason, " — CLOSING ALL ***");
+
+    int total = OrdersTotal();
+    for(int i = total - 1; i >= 0; i--)
+    {
+        if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+        {
+            if(PAT_IsPatMagic(OrderMagicNumber()) && OrderSymbol() == g_symbol)
+            {
+                bool isBuy = (OrderType() == OP_BUY);
+                double closePrice = isBuy ? MarketInfo(g_symbol, MODE_BID) : MarketInfo(g_symbol, MODE_ASK);
+                PAT_SetForcedReason(OrderTicket(), "SERVER_EMERGENCY_STOP");
+                OrderClose(OrderTicket(), OrderLots(), closePrice, 10, clrRed);
+            }
+        }
+    }
+
+    g_tradingStatus = "EMERGENCY_HALT";
+    GlobalVariableSet("PAT_EQUITY_HALT", 1);
+    g_equityHalted = true;
+    Print("*** EMERGENCY_STOP complete — trading HALTED ***");
+}
+
+//+------------------------------------------------------------------+
+//| Server-side kill switch: close ALL and stop EA                   |
+//+------------------------------------------------------------------+
+void HandleKillSwitch(string payload)
+{
+    Print("*** KILL_SWITCH from server — CLOSING ALL AND STOPPING EA ***");
+
+    int total = OrdersTotal();
+    for(int i = total - 1; i >= 0; i--)
+    {
+        if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+        {
+            if(PAT_IsPatMagic(OrderMagicNumber()) && OrderSymbol() == g_symbol)
+            {
+                bool isBuy = (OrderType() == OP_BUY);
+                double closePrice = isBuy ? MarketInfo(g_symbol, MODE_BID) : MarketInfo(g_symbol, MODE_ASK);
+                PAT_SetForcedReason(OrderTicket(), "SERVER_KILL_SWITCH");
+                OrderClose(OrderTicket(), OrderLots(), closePrice, 10, clrRed);
+            }
+        }
+    }
+
+    g_tradingStatus = "KILL_SWITCH";
+    GlobalVariableSet("PAT_EQUITY_HALT", 1);
+    g_equityHalted = true;
+
+    string deinitMsg = "DEINIT|{\"reason\":\"SERVER_KILL_SWITCH\"}\n";
+    PAT_Append(PAT_TICK_FILE, deinitMsg);
+    Print("*** KILL_SWITCH complete — EA stopped ***");
+    ExpertRemove();
+}
+
+//+------------------------------------------------------------------+
+//| Build position details JSON for MARKET_SNAPSHOT (server SL monitor)|
+//+------------------------------------------------------------------+
+string PAT_BuildPositionDetails()
+{
+    string details = "[";
+    bool first = true;
+    int total = OrdersTotal();
+    for(int i = 0; i < total; i++)
+    {
+        if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+        if(OrderSymbol() != g_symbol) continue;
+        if(!PAT_IsPatMagic(OrderMagicNumber())) continue;
+
+        if(!first) details += ",";
+        first = false;
+
+        double sl = OrderStopLoss();
+        double tp = OrderTakeProfit();
+        double vol = OrderLots();
+        double openPx = OrderOpenPrice();
+        double profit = OrderProfit();
+        bool isBuy = (OrderType() == OP_BUY);
+        string typeStr = isBuy ? "BUY" : "SELL";
+
+        details += "{\"ticket\":" + IntegerToString(OrderTicket());
+        details += ",\"magic\":" + IntegerToString(OrderMagicNumber());
+        details += ",\"type\":\"" + typeStr + "\"";
+        details += ",\"volume\":"" + DoubleToString(vol, 2) + """;
+        details += ",\"open_price\":"" + DoubleToString(openPx, Digits) + """;
+        details += ",\"sl\":"" + DoubleToString(sl, Digits) + """;
+        details += ",\"tp\":"" + DoubleToString(tp, Digits) + """;
+        details += ",\"profit\":"" + DoubleToString(profit, 2) + """;
+        details += ",\"symbol\":\"" + g_symbol + ""}";
+    }
+    details += "]";
+    return details;
 }
 
 //+------------------------------------------------------------------+
