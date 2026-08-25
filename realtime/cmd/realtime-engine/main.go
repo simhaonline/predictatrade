@@ -1385,6 +1385,7 @@ func main() {
 
 	// Main processing loop
 	go func() {
+  defer func() { if r := recover(); r != nil { observability.Log.Error().Interface("panic", r).Msg("Recovered from panic in main loop — continuing") } }()
 		tickChan := provider.Stream()
 		candleChan := aggregator.CandleChannel()
 
@@ -1416,7 +1417,7 @@ func main() {
 				if isAgentProvider && agentProvider != nil {
 					snap := agentProvider.GetLastSnapshot()
 					if snap != nil {
-						if ms, ok := snap.(*marketdata.MarketSnapshot); ok {
+						if ms, ok := snap.(*marketdata.MarketSnapshot); ok && ms != nil {
 							stateMgr.Update(normalizeXAUUSD(ms.Symbol), func(s *features.MarketState) {
 								ind := ms.Indicators
 								s.Indicators.ATR = decimal.NewFromFloat(ind.ATR)
