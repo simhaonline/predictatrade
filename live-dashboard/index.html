@@ -506,6 +506,18 @@ function updatePipeline() {
         <div class="mtf-timeframe-grid" id="mtfGridCells"></div>
         <div style="font-size:8px;font-weight:800;color:var(--text-dim);margin:4px 0 3px;font-family:var(--mono)">OBSERVED SYSTEM CHECKS</div>
         <div class="gates-list" id="hardGatesList"></div>
+        
+        <!-- ATR / Volatility chart -->
+        <div style="margin-top:6px;flex-shrink:0">
+          <div style="font-size:7px;font-weight:800;color:var(--text-dim);margin-bottom:1px;font-family:var(--mono);letter-spacing:.4px">ATR · VOLATILITY (M5)</div>
+          <div id="atrChart" style="width:100%;height:65px;min-height:65px"></div>
+        </div>
+        
+        <!-- Session Activity Heatmap -->
+        <div style="margin-top:3px;flex-shrink:0">
+          <div style="font-size:7px;font-weight:800;color:var(--text-dim);margin-bottom:1px;font-family:var(--mono);letter-spacing:.4px">SESSION ACTIVITY</div>
+          <div id="sessionChart" style="width:100%;height:55px;min-height:55px"></div>
+        </div>
       </div>
     </section>
 
@@ -874,6 +886,8 @@ function renderIndicators() {
     return `<div class="neural-ind-cell"><span>${label}</span><span class="${cls}">${fmt(v, d)}</span></div>`;
   }).join("");
   $("neuralFeed").textContent = "FEED " + Object.keys(ind).length + " IND";
+  // Update ATR chart
+  if (ind.atr) updateAtrChart(num(ind.atr));
 }
 
 function renderEngines() {
@@ -1185,6 +1199,81 @@ function updateSpreadChart(spread) {
   spreadChart.setOption({
     xAxis: { data: spreadHistory.map(() => "") },
     series: [{ data: spreadHistory.slice() }]
+  });
+}
+
+/* ── ATR / Volatility Chart ── */
+let atrChart = null;
+let atrHistory = [];
+function initAtrChart() {
+  const el = $("atrChart");
+  if (!el || typeof echarts === "undefined") return;
+  if (el.offsetWidth < 10) return;
+  if (atrChart) { try { atrChart.dispose(); } catch {} }
+  atrChart = echarts.init(el, null, { renderer: "canvas" });
+  atrChart.setOption({
+    grid: { left: 22, right: 5, top: 4, bottom: 14 },
+    xAxis: { type: "category", show: false, data: [] },
+    yAxis: { type: "value", axisLabel: { color: "#6c707a", fontSize: 6 }, splitLine: { lineStyle: { color: "rgba(42,53,72,.2)" } } },
+    series: [{
+      type: "line", data: [], smooth: true, symbol: "none",
+      lineStyle: { color: "#e91e63", width: 1.5 },
+      areaStyle: { color: "rgba(233,30,99,.1)" }
+    }]
+  });
+}
+function updateAtrChart(atr) {
+  if (!atrChart) { initAtrChart(); if (!atrChart) return; }
+  if (atr <= 0) return;
+  atrHistory.push(atr);
+  if (atrHistory.length > 40) atrHistory.shift();
+  atrChart.setOption({
+    xAxis: { data: atrHistory.map(() => "") },
+    series: [{ data: atrHistory.slice() }]
+  });
+}
+
+/* ── Session Activity Chart ── */
+let sessionChart = null;
+function initSessionChart() {
+  const el = $("sessionChart");
+  if (!el || typeof echarts === "undefined") return;
+  if (el.offsetWidth < 10) return;
+  if (sessionChart) { try { sessionChart.dispose(); } catch {} }
+  sessionChart = echarts.init(el, null, { renderer: "canvas" });
+  // Show 24-hour session bars: Sydney, Tokyo, London, NY
+  const hours = [];
+  for (let h = 0; h < 24; h++) hours.push(h + ":00");
+  // Session activity model (typical XAUUSD volume by hour UTC)
+  const activity = [
+    20,15,12,10,8,8,10,15,25,35,50,65,80,90,85,75,70,60,45,35,30,28,25,22
+  ];
+  sessionChart.setOption({
+    grid: { left: 22, right: 5, top: 4, bottom: 14 },
+    xAxis: { type: "category", data: hours, axisLabel: { color: "#6c707a", fontSize: 5, interval: 2 } },
+    yAxis: { type: "value", show: false },
+    series: [{
+      type: "bar", data: activity, barWidth: "70%",
+      itemStyle: {
+        color: function(p) {
+          const h = p.dataIndex;
+          // London/NY overlap = highest activity (12-17 UTC)
+          if (h >= 12 && h <= 17) return "rgba(0,200,83,.5)";
+          // London only (8-11)
+          if (h >= 8 && h <= 11) return "rgba(33,150,243,.4)";
+          // NY only (18-21)
+          if (h >= 18 && h <= 21) return "rgba(255,152,0,.4)";
+          // Tokyo (0-7)
+          if (h >= 0 && h <= 7) return "rgba(156,39,176,.3)";
+          return "rgba(100,100,100,.2)";
+        }
+      },
+      markLine: {
+        silent: true,
+        lineStyle: { color: "#f59e0b", type: "solid", width: 1 },
+        data: [{ xAxis: new Date().getUTCHours() + ":00" }]
+      }
+    }]
   });
 }
 
@@ -1663,9 +1752,9 @@ lpInit().then((allowed) => {
 });
 
 // Initialize all sub-charts — ALWAYS, regardless of auth/trial status
-setTimeout(() => { initVolLiqChart(); initRsiChart(); initMacdChart(); initSpreadChart(); }, 1500);
-setTimeout(() => { initVolLiqChart(); initRsiChart(); initMacdChart(); initSpreadChart(); }, 3000);
-setTimeout(() => { initVolLiqChart(); initRsiChart(); initMacdChart(); initSpreadChart(); }, 5000);
+setTimeout(() => { initVolLiqChart(); initRsiChart(); initMacdChart(); initSpreadChart(); initAtrChart(); initSessionChart(); }, 1500);
+setTimeout(() => { initVolLiqChart(); initRsiChart(); initMacdChart(); initSpreadChart(); initAtrChart(); initSessionChart(); }, 3000);
+setTimeout(() => { initVolLiqChart(); initRsiChart(); initMacdChart(); initSpreadChart(); initAtrChart(); initSessionChart(); }, 5000);
 
 // Resize vol/liquidity chart when window resizes
 window.addEventListener("resize", () => {
@@ -1673,6 +1762,8 @@ window.addEventListener("resize", () => {
   if (rsiChart) { try { rsiChart.resize(); } catch {} }
   if (macdChart) { try { macdChart.resize(); } catch {} }
   if (spreadChart) { try { spreadChart.resize(); } catch {} }
+  if (atrChart) { try { atrChart.resize(); } catch {} }
+  if (sessionChart) { try { sessionChart.resize(); } catch {} }
 });
 new ResizeObserver(() => chart.resize()).observe($("priceChart"));
 
