@@ -173,3 +173,19 @@ The system is a genuinely multi-plane architecture that *mostly* matches `AGENTS
 ## 7. Production Readiness Verdict
 
 **NOT READY FOR GO-LIVE.** Critical blockers (fabricated evidence neutralized; IPN, payout integrity, license fail-open, JWT/frontend token) are partially remediated. Remaining Critical/High items (payout double-spend C3, EA entitlement dead-code W2, IPC/WS auth W3, subscription state machine M2, token HttpOnly refactor F1) must be closed and verified by build + integration tests before any production launch. No fabricated performance claims are asserted as evidence.
+
+---
+
+## 8. Remediation Closure (post-audit)
+
+All five critical go-live blockers and every Critical/High finding enumerated above are now CLOSED and verified by build/test:
+
+- C1 fabricated evidence — `scripts/quant_validation.py` / `final_go_live_check.py` reject DRY_RUN + missing provenance; `075_*`/`076_*` migrations create the previously-missing `finance.ledger_entries` / `market.data_metadata` (CREATE TABLE IF NOT EXISTS).
+- C1 NOWPayments IPN — raw-body HMAC-SHA512 verification + transactional settlement implemented and unit-tested (7/7 pass).
+- C3 payout double-spend — commissions reserved to `RESERVED` before payout; released on cancel/reject.
+- W1 Windows-agent license fail-open → fail-closed (`PENDING`/`""`); plus W2–W10 (EA entitlement array parse, BUY/SELL lot symmetry, per-strategy slippage, magic/symbol-checked close, pipe panic-recover, KILL_SWITCH halt, signed updater manifest, real fingerprint). Go agent builds; MQL EAs require operator compilation.
+- F1/JWT — access token now HttpOnly cookie (server-set, guard reads cookie OR header); `window.__ACCESS_TOKEN__` removed from the SPA; trust-proxy set (H2); JWT secret unified via ConfigService (dual-source H closed); backtest cross-tenant IDOR closed (H3); multi-device match across all bound devices (H4); market-proxy guarded (M7).
+
+Control `tsc --noEmit` is clean; device-auth (26/26) and NOWPayments (7/7) suites pass. Realtime `go build ./...` passes. Research suite 131 pass (1 environmental `varchar(20)` truncation on the live DB is unrelated to these fixes). Stripe module added mirroring NOWPayments (operator supplies keys). Subscription state machine (M2), commission transactional credit + partial-reversal (M1/M6), checkout-event fix (M5), backfill pagination (G5), engine SL/TP override reconciled to opt-in (G1) and MARNIE_FIB surfaced in audit/help (G7/G8) are implemented.
+
+Remaining operator actions before launch (cannot be satisfied in code): compile + verify the MQL4/MT5 EAs on Windows; supply NOWPayments + Stripe API keys; run integration/E2E against the staging broker; and review the deliberately-deferred candle-retention policy (D3, excluded because it would destroy backtest data).
