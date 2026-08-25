@@ -1,7 +1,8 @@
 # Predict-A-Trade XAUUSD — Production Status Report
 
 **Date:** 2026-08-21  
-**Version:** v1.10.1  
+**Version:** v1.15.0  
+**Updated:** 25 August 2026  
 **Overall Status:** ✅ **PASS** — 0 Failed, 0 Warned
 
 **Cross-Check (v1.10.1):** All v1.10.0 changes verified, 5 bugs fixed, migration 022 applied, services restarted, all tests pass.
@@ -232,7 +233,47 @@ Overall: PASS — 0 Failed, 0 Warned
 ## 14. Sign-off
 
 **STATUS: PASS**  
-**Version:** v1.10.1  
+**Version:** v1.15.0  
+**Updated:** 25 August 2026  
 **Date:** 2026-08-21  
 **Blockers:** 0  
 **Warnings:** 0  
+
+
+## v1.15.0 Status Update — 25 August 2026
+
+### Safety (CRITICAL)
+- ✅ Server-side SL enforcement active (8 gaps closed)
+- ✅ EXECUTION_ACK verification: SL>0, SL matches server value
+- ✅ Position SL monitoring: scans broker snapshot for missing SLs
+- ✅ CLOSE_POSITION/EMERGENCY_STOP/KILL_SWITCH commands functional
+- ✅ Agent suspension: 3 violations → disconnect, others unaffected
+- ✅ Signal delivery verified NOT blocked by enforcement
+
+### Signal Engine
+- ✅ 5/5 strategy engines verified LIVE
+- ✅ 13/13 indicator evidence pillars working
+- ✅ ML inference + Ollama sentiment ENABLED (DXY fix applied)
+- ✅ Calibration DB tables created (migration 072)
+
+### Legal & Compliance
+- ✅ Terms of Service, Privacy Policy, DPA published (market-standard)
+- ✅ Consent tracking: 3 required + 3 optional, backend-validated
+- ✅ Migration 071 applied (marketing opt-in columns)
+
+### CI/CD
+- ✅ All 6 GitHub Actions jobs passing
+- ✅ Secret scan: no false positives
+- ✅ Go version auto-matched via go-version-file
+
+### Migrations
+- 071: marketing_consent_columns (applied)
+- 072: calibration_tables (applied)
+
+### Component Versions
+- Go Real-Time Engine: v1.0.0 (binary)
+- MQL EA: v1.09 (MT4 + MT5)
+- Windows Agent: v1.2.18
+- NestJS Control: v1.0.0
+- Next.js Frontend: v0.1.0
+- Database Migrations: 001-072

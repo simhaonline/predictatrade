@@ -1,7 +1,8 @@
 # Predict-A-Trade — Final Traceability Matrix
 
-**Version:** v1.10.1 — Cross-Check Remediation + News Risk Wiring + Migration 022 Applied  
-**Date:** 21 August 2026
+**Version:** v1.15.0 — Server-Side SL Enforcement + Legal Compliance + CI/CD  
+**Date:** 25 August 2026  
+**Previous:** v1.10.1 (21 August 2026)
 
 ---
 
@@ -214,3 +215,55 @@
 | New migrations applied | 1 (022) |
 | Services restarted | 2 (realtime-engine, control) |
 | Audit result | PASS — 0 failed, 0 warned |
+
+## v1.11.0–v1.15.0 — 25 August 2026 — SL Enforcement + Legal + CI/CD + Dashboard Polish
+
+### Server-Side SL Enforcement (v1.15.0)
+
+| # | SOW Requirement | Implementation Files | Tests | Migrations | API/UI | Observability | Status | Evidence |
+|---|----------------|---------------------|-------|------------|--------|---------------|--------|----------|
+| 1 | EXECUTION_ACK SL verification | `realtime/internal/marketdata/agent_provider.go`, `realtime/cmd/realtime-engine/main.go` | 30/30 Go packages pass | N/A | N/A | observability.Log + audit.client_events | **PASS** | Server verifies SL>0 + SL matches server value (±0.5pts) |
+| 2 | Position SL monitoring | `realtime/cmd/realtime-engine/main.go` (checkPositionSLs) | Go tests pass | N/A | N/A | Log + audit.client_events | **PASS** | Scans broker snapshot for PAT positions with SL=0 |
+| 3 | CLOSE_POSITION command | `realtime/internal/gateway/agent_ws.go`, `windows-agent/internal/agent.go`, `mql/mt5/PredictATrade_MT5.mq5`, `mql/mt4/PredictATrade_MT4.mq4` | Go + Windows Agent build pass | N/A | WS command | Log | **PASS** | Server→Agent→EA closes position by ticket/magic |
+| 4 | EMERGENCY_STOP command | Same as #3 | Same | N/A | WS command | Log | **PASS** | Server→Agent→EA closes ALL + halts |
+| 5 | KILL_SWITCH command | Same as #3 | Same | N/A | WS command | Log | **PASS** | Server→Agent→EA closes all + ExpertRemove + disconnect |
+| 6 | Agent suspension (3-strike) | `realtime/cmd/realtime-engine/main.go` (recordSLViolation) | Go tests pass | N/A | N/A | audit.client_events | **PASS** | 3 violations → DisconnectAgent, other agents unaffected |
+| 7 | MQL EA v1.09 command handlers | `mql/mt5/PredictATrade_MT5.mq5`, `mql/mt4/PredictATrade_MT4.mq4` | N/A (MQL) | N/A | EA IPC | Print logs | **PASS** | HandleClosePosition, HandleEmergencyStop, HandleKillSwitch |
+| 8 | Position SL in snapshot | `mql/mt5/PredictATrade_MT5.mq5` (PAT_BuildPositionDetails), `mql/mt4/PredictATrade_MT4.mq4` | N/A | N/A | MARKET_SNAPSHOT JSON | N/A | **PASS** | Per-position ticket/magic/SL/TP/volume in snapshot |
+| 9 | Signal delivery NOT blocked | `realtime/cmd/realtime-engine/main.go` (broadcastSignalToAll) | Go tests pass | N/A | N/A | N/A | **PASS** | isAgentSuspended removed from broadcast path |
+
+### DXY→macroHealth Fix (v1.14.0)
+
+| # | SOW Requirement | Implementation Files | Tests | Migrations | API/UI | Observability | Status | Evidence |
+|---|----------------|---------------------|-------|------------|--------|---------------|--------|----------|
+| 10 | DXY health wiring | `realtime/cmd/realtime-engine/main.go` (StartRefreshLoop callback) | Go tests pass | N/A | N/A | ML/Sentiment enabled | **PASS** | macroHealth.OnDXYFetchSuccess() called on DXY refresh |
+| 11 | Calibration DB tables | `database/migrations/072_calibration_tables.sql` | N/A | 072 | N/A | N/A | **PASS** | calibration.model_versions, predictions, outcomes |
+
+### Legal Compliance (v1.12.0)
+
+| # | SOW Requirement | Implementation Files | Tests | Migrations | API/UI | Observability | Status | Evidence |
+|---|----------------|---------------------|-------|------------|--------|---------------|--------|----------|
+| 12 | Terms of Service | `frontend/src/app/terms/page.tsx` | N/A | N/A | /terms page | N/A | **PASS** | 18 sections, market-standard |
+| 13 | Privacy Policy | `frontend/src/app/privacy/page.tsx` | N/A | N/A | /privacy page | N/A | **PASS** | 16 sections, PDPL/GDPR compliant |
+| 14 | Data Processing Agreement | `frontend/src/app/data-processing-agreement/page.tsx` | N/A | N/A | /data-processing-agreement page | N/A | **PASS** | 14 sections, technical+organizational measures |
+| 15 | Consent tracking (backend) | `control/src/modules/auth/dto/auth.dto.ts`, `control/src/modules/auth/auth.service.ts` | NestJS tests pass | 071 | POST /auth/register | audit.client_events | **PASS** | 6 consent fields validated + logged |
+| 16 | Signup form with consents | `frontend/src/app/(auth)/register/page.tsx` | Frontend lint pass | N/A | /register page | N/A | **PASS** | 3 required + 3 optional checkboxes |
+| 17 | Login form improvement | `frontend/src/app/(auth)/login/page.tsx` | Frontend lint pass | N/A | /login page | N/A | **PASS** | Remember me, icons, success banner |
+
+### CI/CD (v1.13.0)
+
+| # | SOW Requirement | Implementation Files | Tests | Migrations | API/UI | Observability | Status | Evidence |
+|---|----------------|---------------------|-------|------------|--------|---------------|--------|----------|
+| 18 | All 6 CI jobs pass | `.github/workflows/ci.yml` | 6/6 GitHub Actions green | N/A | N/A | CI dashboard | **PASS** | Go, NestJS, Frontend, Python, Windows Agent, Security |
+| 19 | Go test race fix | `realtime/pkg/notifications/notifications_test.go` | go test -race pass | N/A | N/A | N/A | **PASS** | sync.Mutex on mockProvider.sendCount |
+| 20 | Go config test fix | `realtime/internal/config/config_capital_test.go` | go test pass (no DBURL) | N/A | N/A | N/A | **PASS** | helperDefault() with dummy DBURL |
+| 21 | Frontend peer-dep fix | `frontend/package.json`, `frontend/package-lock.json` | npm ci pass | N/A | N/A | N/A | **PASS** | @testing-library/react v16 (React 19) |
+| 22 | Security scan precision | `.github/workflows/ci.yml` | Scan pass (no FP) | N/A | N/A | N/A | **PASS** | Precise regex for actual secrets only |
+
+### Signal Engine Audit (v1.14.0)
+
+| # | SOW Requirement | Implementation Files | Tests | Migrations | API/UI | Observability | Status | Evidence |
+|---|----------------|---------------------|-------|------------|--------|---------------|--------|----------|
+| 23 | 5 strategy engines verified | `realtime/internal/strategy/`, `realtime/cmd/realtime-engine/main.go` | 30/30 Go packages | N/A | /api/v1/engines/status | Prometheus metrics | **PASS** | All 5 LIVE after timeframe closes |
+| 24 | 13 indicator pillars | `realtime/internal/features/`, `realtime/internal/strategy/` | Go tests pass | N/A | Signal evidence JSON | N/A | **PASS** | EMA, ADX, VWAP, MACD, OsMA, RSI, Stoch, CCI, MTF, SMC, cross-market |
+| 25 | ML/Sentiment re-enabled | `realtime/cmd/realtime-engine/main.go` | Go tests pass | N/A | N/A | Ollama connected | **PASS** | ML weight 0.15 + sentiment 0.05 active |

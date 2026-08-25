@@ -166,3 +166,31 @@ Goroutines:  230 via pprof (< 2000)
 ### Decision: GO
 
 All critical checks pass. All warnings cleared. The system is production-ready.
+
+
+## v1.15.0 Update — 25 August 2026 — CONDITIONAL GO (improved)
+
+### New Pass Items
+- ✅ Server-side SL enforcement: 8 gaps closed, backend is enforcement authority
+- ✅ EXECUTION_ACK SL verification + position SL monitoring + CLOSE_POSITION/EMERGENCY_STOP/KILL_SWITCH
+- ✅ Agent suspension (3-strike disconnect) — signal delivery NOT blocked
+- ✅ MQL EA v1.09 + Windows Agent v1.2.18 with server command handlers
+- ✅ DXY→macroHealth wiring fix — ML/Sentiment re-enabled
+- ✅ Calibration DB tables (migration 072)
+- ✅ Legal compliance: Terms, Privacy, DPA + consent tracking (migration 071)
+- ✅ CI/CD: All 6 GitHub Actions jobs passing
+
+### Updated Test Results
+- Go: 30/30 packages pass (race + non-race)
+- Frontend: 0 lint errors, TypeScript passes, build passes
+- NestJS: lint passes, tests pass, build passes
+- Python: tests pass
+- Windows Agent: cross-compile passes
+- Security scan: passes (no false positives)
+
+### Remaining for Full GO
+- Production payment provider activation (NowPayments configured, needs live API key)
+- Live broker execution qualification (MT4/MT5 connected but live trading not authorized)
+- Calibration models need OOS validation (PROVISIONAL defaults active, DB tables ready)
+- Production security penetration testing
+- Full persona acceptance tests (admin, user, viewer roles)
