@@ -1424,13 +1424,10 @@ string PAT_BuildPositionDetails()
         ulong ticket = PositionGetTicket(i);
         if(ticket == 0) continue;
         if(PositionGetString(POSITION_SYMBOL) != g_symbol) continue;
-
         long magic = PositionGetInteger(POSITION_MAGIC);
         if(!PAT_IsPatMagic(magic)) continue;
-
         if(!first) details += ",";
         first = false;
-
         double sl = PositionGetDouble(POSITION_SL);
         double tp = PositionGetDouble(POSITION_TP);
         double vol = PositionGetDouble(POSITION_VOLUME);
@@ -1438,16 +1435,15 @@ string PAT_BuildPositionDetails()
         double profit = PositionGetDouble(POSITION_PROFIT);
         long ptype = PositionGetInteger(POSITION_TYPE);
         string typeStr = (ptype == POSITION_TYPE_BUY) ? "BUY" : "SELL";
-
         details += "{\"ticket\":" + IntegerToString((long)ticket);
         details += ",\"magic\":" + IntegerToString(magic);
         details += ",\"type\":\"" + typeStr + "\"";
-        details += ",\"volume\":"" + DoubleToString(vol, 2) + """;
-        details += ",\"open_price\":"" + DoubleToString(openPx, _Digits) + """;
-        details += ",\"sl\":"" + DoubleToString(sl, _Digits) + """;
-        details += ",\"tp\":"" + DoubleToString(tp, _Digits) + """;
-        details += ",\"profit\":"" + DoubleToString(profit, 2) + """;
-        details += ",\"symbol\":\"" + g_symbol + ""}";
+        details += ",\"volume\":\"" + DoubleToString(vol, 2) + "\"";
+        details += ",\"open_price\":\"" + DoubleToString(openPx, _Digits) + "\"";
+        details += ",\"sl\":\"" + DoubleToString(sl, _Digits) + "\"";
+        details += ",\"tp\":\"" + DoubleToString(tp, _Digits) + "\"";
+        details += ",\"profit\":\"" + DoubleToString(profit, 2) + "\"";
+        details += ",\"symbol\":\"" + g_symbol + "\"}";
     }
     details += "]";
     return details;

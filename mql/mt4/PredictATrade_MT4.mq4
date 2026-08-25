@@ -19,7 +19,7 @@ input bool    AutoExecute    = true;
 input bool    SendTickData   = true;
 input int     TickIntervalMs = 0;
 input string  BrokerSymbol   = "";
-input string  LicenseKey     = "PAT-A1B2C3D4-0003-4000-8000-000000000003";
+input string  LicenseKey     = "";
 
 // ─── Strategy/Direction filters ───
 // Strategy selection is SERVER-CONTROLLED based on your license plan.
