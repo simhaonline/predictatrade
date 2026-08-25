@@ -58,8 +58,7 @@ input bool    AvoidRolloverSlippage = true; // Don't trade during rollover (spre
 input double  MaxDailyLossPct   = 6.0;      // Hard halt threshold
 input double  WarningLossPct    = 3.0;      // Warning level
 input bool    EmergencyCloseAll = true;     // Close all positions when daily loss hits limit
-input double  WarningLossPct   = 4.0;      // Soft halt (block new, keep existing)
-input double  MaxDailyLossPct   = 6.0;      // Hard halt (close all)
+// (WarningLossPct and MaxDailyLossPct already declared above — no duplicates)
 
 // ─── Execution Safety v1.08 (mql-fix.md — fail-closed) ───
 input double  MaxRiskPct          = 1.5;     // Max risk per trade, % of equity
@@ -1601,10 +1600,8 @@ string PAT_BuildPositionDetails()
         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
         if(OrderSymbol() != g_symbol) continue;
         if(!PAT_IsPatMagic(OrderMagicNumber())) continue;
-
         if(!first) details += ",";
         first = false;
-
         double sl = OrderStopLoss();
         double tp = OrderTakeProfit();
         double vol = OrderLots();
@@ -1612,19 +1609,44 @@ string PAT_BuildPositionDetails()
         double profit = OrderProfit();
         bool isBuy = (OrderType() == OP_BUY);
         string typeStr = isBuy ? "BUY" : "SELL";
-
         details += "{\"ticket\":" + IntegerToString(OrderTicket());
         details += ",\"magic\":" + IntegerToString(OrderMagicNumber());
         details += ",\"type\":\"" + typeStr + "\"";
-        details += ",\"volume\":"" + DoubleToString(vol, 2) + """;
-        details += ",\"open_price\":"" + DoubleToString(openPx, Digits) + """;
-        details += ",\"sl\":"" + DoubleToString(sl, Digits) + """;
-        details += ",\"tp\":"" + DoubleToString(tp, Digits) + """;
-        details += ",\"profit\":"" + DoubleToString(profit, 2) + """;
-        details += ",\"symbol\":\"" + g_symbol + ""}";
+        details += ",\"volume\":\"" + DoubleToString(vol, 2) + "\"";
+        details += ",\"open_price\":\"" + DoubleToString(openPx, Digits) + "\"";
+        details += ",\"sl\":\"" + DoubleToString(sl, Digits) + "\"";
+        details += ",\"tp\":\"" + DoubleToString(tp, Digits) + "\"";
+        details += ",\"profit\":\"" + DoubleToString(profit, 2) + "\"";
+        details += ",\"symbol\":\"" + g_symbol + "\"}";
     }
     details += "]";
     return details;
+}
+
+//+------------------------------------------------------------------+
+bool IsStrategyEnabled(string strategyID)
+{
+    // SERVER-CONTROLLED: Check if strategy is in server-provided allowed_strategies
+    if(StringLen(g_allowedStrategies) == 0)
+    {
+        Print("Strategy check: no allowed_strategies from server — blocking ", strategyID);
+        return false;
+    }
+    string search = "," + strategyID + ",";
+    string list = "," + g_allowedStrategies + ",";
+    if(StringFind(list, search) >= 0)
+        return true;
+    Print("Strategy check: ", strategyID, " NOT allowed (", g_allowedStrategies, ")");
+    return false;
+}
+
+bool IsDirectionEnabled(string direction)
+{
+    if(direction == "BUY" && ReceiveBuy) return true;
+    if(direction == "SELL" && ReceiveSell) return true;
+    if(direction == "BUY_CANDIDATE" && ReceiveBuyCandidate) return true;
+    if(direction == "SELL_CANDIDATE" && ReceiveSellCandidate) return true;
+    return false;
 }
 
 //+------------------------------------------------------------------+
