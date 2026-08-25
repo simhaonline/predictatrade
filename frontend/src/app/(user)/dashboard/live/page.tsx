@@ -29,19 +29,6 @@ export default function UserLiveDashboardPage() {
     refetchInterval: 5000,
   });
 
-  // Go engine live agent status (MT4/MT5 terminal liveness only)
-  const { data: agentsStatus } = useQuery<{
-    agents_connected: number;
-    master_node_connected: boolean;
-    snapshot_count: number;
-    mt4_connected: number;
-    mt5_connected: number;
-  }>({
-    queryKey: ["user-live-agents"],
-    queryFn: async () => (await customInstance.get("/agents/status")).data,
-    refetchInterval: 5000,
-  });
-
   const modes: { id: Mode; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
     { id: "MARKET", label: "Market", icon: IconChartLine },
     { id: "TRADING", label: "Trading", icon: IconActivity },
@@ -75,32 +62,6 @@ export default function UserLiveDashboardPage() {
             {m.label}
           </button>
         ))}
-      </div>
-
-      {/* Client Terminal Liveness — MT4 / MT5 only (no agent / master-node status) */}
-      <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-3">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] uppercase tracking-wide text-pat-text-muted">Your Terminals</span>
-            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${
-              (agentsStatus?.mt4_connected ?? 0) > 0
-                ? "bg-pat-success/10 text-pat-success border border-pat-success/20"
-                : "bg-pat-danger/10 text-pat-danger border border-pat-danger/20"
-            }`}>
-              <span className={`inline-block h-2 w-2 rounded-full ${(agentsStatus?.mt4_connected ?? 0) > 0 ? "bg-pat-success animate-pulse" : "bg-pat-danger"}`} />
-              MT4 {(agentsStatus?.mt4_connected ?? 0) > 0 ? "Online" : "Offline"}
-            </span>
-            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${
-              (agentsStatus?.mt5_connected ?? 0) > 0
-                ? "bg-pat-success/10 text-pat-success border border-pat-success/20"
-                : "bg-pat-danger/10 text-pat-danger border border-pat-danger/20"
-            }`}>
-              <span className={`inline-block h-2 w-2 rounded-full ${(agentsStatus?.mt5_connected ?? 0) > 0 ? "bg-pat-success animate-pulse" : "bg-pat-danger"}`} />
-              MT5 {(agentsStatus?.mt5_connected ?? 0) > 0 ? "Online" : "Offline"}
-            </span>
-          </div>
-          <span className="text-[10px] text-pat-text-muted">Terminal link status updates live</span>
-        </div>
       </div>
 
       {/* Market Header — always visible in all modes */}
