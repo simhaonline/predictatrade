@@ -148,9 +148,10 @@ class ProbabilityCalibrator:
                 y_min=0.0, y_max=1.0, increasing=True, out_of_bounds="clip"
             )
             model.fit(xs, labels)
-            knots_x = [float(v) for v in model.X_]
-            knots_y = [float(v) for v in model.y_]
-            pairs = sorted(zip(knots_x, knots_y))
+            # Use unique input x-values and the model's predictions as knots.
+            # (Avoids reliance on sklearn-internal attributes removed in 1.9+.)
+            ux = sorted(set(xs))
+            pairs = [(float(x), float(model.predict([x])[0])) for x in ux]
             self.bins = _dedupe_bins(pairs)
             return
         # PAVA fallback on binned empirical positive rates.

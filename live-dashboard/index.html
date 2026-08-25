@@ -1302,7 +1302,8 @@ function lpSetTokenFromFragment() {
 }
 function authHeaders(extra) {
   const h = Object.assign({}, extra || {});
-  if (authToken) h["Authorization"] = "Bearer " + authToken;
+  // Only send Bearer if we have a real JWT (not the COOKIE_AUTH signal)
+  if (authToken && authToken !== "COOKIE_AUTH") h["Authorization"] = "Bearer " + authToken;
   return h;
 }
 
@@ -1362,6 +1363,17 @@ function lpShowWall(reason) {
 function lpHandleStatusPayload(p) {
   if (!p) return;
   if (p.server_time) LP.serverOffset = new Date(p.server_time).getTime() - Date.now();
+  if (p.status === "AUTHENTICATED") {
+    LP.state = "AUTHENTICATED";
+    lpPill().style.display = "none";
+    // Set authToken so WebSocket and API calls include auth headers
+    if (!authToken) {
+      // Try to get token from cookie (won't work for HttpOnly, but server 
+      // checks cookie via guard middleware)
+      authToken = "COOKIE_AUTH"; // signal that auth is via HttpOnly cookie
+    }
+    return;
+  }
   if (p.status === "DISABLED") { LP.state = "DISABLED"; lpPill().style.display = "none"; return; }
   if (p.status === "ACTIVE" && p.trial_expires_at) {
     LP.state = "ANONYMOUS_ACTIVE";
@@ -1386,6 +1398,12 @@ async function lpInit() {
     const p = await r.json();
     if (r.status === 403 || p.registration_required) { lpHandleStatusPayload(p); lpShowWall(p.code); return false; }
     lpHandleStatusPayload(p);
+    // AUTHENTICATED users skip the trial entirely
+    if (LP.state === "AUTHENTICATED") {
+      lpPill().style.display = "none";
+      wsConnect();
+      return true;
+    }
     ok = LP.state === "ANONYMOUS_ACTIVE" || LP.state === "DISABLED";
     wsConnect(); // cookie now set by the /status response above
   } catch {

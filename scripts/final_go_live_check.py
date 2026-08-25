@@ -5,7 +5,7 @@ Verifies all evidence files exist and contain required fields.
 Outputs validation_passed.txt or validation_failed.txt with details.
 Usage: python scripts/final_go_live_check.py --evidence-dir artifacts/go_live_evidence/
 """
-import argparse, csv, json, os, sys
+import argparse, csv, json, os, sys, subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -72,6 +72,49 @@ def check_quant_evidence(path):
         return False, "MISSING: provenance/data_hash/source (cannot verify real data was used)"
     return True, f"OK: {len(data['strategies'])} strategies validated"
 
+
+def check_strategy_change_gate(ev_dir: Path, strategy_id: str) -> tuple:
+    """Invoke scripts/strategy_change_gate.py for a strategy's real backtest result.
+
+    Extends the final go-live readiness check: every production strategy must pass
+    the quantitative promotion gate (leakage-safe, OOS net expectancy > 0 after
+    costs, sample sufficiency, calibration AUC reported). Missing/insufficient data
+    fails loudly — never fabricated.
+    """
+    script = Path(__file__).resolve().parent / "strategy_change_gate.py"
+    if not script.exists():
+        return False, f"MISSING: {script}"
+    bt_result = ev_dir / f"backtest_{strategy_id}.json"
+    if not bt_result.exists():
+        return False, f"MISSING: {bt_result.name} (no real backtest result to gate)"
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(script), "--strategy-id", strategy_id,
+             "--backtest-result", str(bt_result)],
+            capture_output=True, text=True,
+        )
+    except Exception as e:  # pragma: no cover
+        return False, f"ERROR invoking gate: {e}"
+    if proc.returncode != 0:
+        # Surface the gate's reason.
+        reason = proc.stdout.strip().splitlines()
+        reason = reason[-1] if reason else proc.stderr.strip().splitlines()[-1] if proc.stderr.strip() else "GATE FAIL"
+        return False, f"GATE FAIL: {strategy_id}: {reason}"
+    return True, f"OK: {strategy_id} quant gate passed"
+    with open(path) as f:
+        data = json.load(f)
+    # Reject simulated/fabricated evidence (AGENTS.md: never fabricate metrics).
+    if data.get("mode") == "DRY_RUN":
+        return False, "REJECTED: quant_evidence.json is a DRY_RUN simulation (not valid evidence)"
+    if "strategies" not in data:
+        return False, "MISSING: strategies field"
+    if "overall_pass" not in data:
+        return False, "MISSING: overall_pass field"
+    # Evidence must prove it was computed from real data, not invented.
+    if "provenance" not in data and "data_hash" not in data and "source" not in data:
+        return False, "MISSING: provenance/data_hash/source (cannot verify real data was used)"
+    return True, f"OK: {len(data['strategies'])} strategies validated"
+
 def main():
     parser = argparse.ArgumentParser(description="Final go-live readiness checker")
     parser.add_argument("--evidence-dir", default="artifacts/go_live_evidence/")
@@ -85,6 +128,11 @@ def main():
         ("Restore Report", check_restore_report(ev / "restore_report.md")),
         ("Quant Evidence", check_quant_evidence(ev / "quant_evidence.json")),
     ]
+
+    # Strategy-change quant gates (one per production strategy). These require a
+    # REAL backtest result JSON (backtest_<STRATEGY>.json) in the evidence dir.
+    for sid in ("STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING"):
+        checks.append((f"Strategy Gate: {sid}", check_strategy_change_gate(ev, sid)))
 
     print("\n" + "=" * 60)
     print("FINAL GO-LIVE READINESS CHECK")

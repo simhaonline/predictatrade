@@ -897,6 +897,14 @@ func main() {
 	dupChecker := sigengine.NewDuplicateChecker(valkeyCache)
 	calibConsumer := calibration.NewConsumer()
 	calibConsumer.SeedDefaultModels()
+	// Load research-trained calibration models from CALIBRATION_DIR (default ./calibration).
+	// Missing/unparseable/incompatible files are skipped; the live path then emits
+	// Probability=0, ProbabilityCalibrated=false (never a fabricated probability).
+	calibDir := os.Getenv("CALIBRATION_DIR")
+	if calibDir == "" {
+		calibDir = "./calibration"
+	}
+	calibConsumer.LoadJSONModels(calibDir)
 	strategies := strategy.AllStrategies()
 	// Per-engine liveness tracker (prompt.md Sections 26, 38, 43-46)
 	stratIDs := make([]types.StrategyID, 0, len(strategies))
@@ -2169,6 +2177,8 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 					// Create candidate signal with microprofit geometry
 					advDir := strategy.CandidateDirection(candidateDir)
 					now := time.Now().UTC()
+					// Research-trained calibrated probability (safe fallback: 0,false).
+					calProb, calProbOK := calibConsumer.ProbabilityFor(strat.ID(), stratResult.RawScore)
 					sig := &types.Signal{
 						ID:          uuid.New().String(),
 						Symbol:      types.SymbolXAUUSD,
@@ -2246,6 +2256,8 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 						BarClosed:             types.BarClosedConfirmed,
 						CalibrationStatus:     calibStatus,
 						CalibratedProbability: calibratedProb,
+						Probability:           calProb,
+						ProbabilityCalibrated: calProbOK,
 						// Transition scores (prompt.md Section 6)
 						TransitionLongScore:   stratResult.TransitionLongScore,
 						TransitionShortScore:  stratResult.TransitionShortScore,
@@ -2335,7 +2347,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 		}
 
 		if stratResult.Direction != types.DirectionBuy && stratResult.Direction != types.DirectionSell {
-			sig := createNoTradeSignal(stratResult, calibratedProb, mergedState)
+			sig := createNoTradeSignal(stratResult, calibratedProb, mergedState, calibConsumer)
 			sig.CandidateThreshold = candidateThresh
 			sig.TradeThreshold = tradeThresh
 			sig.SignalClass = "NO_TRADE"
@@ -2403,7 +2415,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			observability.CooldownErrors.Inc()
 		}
 		if cooldownActive {
-			sig := createNoTradeSignal(stratResult, calibratedProb, mergedState)
+			sig := createNoTradeSignal(stratResult, calibratedProb, mergedState, calibConsumer)
 			sig.MarketTime = candle.Time
 			sig.MarketBarOpenTime = candle.Time
 			sig.MarketBarCloseTime = barCloseTime
@@ -2489,7 +2501,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			observability.DuplicateErrors.Inc()
 		}
 		if !isNew {
-			sig := createNoTradeSignal(stratResult, calibratedProb, mergedState)
+			sig := createNoTradeSignal(stratResult, calibratedProb, mergedState, calibConsumer)
 			sig.MarketTime = candle.Time
 			sig.MarketBarOpenTime = candle.Time
 			sig.MarketBarCloseTime = barCloseTime
@@ -2627,6 +2639,8 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 		})
 		if decision.Signal != nil {
 			decision.Signal.CalibratedProbability = calibratedProb
+			// Research-trained calibrated probability (safe fallback: 0,false).
+			decision.Signal.Probability, decision.Signal.ProbabilityCalibrated = calibConsumer.ProbabilityFor(strat.ID(), stratResult.RawScore)
 			decision.Signal.Regime = mergedState.Regime.Current
 			decision.Signal.Session = mergedState.Session.CurrentSession
 			decision.Signal.NewsRisk = mergedState.Session.NewsRisk
@@ -3439,7 +3453,7 @@ func hydrateBrokerAccountState(reg *gates.Registry, balance, equity, freeMargin,
 	})
 }
 
-func createNoTradeSignal(result strategy.StrategyResult, calibratedProb decimal.Decimal, state *features.MarketState) *types.Signal {
+func createNoTradeSignal(result strategy.StrategyResult, calibratedProb decimal.Decimal, state *features.MarketState, calibConsumer *calibration.Consumer) *types.Signal {
 	regime := types.Regime("")
 	session := ""
 	newsRisk := ""
@@ -3469,12 +3483,15 @@ func createNoTradeSignal(result strategy.StrategyResult, calibratedProb decimal.
 		}
 	}
 	now := time.Now().UTC()
+	calProb, calProbOK := calibConsumer.ProbabilityFor(result.StrategyID, result.RawScore)
 	sig := &types.Signal{
 		ID: uuid.New().String(), Symbol: "XAUUSD",
 		StrategyID: result.StrategyID, Direction: types.DirectionNoTrade,
 		Grade: types.GradeNoTrade, Status: types.SignalDetected,
 		RawScore: result.RawScore, LongScore: result.LongScore, ShortScore: result.ShortScore,
 		CalibratedProbability: calibratedProb,
+		Probability:           calProb,
+		ProbabilityCalibrated: calProbOK,
 		EntryPrice:            result.EntryPrice, StopLoss: result.StopLoss,
 		TP1: result.TP1, TP2: result.TP2, TP3: result.TP3,
 		Regime: regime, Session: session, NewsRisk: newsRisk,

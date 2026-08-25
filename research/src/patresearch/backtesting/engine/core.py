@@ -107,7 +107,9 @@ class BacktestEngine:
 
     def __init__(self, config: BacktestConfig):
         self.config = config
-        self.run_id = str(uuid.uuid4())
+        # run_id must fit trading.backtest_runs.run_id (varchar(20)); the Go
+        # runner uses uuid[:8], research truncates to 20 for DB parity.
+        self.run_id = str(uuid.uuid4())[:20]
         self.portfolio = Portfolio(
             initial_balance=config.initial_balance,
             trailing_stop_enabled=config.trailing_stop_enabled,

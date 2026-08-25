@@ -38,7 +38,7 @@ export default function LoginPage() {
           window.dispatchEvent(new Event("pat:auth-changed"));
         }
         const redirectToLive = new URLSearchParams(window.location.search).get("redirect") === "live";
-        if (redirectToLive && user?.role !== "ADMIN") {
+        if (redirectToLive) {
           window.location.href = "https://live.predictatrade.com";
         } else if (user?.role === "ADMIN") window.location.href = "/admin/dashboard";
         else window.location.href = "/dashboard/live";

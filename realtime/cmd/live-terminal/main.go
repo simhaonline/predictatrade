@@ -434,6 +434,10 @@ func (lt *liveTerminal) entitlement(userID string) (bool, error) {
 func (lt *liveTerminal) resolve(r *http.Request) livepreview.Decision {
 	if tk := lt.tokenFromRequest(r); tk != "" {
 		if claims, err := validateJWT(tk, lt.cfg.jwtSecret); err == nil && claims.Sub != "" {
+			// ADMIN and SUPER_ADMIN always have access — no subscription needed
+			if claims.Role == "ADMIN" || claims.Role == "SUPER_ADMIN" {
+				return livepreview.Decision{Allowed: true}
+			}
 			entitled, err := lt.entitlement(claims.Sub)
 			if err != nil {
 				return livepreview.Decision{Allowed: false, Reason: livepreview.ReasonServiceUnavail}
@@ -482,6 +486,31 @@ func (lt *liveTerminal) guard(next http.Handler) http.Handler {
 // ── trial endpoints ──
 
 func (lt *liveTerminal) handleStatus(w http.ResponseWriter, r *http.Request) {
+	// Check if user is already authenticated via HttpOnly cookie
+	if tk := lt.tokenFromRequest(r); tk != "" {
+		if claims, err := validateJWT(tk, lt.cfg.jwtSecret); err == nil && claims.Sub != "" {
+			// ADMIN bypasses subscription check
+			if claims.Role == "ADMIN" || claims.Role == "SUPER_ADMIN" {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Cache-Control", "no-store")
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": "AUTHENTICATED",
+					"role":   claims.Role,
+				})
+				return
+			}
+			// Regular user — check subscription
+			entitled, _ := lt.entitlement(claims.Sub)
+			if entitled {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Cache-Control", "no-store")
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": "AUTHENTICATED",
+				})
+				return
+			}
+		}
+	}
 	d := lt.svc.Evaluate(r, true) // status is the ONLY trial creator
 	if d.NewCookie != nil {
 		http.SetCookie(w, lt.svc.Cookie(*d.NewCookie))

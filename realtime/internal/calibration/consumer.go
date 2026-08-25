@@ -10,6 +10,11 @@ import (
 // Consumer applies calibration models to raw scores.
 type Consumer struct {
 	models map[types.StrategyID]*CalibrationModel
+
+	// jsonModels holds research-trained calibration models loaded from disk
+	// (CALIBRATION_DIR). These are the only source of a calibrated probability
+	// that is allowed to reach a subscriber (ProbabilityCalibrated=true).
+	jsonModels map[types.StrategyID]jsonModel
 }
 
 // CalibrationModel holds calibration parameters for a strategy.
