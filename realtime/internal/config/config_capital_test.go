@@ -2,8 +2,17 @@ package config
 
 import "testing"
 
+// helperDefault returns a default config with a valid DBURL for testing.
+func helperDefault() *Config {
+	c := Default()
+	if c.DBURL == "" {
+		c.DBURL = "postgresql://test:test@localhost/test"
+	}
+	return c
+}
+
 func TestValidateCapitalProtectionNesting(t *testing.T) {
-	base := Default()
+	base := helperDefault()
 	// Defaults are safe
 	if err := base.Validate(); err != nil {
 		t.Fatalf("default config must validate: %v", err)
@@ -22,7 +31,7 @@ func TestValidateCapitalProtectionNesting(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := Default()
+			c := helperDefault()
 			tc.mutate(c)
 			err := c.Validate()
 			if tc.wantErr && err == nil {
