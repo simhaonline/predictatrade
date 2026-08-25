@@ -199,3 +199,53 @@ class TestSessionCalendar:
         info = cal.get_session(london_kz)
         assert info.is_kill_zone
         assert info.kill_zone_type == "LONDON_KZ"
+
+
+class TestDataQualityGate:
+    """The gate must reject genuine corruption but PASS normal market data
+    (weekend gaps + fat-tailed volatility) on production-scale datasets."""
+
+    def _mk(self, ts, o, h, l, c):
+        return HistoricalCandle(timestamp=ts, open=o, high=h, low=l, close=c, volume=1)
+
+    def test_clean_market_data_with_weekend_gaps_passes(self):
+        # 5000 M5 bars of a mild random walk + two weekend gaps + a couple
+        # fat-tailed outliers (gold-like). Should PASS the gate.
+        np.random.seed(7)
+        candles = []
+        t = datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)
+        price = 2000.0
+        for i in range(5000):
+            if i == 1000:  # Friday close -> Sunday open gap
+                t = datetime(2024, 1, 7, 22, 0, tzinfo=timezone.utc)
+                continue
+            move = np.random.normal(0, 1.0)
+            price = max(1.0, price + move)
+            o = price
+            c = price + np.random.normal(0, 0.5)
+            h = max(o, c) + abs(np.random.normal(0, 0.3))
+            l = min(o, c) - abs(np.random.normal(0, 0.3))
+            candles.append(self._mk(t, o, h, l, c))
+            t = t + timedelta(minutes=5)
+        # inject two extreme outliers
+        candles[2000] = self._mk(candles[2000].timestamp, 2050, 2060, 2040, 2055)
+        candles[4000] = self._mk(candles[4000].timestamp, 1950, 1960, 1940, 1955)
+        rep = DataQualityValidator().validate(candles, "XAUUSD", "M5")
+        assert rep.passed is True, rep.summary()
+        assert rep.errors == 0
+
+    def test_ohlc_inconsistency_fails(self):
+        candles = [
+            self._mk(datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc), 2000, 1990, 2000, 2000),  # high < open
+            self._mk(datetime(2024, 1, 1, 0, 5, tzinfo=timezone.utc), 2000, 2001, 1999, 2000),
+        ]
+        rep = DataQualityValidator().validate(candles, "XAUUSD", "M5")
+        assert rep.passed is False
+        assert rep.errors > 0
+
+    def test_negative_price_fails(self):
+        candles = [
+            self._mk(datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc), -5, -4, -6, -5),
+        ]
+        rep = DataQualityValidator().validate(candles, "XAUUSD", "M5")
+        assert rep.passed is False

@@ -1508,10 +1508,12 @@ lpInit().then((allowed) => {
   window.__pat_intervals.push(setInterval(pollNews, 60000));
   window.__pat_intervals.push(setInterval(pollSignals, 10000));
   pollSnapshot(); pollMarketState(); pollCandles(); pollEngines(); pollInfra(); pollNews(); pollSignals();
-  // Initialize volume/liquidity chart after a short delay
-  setTimeout(initVolLiqChart, 1000);
-  setTimeout(initVolLiqChart, 3000); // retry in case first attempt failed
 });
+
+// Initialize volume/liquidity chart — ALWAYS, regardless of auth/trial status
+setTimeout(initVolLiqChart, 1500);
+setTimeout(initVolLiqChart, 3000);
+setTimeout(initVolLiqChart, 5000); // third retry for slow connections
 
 // Resize vol/liquidity chart when window resizes
 window.addEventListener("resize", () => {
