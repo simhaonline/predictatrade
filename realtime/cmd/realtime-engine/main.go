@@ -27,7 +27,6 @@ import (
 	"github.com/predictatrade/realtime/internal/features"
 	"github.com/predictatrade/realtime/internal/gates"
 	"github.com/predictatrade/realtime/internal/gateway"
-	"github.com/predictatrade/realtime/internal/livepreview"
 	"github.com/predictatrade/realtime/internal/marketdata"
 	"github.com/predictatrade/realtime/internal/observability"
 	"github.com/predictatrade/realtime/internal/ptb"
@@ -1282,28 +1281,7 @@ func main() {
 		})
 	}
 
-	// ─── Anonymous live preview (live.predictatrade.com funnel, prompt.md) ───
-	// Server-side trial registry: the backend timer is the only authority.
-	var trialSvc *livepreview.Service
-	if os.Getenv("LIVE_PREVIEW_ENABLED") == "true" && persister != nil {
-		dur := 300 * time.Second
-		if v := os.Getenv("LIVE_PREVIEW_DURATION_SECONDS"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 3600 {
-				dur = time.Duration(n) * time.Second
-			}
-		}
-		trialSvc = livepreview.New(livepreview.Config{
-			Enabled:        true,
-			Duration:       dur,
-			CookieName:     envOr("LIVE_PREVIEW_COOKIE_NAME", "pat_live_trial"),
-			HMACSecret:     os.Getenv("LIVE_PREVIEW_HMAC_SECRET"),
-			AbuseDetection: os.Getenv("LIVE_PREVIEW_ABUSE_DETECTION_ENABLED") != "false",
-		}, &livepreview.DBStore{DB: persister.GetDB()})
-		wsHub.SetTrialExpiryChecker(trialSvc.IsTokenActive)
-		log.Info().Int("duration_seconds", int(dur.Seconds())).Msg("Anonymous live preview ENABLED — server-enforced trial guarding live endpoints")
-	}
-
-	httpServer := gateway.NewHTTPServer(wsHub, persister, stateMgr, agentHub, agentProvider, valkeyCache, xmEngine, newsRiskEngine, engTracker, trialSvc)
+	httpServer := gateway.NewHTTPServer(wsHub, persister, stateMgr, agentHub, agentProvider, valkeyCache, xmEngine, newsRiskEngine, engTracker)
 	go func() {
 		addr := fmt.Sprintf("%s:%d", cfg.HTTPHost, cfg.HTTPPort)
 		log.Info().Str("addr", addr).Msg("HTTP server starting")
@@ -3550,9 +3528,3 @@ func boolToFloat(b bool) float64 {
 	return 0.0
 }
 
-func envOr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}

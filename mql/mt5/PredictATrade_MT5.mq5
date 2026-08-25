@@ -22,10 +22,10 @@
 
 //=== Input Parameters ===
 input bool    AutoExecute    = true;    // SIGNAL_ONLY=false, AUTO=true
-input bool    SendTickData   = true;     // Send real tick data to Windows Agent
-input int     TickIntervalMs = 0;      // 0 = every tick (HFT: 1-5ms co-located)
-input string  BrokerSymbol   = "";       // Empty = auto-detect chart symbol
-input string  LicenseKey     = "PAT-A1B2C3D4-0004-4000-8000-000000000004"; // Your Predict-A-Trade license key
+input bool    SendTickData   = true;    // Send real tick data to Windows Agent
+input int     TickIntervalMs = 0;       // 0 = every tick (HFT: 1-5ms co-located)
+input string  BrokerSymbol   = "";      // Empty = auto-detect chart symbol
+input string  LicenseKey     = "";      // Your Predict-A-Trade license key
 
 //=== Strategy Selection ===
 // Strategy selection is controlled by the SERVER based on your license plan.
@@ -42,23 +42,23 @@ input bool    ReceiveBuy             = true;   // Receive BUY signals (qualified
 input bool    ReceiveSell            = true;   // Receive SELL signals (qualified)
 input bool    ReceiveBuyCandidate    = true;   // Receive BUY_CANDIDATE (advisory)
 input bool    ReceiveSellCandidate   = true;   // Receive SELL_CANDIDATE (advisory)
-input bool    ExecuteCandidates  = false;   // Execute candidates as real trades
+input bool    ExecuteCandidates  = false;      // Execute candidates as real trades
 
 //=== Position Management ===
 input bool    UseTrailingStop   = true;     // Trail SL behind price after TP2 (stage 2)
 input double  TrailingATRMult   = 2.0;      // Trailing distance = ATR * this
 input bool    UseBreakEven      = true;     // Move SL to breakeven (entry +/- spread) after TP1
-input int     MaxHoldHours       = 4;        // Max holding time (0 = unlimited)
-input bool    UsePartialClose  = true;     // Enable partial close at TP1/TP2
-input double  TP1ClosePct      = 33.33;    // Close ~1/3 of lot at TP1
-input double  TP2ClosePct      = 33.33;    // Close ~1/3 of lot at TP2
-input double  TP3TrailATRMult  = 1.5;      // ATR multiplier for stage-2 trailing
+input int     MaxHoldHours       = 4;       // Max holding time (0 = unlimited)
+input bool    UsePartialClose  = true;      // Enable partial close at TP1/TP2
+input double  TP1ClosePct      = 33.33;     // Close ~1/3 of lot at TP1
+input double  TP2ClosePct      = 33.33;     // Close ~1/3 of lot at TP2
+input double  TP3TrailATRMult  = 1.5;       // ATR multiplier for stage-2 trailing
 
 //=== Swap Avoidance ===
-input bool    AvoidSwapCharges   = true;     // Close positions before swap/rollover
-input int     SwapCutoffHour     = 22;       // Server hour to close before
-input int     SwapCutoffBuffer   = 15;       // Close N minutes before cutoff
-input bool    AvoidTripleSwapDay  = true;     // Skip new trades on triple swap day
+input bool    AvoidSwapCharges   = true;        // Close positions before swap/rollover
+input int     SwapCutoffHour     = 22;          // Server hour to close before
+input int     SwapCutoffBuffer   = 15;          // Close N minutes before cutoff
+input bool    AvoidTripleSwapDay  = true;       // Skip new trades on triple swap day
 input string  TripleSwapDay      = "Wednesday"; // Triple swap day
 
 //=== Slippage Control ===
@@ -1314,38 +1314,25 @@ void ReadFromAgent()
 //+------------------------------------------------------------------+
 void HandleClosePosition(string payload)
 {
-    int ticket = (int)ExtractJSONInt(payload, "ticket");
-    long magic = ExtractJSONLong(payload, "magic");
+    int ticket = (int)StringToInteger(ExtractJSONString(payload, "ticket"));
+    long magic = (long)StringToInteger(ExtractJSONString(payload, "magic"));
     string reason = ExtractJSONString(payload, "reason");
 
-    Print("CLOSE_POSITION command from server: ticket=", ticket, " magic=", magic, " reason=", reason);
-
-    // Try to close by ticket first
     if(ticket > 0)
     {
         if(PositionSelectByTicket(ticket))
         {
             if(trade.PositionClose(ticket))
             {
-                Print("CLOSE_POSITION: ticket=", ticket, " closed successfully");
+                Print("CLOSE_POSITION: ticket=", ticket, " closed");
                 PAT_SetForcedReason(ticket, "SERVER_CLOSE_POSITION");
-                string ack = "CLOSE_ACK|{\"ticket\":"" + IntegerToString(ticket) +
-                             "",\"reason\":\"SERVER_CLOSE_POSITION\",\"status\":\"CLOSED\"}\n";
-                PAT_Append(PAT_TICK_FILE, ack);
-            }
-            else
-            {
-                Print("CLOSE_POSITION: FAILED to close ticket=", ticket, " err=", trade.ResultRetcode());
             }
             return;
         }
     }
-
-    // Fall back to closing by magic number
     if(magic > 0)
     {
-        int total = PositionsTotal();
-        for(int i = total - 1; i >= 0; i--)
+        for(int i = PositionsTotal() - 1; i >= 0; i--)
         {
             ulong t = PositionGetTicket(i);
             if(t == 0) continue;
@@ -1860,21 +1847,21 @@ void UpdateCapitalProtection()
     double lossPct = 0;
     if(g_dayStartBalance > 0) lossPct = (g_dailyPnL / g_dayStartBalance) * 100;
 
-    double effSoftHalt = SoftHaltLossPct;
-    double effHardHalt = HardHaltLossPct;
+    double effSoftHalt = WarningLossPct;
+    double effHardHalt = MaxDailyLossPct;
     double effWarning  = WarningLossPct;
     double minAbsLoss   = 1.0;
     if(AccountInfoDouble(ACCOUNT_BALANCE) < 100)
     {
-        effSoftHalt = SoftHaltLossPct * 3.5;
-        effHardHalt = HardHaltLossPct * 3.5;
+        effSoftHalt = WarningLossPct * 3.5;
+        effHardHalt = MaxDailyLossPct * 3.5;
         effWarning  = WarningLossPct * 3.5;
         minAbsLoss   = 3.0;
     }
     else if(AccountInfoDouble(ACCOUNT_BALANCE) < 200)
     {
-        effSoftHalt = SoftHaltLossPct * 2.0;
-        effHardHalt = HardHaltLossPct * 2.0;
+        effSoftHalt = WarningLossPct * 2.0;
+        effHardHalt = MaxDailyLossPct * 2.0;
         effWarning  = WarningLossPct * 2.0;
         minAbsLoss   = 2.0;
     }
@@ -1923,10 +1910,10 @@ void UpdatePanel()
     p += "-----------------------------\n";
     p += "Signals:  " + IntegerToString(g_signalsReceived) + " recv, " + IntegerToString(g_signalsDisplayed) + " shown, " + IntegerToString(g_signalsFiltered) + " filtered\n";
     p += "Strats:   ";
-    if(ReceiveStandardScalping) p += "SS ";
-    if(ReceiveUltraScalping)    p += "US ";
-    if(ReceiveStandardSwing)    p += "SW ";
-    if(ReceiveTrendSwing)      p += "TW\n";
+    if(StringFind("," + g_allowedStrategies + ",", ",STANDARD_SCALPING,") >= 0) p += "SS ";
+    if(StringFind("," + g_allowedStrategies + ",", ",ULTRA_SCALPING,") >= 0) p += "US ";
+    if(StringFind("," + g_allowedStrategies + ",", ",STANDARD_SWING,") >= 0) p += "SW ";
+    if(StringFind("," + g_allowedStrategies + ",", ",TREND_SWING,") >= 0) p += "TW\n";
     p += "-----------------------------\n";
     p += "Signal:   " + g_signalDirection + "\n";
     if(g_signalDirection != "NONE" && g_signalDirection != "EXPIRED")

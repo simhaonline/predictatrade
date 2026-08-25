@@ -1,5 +1,5 @@
 // Predict-A-Trade Service Worker v13
-var CACHE_NAME = 'pat-dashboard-v34';
+var CACHE_NAME = 'pat-dashboard-v35';
 var STATIC_ASSETS = ['/','/index.html','/echarts.min.js','/manifest.json','/favicon.svg','/favicon.ico','/predict-a-trade_favicon.svg','/predict-a-trade_favicon.ico','/apple-touch-icon.png','/icon-192.png','/icon-512.png'];
 self.addEventListener('install',function(e){e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(STATIC_ASSETS.map(u=>new Request(u,{cache:'no-store'}))).catch(()=>{})).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',function(e){e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE_NAME).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});

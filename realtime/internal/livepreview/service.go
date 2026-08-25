@@ -98,6 +98,7 @@ type Config struct {
 	CookieName       string
 	HMACSecret       string
 	AbuseDetection   bool
+	AbuseThreshold   int    // prior matching trials before blocking (default 3)
 	RegistrationHost string // e.g. platform.predictatrade.com (for wall links)
 }
 
@@ -117,6 +118,9 @@ func New(cfg Config, store Store) *Service {
 	}
 	if cfg.CookieName == "" {
 		cfg.CookieName = "pat_live_trial"
+	}
+	if cfg.AbuseThreshold <= 0 {
+		cfg.AbuseThreshold = 3
 	}
 	return &Service{cfg: cfg, store: store, hmacKey: []byte(cfg.HMACSecret), cache: map[string]*Trial{}}
 }
@@ -215,7 +219,7 @@ func (s *Service) Evaluate(r *http.Request, allowCreate bool) Decision {
 	if s.cfg.AbuseDetection {
 		ipHash := s.hash("ip:" + NormalizeIP(r))
 		uaHash := s.hash("ua:" + r.UserAgent())
-		if n, err := s.store.CountRecent(ipHash, uaHash, time.Now().Add(-24*time.Hour)); err == nil && n >= 2 {
+		if n, err := s.store.CountRecent(ipHash, uaHash, time.Now().Add(-24*time.Hour)); err == nil && n >= s.cfg.AbuseThreshold {
 			return Decision{Allowed: false, Reason: ReasonRepeatBlocked}
 		}
 	}

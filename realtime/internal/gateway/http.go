@@ -15,7 +15,6 @@ import (
 	"github.com/predictatrade/realtime/internal/crossmarket"
 	"github.com/predictatrade/realtime/internal/engstatus"
 	"github.com/predictatrade/realtime/internal/features"
-	"github.com/predictatrade/realtime/internal/livepreview"
 	"github.com/predictatrade/realtime/internal/marketdata"
 	"github.com/predictatrade/realtime/internal/types"
 	"github.com/shopspring/decimal"
@@ -25,8 +24,6 @@ import (
 // HTTPServer serves REST API, health checks, and metrics.
 // Binds to 127.0.0.1 — Nginx is the public ingress.
 type HTTPServer struct {
-	trialSvc   *livepreview.Service
-	trialGuard *TrialGuard
 	hub       *WebSocketHub
 	persister *marketdata.Persister
 	states    *features.StateManager
@@ -40,7 +37,7 @@ type HTTPServer struct {
 	server    *http.Server
 }
 
-func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine, newsEngine *news.RiskEngine, engTracker *engstatus.Tracker, trialSvc *livepreview.Service) *HTTPServer {
+func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine, newsEngine *news.RiskEngine, engTracker *engstatus.Tracker) *HTTPServer {
 	h := &HTTPServer{
 		agentHub: agentHub,
 		agentProvider: agentProvider,
@@ -52,10 +49,6 @@ func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *f
 		persister: persister,
 		states:    states,
 		mux:       http.NewServeMux(),
-	}
-	if trialSvc != nil && trialSvc.Enabled() {
-		h.trialSvc = trialSvc
-		h.trialGuard = NewTrialGuard(trialSvc, persister.GetDB())
 	}
 	h.registerRoutes()
 	return h
@@ -89,10 +82,6 @@ func (h *HTTPServer) registerRoutes() {
 	h.mux.HandleFunc("/api/v1/price/history", h.handlePriceHistory)
 	h.mux.HandleFunc("/api/v1/signals/resume", h.handleSignalResume)
 	h.mux.HandleFunc("/api/v1/admin/regime-diagnostics", h.handleRegimeDiagnostics)
-	// Anonymous live-preview trial (live.predictatrade.com funnel)
-	h.mux.HandleFunc("/api/v1/live-preview/status", h.handleLivePreviewStatus)
-	h.mux.HandleFunc("/api/v1/live-preview/event", h.handleLivePreviewEvent)
-	h.mux.HandleFunc("/api/v1/admin/live-preview/stats", h.handleLivePreviewAdminStats)
 	h.mux.HandleFunc("/api/v1/system-health", h.handleSystemHealth)
 
 	// Per-strategy-engine liveness (prompt.md Sections 26, 38, 43-46)
@@ -126,7 +115,7 @@ func (h *HTTPServer) Start(host string, port int) error {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	h.server = &http.Server{
 		Addr:         addr,
-		Handler:      h.trialGuard.Middleware(h.mux), // centralized live-access guard (§10)
+		Handler:      h.mux,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,

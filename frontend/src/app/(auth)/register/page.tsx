@@ -61,7 +61,8 @@ function RegisterForm() {
         optInSmsMarketing: optInSms,
         optInPhoneMarketing: optInPhone,
       });
-      window.location.href = "/login?registered=1";
+      const redirect = new URLSearchParams(window.location.search).get("redirect");
+      window.location.href = redirect === "live" ? "/login?registered=1&redirect=live" : "/login?registered=1";
     } catch (err: unknown) {
       setError(getApiErrorMessage(err, "Registration failed"));
     } finally {

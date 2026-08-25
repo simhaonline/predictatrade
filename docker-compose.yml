@@ -54,6 +54,29 @@ services:
     restart: always
 
   # ─── Application Layer ───
+  live-terminal:
+    build:
+      context: .
+      dockerfile: live-terminal.Dockerfile
+    container_name: pat-live-terminal
+    env_file:
+      - ./infra/env/realtime.env
+    environment:
+      - DATABASE_URL=postgresql://pat_admin:pat_local_dev_only@postgres:5432/predictatrade?sslmode=disable
+      - UPSTREAM_REALTIME_URL=http://realtime:13081
+      - JWT_SECRET=lyFoqwbIPuflF/6PjNtrZXCM1wXGVfYJhj7ZxDAWKYA=
+      - LIVE_TERMINAL_PORT=13090
+    ports:
+      - "13090:13090"
+    depends_on:
+      realtime:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - pat-net
+    restart: always
+
   realtime:
     build:
       context: ./realtime
@@ -179,6 +202,7 @@ services:
       - nginx-logs:/var/log/nginx
     depends_on:
       - realtime
+      - live-terminal
       - frontend
       - control
       - status

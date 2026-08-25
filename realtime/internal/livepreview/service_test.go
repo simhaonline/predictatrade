@@ -134,10 +134,18 @@ func TestRepeatVisitorAbuseFlow(t *testing.T) {
 	d2.Trial.ExpiresAt = time.Now().UTC().Add(-time.Second)
 	s.expire(d2.Trial, "NATURAL")
 
-	// third visit: 2 prior matches → high confidence repeat → blocked
+	// third visit: 2 prior matches → still allowed (conservative default threshold 3)
 	d3 := s.Evaluate(r, true)
-	if d3.Allowed || d3.Reason != ReasonRepeatBlocked {
-		t.Fatalf("expected REPEAT_TRIAL_BLOCKED on third visit, got %+v", d3)
+	if !d3.Allowed {
+		t.Fatalf("second repeat should still be allowed at threshold 3, got %+v", d3)
+	}
+	d3.Trial.ExpiresAt = time.Now().UTC().Add(-time.Second)
+	s.expire(d3.Trial, "NATURAL")
+
+	// fourth visit: 3 prior matches → high confidence repeat → blocked
+	d4 := s.Evaluate(r, true)
+	if d4.Allowed || d4.Reason != ReasonRepeatBlocked {
+		t.Fatalf("expected REPEAT_TRIAL_BLOCKED on fourth visit, got %+v", d4)
 	}
 }
 

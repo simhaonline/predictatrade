@@ -26,8 +26,8 @@
     <p>Create your FREE Predict-A-Trade account to continue accessing the XAUUSD Live Intelligence Dashboard — real-time price action, strategy engines and signal pipeline.</p>
     <div class="reg-timer" id="wallTimer" style="display:none"></div>
     <div class="reg-actions">
-      <a class="reg-btn primary" href="https://platform.predictatrade.com/register?source=LIVE_DASHBOARD_5MIN_GATE">CREATE FREE ACCOUNT</a>
-      <a class="reg-btn secondary" href="https://platform.predictatrade.com/login">Already registered? SIGN IN</a>
+      <a class="reg-btn primary" href="https://platform.predictatrade.com/register?source=LIVE_DASHBOARD_5MIN_GATE&redirect=live">CREATE FREE ACCOUNT</a>
+      <a class="reg-btn secondary" href="https://platform.predictatrade.com/login?redirect=live">Already registered? SIGN IN</a>
     </div>
     <div class="reg-legal">By continuing you agree to our
       <a href="https://platform.predictatrade.com/terms" target="_blank" rel="noopener">Terms</a> and
@@ -165,7 +165,7 @@ function updatePipeline() {
 :fullscreen .signal-feed-card{padding:8px 10px}
 :fullscreen .sig-details-row{font-size:11px}
 
-#app{display:grid;height:100vh;width:100vw;grid-template-rows:auto 30px auto minmax(0,1fr) auto}
+#app{display:grid;height:100vh;width:100vw;grid-template-rows:30px auto minmax(0,1fr) auto}
 
 /* ── Mode banner ── */
 .mode-banner{padding:3px 12px;font-size:10px;font-weight:800;letter-spacing:.5px;text-align:center;font-family:var(--mono)}
@@ -174,7 +174,7 @@ function updatePipeline() {
 .mode-banner.offline{background:var(--red-bg);color:var(--red);border-bottom:1px solid var(--border)}
 
 /* ── Header ── */
-#header{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto auto;align-items:center;gap:10px;padding:0 10px;background:var(--panel);border-bottom:1px solid var(--border)}
+#header{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto;align-items:center;gap:10px;padding:0 12px;background:var(--panel);border-bottom:1px solid var(--border)}
 .logo{display:flex;align-items:center;gap:8px}
 .logo-icon{width:24px;height:24px;border-radius:6px;background:linear-gradient(135deg,var(--blue),var(--green));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px}
 .logo-text{font-weight:800;font-size:12px;color:var(--text-bright);line-height:1.1}
@@ -324,15 +324,17 @@ function updatePipeline() {
 /* Safe-area insets for notched devices (iOS standalone) */
 #app{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 
-/* Tablet ≤ 1280px: 2-column */
+/* Tablet ≤ 1280px: 2-column, page scrolls so no panel is ever clipped */
 @media(max-width:1280px){
+  html,body{overflow:auto;-webkit-overflow-scrolling:touch}
+  #app{height:auto;min-height:100vh}
   #main{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:auto}
   .p-account{grid-column:1;grid-row:1}
   .p-price{grid-column:2;grid-row:1/span 2;min-height:460px}
   .p-lifecycle{grid-column:1;grid-row:2;min-height:220px}
   .p-neural{grid-column:1;grid-row:3}
   .p-resolution{grid-column:2;grid-row:3}
-  .p-indicators{grid-column:1;grid-row:4}
+  .p-indicators{grid-column:1;grid-row:4;min-height:260px}
   .p-engines{grid-column:1/span 2;grid-row:5}
   .p-agents{grid-column:1/span 2;grid-row:6}
   .eng-cards-row{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
@@ -401,15 +403,9 @@ function updatePipeline() {
 <body>
 <div id="app">
 
-  <div id="modeBanner" class="mode-banner offline">● CONNECTING — establishing link to XAUUSD signal engine…</div>
-
   <header id="header">
     <div class="logo">
-      <img id="logoImg" src="/predict-a-trade_horizontal_white.svg" alt="Predict-A-Trade by Simha FinTech" style="height:22px">
-      <div>
-        <div class="logo-text">PAT Terminal</div>
-        <div class="logo-sub">XAUUSD Signal Pipeline v1.0.0</div>
-      </div>
+      <img id="logoImg" src="/predict-a-trade_horizontal_white.svg" alt="Predict-A-Trade by Simha FinTech — XAUUSD Live Terminal" style="height:24px">
     </div>
     <div class="header-ticker"><div class="ticker-track" id="tickerTrack"></div></div>
     <div class="clock" id="clockUTC">--:--:-- UTC</div>
@@ -570,20 +566,15 @@ setInterval(() => {
 
 /* ── Connectivity / mode banner ── */
 function setMode() {
-  const b = $("modeBanner"), pill = $("livePill"), pipe = $("footerPipe");
+  const pill = $("livePill"), pipe = $("footerPipe");
+  document.title = "Predict-A-Trade by Simha FinTech — XAUUSD Live Terminal";
   if (S.online && S.wsOnline) {
-    b.className = "mode-banner live";
-    b.textContent = "● LIVE — MT4/MT5 master node connected · streaming XAUUSD real-time signal pipeline";
     pill.className = "live-pill pill-live"; pill.textContent = "● LIVE";
     pipe.textContent = "MT5 MASTER NODE AUTHORITATIVE"; pipe.style.color = "var(--green)";
   } else if (S.online) {
-    b.className = "mode-banner degraded";
-    b.textContent = "● DEGRADED — REST feed up, WebSocket stream disconnected (auto-reconnecting)";
     pill.className = "live-pill pill-deg"; pill.textContent = "● DEGRADED";
     pipe.textContent = "REST POLLING (WS RECONNECTING)"; pipe.style.color = "var(--amber)";
   } else {
-    b.className = "mode-banner offline";
-    b.textContent = "● OFFLINE — cannot reach the signal engine. Values shown are the last known server truth.";
     pill.className = "live-pill pill-off"; pill.textContent = "● OFFLINE";
     pipe.textContent = "DISCONNECTED"; pipe.style.color = "var(--red)";
   }
@@ -1215,7 +1206,12 @@ function lpSetTokenFromFragment() {
   if (location.hash.startsWith("#access_token=")) {
     authToken = decodeURIComponent(location.hash.slice("#access_token=".length));
     history.replaceState(null, "", location.pathname + location.search); // strip from URL/bar
+    return;
   }
+  // Post-registration loop: platform login sets pat_access_token on
+  // .predictatrade.com — visible here so returning users are authenticated.
+  const m = document.cookie.match(/(?:^|;)\s*pat_access_token=([^;]+)/);
+  if (m) authToken = decodeURIComponent(m[1]);
 }
 function authHeaders(extra) {
   const h = Object.assign({}, extra || {});
@@ -1245,7 +1241,7 @@ function lpShowPreExpiry(rem) {
   preExpiryShown = true;
   const n = document.createElement("div");
   n.className = "pre-expiry-note";
-  n.innerHTML = `Preview ending soon · <a href="https://platform.predictatrade.com/register?source=LIVE_DASHBOARD_5MIN_GATE" target="_blank" rel="noopener">Create your free account to continue</a>`;
+  n.innerHTML = `Preview ending soon · <a href="https://platform.predictatrade.com/register?source=LIVE_DASHBOARD_5MIN_GATE&redirect=live" target="_blank" rel="noopener">Create your free account to continue</a>`;
   document.body.appendChild(n);
 }
 
@@ -1262,8 +1258,6 @@ function lpShowWall(reason) {
   clearInterval(LP.pollTimer); clearInterval(LP.tickTimer);
   lpPill().style.display = "none";
   const note = document.querySelector(".pre-expiry-note"); if (note) note.remove();
-  $("modeBanner").className = "mode-banner offline";
-  $("modeBanner").textContent = "● PREVIEW ENDED — live data access terminated. Registration required.";
   $("livePill").className = "live-pill pill-off"; $("livePill").textContent = "● LOCKED";
   const wall = $("regWall");
   wall.classList.remove("hidden");

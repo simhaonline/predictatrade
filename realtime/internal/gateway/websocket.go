@@ -44,7 +44,6 @@ type Client struct {
 	mu           sync.Mutex
 	entitlements []types.StrategyID
 	origin       string
-	TrialToken   string // HMAC of anonymous preview cookie; swept for expiry
 }
 
 func (c *Client) nextSeq(streamID string) int64 {
@@ -180,9 +179,6 @@ type WebSocketHub struct {
 	unregister     chan *Client
 	broadcast      chan *EventEnvelope
 	upgrader       websocket.Upgrader
-	// trialExpiry revalidates anonymous preview entitlements on live
-	// connections every 15s — authorization at second zero is not enough (§13).
-	trialExpiry func(tokenHash string) bool
 	allowedOrigins map[string]bool
 }
 
@@ -215,49 +211,9 @@ func NewWebSocketHub(allowedOrigins []string) *WebSocketHub {
 	}
 }
 
-// SetTrialExpiryChecker wires the anonymous-preview revalidation callback.
-func (h *WebSocketHub) SetTrialExpiryChecker(fn func(tokenHash string) bool) {
-	h.trialExpiry = fn
-}
-
 func (h *WebSocketHub) Run() {
-	sweep := &time.Ticker{C: make(chan time.Time)} // placeholder if checker unset
-	if h.trialExpiry != nil {
-		sweep = time.NewTicker(15 * time.Second)
-		defer sweep.Stop()
-	}
 	for {
 		select {
-		case <-sweep.C:
-			if h.trialExpiry == nil {
-				continue
-			}
-			h.mu.RLock()
-			var expired []*Client
-			for _, c := range h.clients {
-				if c.TrialToken != "" && c.UserID == "anonymous" && !h.trialExpiry(c.TrialToken) {
-					expired = append(expired, c)
-				}
-			}
-			h.mu.RUnlock()
-			for _, c := range expired {
-				ev := &EventEnvelope{
-					Type: "TRIAL_EXPIRED", StreamID: "system", Sequence: 1,
-					Timestamp: time.Now().UTC(), Priority: "P0", SchemaVersion: "1.0",
-					Payload: json.RawMessage(`{"code":"REGISTRATION_REQUIRED"}`),
-				}
-				select {
-				case c.send <- ev:
-				default:
-				}
-				c.mu.Lock()
-				_ = c.conn.WriteControl(websocket.CloseMessage,
-					websocket.FormatCloseMessage(4003, "REGISTRATION_REQUIRED"),
-					time.Now().Add(2*time.Second))
-				c.mu.Unlock()
-				_ = c.conn.Close()
-				h.unregister <- c
-			}
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client.ID] = client
@@ -332,9 +288,6 @@ func (h *WebSocketHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		send:      make(chan *EventEnvelope, 256),
 		sequences: make(map[string]*int64),
 		origin:    r.Header.Get("Origin"),
-	}
-	if th, ok := r.Context().Value(trialTokenKey).(string); ok {
-		client.TrialToken = th // anonymous preview — swept for expiry (§13)
 	}
 
 	h.register <- client

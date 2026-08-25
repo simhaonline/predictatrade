@@ -37,7 +37,10 @@ export default function LoginPage() {
           setAccessToken(accessToken);
           window.dispatchEvent(new Event("pat:auth-changed"));
         }
-        if (user?.role === "ADMIN") window.location.href = "/admin/dashboard";
+        const redirectToLive = new URLSearchParams(window.location.search).get("redirect") === "live";
+        if (redirectToLive && user?.role !== "ADMIN") {
+          window.location.href = "https://live.predictatrade.com";
+        } else if (user?.role === "ADMIN") window.location.href = "/admin/dashboard";
         else window.location.href = "/dashboard/live";
       }
     } catch (err: unknown) {
