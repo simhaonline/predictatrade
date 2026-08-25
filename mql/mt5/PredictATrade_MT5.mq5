@@ -121,6 +121,7 @@ string        g_connection    = "OFFLINE";
 string        g_licenseStatus  = "UNKNOWN";
 string        g_licensePlan    = "—";
 string        g_allowedStrategies = "";  // Server-provided comma-separated list from license
+double        g_suggestedLot   = 0;     // Server-calculated lot size
 string        g_licenseKey    = "";
 string        g_authStatus     = "UNKNOWN";
 string        g_deviceStatus   = "UNKNOWN";
