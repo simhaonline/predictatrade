@@ -128,15 +128,12 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHu
 	// Broadcast to frontend dashboard clients (entitlement-filtered)
 	wsHub.BroadcastSignal(signal)
 
-	// Check if any agents are suspended for SL violations — don't send them signals
-	if isAgentSuspended("master_agent") {
-		observability.Log.Warn().
-			Str("signal_id", signal.ID).
-			Msg("Signal NOT broadcast — agent suspended for SL violations")
-		return
-	}
-
 	// Broadcast to Windows Agents for MT4/MT5 delivery
+	// Note: Suspended agents are already disconnected from the hub by
+	// recordSLViolation → DisconnectAgent(). BroadcastSignalToAgents only
+	// sends to currently connected agents, so suspended agents are
+	// automatically excluded. No global check needed here — that would
+	// block ALL agents instead of just the violator.
 	// Only send directional signals — skip NO-TRADE to reduce noise
 	dir := string(signal.Direction)
 	if dir == "BUY" || dir == "SELL" || dir == "BUY_CANDIDATE" || dir == "SELL_CANDIDATE" {
