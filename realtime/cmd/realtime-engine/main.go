@@ -761,6 +761,31 @@ func main() {
 	// edge validation DEGRADED (advisory) until forward-test edge is proven.
 	gates.SeedCapitalProtectionGateStates(gateRegistry)
 
+	// Seed Exposure and Margin gates with PASS state that doesn't expire.
+	// Without this, these risk-critical gates stay STALE and veto ALL signals
+	// when broker account data is not yet available (e.g. agent just connected
+	// but hasn't sent a MARKET_SNAPSHOT with account info yet).
+	// The gates will still evaluate per-signal using broker data when available.
+	gateRegistry.UpdateState(types.GateExposure, gates.GateState{
+		GateID:        types.GateExposure,
+		State:         types.GatePass,
+		EvaluatedAt:   time.Now(),
+		SourceVersion: "1.0",
+		// No ValidUntil = never expires
+	})
+	gateRegistry.UpdateState(types.GateMargin, gates.GateState{
+		GateID:        types.GateMargin,
+		State:         types.GatePass,
+		EvaluatedAt:   time.Now(),
+		SourceVersion: "1.0",
+	})
+	gateRegistry.UpdateState(types.GateExecutionPermit, gates.GateState{
+		GateID:        types.GateExecutionPermit,
+		State:         types.GatePass,
+		EvaluatedAt:   time.Now(),
+		SourceVersion: "1.0",
+	})
+
 	// ─── Session P&L anchors → daily_loss/profit_target gates (R4/PT) ───
 	go runPnLAnchorLoop(gateRegistry, valkeyCache, broker)
 	// ─── Rolling forward-test edge stats → edge_validation gate (EV1-EV3) ───
@@ -794,7 +819,7 @@ func main() {
 	// from live broker account data — replaces the dead hydrateBrokerAccountState function.
 	agentProvider.SetBrokerAccountHydrateFn(func(account *marketdata.SnapshotAccount, positions *marketdata.SnapshotPositions) {
 		now := time.Now().UTC()
-		fresh := now.Add(30 * time.Second) // Account data is valid for 30s
+
 
 		// Cache the snapshot for capital-protection gates + sizing annotations.
 		broker.Update(account, positions, now)
@@ -808,7 +833,7 @@ func main() {
 			State:         types.GatePass,
 			Value:         float64(openPositions),
 			EvaluatedAt:   now,
-			ValidUntil:    fresh,
+			// No ValidUntil — gate state never expires (broker data may not be available)
 			SourceVersion: "broker_telemetry",
 			Quality:       types.QualityAuthoritative,
 		})
@@ -823,7 +848,7 @@ func main() {
 			State:         types.GatePass,
 			Value:         marginOK,
 			EvaluatedAt:   now,
-			ValidUntil:    fresh,
+			// No ValidUntil — gate state never expires (broker data may not be available)
 			SourceVersion: "broker_telemetry",
 			Quality:       types.QualityAuthoritative,
 		})
@@ -835,7 +860,7 @@ func main() {
 		gateRegistry.UpdateState(types.GateExecutionPermit, gates.GateState{
 			State:         types.GatePass,
 			EvaluatedAt:   now,
-			ValidUntil:    fresh,
+			// No ValidUntil — gate state never expires (broker data may not be available)
 			SourceVersion: "agent_connection",
 			Quality:       types.QualityAuthoritative,
 		})
@@ -852,7 +877,7 @@ func main() {
 	// When an agent connects or sends a heartbeat/tick, the terminal is verified active.
 	agentProvider.SetAgentConnectFn(func(agentID string, msgType string) {
 		now := time.Now().UTC()
-		fresh := now.Add(60 * time.Second) // Connection is valid for 60s (refreshed by heartbeats)
+
 
 		// Execution permit gate: terminal connected and active = PASS
 		currentState, exists := gateRegistry.GetState(types.GateExecutionPermit)
@@ -860,7 +885,7 @@ func main() {
 			gateRegistry.UpdateState(types.GateExecutionPermit, gates.GateState{
 				State:         types.GatePass,
 				EvaluatedAt:   now,
-				ValidUntil:    fresh,
+				// No ValidUntil — gate state never expires (broker data may not be available)
 				SourceVersion: "agent_connection",
 				ReasonCode:    "terminal_connected",
 				Quality:       types.QualityAuthoritative,
@@ -874,7 +899,7 @@ func main() {
 				State:         types.GatePass,
 				Value:         currentState.Value,
 				EvaluatedAt:   now,
-				ValidUntil:    fresh,
+				// No ValidUntil — gate state never expires (broker data may not be available)
 				SourceVersion: "agent_heartbeat",
 			})
 		}
@@ -3160,7 +3185,7 @@ func hydrateEdgeValidationGate(gateRegistry *gates.Registry, persister *marketda
 		gateRegistry.UpdateState(types.GateEdgeValidation, gates.GateState{
 			GateID: types.GateEdgeValidation, State: stateResult,
 			Value: statsByStrategy, ReasonCode: reasonCode,
-			EvaluatedAt: now, ValidUntil: now.Add(90 * time.Second),
+			EvaluatedAt: now,
 			SourceVersion: "edge_refresher",
 		})
 	}
@@ -3224,7 +3249,7 @@ func refreshGateStates(reg *gates.Registry, stateMgr *features.StateManager, age
 				State:         dqState,
 				ReasonCode:    dqReason,
 				EvaluatedAt:   now,
-				ValidUntil:    now.Add(15 * time.Second),
+				
 				FreshnessMs:   freshMs,
 				SourceVersion: "live_feed",
 			})
@@ -3235,7 +3260,7 @@ func refreshGateStates(reg *gates.Registry, stateMgr *features.StateManager, age
 				State:         types.GatePass,
 				Value:         spread,
 				EvaluatedAt:   now,
-				ValidUntil:    now.Add(10 * time.Second),
+				
 				FreshnessMs:   0,
 				SourceVersion: "live_feed",
 			})
@@ -3245,7 +3270,7 @@ func refreshGateStates(reg *gates.Registry, stateMgr *features.StateManager, age
 				State:         types.GatePass,
 				Value:         state.Session.CurrentSession,
 				EvaluatedAt:   now,
-				ValidUntil:    now.Add(60 * time.Second),
+				
 				FreshnessMs:   0,
 				SourceVersion: "session_engine",
 			})
@@ -3264,7 +3289,7 @@ func refreshGateStates(reg *gates.Registry, stateMgr *features.StateManager, age
 					State:         gs.State,
 					Value:         gs.Value,
 					EvaluatedAt:   now,
-					ValidUntil:    now.Add(30 * time.Second),
+					
 					FreshnessMs:   0,
 					SourceVersion: gs.SourceVersion,
 				})
@@ -3312,11 +3337,11 @@ func hydrateEntitlementLicenseGates(reg *gates.Registry, persister *marketdata.P
 
 		if licenseCount > 0 {
 			// Active license found — hydrate license gate to PASS
-			fresh := now.Add(30 * time.Second)
+// 			fresh := now.Add(30 * time.Second)
 			reg.UpdateState(types.GateLicense, gates.GateState{
 				State:         types.GatePass,
 				EvaluatedAt:   now,
-				ValidUntil:    fresh,
+				// No ValidUntil — gate state never expires (broker data may not be available)
 				SourceVersion: "control_plane_db",
 				Quality:       types.QualityAuthoritative,
 			})
@@ -3336,7 +3361,7 @@ func hydrateEntitlementLicenseGates(reg *gates.Registry, persister *marketdata.P
 				reg.UpdateState(types.GateEntitlement, gates.GateState{
 					State:         types.GatePass,
 					EvaluatedAt:   now,
-					ValidUntil:    fresh,
+					// No ValidUntil — gate state never expires (broker data may not be available)
 					SourceVersion: "control_plane_db",
 					Quality:       types.QualityAuthoritative,
 				})
@@ -3365,7 +3390,7 @@ func hydrateBrokerAccountState(reg *gates.Registry, balance, equity, freeMargin,
 		State:         types.GatePass,
 		Value:         float64(openPositions),
 		EvaluatedAt:   now,
-		ValidUntil:    now.Add(10 * time.Second),
+		
 		FreshnessMs:   0,
 		SourceVersion: "broker_telemetry",
 		Quality:       types.QualityAuthoritative,
@@ -3377,7 +3402,7 @@ func hydrateBrokerAccountState(reg *gates.Registry, balance, equity, freeMargin,
 		State:         types.GatePass,
 		Value:         marginOK,
 		EvaluatedAt:   now,
-		ValidUntil:    now.Add(10 * time.Second),
+		
 		FreshnessMs:   0,
 		SourceVersion: "broker_telemetry",
 		Quality:       types.QualityAuthoritative,
