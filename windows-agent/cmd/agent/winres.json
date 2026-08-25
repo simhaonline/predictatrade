@@ -1,12 +1,14 @@
 {
   "RT_MANIFEST": {
-    "1": [ "manifest.xml" ]
+    "1": [
+      "manifest.xml"
+    ]
   },
   "RT_VERSION": {
     "1": {
       "lang": 1033,
-      "fileVersion": "1.2.5.0",
-      "productVersion": "1.2.5.0",
+      "fileVersion": "1.2.20.0",
+      "productVersion": "1.2.20.0",
       "fixedFileInfo": {
         "fileFlagsMask": "3f",
         "fileFlags": "00",
@@ -16,15 +18,18 @@
       },
       "stringFilesInfo": {
         "1033": {
-          "Comments": "Predict-A-Trade XAUUSD Windows Agent",
-          "CompanyName": "Predict-A-Trade",
-          "FileDescription": "Predict-A-Trade Windows Agent",
-          "FileVersion": "1.2.5.0",
+          "Comments": "Predict-A-Trade XAUUSD Windows Agent - Market data collection and signal execution bridge",
+          "CompanyName": "Simha FinTech",
+          "FileDescription": "Predict-A-Trade XAUUSD Windows Agent",
+          "FileVersion": "1.2.20.0",
           "InternalName": "pat-agent",
-          "LegalCopyright": "Copyright Predict-A-Trade",
+          "LegalCopyright": "Copyright (c) 2026 Simha FinTech. All rights reserved.",
+          "LegalTrademarks": "Predict-A-Trade is a trademark of Simha FinTech",
           "OriginalFilename": "pat-agent.exe",
-          "ProductName": "Predict-A-Trade Windows Agent",
-          "ProductVersion": "1.2.5.0"
+          "ProductName": "Predict-A-Trade XAUUSD Windows Agent",
+          "ProductVersion": "1.2.20.0",
+          "PrivateBuild": "",
+          "SpecialBuild": ""
         }
       }
     }

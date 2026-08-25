@@ -41,12 +41,34 @@ func NewTrialGuard(svc *livepreview.Service, db *sql.DB) *TrialGuard {
 
 func (g *TrialGuard) Enabled() bool { return g != nil && g.svc != nil && g.svc.Enabled() }
 
+// exemptPaths are NEVER guarded: infrastructure, the Windows Agent upstream
+// (it is the live DATA SOURCE — blocking it would kill the pipeline; it has
+// its own authentication), and the trial endpoints themselves (§61/§65).
+var exemptPrefixes = []string{
+	"/health", "/ready", "/metrics", "/debug/",
+	"/ws/v1/agent", "/ws/agent",
+	"/api/v1/live-preview/",
+}
+
+func (g *TrialGuard) isExempt(path string) bool {
+	for _, p := range exemptPrefixes {
+		if strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // Middleware returns the centralized guard for protected live paths.
 func (g *TrialGuard) Middleware(next http.Handler) http.Handler {
 	if !g.Enabled() {
 		return next // feature flag off → production behavior unchanged (§67)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if g.isExempt(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		d := g.Resolve(r)
 		if d.NewCookie != nil {
 			http.SetCookie(w, g.svc.Cookie(*d.NewCookie))

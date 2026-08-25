@@ -71,7 +71,16 @@ fi
 # ─── Step 3: Build the Windows binary ───
 log "Cross-compiling for Windows amd64..."
 cd "$AGENT_DIR"
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$BIN_PATH" ./cmd/agent/ || fatal "Build failed"
+# Regenerate Windows resource (.syso) from updated manifest
+log "Regenerating Windows resource file from manifest..."
+cd "$AGENT_DIR/cmd/agent"
+rsrc -manifest manifest.xml -arch amd64 -o resource_windows_amd64.syso 2>/dev/null || true
+cd "$AGENT_DIR"
+
+# Build with version info embedded via ldflags + manifest via .syso
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
+  -ldflags="-s -w -X github.com/predictatrade/windows-agent/internal/agent.AgentVersion=$NEW_VERSION" \
+  -o "$BIN_PATH" ./cmd/agent/ || fatal "Build failed"
 log "Binary built: $BIN_PATH ($(du -h "$BIN_PATH" | cut -f1))"
 
 # ─── Step 4: Copy a standalone deployment binary ───

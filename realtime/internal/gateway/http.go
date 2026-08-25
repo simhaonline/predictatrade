@@ -40,7 +40,7 @@ type HTTPServer struct {
 	server    *http.Server
 }
 
-func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine, newsEngine *news.RiskEngine, engTracker *engstatus.Tracker) *HTTPServer {
+func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine, newsEngine *news.RiskEngine, engTracker *engstatus.Tracker, trialSvc *livepreview.Service) *HTTPServer {
 	h := &HTTPServer{
 		agentHub: agentHub,
 		agentProvider: agentProvider,
@@ -52,6 +52,10 @@ func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *f
 		persister: persister,
 		states:    states,
 		mux:       http.NewServeMux(),
+	}
+	if trialSvc != nil && trialSvc.Enabled() {
+		h.trialSvc = trialSvc
+		h.trialGuard = NewTrialGuard(trialSvc, persister.GetDB())
 	}
 	h.registerRoutes()
 	return h
