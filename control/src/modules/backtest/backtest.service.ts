@@ -8,7 +8,10 @@ import { RunBacktestDto } from './backtest.dto';
 const execFileAsync = promisify(execFile);
 const DB_POOL = 'DB_POOL';
 
-const BACKTEST_BINARY = '/srv/predictatrade/xauusd/realtime/bin/backtest-engine';
+// Binary location. In the container it is mounted at /app/backtest-engine; the
+// host path is kept as a fallback for non-container deployments.
+const BACKTEST_BINARY =
+  process.env.BACKTEST_BINARY || '/app/backtest-engine';
 
 @Injectable()
 export class BacktestService {
@@ -30,6 +33,13 @@ export class BacktestService {
 
     if (dto.higherTimeframes) {
       args.push('--higher-tfs', dto.higherTimeframes);
+    }
+
+    // Inject the DB URL from the environment so the engine connects using the
+    // container-resolvable host (e.g. postgres:) instead of a host-only file
+    // that is unavailable inside the container.
+    if (process.env.DATABASE_URL) {
+      args.push('--db-url', process.env.DATABASE_URL);
     }
 
     try {

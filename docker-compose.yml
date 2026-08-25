@@ -121,6 +121,11 @@ services:
       - DATABASE_URL=postgresql://pat_admin:pat_local_dev_only@postgres:5432/predictatrade?sslmode=disable
       - CONTROL_HOST=0.0.0.0
       - CONTROL_PORT=13080
+    # Backtest engine binary — mounted read-only so the control plane can execute
+    # real backtests inside the container (the engine is a Go binary built from
+    # realtime/cmd/backtest-engine; it connects via DATABASE_URL above).
+    volumes:
+      - /srv/predictatrade/xauusd/realtime/bin/backtest-engine:/app/backtest-engine:ro
     ports:
       - "13080:13080"
     depends_on:
