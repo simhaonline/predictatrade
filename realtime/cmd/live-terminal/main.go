@@ -175,6 +175,7 @@ type liveTerminal struct {
 type dataCache struct {
 	mu              sync.RWMutex
 	marketSnapshot  json.RawMessage
+	marketState     json.RawMessage
 	systemHealth    json.RawMessage
 	agentsStatus    json.RawMessage
 	signals         json.RawMessage
@@ -194,6 +195,8 @@ func (dc *dataCache) update(key string, data []byte) {
 	switch key {
 	case "market_snapshot":
 		dc.marketSnapshot = data
+	case "market_state":
+		dc.marketState = data
 	case "system_health":
 		dc.systemHealth = data
 	case "agents_status":
@@ -223,6 +226,36 @@ func (dc *dataCache) snapshot() map[string]interface{} {
 		var ms interface{}
 		if json.Unmarshal(dc.marketSnapshot, &ms) == nil {
 			result["market_snapshot"] = ms
+		}
+	}
+	// Market state has the live tick (bid/ask/spread) — merge into market_snapshot
+	// so the dashboard can render the price.
+	if len(dc.marketState) > 0 {
+		var msState map[string]interface{}
+		if json.Unmarshal(dc.marketState, &msState) == nil {
+			// Construct a tick object from market state
+			tick := map[string]interface{}{
+				"bid":      msState["Bid"],
+				"ask":      msState["Ask"],
+				"spread":   msState["Spread"],
+				"volume":   0,
+				"symbol":   "XAUUSD",
+				"source":   "MT5",
+				"timestamp": msState["Timestamp"],
+			}
+			// If market_snapshot exists, merge tick into it
+			if ms, ok := result["market_snapshot"].(map[string]interface{}); ok {
+				ms["tick"] = tick
+				ms["source"] = "LIVE_STREAM"
+				ms["timestamp"] = msState["Timestamp"]
+			} else {
+				// Create a minimal market_snapshot with just the tick
+				result["market_snapshot"] = map[string]interface{}{
+					"tick":      tick,
+					"source":    "LIVE_STREAM",
+					"timestamp": msState["Timestamp"],
+				}
+			}
 		}
 	}
 	if len(dc.systemHealth) > 0 {
@@ -266,6 +299,7 @@ func (lt *liveTerminal) startDataPoller(ctx context.Context, cache *dataCache) {
 		path string
 	}{
 		{"market_snapshot", "/api/v1/market/snapshot"},
+		{"market_state", "/api/v1/market/state"},
 		{"system_health", "/api/v1/system-health"},
 		{"agents_status", "/api/v1/agents/status"},
 		{"signals", "/api/v1/signals"},
