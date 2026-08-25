@@ -80,6 +80,18 @@ def run_baseline(strategy_id, db_url, days=45):
         min_rr=1.0,
     )
 
+    # Fast pre-check: if real historical data fails the data-quality gate, the
+    # engine refuses to run and no honest baseline can be produced. Report this
+    # immediately instead of spending minutes on a walk-forward that yields nothing.
+    probe = BacktestEngine(bt_config)
+    probe.set_strategy(PTBStrategyAdapter(strategy_id))
+    pres = probe.run(primary, higher_tf)
+    if pres.status == "DATA_QUALITY_FAILED":
+        print(f"INSUFFICIENT_DATA: {strategy_id} — engine refused to run: historical "
+              f"XAUUSD candles failed the data-quality gate (real data is not clean "
+              f"enough to backtest honestly). No fabricated numbers produced.")
+        return 2
+
     wf = WalkForwardAnalyzer(WalkForwardConfig(
         train_size=300, test_size=80, step_size=120, min_trades=5,
     ))

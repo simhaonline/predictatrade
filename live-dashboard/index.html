@@ -443,7 +443,7 @@ function updatePipeline() {
         <!-- Volume & Liquidity Trends mini-chart -->
         <div style="margin-top:6px;flex-shrink:0">
           <div style="font-size:8px;font-weight:800;color:var(--text-dim);margin-bottom:3px;font-family:var(--mono);letter-spacing:.4px">VOLUME & LIQUIDITY TRENDS</div>
-          <div id="volLiqChart" style="width:100%;height:80px"></div>
+          <div id="volLiqChart" style="width:100%;height:90px;min-height:90px"></div>
         </div>
       </div>
     </section>
@@ -955,33 +955,80 @@ function renderSignals() {
 
 /* ── Volume & Liquidity Trends Chart ── */
 let volLiqChart = null;
+let volLiqInitTried = false;
+
 function initVolLiqChart() {
-  const el = $("volLiqChart");
-  if (!el || typeof echarts === "undefined") return;
-  if (volLiqChart) { try { volLiqChart.dispose(); } catch {} }
-  volLiqChart = echarts.init(el, null, { renderer: "canvas" });
-  volLiqChart.setOption({
-    grid: { left: 30, right: 8, top: 8, bottom: 18 },
-    tooltip: { trigger: "axis", backgroundColor: "rgba(15,21,32,.95)", borderColor: "#2a3548", textStyle: { color: "#c8d0e0", fontSize: 9 } },
-    xAxis: { type: "category", show: false, data: [] },
-    yAxis: [
-      { type: "value", name: "Vol", position: "left", axisLabel: { color: "var(--text-dim)", fontSize: 7 }, splitLine: { lineStyle: { color: "rgba(42,53,72,.3)" } }, nameTextStyle: { color: "var(--text-dim)", fontSize: 7 } },
-      { type: "value", name: "Liq", position: "right", axisLabel: { color: "var(--text-dim)", fontSize: 7 }, splitLine: { show: false }, nameTextStyle: { color: "var(--text-dim)", fontSize: 7 } }
-    ],
-    series: [
-      { name: "Volume", type: "bar", data: [], itemStyle: { color: "rgba(0,200,83,.35)" }, barWidth: "60%" },
-      { name: "Liquidity", type: "line", yAxisIndex: 1, data: [], smooth: true, symbol: "none", lineStyle: { color: "#f59e0b", width: 1.5 }, areaStyle: { color: "rgba(245,158,11,.08)" } }
-    ]
-  });
+  if (volLiqInitTried) return;
+  volLiqInitTried = true;
+  // Delay to ensure echarts is loaded and element has dimensions
+  setTimeout(() => {
+    const el = $("volLiqChart");
+    if (!el || typeof echarts === "undefined") { volLiqInitTried = false; return; }
+    if (el.offsetWidth < 10 || el.offsetHeight < 10) { volLiqInitTried = false; return; }
+    if (volLiqChart) { try { volLiqChart.dispose(); } catch {} }
+    volLiqChart = echarts.init(el, null, { renderer: "canvas" });
+    const isDark = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim().startsWith("#0") || 
+                   getComputedStyle(document.documentElement).getPropertyValue("--bg").trim().startsWith("#f") === false;
+    const textColor = isDark ? "#6c707a" : "#6c707a";
+    const gridColor = isDark ? "rgba(42,53,72,.3)" : "rgba(0,0,0,.06)";
+    volLiqChart.setOption({
+      grid: { left: 28, right: 28, top: 6, bottom: 16 },
+      tooltip: { 
+        trigger: "axis", 
+        backgroundColor: isDark ? "rgba(15,21,32,.95)" : "rgba(255,255,250,.95)", 
+        borderColor: isDark ? "#2a3548" : "#e0d8cc", 
+        textStyle: { color: isDark ? "#c8d0e0" : "#333", fontSize: 9 } 
+      },
+      xAxis: { type: "category", show: false, data: [] },
+      yAxis: [
+        { type: "value", name: "Vol", position: "left", 
+          axisLabel: { color: textColor, fontSize: 7 }, 
+          splitLine: { lineStyle: { color: gridColor } }, 
+          nameTextStyle: { color: textColor, fontSize: 7 },
+          max: function(v) { return v.max * 1.2; }
+        },
+        { type: "value", name: "Liq", position: "right", 
+          axisLabel: { color: textColor, fontSize: 7 }, 
+          splitLine: { show: false }, 
+          nameTextStyle: { color: textColor, fontSize: 7 },
+          max: function(v) { return v.max * 1.2; }
+        }
+      ],
+      series: [
+        { name: "Volume", type: "bar", data: [], 
+          itemStyle: { 
+            color: function(p) {
+              // Green for bullish, red for bearish
+              return p.dataIndex % 2 === 0 ? "rgba(0,200,83,.4)" : "rgba(255,23,68,.4)";
+            }
+          }, 
+          barWidth: "60%" 
+        },
+        { name: "Liquidity (H-L)", type: "line", yAxisIndex: 1, data: [], 
+          smooth: true, symbol: "none", 
+          lineStyle: { color: "#f59e0b", width: 1.5 }, 
+          areaStyle: { color: "rgba(245,158,11,.08)" } 
+        }
+      ]
+    });
+    // Load initial data from the main chart's candle cache
+    if (typeof tfCandles !== "undefined" && typeof activeTf !== "undefined") {
+      updateVolLiqChart(tfCandles[activeTf] || []);
+    }
+  }, 500);
 }
+
 function updateVolLiqChart(candles) {
-  if (!volLiqChart) initVolLiqChart();
-  if (!volLiqChart || !candles || !candles.length) return;
-  const recent = candles.slice(-30);
-  const labels = recent.map((_, i) => i);
+  if (!volLiqChart) { initVolLiqChart(); return; }
+  if (!candles || !candles.length) return;
+  const recent = candles.slice(-25);
+  const labels = recent.map((_, i) => "");
   const vols = recent.map(k => num(k.volume) || 0);
-  // Liquidity proxy: high-low range as a liquidity indicator
-  const liqs = recent.map(k => (num(k.high) - num(k.low)) || 0);
+  // Liquidity proxy: high-low range
+  const liqs = recent.map(k => {
+    const h = num(k.high), l = num(k.low);
+    return (h > 0 && l > 0) ? +(h - l).toFixed(2) : 0;
+  });
   volLiqChart.setOption({
     xAxis: { data: labels },
     series: [
@@ -1050,6 +1097,8 @@ async function pollCandles() {
       open: num(k.open), high: num(k.high), low: num(k.low), close: num(k.close), volume: num(k.volume) || 0,
     })).filter(k => k.open && k.high && k.low && k.close);
     chart.render(); renderChartHeader();
+    // Update volume/liquidity chart with fresh candle data
+    updateVolLiqChart(S.candles);
   } catch (e) { /* keep last */ }
 }
 
@@ -1459,6 +1508,14 @@ lpInit().then((allowed) => {
   window.__pat_intervals.push(setInterval(pollNews, 60000));
   window.__pat_intervals.push(setInterval(pollSignals, 10000));
   pollSnapshot(); pollMarketState(); pollCandles(); pollEngines(); pollInfra(); pollNews(); pollSignals();
+  // Initialize volume/liquidity chart after a short delay
+  setTimeout(initVolLiqChart, 1000);
+  setTimeout(initVolLiqChart, 3000); // retry in case first attempt failed
+});
+
+// Resize vol/liquidity chart when window resizes
+window.addEventListener("resize", () => {
+  if (volLiqChart) { try { volLiqChart.resize(); } catch {} }
 });
 new ResizeObserver(() => chart.resize()).observe($("priceChart"));
 

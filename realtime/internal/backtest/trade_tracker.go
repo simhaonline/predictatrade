@@ -9,15 +9,15 @@ import (
 
 // TradeTracker manages open positions and records closed trades.
 type TradeTracker struct {
-	openPositions []*OpenPosition
-	closedTrades  []Trade
-	balance       decimal.Decimal
+	openPositions  []*OpenPosition
+	closedTrades   []Trade
+	balance        decimal.Decimal
 	initialBalance decimal.Decimal
 
 	// Risk state
 	consecutiveLosses int
-	dailyPnL         decimal.Decimal
-	currentDay       time.Time
+	dailyPnL          decimal.Decimal
+	currentDay        time.Time
 	recoveryMode      bool
 	recoverySizeMult  decimal.Decimal
 
@@ -28,9 +28,9 @@ type TradeTracker struct {
 // NewTradeTracker creates a new trade tracker.
 func NewTradeTracker(config BacktestConfig) *TradeTracker {
 	return &TradeTracker{
-		balance:        config.InitialBalance,
-		initialBalance: config.InitialBalance,
-		config:        config,
+		balance:          config.InitialBalance,
+		initialBalance:   config.InitialBalance,
+		config:           config,
 		recoverySizeMult: decimal.NewFromInt(1),
 	}
 }
@@ -263,7 +263,7 @@ func (t *TradeTracker) checkPosition(pos *OpenPosition, candle *types.Candle, ba
 		ExitTime:       candle.Time,
 		ExitReason:     exitReason,
 		Size:           pos.Size,
-		RealizedPnL:     pnl,
+		RealizedPnL:    pnl,
 		RealizedR:      realizedR,
 		SpreadCost:     spreadCost,
 		CommissionCost: commissionCost,
@@ -381,7 +381,7 @@ func (t *TradeTracker) CloseAllPositions(candle *types.Candle, barIdx int) []Tra
 			CommissionCost: commissionCost,
 			SlippageCost:   slippageCost,
 			Regime:         pos.Regime,
-			Session:       pos.Session,
+			Session:        pos.Session,
 			RawScore:       pos.RawScore,
 			EntryBarIdx:    pos.EntryBarIdx,
 			ExitBarIdx:     barIdx,

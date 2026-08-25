@@ -27,18 +27,18 @@ const SupportedCalibrationVersion = "1.0.0"
 //   - logistic:  prob = sigmoid(a*x + b)   (params.a, params.b)
 //   - isotonic:  prob = linear-interp of monotonic_bins at x
 type CalibrationFile struct {
-	Version      string             `json:"version"`
-	Strategy     string             `json:"strategy"`
-	Target       string             `json:"target"`
-	ExitProfile  string             `json:"exit_profile"`
-	OOSAUC       float64            `json:"oos_auc"`
-	NSamples     int                `json:"n_samples"`
-	Method       string             `json:"method"`
-	Params       map[string]float64 `json:"params"`
-	TrainedAt    string             `json:"trained_at"`
-	MonotonicBins []CalibrationBin  `json:"monotonic_bins"`
-	XScale       float64            `json:"x_scale"`
-	XClip        []float64          `json:"x_clip"`
+	Version       string             `json:"version"`
+	Strategy      string             `json:"strategy"`
+	Target        string             `json:"target"`
+	ExitProfile   string             `json:"exit_profile"`
+	OOSAUC        float64            `json:"oos_auc"`
+	NSamples      int                `json:"n_samples"`
+	Method        string             `json:"method"`
+	Params        map[string]float64 `json:"params"`
+	TrainedAt     string             `json:"trained_at"`
+	MonotonicBins []CalibrationBin   `json:"monotonic_bins"`
+	XScale        float64            `json:"x_scale"`
+	XClip         []float64          `json:"x_clip"`
 }
 
 // CalibrationBin is a single (x, p) knot for isotonic calibration.

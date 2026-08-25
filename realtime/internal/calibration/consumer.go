@@ -87,8 +87,8 @@ func (c *Consumer) GetModel(strategyID types.StrategyID) *CalibrationModel {
 // SeedDefaultModels creates reasonable default calibration models.
 func (c *Consumer) SeedDefaultModels() {
 	defaults := []struct {
-		id    types.StrategyID
-		a, b  float64
+		id   types.StrategyID
+		a, b float64
 	}{
 		{types.StrategyStandardScalping, 2.5, -0.5},
 		{types.StrategyUltraScalping, 3.0, -0.8},

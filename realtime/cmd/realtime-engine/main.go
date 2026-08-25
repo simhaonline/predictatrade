@@ -6,8 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"math"
 	"fmt"
+	"math"
 	"os"
 	"os/signal"
 	"strconv"
@@ -128,6 +128,7 @@ func isStrategyAllowedForAgent(agentID string, strategyID string) bool {
 	}
 	return false
 }
+
 var globalCrossMarketPersister *crossmarket.Persister
 
 // ─── Per-strategy+bar dedup (prompt.md Sections 13, 23, 40) ───
@@ -807,7 +808,6 @@ func main() {
 	agentProvider.SetBrokerAccountHydrateFn(func(account *marketdata.SnapshotAccount, positions *marketdata.SnapshotPositions) {
 		now := time.Now().UTC()
 
-
 		// Cache the snapshot for capital-protection gates + sizing annotations.
 		broker.Update(account, positions, now)
 
@@ -817,9 +817,9 @@ func main() {
 			openPositions = int(positions.TotalPositions)
 		}
 		gateRegistry.UpdateState(types.GateExposure, gates.GateState{
-			State:         types.GatePass,
-			Value:         float64(openPositions),
-			EvaluatedAt:   now,
+			State:       types.GatePass,
+			Value:       float64(openPositions),
+			EvaluatedAt: now,
 			// No ValidUntil — gate state never expires (broker data may not be available)
 			SourceVersion: "broker_telemetry",
 			Quality:       types.QualityAuthoritative,
@@ -832,9 +832,9 @@ func main() {
 		}
 		marginOK := freeMargin > 0
 		gateRegistry.UpdateState(types.GateMargin, gates.GateState{
-			State:         types.GatePass,
-			Value:         marginOK,
-			EvaluatedAt:   now,
+			State:       types.GatePass,
+			Value:       marginOK,
+			EvaluatedAt: now,
 			// No ValidUntil — gate state never expires (broker data may not be available)
 			SourceVersion: "broker_telemetry",
 			Quality:       types.QualityAuthoritative,
@@ -845,8 +845,8 @@ func main() {
 		// A connected agent with valid account data means execution is permitted
 		// at the signal delivery level (individual device/license checks still apply).
 		gateRegistry.UpdateState(types.GateExecutionPermit, gates.GateState{
-			State:         types.GatePass,
-			EvaluatedAt:   now,
+			State:       types.GatePass,
+			EvaluatedAt: now,
 			// No ValidUntil — gate state never expires (broker data may not be available)
 			SourceVersion: "agent_connection",
 			Quality:       types.QualityAuthoritative,
@@ -865,13 +865,12 @@ func main() {
 	agentProvider.SetAgentConnectFn(func(agentID string, msgType string) {
 		now := time.Now().UTC()
 
-
 		// Execution permit gate: terminal connected and active = PASS
 		currentState, exists := gateRegistry.GetState(types.GateExecutionPermit)
 		if !exists || currentState.State != types.GatePass || msgType == "MASTER_INIT" {
 			gateRegistry.UpdateState(types.GateExecutionPermit, gates.GateState{
-				State:         types.GatePass,
-				EvaluatedAt:   now,
+				State:       types.GatePass,
+				EvaluatedAt: now,
 				// No ValidUntil — gate state never expires (broker data may not be available)
 				SourceVersion: "agent_connection",
 				ReasonCode:    "terminal_connected",
@@ -883,9 +882,9 @@ func main() {
 		} else {
 			// Just refresh validity on heartbeat
 			gateRegistry.UpdateState(types.GateExecutionPermit, gates.GateState{
-				State:         types.GatePass,
-				Value:         currentState.Value,
-				EvaluatedAt:   now,
+				State:       types.GatePass,
+				Value:       currentState.Value,
+				EvaluatedAt: now,
 				// No ValidUntil — gate state never expires (broker data may not be available)
 				SourceVersion: "agent_heartbeat",
 			})
@@ -932,19 +931,19 @@ func main() {
 	var agentHub *gateway.AgentHub
 	if isAgentProvider {
 		agentHub = gateway.NewAgentHub(agentProvider)
-	globalAgentHub = agentHub
-	// Wire up server-side strategy entitlement filter
-	// This ensures signals are only sent to agents whose license allows the strategy
-	agentHub.SetStrategyFilter(func(agentID, strategyID string) bool {
-		allowed := isStrategyAllowedForAgent(agentID, strategyID)
-		if !allowed {
-			observability.Log.Debug().
-				Str("agent_id", agentID).
-				Str("strategy_id", strategyID).
-				Msg("Signal filtered — agent plan does not include this strategy")
-		}
-		return allowed
-	})
+		globalAgentHub = agentHub
+		// Wire up server-side strategy entitlement filter
+		// This ensures signals are only sent to agents whose license allows the strategy
+		agentHub.SetStrategyFilter(func(agentID, strategyID string) bool {
+			allowed := isStrategyAllowedForAgent(agentID, strategyID)
+			if !allowed {
+				observability.Log.Debug().
+					Str("agent_id", agentID).
+					Str("strategy_id", strategyID).
+					Msg("Signal filtered — agent plan does not include this strategy")
+			}
+			return allowed
+		})
 		go agentHub.Run()
 	} else {
 		agentHub = gateway.NewAgentHub(nil) // nil provider — agent WS still accepts connections
@@ -1052,9 +1051,9 @@ func main() {
 			// Send CLOSE_POSITION command to the agent
 			if agentHub != nil {
 				agentHub.SendToAgent(agentID, "CLOSE_POSITION", map[string]interface{}{
-					"ticket":   ack.Ticket,
-					"magic":    ack.Magic,
-					"reason":   "SL_VIOLATION_NO_SL",
+					"ticket":    ack.Ticket,
+					"magic":     ack.Magic,
+					"reason":    "SL_VIOLATION_NO_SL",
 					"signal_id": ack.SignalID,
 				})
 			}
@@ -1449,7 +1448,11 @@ func main() {
 
 	// Main processing loop
 	go func() {
-  defer func() { if r := recover(); r != nil { observability.Log.Error().Interface("panic", r).Msg("Recovered from panic in main loop — continuing") } }()
+		defer func() {
+			if r := recover(); r != nil {
+				observability.Log.Error().Interface("panic", r).Msg("Recovered from panic in main loop — continuing")
+			}
+		}()
 		tickChan := provider.Stream()
 		candleChan := aggregator.CandleChannel()
 
@@ -2067,17 +2070,17 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 		// The override matrix is OPT-IN via ENGINE_OVERRIDE_SLTP; when disabled the
 		// live engine keeps the backtest-equivalent getStrategyConfig geometry.
 		if engineOverrideSLTP {
-		if eng, err := engines.GetEngine(strat.ID()); err == nil && eng != nil {
-			engineResult := eng.Evaluate(stratResult, mergedState)
-			if engineResult.Applied {
-				stratResult = engineResult.Result
-				observability.Log.Debug().Str("strategy", string(strat.ID())).Msg("Engine override applied")
-			} else if engineResult.RejectReason != "" {
-				observability.Log.Debug().Str("strategy", string(strat.ID())).Str("reason", engineResult.RejectReason).Msg("Engine rejected signal")
-				stratResult = engineResult.Result // Result has Direction=NoTrade + reason codes
+			if eng, err := engines.GetEngine(strat.ID()); err == nil && eng != nil {
+				engineResult := eng.Evaluate(stratResult, mergedState)
+				if engineResult.Applied {
+					stratResult = engineResult.Result
+					observability.Log.Debug().Str("strategy", string(strat.ID())).Msg("Engine override applied")
+				} else if engineResult.RejectReason != "" {
+					observability.Log.Debug().Str("strategy", string(strat.ID())).Str("reason", engineResult.RejectReason).Msg("Engine rejected signal")
+					stratResult = engineResult.Result // Result has Direction=NoTrade + reason codes
+				}
+				// If Fallback=true (NO-TRADE from legacy), pass through unchanged
 			}
-			// If Fallback=true (NO-TRADE from legacy), pass through unchanged
-		}
 		}
 		// ===== END ADDON =====
 
@@ -3023,18 +3026,18 @@ type brokerAccountSnapshotData struct {
 // ─── SL Violation Tracker ───
 // Tracks per-agent SL violations. After 3 violations, signals are suspended.
 var (
-	slViolationMu       sync.Mutex
-	slViolationCounts   = make(map[string]int)
-	slViolationDetails  = make(map[string][]slViolation)
-	suspendedAgents     = make(map[string]time.Time)
+	slViolationMu      sync.Mutex
+	slViolationCounts  = make(map[string]int)
+	slViolationDetails = make(map[string][]slViolation)
+	suspendedAgents    = make(map[string]time.Time)
 )
 
 type slViolation struct {
-	SignalID  string
-	Type      string // NO_SL, SL_MISMATCH
-	ActualSL  float64
+	SignalID   string
+	Type       string // NO_SL, SL_MISMATCH
+	ActualSL   float64
 	ExpectedSL float64
-	Timestamp time.Time
+	Timestamp  time.Time
 }
 
 func recordSLViolation(agentID, signalID, vType string, actualSL, expectedSL float64) {
@@ -3229,7 +3232,7 @@ func hydrateEdgeValidationGate(gateRegistry *gates.Registry, persister *marketda
 		gateRegistry.UpdateState(types.GateEdgeValidation, gates.GateState{
 			GateID: types.GateEdgeValidation, State: stateResult,
 			Value: statsByStrategy, ReasonCode: reasonCode,
-			EvaluatedAt: now,
+			EvaluatedAt:   now,
 			SourceVersion: "edge_refresher",
 		})
 	}
@@ -3290,10 +3293,10 @@ func refreshGateStates(reg *gates.Registry, stateMgr *features.StateManager, age
 				}
 			}
 			reg.UpdateState(types.GateDataQuality, gates.GateState{
-				State:         dqState,
-				ReasonCode:    dqReason,
-				EvaluatedAt:   now,
-				
+				State:       dqState,
+				ReasonCode:  dqReason,
+				EvaluatedAt: now,
+
 				FreshnessMs:   freshMs,
 				SourceVersion: "live_feed",
 			})
@@ -3301,20 +3304,20 @@ func refreshGateStates(reg *gates.Registry, stateMgr *features.StateManager, age
 			// Spread gate
 			spread, _ := state.Spread.Float64()
 			reg.UpdateState(types.GateSpread, gates.GateState{
-				State:         types.GatePass,
-				Value:         spread,
-				EvaluatedAt:   now,
-				
+				State:       types.GatePass,
+				Value:       spread,
+				EvaluatedAt: now,
+
 				FreshnessMs:   0,
 				SourceVersion: "live_feed",
 			})
 
 			// Session gate
 			reg.UpdateState(types.GateSession, gates.GateState{
-				State:         types.GatePass,
-				Value:         state.Session.CurrentSession,
-				EvaluatedAt:   now,
-				
+				State:       types.GatePass,
+				Value:       state.Session.CurrentSession,
+				EvaluatedAt: now,
+
 				FreshnessMs:   0,
 				SourceVersion: "session_engine",
 			})
@@ -3330,10 +3333,10 @@ func refreshGateStates(reg *gates.Registry, stateMgr *features.StateManager, age
 			if exists && gs.State == types.GatePass && !now.After(gs.ValidUntil) {
 				// Still fresh — extend validity
 				reg.UpdateState(gateID, gates.GateState{
-					State:         gs.State,
-					Value:         gs.Value,
-					EvaluatedAt:   now,
-					
+					State:       gs.State,
+					Value:       gs.Value,
+					EvaluatedAt: now,
+
 					FreshnessMs:   0,
 					SourceVersion: gs.SourceVersion,
 				})
@@ -3381,10 +3384,10 @@ func hydrateEntitlementLicenseGates(reg *gates.Registry, persister *marketdata.P
 
 		if licenseCount > 0 {
 			// Active license found — hydrate license gate to PASS
-// 			fresh := now.Add(30 * time.Second)
+			// 			fresh := now.Add(30 * time.Second)
 			reg.UpdateState(types.GateLicense, gates.GateState{
-				State:         types.GatePass,
-				EvaluatedAt:   now,
+				State:       types.GatePass,
+				EvaluatedAt: now,
 				// No ValidUntil — gate state never expires (broker data may not be available)
 				SourceVersion: "control_plane_db",
 				Quality:       types.QualityAuthoritative,
@@ -3403,8 +3406,8 @@ func hydrateEntitlementLicenseGates(reg *gates.Registry, persister *marketdata.P
 
 			if err2 == nil && subCount > 0 {
 				reg.UpdateState(types.GateEntitlement, gates.GateState{
-					State:         types.GatePass,
-					EvaluatedAt:   now,
+					State:       types.GatePass,
+					EvaluatedAt: now,
 					// No ValidUntil — gate state never expires (broker data may not be available)
 					SourceVersion: "control_plane_db",
 					Quality:       types.QualityAuthoritative,
@@ -3431,10 +3434,10 @@ func hydrateBrokerAccountState(reg *gates.Registry, balance, equity, freeMargin,
 
 	// Exposure gate: 0 current exposure (no open positions) = PASS
 	reg.UpdateState(types.GateExposure, gates.GateState{
-		State:         types.GatePass,
-		Value:         float64(openPositions),
-		EvaluatedAt:   now,
-		
+		State:       types.GatePass,
+		Value:       float64(openPositions),
+		EvaluatedAt: now,
+
 		FreshnessMs:   0,
 		SourceVersion: "broker_telemetry",
 		Quality:       types.QualityAuthoritative,
@@ -3443,10 +3446,10 @@ func hydrateBrokerAccountState(reg *gates.Registry, balance, equity, freeMargin,
 	// Margin gate: free margin > 0 = PASS
 	marginOK := freeMargin > 0
 	reg.UpdateState(types.GateMargin, gates.GateState{
-		State:         types.GatePass,
-		Value:         marginOK,
-		EvaluatedAt:   now,
-		
+		State:       types.GatePass,
+		Value:       marginOK,
+		EvaluatedAt: now,
+
 		FreshnessMs:   0,
 		SourceVersion: "broker_telemetry",
 		Quality:       types.QualityAuthoritative,
@@ -3617,4 +3620,3 @@ func boolToFloat(b bool) float64 {
 	}
 	return 0.0
 }
-
