@@ -38,7 +38,7 @@ describe('NowPaymentsService', () => {
     it('rejects when NOWPAYMENTS_IPN_SECRET is missing (fail closed)', async () => {
       delete process.env.NOWPAYMENTS_IPN_SECRET;
       const service = makeService({ query: jest.fn() });
-      await expect(service.handleIPN({ payment_id: '1' }, 'sig')).rejects.toThrow(
+      await expect(service.handleIPN('malformed', 'sig')).rejects.toThrow(
         UnauthorizedException,
       );
     });
@@ -46,7 +46,7 @@ describe('NowPaymentsService', () => {
     it('rejects missing signature header', async () => {
       process.env.NOWPAYMENTS_IPN_SECRET = 's3cret';
       const service = makeService({ query: jest.fn() });
-      await expect(service.handleIPN({ payment_id: '1' }, undefined)).rejects.toThrow(
+      await expect(service.handleIPN('malformed', undefined)).rejects.toThrow(
         UnauthorizedException,
       );
     });
@@ -55,21 +55,19 @@ describe('NowPaymentsService', () => {
       process.env.NOWPAYMENTS_IPN_SECRET = 's3cret';
       const service = makeService({ query: jest.fn() });
       await expect(
-        service.handleIPN({ payment_id: '9999', payment_status: 'finished' }, 'deadbeef'),
+        service.handleIPN('{"payment_id":"9999","payment_status":"finished"}', 'deadbeef'),
       ).rejects.toMatchObject({ message: 'invalid_ipn_signature' });
       // No state mutated on rejection.
     });
 
-    it('accepts the documented canonical signature (sorted keys, key:value joined by |, HMAC-SHA512)', async () => {
+    it('accepts a valid HMAC-SHA512 signature over the raw JSON body', async () => {
       const secret = 's3cret';
       process.env.NOWPAYMENTS_IPN_SECRET = secret;
       const crypto = require('crypto');
       const body = { payment_status: 'confirmed', payment_id: '42', invoice_id: 'INV-7' };
-      const sigString = Object.keys(body)
-        .sort()
-        .map((k) => `${k}:${(body as any)[k]}`)
-        .join('|');
-      const sig = crypto.createHmac('sha512', secret).update(sigString).digest('hex');
+      // NOWPayments signs the RAW request body bytes.
+      const rawBody = JSON.stringify(body);
+      const sig = crypto.createHmac('sha512', secret).update(rawBody).digest('hex');
       const pool = {
         query: jest
           .fn()
@@ -77,7 +75,7 @@ describe('NowPaymentsService', () => {
           .mockResolvedValueOnce({ rowCount: 0, rows: [] }),
       };
       const service = makeService(pool);
-      const result = await service.handleIPN(body, sig);
+      const result = await service.handleIPN(rawBody, sig);
       expect(result).toEqual({ received: true, duplicate: true });
       expect(pool.query).toHaveBeenCalledWith(
         expect.stringContaining("ON CONFLICT (provider, provider_event_id) DO NOTHING"),
@@ -89,11 +87,9 @@ describe('NowPaymentsService', () => {
   describe('handleIPN settlement', () => {
     function sign(body: Record<string, unknown>, secret: string): string {
       const crypto = require('crypto');
-      const sigString = Object.keys(body)
-        .sort()
-        .map((k) => `${k}:${body[k]}`)
-        .join('|');
-      return crypto.createHmac('sha512', secret).update(sigString).digest('hex');
+      // NOWPayments signs the RAW request body bytes.
+      const rawBody = JSON.stringify(body);
+      return crypto.createHmac('sha512', secret).update(rawBody).digest('hex');
     }
 
     it('activates subscription and marks payment/invoice paid transactionally on finished', async () => {
@@ -119,7 +115,7 @@ describe('NowPaymentsService', () => {
         query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [{ id: 'evt-1' }] }),
       };
       const service = makeService(pool);
-      const result = await service.handleIPN(body, sign(body, secret));
+      const result = await service.handleIPN(JSON.stringify(body), sign(body, secret));
 
       expect(result).toEqual({ received: true, status: 'finished' });
       expect(client.query).toHaveBeenCalledWith('BEGIN');
@@ -153,7 +149,7 @@ describe('NowPaymentsService', () => {
         query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [{ id: 'evt-2' }] }),
       };
       const service = makeService(pool);
-      const result = await service.handleIPN(body, sign(body, secret));
+      const result = await service.handleIPN(JSON.stringify(body), sign(body, secret));
       expect(result).toEqual({ received: true, status: 'waiting' });
       expect(pool.connect).not.toHaveBeenCalled();
     });

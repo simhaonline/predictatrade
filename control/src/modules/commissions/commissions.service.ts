@@ -341,6 +341,7 @@ export class CommissionsService {
         throw new BadRequestException('Reversal amount must be > 0 and <= commission amount');
       }
       const type = revAmount < full ? 'PARTIAL_REVERSAL' : 'REVERSAL';
+      let updated: any = null;
       if (revAmount < full) {
         // M6 fix: partial reversal must NOT flip the whole commission to
         // REVERSED (that would mis-attribute the full commission_amount to the
@@ -356,10 +357,9 @@ export class CommissionsService {
           [revAmount, row.recipient_user_id, row.currency],
         );
       } else {
-        const updated = await this.transitionLedgerAndWallet(
+        updated = await this.transitionLedgerAndWallet(
           client, id, 'REVERSED', actorId, reason, revAmount,
         );
-        void updated;
       }
       await client.query(
         `INSERT INTO referral.commission_adjustments

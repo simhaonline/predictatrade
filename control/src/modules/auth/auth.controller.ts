@@ -43,6 +43,37 @@ export class AuthController {
   }
 
   /**
+   * F1: Set the HttpOnly access-token cookie. The SPA stores the access token
+   * only in memory (never on window), and this HttpOnly cookie lets the server
+   * authenticate API requests without exposing the token to client-side JS
+   * (XSS-resistant). The cookie is SameSite=Lax and (in prod) Secure.
+   */
+  private setAccessTokenCookie(res: Response, accessToken: string): void {
+    const accessCookieName = this.config.get<string>('AUTH_ACCESS_COOKIE_NAME', 'pat_access_token');
+    const secure = this.config.get<string>('NODE_ENV') === 'production';
+    const domain = this.config.get<string>('AUTH_COOKIE_DOMAIN'); // e.g. .predictatrade.com
+    res.cookie(accessCookieName, accessToken, {
+      httpOnly: true,
+      secure,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 1000, // 1h — matches ACCESS_TOKEN_EXPIRY
+      ...(domain ? { domain } : {}),
+    });
+  }
+
+  /** Clear the HttpOnly access-token cookie. */
+  private clearAccessTokenCookie(res: Response): void {
+    const accessCookieName = this.config.get<string>('AUTH_ACCESS_COOKIE_NAME', 'pat_access_token');
+    const domain = this.config.get<string>('AUTH_COOKIE_DOMAIN');
+    res.clearCookie(accessCookieName, {
+      path: '/',
+      httpOnly: true,
+      ...(domain ? { domain } : {}),
+    });
+  }
+
+  /**
    * Validate the Origin/Referer header for cookie-authenticated state-changing
    * endpoints (refresh, logout). This provides CSRF defense in combination
    * with SameSite=Lax. Returns true if the request is from an allowed origin.
@@ -105,6 +136,7 @@ export class AuthController {
       return result;
     }
     this.setRefreshCookie(res, result._refreshToken);
+    this.setAccessTokenCookie(res, result.accessToken);
     const { _refreshToken: _rt, ...publicResult } = result;
     void _rt;
     return publicResult;
@@ -116,6 +148,7 @@ export class AuthController {
     this.setNoStoreHeaders(res);
     const result = await this.authService.verifyOtp(dto);
     this.setRefreshCookie(res, result._refreshToken);
+    this.setAccessTokenCookie(res, result.accessToken);
     // Strip internal _refreshToken from the JSON response
     const { _refreshToken: _rt, ...publicResult } = result;
     void _rt;
@@ -144,6 +177,8 @@ export class AuthController {
       const result = await this.authService.refresh(rawRefreshToken);
       // Set the rotated refresh token as a new HttpOnly cookie
       this.setRefreshCookie(res, result.refreshToken);
+      // F1: also set the HttpOnly access-token cookie
+      this.setAccessTokenCookie(res, result.accessToken);
       // Return only the access token — never the refresh token
       return { accessToken: result.accessToken };
     } catch (err) {
@@ -178,6 +213,7 @@ export class AuthController {
     const rawRefreshToken = req.cookies?.[cookieName];
     await this.authService.logout(userId, rawRefreshToken);
     this.clearRefreshCookie(res);
+    this.clearAccessTokenCookie(res);
     return { success: true };
   }
 
@@ -207,6 +243,7 @@ export class AuthController {
     const result = await this.authService.resetPassword(dto.token, dto.password);
     // Clear the refresh cookie since all sessions were revoked
     this.clearRefreshCookie(res);
+    this.clearAccessTokenCookie(res);
     return result;
   }
 }

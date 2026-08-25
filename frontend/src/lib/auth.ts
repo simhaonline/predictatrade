@@ -7,11 +7,12 @@ export interface User {
   mfaEnabled?: boolean;
 }
 
-interface CustomWindow extends Window {
-  __ACCESS_TOKEN__?: string;
-}
-
-const ACCESS_TOKEN_COOKIE = 'pat_access_token';
+// F1: the access token is kept ONLY in module-scoped memory (never on
+// `window`, never in a JS-readable cookie) so client-side scripts/XSS cannot
+// exfiltrate it. The server also sets an HttpOnly `pat_access_token` cookie
+// which the JwtAuthGuard accepts, so API requests are authenticated even if
+// this in-memory value is lost (e.g. on a hard reload, before re-hydration).
+let memoryToken: string | null = null;
 
 /* ─── JWT payload decoder (works in browser + Node) ─── */
 function base64Decode(base64: string): string {
@@ -68,48 +69,17 @@ export function getRoleFromTokenUnchecked(token: string | null): string | null {
   return (payload.role as string) || 'USER';
 }
 
-/* ─── Cookie helpers ─── */
-function getCookie(name: string): string | null {
-  if (typeof document === 'undefined') return null;
-  const match = document.cookie.match(new RegExp('(?:^|;)\\s*' + name + '=([^;]+)'));
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-function setCookie(name: string, value: string, maxAgeSeconds: number): void {
-  if (typeof document === 'undefined') return;
-  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
-  // Shared across subdomains so live.predictatrade.com can authenticate
-  // visitors who registered/logged in on the platform (live preview funnel).
-  const domain = window.location.hostname.endsWith('.predictatrade.com') ? '; Domain=.predictatrade.com' : '';
-  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAgeSeconds}; SameSite=Lax${secure}${domain}`;
-}
-
-function clearCookie(name: string): void {
-  if (typeof document === 'undefined') return;
-  document.cookie = `${name}=; path=/; max-age=0; SameSite=Lax`;
-}
-
 /* ─── Token management ─── */
 export function getAccessToken(): string | null {
-  if (typeof window !== 'undefined') {
-    const mem = (window as unknown as CustomWindow).__ACCESS_TOKEN__;
-    if (mem) return mem;
-  }
-  return getCookie(ACCESS_TOKEN_COOKIE);
+  return memoryToken;
 }
 
 export function setAccessToken(token: string): void {
-  if (typeof window !== 'undefined') {
-    (window as unknown as CustomWindow).__ACCESS_TOKEN__ = token;
-  }
-  setCookie(ACCESS_TOKEN_COOKIE, token, 3600);
+  memoryToken = token;
 }
 
 export function clearAccessToken(): void {
-  if (typeof window !== 'undefined') {
-    (window as unknown as CustomWindow).__ACCESS_TOKEN__ = '';
-  }
-  clearCookie(ACCESS_TOKEN_COOKIE);
+  memoryToken = null;
 }
 
 /**
