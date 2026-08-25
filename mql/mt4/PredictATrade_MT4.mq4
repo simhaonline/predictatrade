@@ -1,14 +1,33 @@
 //+------------------------------------------------------------------+
-//| Predict-A-Trade MT4 EA v1.08                                     |
-//| Execution-layer fixes (mql-fix.md):                              |
-//|  - WRONG-SIDE SL/TP REJECTION (fail-closed, never clamped)       |
-//|  - REAL partial TP1/TP2/TP3 scaling on ONE position              |
-//|  - Per-strategy magic ranges + PAT-<STRAT>:<signal_id> comment   |
-//|  - EA-side risk rejects (risk$, lot ratio, caps, margin)         |
-//|  - Pre-trade spread / entry-drift / signal-TTL gates             |
-//|  - Exit reporting via TRADE_RESULT + CLOSE_ACK IPC messages      |
-//|  - Watchdog: missing-SL restore/close, equity floor halt         |
-//| Lightweight adapter only — contains NO predictive logic.         |
+//|                                          PredictATrade_MT4.mq4   |
+//|                              Predict-A-Trade v1.00              |
+//+------------------------------------------------------------------+
+//| ARCHITECTURE: THIN EXECUTOR (FINAL - NO RECOMPILE NEEDED)        |
+//|                                                                  |
+//| The Go backend engine is the SOLE authority for:                |
+//|   - Risk calculation (lot size, risk%, position limits)          |
+//|   - SL/TP calculation (ATR multipliers, percentage geometry)     |
+//|   - Spread checks (SpreadGate)                                   |
+//|   - Signal TTL / expiry / entry drift                            |
+//|   - Margin / exposure / broker profile constraints              |
+//|   - Subscription plan -> strategy allocation                     |
+//|   - Trade management commands (CLOSE_POSITION, EMERGENCY_STOP)  |
+//|                                                                  |
+//| The EA ONLY does:                                                |
+//|   1. Receives signal from server (via Windows Agent)            |
+//|   2. Checks: LicenseKey is ACTIVE                                |
+//|   3. Executes trade with server-provided SL/TP/lot               |
+//|   4. Watchdog: verifies SL present every 15s (fail-closed)       |
+//|   5. Reports EXECUTION_ACK + TRADE_RESULT back to server         |
+//|                                                                  |
+//| USER INPUTS (only 3 - shown in EA Properties dialog):            |
+//|   - LicenseKey: Your Predict-A-Trade license key                 |
+//|   - AutoExecute: true = auto-trade, false = display only        |
+//|   - ExecuteCandidates: true = execute candidate signals too     |
+//|                                                                  |
+//| ALL other parameters are hardcoded with safe defaults.           |
+//| Changes to risk/strategy/trade management are made on the        |
+//| SERVER - no EA recompile required.                              |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
 #property version   "1.00"
@@ -16,9 +35,9 @@
 
 // ─── Signal/Execution inputs ───
 input bool    AutoExecute    = true;
-input bool    SendTickData   = true;
-input int     TickIntervalMs = 0;
-input string  BrokerSymbol   = "";
+bool SendTickData = true;
+int TickIntervalMs = 0;
+string BrokerSymbol = "";
 input string  LicenseKey     = "";
 
 // ─── Strategy/Direction filters ───
@@ -26,66 +45,59 @@ input string  LicenseKey     = "";
 // Just enter your License Key — the server handles strategy filtering.
 
 
-input bool    ReceiveBuy             = true;
-input bool    ReceiveSell            = true;
-input bool    ReceiveBuyCandidate    = true;
-input bool    ReceiveSellCandidate   = true;
+bool ReceiveBuy = true;
+bool ReceiveSell = true;
+bool ReceiveBuyCandidate = true;
+bool ReceiveSellCandidate = true;
 input bool    ExecuteCandidates  = false;  // Execute BUY_CANDIDATE/SELL_CANDIDATE as real trades
 
 // ─── Position Management ───
-input bool    UseTrailingStop  = true;     // Trail SL behind price after TP2 (stage 2)
-input double  TrailingATRMult  = 2.0;      // Trailing distance = ATR * this multiplier
-input bool    UseBreakEven     = true;     // Move SL to breakeven (entry +/- spread) after TP1
-input int     MaxHoldHours     = 4;        // Max holding time in hours (0 = unlimited)
-input bool    UsePartialClose  = true;     // Enable partial close at TP1/TP2
-input double  TP1ClosePct      = 33.33;    // Close ~1/3 of lot at TP1
-input double  TP2ClosePct      = 33.33;    // Close ~1/3 of lot at TP2
-input double  TP3TrailATRMult  = 1.5;      // ATR multiplier for stage-2 trailing
+bool UseTrailingStop = true;     // Trail SL behind price after TP2 (stage 2)
+double TrailingATRMult = 2.0;      // Trailing distance = ATR * this multiplier
+bool UseBreakEven = true;     // Move SL to breakeven (entry +/- spread) after TP1
+int MaxHoldHours = 4;        // Max holding time in hours (0 = unlimited)
+bool UsePartialClose = true;     // Enable partial close at TP1/TP2
+double TP1ClosePct = 33.33;    // Close ~1/3 of lot at TP1
+double TP2ClosePct = 33.33;    // Close ~1/3 of lot at TP2
+double TP3TrailATRMult = 1.5;      // ATR multiplier for stage-2 trailing
 
 // ─── Swap Avoidance ───
-input bool    AvoidSwapCharges  = true;     // Close positions before swap/rollover
-input int     SwapCutoffHour    = 22;       // Server hour to close before (default 22:00)
-input int     SwapCutoffBuffer = 15;        // Close N minutes before cutoff
-input bool    AvoidTripleSwapDay = true;     // Don't open new positions on triple swap day
-input string  TripleSwapDay     = "Wednesday"; // Day that gets 3x swap charge
+bool AvoidSwapCharges = true;     // Close positions before swap/rollover
+int SwapCutoffHour = 22;       // Server hour to close before (default 22:00)
+int SwapCutoffBuffer = 15;        // Close N minutes before cutoff
+bool AvoidTripleSwapDay = true;     // Don't open new positions on triple swap day
+string TripleSwapDay = "Wednesday"; // Day that gets 3x swap charge
 
 // ─── Slippage Control ───
-input int     MaxSlippagePoints = 3;        // Max acceptable slippage in points (0 = no limit)
-input bool    RejectOnHighSlippage = true;  // Reject orders that exceed max slippage
-input bool    AvoidRolloverSlippage = true; // Don't trade during rollover (spread widens)
+int MaxSlippagePoints = 3;        // Max acceptable slippage in points (0 = no limit)
+bool RejectOnHighSlippage = true;  // Reject orders that exceed max slippage
 
 // ─── Capital Protection ───
-input double  MaxDailyLossPct   = 6.0;      // Hard halt threshold
-input double  WarningLossPct    = 3.0;      // Warning level
-input bool    EmergencyCloseAll = true;     // Close all positions when daily loss hits limit
+double MaxDailyLossPct = 6.0;      // Hard halt threshold
+double WarningLossPct = 3.0;      // Warning level
+bool EmergencyCloseAll = true;     // Close all positions when daily loss hits limit
 // (WarningLossPct and MaxDailyLossPct already declared above — no duplicates)
 
-// ─── Execution Safety v1.08 (mql-fix.md — fail-closed) ───
-input double  MaxRiskPct          = 1.5;     // Max risk per trade, % of equity
-input double  BaseLot             = 0.01;    // Reference base lot (martingale-ban anchor)
-input double  MaxLotRatioVsBase   = 1.0;     // Reject lot > baseLot * this ratio
-input int     MaxSameDirPositions = 1;       // Max same-direction PAT positions
-input int     MaxTotalPositions   = 2;       // Max total concurrent PAT positions
-input double  MaxMarginUsagePct   = 30.0;    // Max % of free margin a new order may require
-input int     MaxEntryDriftPoints = 50;      // Reject if |currentPrice - signalEntry| > points
-input int     MaxSignalAgeSeconds = 300;     // Fallback TTL when signal has no expiry field
-input double  MinEquityFloorPct   = 40.0;    // Halt if equity < this % of day-start balance
-input string  OnMissingSL         = "CLOSE"; // RESTORE or CLOSE (default CLOSE = fail-closed)
-input bool    ReEnableAfterHalt   = false;   // Manual re-enable after equity-floor halt
+// ─── Execution Safety v1.00 (mql-fix.md — fail-closed) ───
+double BaseLot = 0.01;    // Reference base lot (martingale-ban anchor)
+double MaxLotRatioVsBase = 1.0;     // Reject lot > baseLot * this ratio
+int MaxSameDirPositions = 1;       // Max same-direction PAT positions
+int MaxTotalPositions = 2;       // Max total concurrent PAT positions
+double MaxMarginUsagePct = 30.0;    // Max % of free margin a new order may require
+int MaxSignalAgeSeconds = 300;     // Fallback TTL when signal has no expiry field
+double MinEquityFloorPct = 40.0;    // Halt if equity < this % of day-start balance
+string OnMissingSL = "CLOSE"; // RESTORE or CLOSE (default CLOSE = fail-closed)
+bool ReEnableAfterHalt = false;   // Manual re-enable after equity-floor halt
 
 // ─── Per-Strategy Spread/Slippage Limits ───
-input int     UltraScalp_MaxSpread    = 15;  // Ultra Scalping: max spread in points
-input int     UltraScalp_MaxSlippage  = 5;   // Ultra Scalping: max slippage in points
-input int     StdScalp_MaxSpread      = 25;  // Standard Scalping: max spread in points
-input int     StdScalp_MaxSlippage    = 10;  // Standard Scalping: max slippage in points
-input int     StdSwing_MaxSpread      = 40;  // Standard Swing: max spread in points
-input int     StdSwing_MaxSlippage    = 20;  // Standard Swing: max slippage in points
-input int     TrendSwing_MaxSpread    = 50;  // Trend Swing: max spread in points
-input int     TrendSwing_MaxSlippage  = 30;  // Trend Swing: max slippage in points
+int UltraScalp_MaxSlippage = 5;   // Ultra Scalping: max slippage in points
+int StdScalp_MaxSlippage = 10;  // Standard Scalping: max slippage in points
+int StdSwing_MaxSlippage = 20;  // Standard Swing: max slippage in points
+int TrendSwing_MaxSlippage = 30;  // Trend Swing: max slippage in points
 
 // ─── Position Sizing ───
-input double  RiskPerTradePct  = 1.0;  // Risk per trade as % of equity (1%)
-input bool    UseAutoLotSizing = true; // Calculate lot size from risk % and stop distance
+double RiskPerTradePct = 1.0;  // Risk per trade as % of equity (1%)
+bool UseAutoLotSizing = true; // Calculate lot size from risk % and stop distance
 
 // ─── Constants ───
 #define PAT_TICK_FILE   "PAT_ticks.txt"
@@ -711,7 +723,7 @@ int OnInit()
     g_connection = "OFFLINE";
     g_licenseStatus = "PENDING";
 
-    Print("Predict-A-Trade MT4 EA v1.08 initializing...");
+    Print("Predict-A-Trade MT4 EA v1.00 initializing...");
     Print("Symbol: ", g_symbol);
     Print("Account: ", g_accountID);
     Print("License Key: ", (g_licenseKey == "" ? "NOT SET — SIGNALS WILL BE IGNORED" : g_licenseKey));
@@ -1899,7 +1911,7 @@ string PAT_ShortSignalID(string signalID)
 //+------------------------------------------------------------------+
 void UpdatePanel()
 {
-    string p = "=== Predict-A-Trade v1.08 ===\n";
+    string p = "=== Predict-A-Trade v1.00 ===\n";
     p += "Agent:    " + g_connection + "\n";
     p += "License:  " + g_licenseStatus + " (" + g_licensePlan + ")\n";
     p += "Lic.Key:  " + (g_licenseKey == "" ? "NOT SET" : StringSubstr(g_licenseKey, 0, 12) + "...") + "\n";
