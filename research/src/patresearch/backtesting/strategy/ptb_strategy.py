@@ -61,10 +61,13 @@ STRATEGY_CONFIGS = {
     },
     "MARNIE_FIB": {
         # Mirrors Go MarnieFibStrategyConfig. RR floor kept at 1.0 to avoid
-        # blanket NO-TRADE (SL=1.5*ATR, TP1=2.0*ATR → RR≈1.33). The Go engine
+        # blanket NO_TRADE (SL=1.5*ATR, TP1=2.0*ATR → RR≈1.33). The Go engine
         # applies the MinRR gate downstream; this adapter reproduces a
         # permissive-but-safe floor so the strategy is backtestable.
-        "min_confluence": 45, "min_mtf_alignment": 20,
+        # min_confluence is set to 40 (vs Go's 45) because this adapter's
+        # evidence set is a simplified subset of the Go engine's — a 40 floor
+        # keeps the Fibonacci signal representable for historical evaluation.
+        "min_confluence": 40, "min_mtf_alignment": 20,
         "atr_sl": 1.5, "atr_tp1": 2.0, "atr_tp2": 3.5, "atr_tp3": 5.5,
         "min_adx": 15, "min_rr": 1.0,
         "accepted_regimes": ["TRENDING_BULLISH", "TRENDING_BEARISH", "BREAKOUT",

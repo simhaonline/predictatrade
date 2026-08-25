@@ -330,14 +330,12 @@ class TestMarnieFib:
         candles = []
         for i in range(60):
             candles.append(HistoricalCandle(
-                timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc).fromtimestamp(
-                    1704067200 + i * 300),
+                timestamp=datetime.fromtimestamp(1704067200 + i * 300, tz=timezone.utc),
                 open=open_, high=2000.0, low=1900.0, close=close,
             ))
         # Override the evaluated candle so body direction is explicit.
         candles[idx] = HistoricalCandle(
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc).fromtimestamp(
-                1704067200 + idx * 300),
+            timestamp=datetime.fromtimestamp(1704067200 + idx * 300, tz=timezone.utc),
             open=open_, high=2000.0, low=1900.0, close=close,
         )
         ind = {
