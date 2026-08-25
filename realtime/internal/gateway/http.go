@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/predictatrade/realtime/internal/cache"
+	"github.com/predictatrade/realtime/internal/observability"
 	"github.com/predictatrade/realtime/internal/crossmarket"
 	"github.com/predictatrade/realtime/internal/engstatus"
 	"github.com/predictatrade/realtime/internal/features"
@@ -83,6 +84,10 @@ func (h *HTTPServer) registerRoutes() {
 	h.mux.HandleFunc("/api/v1/signals/resume", h.handleSignalResume)
 	h.mux.HandleFunc("/api/v1/admin/regime-diagnostics", h.handleRegimeDiagnostics)
 	h.mux.HandleFunc("/api/v1/system-health", h.handleSystemHealth)
+
+	// Emergency controls — admin can trigger EMERGENCY_STOP / KILL_SWITCH
+	h.mux.HandleFunc("/api/v1/admin/emergency-stop", h.handleEmergencyStop)
+	h.mux.HandleFunc("/api/v1/admin/kill-switch", h.handleKillSwitch)
 
 	// Per-strategy-engine liveness (prompt.md Sections 26, 38, 43-46)
 	h.mux.HandleFunc("/api/v1/engines/status", h.handleEnginesStatus)
@@ -1003,4 +1008,55 @@ func (h *HTTPServer) handleSystemHealth(w http.ResponseWriter, r *http.Request) 
 	}
 	
 	json.NewEncoder(w).Encode(health)
+}
+
+
+// handleEmergencyStop sends EMERGENCY_STOP to all connected agents.
+// This closes ALL PAT positions on ALL connected MT terminals and halts trading.
+func (h *HTTPServer) handleEmergencyStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.agentHub == nil {
+		http.Error(w, "agent hub not available", http.StatusServiceUnavailable)
+		return
+	}
+	reason := r.URL.Query().Get("reason")
+	if reason == "" {
+		reason = "admin_manual"
+	}
+	// Broadcast EMERGENCY_STOP to all agents
+	h.agentHub.BroadcastToAllAgents("EMERGENCY_STOP", map[string]interface{}{
+		"reason":   reason,
+		"timestamp": time.Now().UTC(),
+	})
+	observability.Log.Warn().Str("reason", reason).Msg("EMERGENCY_STOP broadcast to all agents — closing all positions and halting trading")
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"status":"EMERGENCY_STOP_SENT","reason":"` + reason + `"}`))
+}
+
+// handleKillSwitch sends KILL_SWITCH to all connected agents.
+// This closes ALL positions, halts trading, and stops the EA entirely.
+func (h *HTTPServer) handleKillSwitch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.agentHub == nil {
+		http.Error(w, "agent hub not available", http.StatusServiceUnavailable)
+		return
+	}
+	reason := r.URL.Query().Get("reason")
+	if reason == "" {
+		reason = "admin_manual"
+	}
+	// Broadcast KILL_SWITCH to all agents
+	h.agentHub.BroadcastToAllAgents("KILL_SWITCH", map[string]interface{}{
+		"reason":   reason,
+		"timestamp": time.Now().UTC(),
+	})
+	observability.Log.Warn().Str("reason", reason).Msg("KILL_SWITCH broadcast to all agents — closing all positions and stopping EA")
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"status":"KILL_SWITCH_SENT","reason":"` + reason + `"}`))
 }

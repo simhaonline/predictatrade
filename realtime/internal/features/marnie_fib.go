@@ -64,7 +64,14 @@ func (e *MarnieFibEngine) Process(candle *types.Candle, structure StructureFeatu
 		Ready:             false,
 	}
 
-	if candle == nil || len(structure.SwingHighs) == 0 || len(structure.SwingLows) == 0 {
+	// NOTE: candle is intentionally not required here. The realtime strategy
+	// pipeline does not carry a single Candle into MarnieFibStrategy.Evaluate,
+	// and the candle argument is unused by the Fib math (it derives everything
+	// from confirmed SwingHighs/SwingLows + currentPrice). Previously a
+	// `candle == nil` guard made the engine permanently NOT-ready, which meant
+	// MARNIE_FIB could never emit a signal in live. Only the structural anchors
+	// are required for the engine to be Ready.
+	if len(structure.SwingHighs) == 0 || len(structure.SwingLows) == 0 {
 		return feat
 	}
 

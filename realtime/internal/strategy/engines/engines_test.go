@@ -169,12 +169,12 @@ func TestGetEngineConfig_ReturnsConfig(t *testing.T) {
 		t.Fatal("expected config for UltraScalping")
 	}
 	if cfg.MinAbsATR != 3.0 {
-		t.Errorf("MinAbsATR=%.1f, want 12.0", cfg.MinAbsATR)
+		t.Errorf("MinAbsATR=%.1f, want 3.0 (Phase 6 config: micro-profit scalping)", cfg.MinAbsATR)
 	}
 	if !cfg.IgnoreStructure {
 		t.Error("IgnoreStructure should be true for UltraScalp")
 	}
-	if cfg.OverrideTPs[0] != 2.0 {
-		t.Errorf("OverrideTPs[0]=%.1f, want 2.0", cfg.OverrideTPs[0])
-}
+	if cfg.OverrideTPs[0] != 0.5 {
+		t.Errorf("OverrideTPs[0]=%.1f, want 0.5 (Phase 6 micro-profit TP distances)", cfg.OverrideTPs[0])
+	}
 }

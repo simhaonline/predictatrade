@@ -406,3 +406,27 @@ func (h *AgentHub) SendToAgent(agentID string, msgType string, payload interface
 	default:
 	}
 }
+
+// BroadcastToAllAgents sends a JSON message to ALL connected agents.
+// Used for EMERGENCY_STOP and KILL_SWITCH commands.
+func (h *AgentHub) BroadcastToAllAgents(msgType string, payload interface{}) {
+	data, err := json.Marshal(map[string]interface{}{
+		"type":      msgType,
+		"timestamp": time.Now().UTC(),
+		"payload":   payload,
+	})
+	if err != nil {
+		return
+	}
+	h.mu.RLock()
+	sent := 0
+	for _, agent := range h.agents {
+		select {
+		case agent.send <- data:
+			sent++
+		default:
+		}
+	}
+	h.mu.RUnlock()
+	log.Printf("[AGENT-WS] Broadcast %s to %d agents", msgType, sent)
+}

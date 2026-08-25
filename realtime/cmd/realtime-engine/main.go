@@ -1149,10 +1149,23 @@ func main() {
 		result.MaxMTAccts = maxMT
 		result.Strategies = []string{}
 		if strategiesStr != "" && strategiesStr != "null" {
-			// Parse JSON array string
-			import_str := strategiesStr
-			_ = import_str
+			// Parse JSON array string: ["STANDARD_SCALPING","ULTRA_SCALPING",...]
+			var parsed []string
+			if err := json.Unmarshal([]byte(strategiesStr), &parsed); err == nil {
+				result.Strategies = parsed
+			} else {
+				// Fallback: try comma-separated
+				for _, s := range strings.Split(strategiesStr, ",") {
+					s = strings.TrimSpace(s)
+					if s != "" {
+						result.Strategies = append(result.Strategies, s)
+					}
+				}
+			}
 		}
+		// CRITICAL: Set the agent's allowed strategies for signal filtering.
+		// This is what SendFilteredSignalToAgents uses to enforce plan entitlements.
+		setAgentStrategies(agentID, result.Strategies)
 		if status == "ACTIVE" {
 			result.Valid = true
 			// Bind agent WS id -> owning user so trade_results (account_id =
