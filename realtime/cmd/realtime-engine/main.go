@@ -1494,15 +1494,27 @@ func main() {
 
 // normalizeXAUUSD converts broker-specific XAUUSD variants to canonical "XAUUSD".
 func normalizeXAUUSD(s string) string {
-	if len(s) >= 6 && s[:6] == "XAUUSD" {
+	// Normalize all XAUUSD variants: XAUUSD.sd, XAUUSD.e, XAUUSD_micro, etc → XAUUSD
+	if len(s) >= 6 && strings.ToUpper(s[:6]) == "XAUUSD" {
 		return "XAUUSD"
 	}
-	return s
+	// Gold symbol variants
+	if strings.Contains(strings.ToUpper(s), "XAUUSD") || strings.Contains(strings.ToUpper(s), "GOLD") {
+		return "XAUUSD"
+	}
+	return s // Non-XAUUSD symbol — will be rejected by processTick
 }
 
 func processTick(tick *types.Tick, validator *marketdata.TickValidator, staleDetector *marketdata.StaleDetector, aggregator *marketdata.Aggregator, stateMgr *features.StateManager, persister *marketdata.Persister, valkeyCache *cache.ValkeyCache) {
 	// Normalize symbol: XAUUSD.sd, XAUUSD.e, etc → XAUUSD
 	tick.Symbol = normalizeXAUUSD(tick.Symbol)
+
+	// CRITICAL: Only process XAUUSD ticks — reject all other symbols
+	// (NVIDIA, EURUSD, etc. should never reach the signal engine)
+	if tick.Symbol != "XAUUSD" {
+		return
+	}
+
 	valid, _ := validator.Validate(tick)
 	if !valid {
 		observability.TicksRejected.WithLabelValues(tick.Symbol, "invalid").Inc()

@@ -489,6 +489,17 @@ func (h *HTTPServer) handleMarketSnapshot(w http.ResponseWriter, r *http.Request
 		if mt5Snapshot.Tick.Bid > 0 && mt5Snapshot.Tick.Ask > 0 && mt5Snapshot.Tick.Ask >= mt5Snapshot.Tick.Bid {
 			response["tick"] = mt5Snapshot.Tick
 		}
+		// Override tick with LIVE data from the engine's state manager
+		// The MT5 snapshot tick may be stale (only sent on initial connection).
+		// The engine's state has the LATEST tick from the real-time tick stream.
+		if engineState != nil && engineState.LastTick != nil && engineState.LastTick.Bid.GreaterThan(decimal.Zero) {
+			response["tick"] = map[string]interface{}{
+				"bid":    toF(engineState.LastTick.Bid),
+				"ask":    toF(engineState.LastTick.Ask),
+				"spread": toF(engineState.LastTick.Spread),
+				"time":   engineState.LastTick.SourceTimestamp.Format("2006-01-02T15:04:05Z07:00"),
+			}
+		}
 		response["bars"] = mt5Snapshot.Bars
 		response["vwap"] = mt5Snapshot.VWAP
 		response["account_info"] = mt5Snapshot.AccountInfo
