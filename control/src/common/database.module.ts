@@ -66,12 +66,19 @@ function loadDatabaseUrl(config: ConfigService): string {
           logger.log(`Database URL: ${safeUrl}`);
         }
 
-        return new Pool({
+        const pool = new Pool({
           connectionString: dbUrl,
           max: 20,
           idleTimeoutMillis: 30000,
           connectionTimeoutMillis: 5000,
         });
+
+        // Set statement_timeout on every new connection (audit B-01)
+        pool.on('connect', async (client) => {
+          await client.query("SET statement_timeout = '30s'").catch(() => {});
+        });
+
+        return pool;
       },
     },
   ],

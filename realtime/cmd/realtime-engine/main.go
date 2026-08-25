@@ -2105,8 +2105,13 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 		var evalSeq int64 = 0
 		if persister != nil {
 			esCtx, esCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-			evalSeq, _ = persister.NextEvaluationSequence(esCtx)
+			seq, err := persister.NextEvaluationSequence(esCtx)
 			esCancel()
+			if err != nil {
+				observability.Log.Warn().Err(err).Str("strategy", string(strat.ID())).Msg("NextEvaluationSequence failed — evaluation will lack traceability")
+			} else {
+				evalSeq = seq
+			}
 		}
 		// Determine score status (prompt.md Section 15-16)
 		scoreStatus := types.ScoreStatusComputed
@@ -2299,10 +2304,14 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 					// Generate signal reference for candidate (prompt.md Section 6)
 					if persister != nil {
 						acCtx, acCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-						acSeq, _ := persister.NextSignalSequence(acCtx)
+						acSeq, err := persister.NextSignalSequence(acCtx)
 						acCancel()
-						sig.SignalSequence = acSeq
-						sig.SignalReference = marketdata.GenerateSignalReference(acSeq)
+						if err != nil {
+							observability.Log.Warn().Err(err).Str("strategy", string(strat.ID())).Msg("NextSignalSequence failed for candidate — will retry in fallback path")
+						} else {
+							sig.SignalSequence = acSeq
+							sig.SignalReference = marketdata.GenerateSignalReference(acSeq)
+						}
 						sig.EvaluationSequence = evalSeq
 					}
 					reconciler.RecordSignal(sig)
@@ -2378,10 +2387,14 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			sig.ScoreStatus = scoreStatus
 			if sig.SignalReference == "" && persister != nil {
 				ssCtx, ssCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-				sigSeq, _ := persister.NextSignalSequence(ssCtx)
+				sigSeq, err := persister.NextSignalSequence(ssCtx)
 				ssCancel()
-				sig.SignalSequence = sigSeq
-				sig.SignalReference = marketdata.GenerateSignalReference(sigSeq)
+				if err != nil {
+					observability.Log.Warn().Err(err).Str("strategy", string(strat.ID())).Msg("NextSignalSequence failed for NO_TRADE — signal_reference will be empty")
+				} else {
+					sig.SignalSequence = sigSeq
+					sig.SignalReference = marketdata.GenerateSignalReference(sigSeq)
+				}
 			}
 			reconciler.RecordSignal(sig)
 			observability.SignalsGenerated.WithLabelValues(string(strat.ID()), string(stratResult.Direction)).Inc()
@@ -2720,10 +2733,14 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			}
 			if decision.Signal.SignalReference == "" && persister != nil {
 				dsCtx, dsCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-				dsSeq, _ := persister.NextSignalSequence(dsCtx)
+				dsSeq, err := persister.NextSignalSequence(dsCtx)
 				dsCancel()
-				decision.Signal.SignalSequence = dsSeq
-				decision.Signal.SignalReference = marketdata.GenerateSignalReference(dsSeq)
+				if err != nil {
+					observability.Log.Warn().Err(err).Str("strategy", string(decision.Signal.StrategyID)).Msg("NextSignalSequence failed for EXECUTABLE — signal_reference will be empty")
+				} else {
+					decision.Signal.SignalSequence = dsSeq
+					decision.Signal.SignalReference = marketdata.GenerateSignalReference(dsSeq)
+				}
 			}
 			// Transition scores
 			decision.Signal.TransitionLongScore = stratResult.TransitionLongScore

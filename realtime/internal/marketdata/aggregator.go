@@ -77,8 +77,19 @@ func (a *Aggregator) ProcessTick(tick *types.Tick) {
 				bucketStart: bucketStart,
 				updated:     true,
 			}
+	} else {
+		// Update existing candle
+		if !builder.updated {
+			// Builder is an uninitialized placeholder left by FlushClosedCandles.
+			// Fully initialize from this tick so zero-values never leak.
+			// Fixes audit 04_DATABASE: 553 corrupted candles with open=0/low=0.
+			builder.open = tick.Mid
+			builder.high = tick.Ask
+			builder.low = tick.Bid
+			builder.close = tick.Mid
+			builder.volume = tick.TickVolume
+			builder.updated = true
 		} else {
-			// Update existing candle
 			if tick.Ask.GreaterThan(builder.high) {
 				builder.high = tick.Ask
 			}
@@ -89,6 +100,7 @@ func (a *Aggregator) ProcessTick(tick *types.Tick) {
 			builder.volume += tick.TickVolume
 			builder.updated = true
 		}
+	}
 	}
 }
 
@@ -111,14 +123,18 @@ func (a *Aggregator) FlushClosedCandles(ctx context.Context) {
 					}
 					nextBucket := builder.bucketStart.Add(builder.period)
 					if now.After(nextBucket) {
-						a.emitCandle(builder, true)
-						a.candles[symbol][tf] = &candleBuilder{
-							symbol:      symbol,
-							timeframe:   tf,
-							period:      builder.period,
-							bucketStart: now.Truncate(builder.period),
-							updated:     false,
-						}
+					a.emitCandle(builder, true)
+					a.candles[symbol][tf] = &candleBuilder{
+						symbol:      symbol,
+						timeframe:   tf,
+						period:      builder.period,
+						open:        builder.close, // Carry forward last close as seed
+						high:        builder.close,
+						low:         builder.close,
+						close:       builder.close,
+						bucketStart: now.Truncate(builder.period),
+						updated:     false,
+					}
 					}
 				}
 			}
@@ -128,6 +144,15 @@ func (a *Aggregator) FlushClosedCandles(ctx context.Context) {
 }
 
 func (a *Aggregator) emitCandle(b *candleBuilder, isClosed bool) {
+	// Validate candle integrity before emitting.
+	// Fixes audit 04_DATABASE: prevents zero-valued OHLC candles
+	// from being broadcast with quality=COMPLETE (553 rows Aug 18-21).
+	quality := types.CandleComplete
+	if b.open.IsZero() || b.high.IsZero() || b.low.IsZero() || b.close.IsZero() {
+		quality = types.CandleInvalid
+	} else if b.high.LessThan(b.low) {
+		quality = types.CandleInvalid
+	}
 	candle := &types.Candle{
 		Symbol:    b.symbol,
 		Timeframe: b.timeframe,
@@ -138,7 +163,7 @@ func (a *Aggregator) emitCandle(b *candleBuilder, isClosed bool) {
 		Close:     b.close,
 		Volume:    b.volume,
 		Source:    "AGGREGATOR",
-		Quality:   types.CandleComplete,
+		Quality:   quality,
 		IsClosed:  isClosed,
 		Alignment: types.AlignmentUTC,
 	}
