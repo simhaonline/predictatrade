@@ -129,19 +129,18 @@ func addEvidence(evidence *[]types.EvidenceContribution, pillar, feature string,
 // double-counting of correlated indicators.
 func applyFamilyCaps(evidence []types.EvidenceContribution) []types.EvidenceContribution {
 	familyMax := map[string]float64{
-		"TREND":      0.25,
-		"MOMENTUM":   0.20,
-		"VOLATILITY": 0.10,
-		"VWAP":       0.10,
-		"STRUCTURE":  0.20,
-		"LIQUIDITY":  0.15,
-		"SMC":        0.15,
-		"MTF":        0.15,
-		"CANDLE":     0.15,
-		"REGIME":     0.10,
-		// ML and Sentiment are applied post-caps to avoid altering family cap logic for existing pillars.
-		"ML":         0.25, // same cap as TREND
-		"SENTIMENT":  0.25, // same cap as TREND
+		"TREND":      0.35,  // raised from 0.25 — allow strong trends to dominate
+		"MOMENTUM":   0.30,  // raised from 0.20 — allow strong momentum setups
+		"VOLATILITY": 0.15,  // raised from 0.10
+		"VWAP":       0.15,  // raised from 0.10
+		"STRUCTURE":  0.25,  // raised from 0.20
+		"LIQUIDITY":  0.20,  // raised from 0.15
+		"SMC":        0.20,  // raised from 0.15
+		"MTF":        0.20,  // raised from 0.15
+		"CANDLE":     0.20,  // raised from 0.15
+		"REGIME":     0.15,  // raised from 0.10
+		"ML":         0.25,
+		"SENTIMENT":  0.25,
 	}
 	familySums := map[string]float64{}
 	for _, e := range evidence {
@@ -187,16 +186,21 @@ func computeEntrySLTP(state *features.MarketState, direction types.Direction, cf
 
 // PHI applies the signal threshold function.
 // PHI(x) = 0 if x < 0.65 (suppressed)
-// PHI(x) = 0.65 + 0.35*(x-0.65)/0.35 if 0.65 <= x <= 1.0
-// This prevents single-family dominance — requires MOST families positive.
+// PHI(x) squashes the weighted family score into [0, 1].
+// Threshold lowered from 0.65 to 0.45 — the previous 0.65 threshold was too
+// aggressive, zeroing out scores when only 64% of families aligned. In real
+// markets, 65% alignment is extremely rare, resulting in ZERO signals ever
+// reaching the trade threshold. At 0.45, signals with moderate alignment
+// (45%+) still generate meaningful scores.
+// Above threshold, the score is linearly mapped to [0, 1].
 func phi(x float64) float64 {
-	if x < 0.65 {
+	if x < 0.45 {
 		return 0
 	}
 	if x >= 1.0 {
 		return 1.0
 	}
-	return 0.65 + 0.35*(x-0.65)/0.35
+	return 0.45 + 0.55*(x-0.45)/0.55
 }
 
 // computeStructuralSLTP calculates SL using structural low + ATR buffer + spread adjustment.
@@ -333,20 +337,20 @@ func checkConflict(state *features.MarketState, direction types.Direction, decis
 	mtf := state.MTF.States
 	if direction == types.DirectionBuy {
 		if h1, ok := mtf[types.TFH1]; ok && h1 < 0 {
-			penalty = penalty.Add(decimal.NewFromFloat(8))
+			penalty = penalty.Add(decimal.NewFromFloat(3))
 			conflictDesc += "M1 BUY but H1 bearish; "
 		}
 		if h4, ok := mtf[types.TFH4]; ok && h4 < 0 {
-			penalty = penalty.Add(decimal.NewFromFloat(8))
+			penalty = penalty.Add(decimal.NewFromFloat(3))
 			conflictDesc += "H4 bearish; "
 		}
 	} else if direction == types.DirectionSell {
 		if h1, ok := mtf[types.TFH1]; ok && h1 > 0 {
-			penalty = penalty.Add(decimal.NewFromFloat(8))
+			penalty = penalty.Add(decimal.NewFromFloat(3))
 			conflictDesc += "M1 SELL but H1 bullish; "
 		}
 		if h4, ok := mtf[types.TFH4]; ok && h4 > 0 {
-			penalty = penalty.Add(decimal.NewFromFloat(8))
+			penalty = penalty.Add(decimal.NewFromFloat(3))
 			conflictDesc += "H4 bullish; "
 		}
 	}

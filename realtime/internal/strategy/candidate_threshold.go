@@ -26,41 +26,41 @@ type CandidateThresholdConfig struct {
 
 // DefaultCandidateThresholds returns candidate thresholds for all four strategies.
 // These are derived from evidence weight budget analysis:
-// StandardScalping max theoretical score ~80, trade threshold 65, candidate 40
-// UltraScalping max theoretical score ~78, trade threshold 65, candidate 40
-// StandardSwing max theoretical score ~92, trade threshold 55, candidate 35
-// TrendSwing max theoretical score ~75, trade threshold 50, candidate 30
+// StandardScalping max theoretical score ~80, trade threshold 50, candidate 30 (v1.1: lowered for reachability)
+// UltraScalping max theoretical score ~78, trade threshold 50, candidate 30 (v1.1: lowered for reachability)
+// StandardSwing max theoretical score ~92, trade threshold 40, candidate 25 (v1.1: lowered for reachability)
+// TrendSwing max theoretical score ~75, trade threshold 35, candidate 20 (v1.1: lowered for reachability)
 func DefaultCandidateThresholds() map[types.StrategyID]CandidateThresholdConfig {
 	return map[types.StrategyID]CandidateThresholdConfig{
 		types.StrategyStandardScalping: {
 			StrategyID:        types.StrategyStandardScalping,
-			CandidateThreshold: 40,
-			TradeThreshold:    65,
-			Version:           "1.0.0",
+			CandidateThreshold: 30,  // lowered from 40
+			TradeThreshold:    50,   // lowered from 65 — was unreachable
+			Version:           "1.1.0",
 		},
 		types.StrategyUltraScalping: {
 			StrategyID:        types.StrategyUltraScalping,
-			CandidateThreshold: 40,
-			TradeThreshold:    65,
-			Version:           "1.0.0",
+			CandidateThreshold: 30,  // lowered from 40
+			TradeThreshold:    50,   // lowered from 65 — was unreachable
+			Version:           "1.1.0",
 		},
 		types.StrategyStandardSwing: {
 			StrategyID:        types.StrategyStandardSwing,
-			CandidateThreshold: 35,
-			TradeThreshold:    55,
-			Version:           "1.0.0",
+			CandidateThreshold: 25,  // lowered from 35
+			TradeThreshold:    40,   // lowered from 55
+			Version:           "1.1.0",
 		},
 		types.StrategyTrendSwing: {
 			StrategyID:        types.StrategyTrendSwing,
-			CandidateThreshold: 30,
-			TradeThreshold:    50,
-			Version:           "1.0.0",
+			CandidateThreshold: 20,  // lowered from 30
+			TradeThreshold:    35,   // lowered from 50
+			Version:           "1.1.0",
 		},
 		types.StrategyMarnieFib: {
 			StrategyID:        types.StrategyMarnieFib,
-			CandidateThreshold: 25,
-			TradeThreshold:    40,
-			Version:           "1.0.0",
+			CandidateThreshold: 15,  // lowered from 25
+			TradeThreshold:    30,   // lowered from 40
+			Version:           "1.1.0",
 		},
 	}
 }

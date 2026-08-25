@@ -211,7 +211,7 @@ func TestGolden_FamilyCaps_LimitDoubleCounting(t *testing.T) {
 	for _, e := range capped {
 		total = total.Add(e.Contribution)
 	}
-	maxAllowed := decimal.NewFromFloat(0.25)
+	maxAllowed := decimal.NewFromFloat(0.35)
 	if total.GreaterThan(maxAllowed.Add(decimal.NewFromFloat(0.001))) {
 		t.Errorf("Family cap exceeded: total=%s, max=%s", total.String(), maxAllowed.String())
 	}

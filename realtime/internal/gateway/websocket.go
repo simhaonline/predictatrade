@@ -44,6 +44,7 @@ type Client struct {
 	mu           sync.Mutex
 	entitlements []types.StrategyID
 	origin       string
+	TrialToken   string // HMAC of anonymous preview cookie; swept for expiry
 }
 
 func (c *Client) nextSeq(streamID string) int64 {
@@ -79,17 +80,18 @@ func (c *Client) isEntitled(strategyID types.StrategyID) bool {
 // The JWT secret is loaded from the JWT_SECRET environment variable, shared with NestJS.
 var jwtSecret = os.Getenv("JWT_SECRET")
 
-func extractUserIDFromJWT(tokenString string) (string, error) {
+// validateJWTFull verifies the control-plane HS256 JWT and returns (sub, role).
+func validateJWTFull(tokenString string) (string, string, error) {
 	parts := strings.Split(tokenString, ".")
 	if len(parts) != 3 {
-		return "", fmt.Errorf("invalid token format: expected 3 parts")
+		return "", "", fmt.Errorf("invalid token format: expected 3 parts")
 	}
 
 	// Step 1: Verify signature using HMAC-SHA256
 	signingInput := parts[0] + "." + parts[1]
 	expectedSig, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil {
-		return "", fmt.Errorf("invalid signature encoding: %w", err)
+		return "", "", fmt.Errorf("invalid signature encoding: %w", err)
 	}
 
 	secret := jwtSecret
@@ -97,7 +99,7 @@ func extractUserIDFromJWT(tokenString string) (string, error) {
 		// In dev mode, try to read from file or use dev secret
 		secret = os.Getenv("JWT_SECRET")
 		if secret == "" {
-			return "", fmt.Errorf("JWT_SECRET not configured — cannot verify tokens")
+			return "", "", fmt.Errorf("JWT_SECRET not configured — cannot verify tokens")
 		}
 	}
 
@@ -106,13 +108,13 @@ func extractUserIDFromJWT(tokenString string) (string, error) {
 	computedSig := mac.Sum(nil)
 
 	if !hmac.Equal(computedSig, expectedSig) {
-		return "", fmt.Errorf("JWT signature verification failed: signature mismatch")
+		return "", "", fmt.Errorf("JWT signature verification failed: signature mismatch")
 	}
 
 	// Step 2: Decode and parse payload
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", fmt.Errorf("invalid payload encoding: %w", err)
+		return "", "", fmt.Errorf("invalid payload encoding: %w", err)
 	}
 
 	var claims struct {
@@ -122,14 +124,14 @@ func extractUserIDFromJWT(tokenString string) (string, error) {
 		Role string `json:"role"`
 	}
 	if err := json.Unmarshal(payload, &claims); err != nil {
-		return "", fmt.Errorf("invalid payload JSON: %w", err)
+		return "", "", fmt.Errorf("invalid payload JSON: %w", err)
 	}
 
 	// Step 3: Verify expiration
 	if claims.Exp > 0 {
 		now := time.Now().Unix()
 		if now > claims.Exp {
-			return "", fmt.Errorf("JWT expired: exp=%d, now=%d", claims.Exp, now)
+			return "", "", fmt.Errorf("JWT expired: exp=%d, now=%d", claims.Exp, now)
 		}
 	}
 
@@ -137,32 +139,37 @@ func extractUserIDFromJWT(tokenString string) (string, error) {
 	if claims.Iat > 0 {
 		now := time.Now().Unix()
 		if claims.Iat > now+60 {
-			return "", fmt.Errorf("JWT iat is in the future: iat=%d, now=%d", claims.Iat, now)
+			return "", "", fmt.Errorf("JWT iat is in the future: iat=%d, now=%d", claims.Iat, now)
 		}
 	}
 
 	// Step 5: Verify algorithm (check header for HS256)
 	header, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return "", fmt.Errorf("invalid header encoding: %w", err)
+		return "", "", fmt.Errorf("invalid header encoding: %w", err)
 	}
 	var headerMap map[string]interface{}
 	if err := json.Unmarshal(header, &headerMap); err != nil {
-		return "", fmt.Errorf("invalid header JSON: %w", err)
+		return "", "", fmt.Errorf("invalid header JSON: %w", err)
 	}
 	if alg, ok := headerMap["alg"].(string); ok {
 		if alg != "HS256" {
-			return "", fmt.Errorf("unsupported JWT algorithm: %s (expected HS256)", alg)
+			return "", "", fmt.Errorf("unsupported JWT algorithm: %s (expected HS256)", alg)
 		}
 	} else {
-		return "", fmt.Errorf("missing alg in JWT header")
+		return "", "", fmt.Errorf("missing alg in JWT header")
 	}
 
 	if claims.Sub == "" {
-		return "", fmt.Errorf("no sub claim in token")
+		return "", "", fmt.Errorf("no sub claim in token")
 	}
 
-	return claims.Sub, nil
+	return claims.Sub, claims.Role, nil
+}
+
+func extractUserIDFromJWT(tokenString string) (string, error) {
+	sub, _, err := validateJWTFull(tokenString)
+	return sub, err
 }
 
 // WebSocketHub manages WebSocket clients and broadcasts events.
@@ -173,6 +180,9 @@ type WebSocketHub struct {
 	unregister     chan *Client
 	broadcast      chan *EventEnvelope
 	upgrader       websocket.Upgrader
+	// trialExpiry revalidates anonymous preview entitlements on live
+	// connections every 15s — authorization at second zero is not enough (§13).
+	trialExpiry func(tokenHash string) bool
 	allowedOrigins map[string]bool
 }
 
@@ -205,9 +215,49 @@ func NewWebSocketHub(allowedOrigins []string) *WebSocketHub {
 	}
 }
 
+// SetTrialExpiryChecker wires the anonymous-preview revalidation callback.
+func (h *WebSocketHub) SetTrialExpiryChecker(fn func(tokenHash string) bool) {
+	h.trialExpiry = fn
+}
+
 func (h *WebSocketHub) Run() {
+	sweep := &time.Ticker{C: make(chan time.Time)} // placeholder if checker unset
+	if h.trialExpiry != nil {
+		sweep = time.NewTicker(15 * time.Second)
+		defer sweep.Stop()
+	}
 	for {
 		select {
+		case <-sweep.C:
+			if h.trialExpiry == nil {
+				continue
+			}
+			h.mu.RLock()
+			var expired []*Client
+			for _, c := range h.clients {
+				if c.TrialToken != "" && c.UserID == "anonymous" && !h.trialExpiry(c.TrialToken) {
+					expired = append(expired, c)
+				}
+			}
+			h.mu.RUnlock()
+			for _, c := range expired {
+				ev := &EventEnvelope{
+					Type: "TRIAL_EXPIRED", StreamID: "system", Sequence: 1,
+					Timestamp: time.Now().UTC(), Priority: "P0", SchemaVersion: "1.0",
+					Payload: json.RawMessage(`{"code":"REGISTRATION_REQUIRED"}`),
+				}
+				select {
+				case c.send <- ev:
+				default:
+				}
+				c.mu.Lock()
+				_ = c.conn.WriteControl(websocket.CloseMessage,
+					websocket.FormatCloseMessage(4003, "REGISTRATION_REQUIRED"),
+					time.Now().Add(2*time.Second))
+				c.mu.Unlock()
+				_ = c.conn.Close()
+				h.unregister <- c
+			}
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client.ID] = client
@@ -282,6 +332,9 @@ func (h *WebSocketHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		send:      make(chan *EventEnvelope, 256),
 		sequences: make(map[string]*int64),
 		origin:    r.Header.Get("Origin"),
+	}
+	if th, ok := r.Context().Value(trialTokenKey).(string); ok {
+		client.TrialToken = th // anonymous preview — swept for expiry (§13)
 	}
 
 	h.register <- client
