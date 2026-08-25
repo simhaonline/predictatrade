@@ -1315,6 +1315,23 @@ func main() {
 		go xmResolver.Start(ctx, 30) // check every 30 seconds
 		log.Info().Msg("XAUUSD Shadow Outcome Resolver started")
 	}
+
+	// ─── Live Calibration Writer ───
+	// Periodically reads resolved shadow outcomes and exports calibration JSONs
+	// to CALIBRATION_DIR, replacing the hardcoded PROVISIONAL seed models with
+	// empirically-calibrated probabilities from real resolved outcomes.
+	// Fixes audit P0 F-006: fabricated VALIDATED metadata on seed models.
+	var liveCalib *calibration.LiveCalibrator
+	if xmValidation != nil {
+		liveCalib = calibration.NewLiveCalibrator(calibration.CalibratorConfig{
+			DB:        xmValidation.GetDB(),
+			OutputDir: calibDir,
+			Interval:  1 * time.Hour,
+		})
+		liveCalib.Start()
+		log.Info().Msg("Live Calibration Writer started (runs every 1h, writes to " + calibDir + ")")
+	}
+
 	globalCrossMarketEngine = xmEngine
 	globalCrossMarketPersister = xmPersister
 	log.Info().Str("mode", string(xmConfig.Mode)).Msg("Cross-Market Confluence Engine initialized")

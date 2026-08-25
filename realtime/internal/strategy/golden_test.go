@@ -137,7 +137,7 @@ func TestGolden_ScoreDirection_BullishComponents(t *testing.T) {
 		{Pillar: "MOMENTUM", Feature: "RSI_BULLISH", Direction: types.DirectionBuy, Contribution: decimal.NewFromFloat(0.08), NormalizedValue: decimal.NewFromFloat(0.08)},
 		{Pillar: "VWAP", Feature: "ABOVE_VWAP", Direction: types.DirectionBuy, Contribution: decimal.NewFromFloat(0.05), NormalizedValue: decimal.NewFromFloat(0.05)},
 	}
-	dir, raw, long, short, reasons := scoreDirection(evidence, 20, decimal.Zero)
+	dir, raw, long, short, reasons := scoreDirection(nil, evidence, 20, decimal.Zero)
 	if dir != types.DirectionBuy {
 		t.Errorf("Expected BUY, got %s", dir)
 	}
@@ -162,7 +162,7 @@ func TestGolden_ScoreDirection_BelowThreshold(t *testing.T) {
 	evidence := []types.EvidenceContribution{
 		{Pillar: "TREND", Direction: types.DirectionBuy, Contribution: decimal.NewFromFloat(0.05), NormalizedValue: decimal.NewFromFloat(0.05)},
 	}
-	dir, raw, _, _, reasons := scoreDirection(evidence, 20, decimal.Zero)
+	dir, raw, _, _, reasons := scoreDirection(nil, evidence, 20, decimal.Zero)
 	if dir != types.DirectionNoTrade {
 		t.Errorf("Expected NO_TRADE for score below threshold, got %s", dir)
 	}
@@ -181,7 +181,7 @@ func TestGolden_ScoreDirection_ConflictPenaltyApplied(t *testing.T) {
 		{Pillar: "TREND", Direction: types.DirectionBuy, Contribution: decimal.NewFromFloat(0.30), NormalizedValue: decimal.NewFromFloat(0.30)},
 		{Pillar: "MOMENTUM", Direction: types.DirectionSell, Contribution: decimal.NewFromFloat(0.10), NormalizedValue: decimal.NewFromFloat(0.10)},
 	}
-	dir, raw, long, short, _ := scoreDirection(evidence, 12, decimal.NewFromFloat(15))
+	dir, raw, long, short, _ := scoreDirection(nil, evidence, 12, decimal.NewFromFloat(15))
 	if dir != types.DirectionBuy {
 		t.Errorf("Expected BUY (penalty still above threshold), got %s", dir)
 	}

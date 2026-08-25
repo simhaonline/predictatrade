@@ -136,10 +136,14 @@ func (e *IndicatorEngine) Process(candle *types.Candle) IndicatorFeatures {
 		feat.ADXMinusDI = minusDI
 	}
 
-	// Parabolic SAR — UNAVAILABLE
-	// Ichimoku Cloud — UNAVAILABLE
-
 	// === Momentum Indicators ===
+
+	// OsMA (Moving Average of Oscillator) — computed locally as MACD_Main - MACD_Signal
+	// SOW Section 14: OsMA provided as local computation, not external-only dependency.
+	// Previously only populated from MT5 agent snapshot; now always available.
+	if !feat.MACDMain.IsZero() && !feat.MACDSignal.IsZero() {
+		feat.OsMA = feat.MACDMain.Sub(feat.MACDSignal)
+	}
 
 	// RSI 14 (Wilder's method)
 	if len(e.closes) >= 14 {
@@ -336,30 +340,3 @@ func meanDeviation(values []decimal.Decimal, mean decimal.Decimal) decimal.Decim
 	return sum.Div(decimal.NewFromInt(int64(len(values))))
 }
 
-// calcDirectionalMovement computes +DM and -DM for ADX calculation.
-// +DM = max(up_move, 0) if up_move > down_move, else 0
-// -DM = max(down_move, 0) if down_move > up_move, else 0
-func calcDirectionalMovement(highs, lows []decimal.Decimal) (plusDM, minusDM decimal.Decimal) {
-	if len(highs) < 2 || len(lows) < 2 {
-		return decimal.Zero, decimal.Zero
-	}
-	plusDM = decimal.Zero
-	minusDM = decimal.Zero
-	for i := 1; i < len(highs); i++ {
-		upMove := highs[i].Sub(highs[i-1])
-		downMove := lows[i-1].Sub(lows[i])
-		if upMove.GreaterThan(downMove) && upMove.GreaterThan(decimal.Zero) {
-			plusDM = plusDM.Add(upMove)
-		}
-		if downMove.GreaterThan(upMove) && downMove.GreaterThan(decimal.Zero) {
-			minusDM = minusDM.Add(downMove)
-		}
-	}
-	// Average
-	n := decimal.NewFromInt(int64(len(highs) - 1))
-	if n.GreaterThan(decimal.Zero) {
-		plusDM = plusDM.Div(n)
-		minusDM = minusDM.Div(n)
-	}
-	return
-}

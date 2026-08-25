@@ -861,10 +861,11 @@ func TestLookAhead_FutureCandleNotAvailable(t *testing.T) {
 	state.MTF.Score = 50
 
 	result1 := s.Evaluate(state)
-	// Add a "future" candle that should NOT affect the result
+	// Add a "future" candle that should NOT affect the result.
+	// Close aligned with current trend (below CurrentPrice=4410) so HTF filter passes.
 	state.Candles[types.TFH1] = &types.Candle{
-		Time: time.Now().Add(1 * time.Hour), // Future
-		Close: decimal.NewFromFloat(4500.0), // Artificially high
+		Time:  time.Now().Add(1 * time.Hour), // Future
+		Close: decimal.NewFromFloat(4395.0),  // Below price → bullish HTF → BUY passes
 	}
 	result2 := s.Evaluate(state)
 

@@ -196,31 +196,6 @@ func computeEntrySLTP(state *features.MarketState, direction types.Direction, cf
 }
 
 
-// PHI applies the signal threshold function.
-// PHI(x) = 0 if x < 0.65 (suppressed)
-// PHI(x) squashes the weighted family score into [0, 1].
-// Threshold lowered from 0.65 to 0.45 — the previous 0.65 threshold was too
-// aggressive, zeroing out scores when only 64% of families aligned. In real
-// markets, 65% alignment is extremely rare, resulting in ZERO signals ever
-// reaching the trade threshold. At 0.45, signals with moderate alignment
-// (45%+) still generate meaningful scores.
-// Above threshold, the score is linearly mapped to [0, 1].
-func phi(x float64) float64 {
-	// Stricter phi: only boost signals above 55% of max evidence.
-	// Below 55%: zero (no inflation of weak signals).
-	// 55%-100%: linear boost from 0.55 to 1.0.
-	// This prevents mediocre signals (score 40-50) from being
-	// inflated above the trade threshold (60) and executing as
-	// low-confidence trades that tend to lose.
-	if x < 0.55 {
-		return 0
-	}
-	if x >= 1.0 {
-		return 1.0
-	}
-	return 0.55 + 0.45*(x-0.55)/0.45
-}
-
 // htfTrendFilter checks if the signal direction aligns with the H1 trend.
 // HARD filter: blocks BUY when price below H1 close, blocks SELL when above.
 func htfTrendFilter(state *features.MarketState, direction types.Direction) bool {
@@ -365,17 +340,6 @@ func getStructuralHigh(state *features.MarketState) decimal.Decimal {
 	}
 	return state.Structure.SwingHighs[len(state.Structure.SwingHighs)-1]
 }
-
-// computeFinalScore applies PHI threshold to the raw family-weighted score.
-func computeFinalScore(familyScores map[string]float64, familyWeights map[string]float64) float64 {
-	rawTotal := 0.0
-	for family, score := range familyScores {
-		weight := familyWeights[family]
-		rawTotal += weight * score
-	}
-	return phi(rawTotal)
-}
-
 
 // checkConflict detects contradictory evidence and returns penalty.
 func checkConflict(state *features.MarketState, direction types.Direction, decisionTF string) (decimal.Decimal, string) {
@@ -765,6 +729,18 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 		addEvidence(&evidence, "MTF", "ALIGNMENT_BEARISH", types.DirectionSell, 10, float64(-mtfScore)/100.0*0.05, q, "")
 	}
 
+	// Pivot points — daily/weekly reversal/continuation levels (SOW Section 13)
+	if state.Pivots.Ready && state.Pivots.Daily.Ready {
+		pp := state.Pivots.Daily.P
+		if !pp.IsZero() {
+			if state.CurrentPrice.GreaterThan(pp) {
+				addEvidence(&evidence, "STRUCTURE", "ABOVE_DAILY_PIVOT", types.DirectionBuy, 8, 0.04, q, "")
+			} else if state.CurrentPrice.LessThan(pp) {
+				addEvidence(&evidence, "STRUCTURE", "BELOW_DAILY_PIVOT", types.DirectionSell, 8, 0.04, q, "")
+			}
+		}
+	}
+
 	// Regime-adaptive evidence: add RANGE-specific evidence when in range/mean-reversion
 	if isRegimeInRange(state.Regime.Current) {
 		computeRangeEvidence(&evidence, state, DefaultRangeEvidenceConfig())
@@ -929,10 +905,10 @@ func (s *UltraScalping) Evaluate(state *features.MarketState) StrategyResult {
 		}
 	}
 
-	// OsMA — fast momentum oscillator
+	// OsMA — fast momentum oscillator (locally computed from MACD, no longer external-only)
 	if state.Indicators.OsMA.GreaterThan(decimal.Zero) {
 		addEvidence(&evidence, "MOMENTUM", "OSMA_POSITIVE", types.DirectionBuy, 12, 0.08, q, "")
-	} else {
+	} else if state.Indicators.OsMA.LessThan(decimal.Zero) {
 		addEvidence(&evidence, "MOMENTUM", "OSMA_NEGATIVE", types.DirectionSell, 12, 0.08, q, "")
 	}
 
@@ -1173,6 +1149,36 @@ func (s *StandardSwing) Evaluate(state *features.MarketState) StrategyResult {
 		addEvidence(&evidence, "REGIME", "TRENDING_BULLISH", types.DirectionBuy, 10, 0.07, q, "")
 	} else if state.Regime.Current == types.RegimeTrendingBearish {
 		addEvidence(&evidence, "REGIME", "TRENDING_BEARISH", types.DirectionSell, 10, 0.07, q, "")
+	}
+
+	// Ichimoku cloud — swing TF trend confirmation (SOW Section 6)
+	// Tenkan/Kijun cross, cloud position — key swing signals
+	if !state.Indicators.IchimokuTenkan.IsZero() && !state.Indicators.IchimokuKijun.IsZero() {
+		if state.Indicators.IchimokuTenkan.GreaterThan(state.Indicators.IchimokuKijun) {
+			addEvidence(&evidence, "TREND", "ICHIMOKU_BULLISH_CROSS", types.DirectionBuy, 12, 0.06, q, "")
+		} else {
+			addEvidence(&evidence, "TREND", "ICHIMOKU_BEARISH_CROSS", types.DirectionSell, 12, 0.06, q, "")
+		}
+	}
+	if state.Indicators.IchimokuAboveCloud {
+		addEvidence(&evidence, "TREND", "ABOVE_ICHIMOKU_CLOUD", types.DirectionBuy, 10, 0.05, q, "")
+	} else if state.Indicators.IchimokuBelowCloud {
+		addEvidence(&evidence, "TREND", "BELOW_ICHIMOKU_CLOUD", types.DirectionSell, 10, 0.05, q, "")
+	}
+
+	// Fibonacci retracement levels for swing (SOW Section 12)
+	if state.Fibonacci.Ready && state.Fibonacci.Direction != "" {
+		// Price near 0.618 golden zone — key swing confluenece
+		level618, has618 := state.Fibonacci.Levels["0.618"]
+		if has618 && !level618.IsZero() {
+			zoneHi := level618.Add(state.Indicators.ATR.Mul(decimal.NewFromFloat(0.3)))
+			zoneLo := level618.Sub(state.Indicators.ATR.Mul(decimal.NewFromFloat(0.3)))
+			if state.Fibonacci.Direction == "bullish" && state.CurrentPrice.GreaterThanOrEqual(zoneLo) && state.CurrentPrice.LessThanOrEqual(zoneHi) {
+				addEvidence(&evidence, "STRUCTURE", "FIB_618_BOUNCE", types.DirectionBuy, 10, 0.05, q, "")
+			} else if state.Fibonacci.Direction == "bearish" && state.CurrentPrice.GreaterThanOrEqual(zoneLo) && state.CurrentPrice.LessThanOrEqual(zoneHi) {
+				addEvidence(&evidence, "STRUCTURE", "FIB_618_REJECTION", types.DirectionSell, 10, 0.05, q, "")
+			}
+		}
 	}
 
 	// Regime-adaptive evidence: add RANGE-specific evidence when in range/mean-reversion
@@ -1461,6 +1467,16 @@ func (s *TrendSwing) Evaluate(state *features.MarketState) StrategyResult {
 			addEvidence(&evidence, "VWAP", "ABOVE_VWAP", types.DirectionBuy, 8, 0.05, q, "")
 		} else {
 			addEvidence(&evidence, "VWAP", "BELOW_VWAP", types.DirectionSell, 8, 0.05, q, "")
+		}
+	}
+
+	// Parabolic SAR — trend confirmation on swing TF
+	// SOW Section 5: Parabolic SAR wired for TrendSwing (was computed but unused).
+	if !state.Indicators.ParabolicSAR.IsZero() {
+		if state.Indicators.ParabolicSARLong {
+			addEvidence(&evidence, "TREND", "SAR_BULLISH", types.DirectionBuy, 10, 0.05, q, "")
+		} else {
+			addEvidence(&evidence, "TREND", "SAR_BEARISH", types.DirectionSell, 10, 0.05, q, "")
 		}
 	}
 

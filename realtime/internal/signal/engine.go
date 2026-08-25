@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/predictatrade/realtime/internal/gates"
-	"github.com/predictatrade/realtime/internal/strategy"
 	"github.com/predictatrade/realtime/internal/types"
 	"github.com/shopspring/decimal"
 )
@@ -15,17 +14,13 @@ import (
 // Engine orchestrates the full decision pipeline.
 // SOW Section 165: Practical Signal Decision Order
 type Engine struct {
-	gateRegistry     *gates.Registry
-	strategyProfiles map[types.StrategyID]strategy.ConfluenceProfile
-	riskProfiles     map[types.StrategyID]strategy.RiskProfile
+	gateRegistry *gates.Registry
 }
 
-// NewEngine creates a new signal engine with seeded strategy profiles.
+// NewEngine creates a new signal engine.
 func NewEngine(gateReg *gates.Registry) *Engine {
 	return &Engine{
-		gateRegistry:     gateReg,
-		strategyProfiles: strategy.SeedProfiles(),
-		riskProfiles:     strategy.SeedRiskProfiles(),
+		gateRegistry: gateReg,
 	}
 }
 
