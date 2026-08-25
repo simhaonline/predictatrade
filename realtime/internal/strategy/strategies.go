@@ -209,6 +209,40 @@ func phi(x float64) float64 {
 	return 0.55 + 0.45*(x-0.55)/0.45
 }
 
+// htfTrendFilter checks if the signal direction aligns with the H1 trend.
+// HARD filter: blocks BUY when price below H1 close, blocks SELL when above.
+func htfTrendFilter(state *features.MarketState, direction types.Direction) bool {
+	if state == nil || direction == types.DirectionNoTrade || direction == types.DirectionError {
+		return true
+	}
+	h1Candle, hasH1 := state.Candles[types.TFH1]
+	if !hasH1 || h1Candle == nil {
+		return true
+	}
+	h1Close := h1Candle.Close
+	currentPrice := state.CurrentPrice
+	buffer := h1Close.Mul(decimal.NewFromFloat(0.0005))
+	if direction == types.DirectionBuy {
+		if currentPrice.LessThan(h1Close.Sub(buffer)) {
+			return false
+		}
+	} else if direction == types.DirectionSell {
+		if currentPrice.GreaterThan(h1Close.Add(buffer)) {
+			return false
+		}
+	}
+	return true
+}
+
+// adxTrendFilter blocks signals when ADX is too low (no trend = no edge).
+func adxTrendFilter(state *features.MarketState, minADX float64) bool {
+	if state == nil || state.Indicators.ADX.IsZero() {
+		return true
+	}
+	adx, _ := state.Indicators.ADX.Float64()
+	return adx >= minADX
+}
+
 // computeStructuralSLTP calculates SL using structural low + ATR buffer + spread adjustment.
 // SL_Long = Low_structural - lambda_SL * ATR - 0.5 * Spread
 // TP_Long = Entry + max(R_min * (Entry - SL), 1.5 * ATR)
@@ -417,7 +451,7 @@ func generateHumanReason(direction string, state *features.MarketState, evidence
 }
 
 // scoreDirection computes long/short scores from evidence.
-func scoreDirection(evidence []types.EvidenceContribution, minConfluence float64, conflictPenalty decimal.Decimal) (direction types.Direction, rawScore, longScore, shortScore decimal.Decimal, reasons []types.NoTradeReason) {
+func scoreDirection(state *features.MarketState, evidence []types.EvidenceContribution, minConfluence float64, conflictPenalty decimal.Decimal) (direction types.Direction, rawScore, longScore, shortScore decimal.Decimal, reasons []types.NoTradeReason) {
 	for _, e := range evidence {
 		if e.Direction == types.DirectionBuy {
 			longScore = longScore.Add(e.Contribution)
@@ -440,6 +474,11 @@ func scoreDirection(evidence []types.EvidenceContribution, minConfluence float64
 		rawScore = longScore
 		if longScore.GreaterThan(decimal.NewFromFloat(minConfluence)) {
 			direction = types.DirectionBuy
+			// HARD VETO: Block BUY if price below H1 close (bearish HTF)
+			if !htfTrendFilter(state, types.DirectionBuy) {
+				direction = types.DirectionNoTrade
+				reasons = append(reasons, "HTF_BEARISH_VETO")
+			}
 		} else {
 			direction = types.DirectionNoTrade
 			reasons = append(reasons, types.NTInsufficientScore)
@@ -448,6 +487,11 @@ func scoreDirection(evidence []types.EvidenceContribution, minConfluence float64
 		rawScore = shortScore
 		if shortScore.GreaterThan(decimal.NewFromFloat(minConfluence)) {
 			direction = types.DirectionSell
+			// HARD VETO: Block SELL if price above H1 close (bullish HTF)
+			if !htfTrendFilter(state, types.DirectionSell) {
+				direction = types.DirectionNoTrade
+				reasons = append(reasons, "HTF_BULLISH_VETO")
+			}
 		} else {
 			direction = types.DirectionNoTrade
 			reasons = append(reasons, types.NTInsufficientScore)
@@ -617,6 +661,12 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 		return result
 	}
 
+	// HARD FILTER: Block when ADX < 20 (ranging = no directional edge)
+	if !adxTrendFilter(state, 20.0) {
+		result.ReasonCodes = append(result.ReasonCodes, types.NoTradeReason("LOW_ADX_NO_TREND"))
+		return result
+	}
+
 	var evidence []types.EvidenceContribution
 	q := state.Quality
 
@@ -719,6 +769,14 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 	// Use regime-specific thresholds for candidate/trade classification
 	candidateThresh, tradeThresh := getRegimeThresholds(s.ID(), state.Regime.Current, s.cfg.MinConfluence)
 	dir, raw, long, short, reasons := scoreDirectionWithThresholds(result.Evidence, candidateThresh, tradeThresh, decimal.Zero)
+	// HARD VETO: Block BUY if price below H1 close, block SELL if above
+	if dir == types.DirectionBuy && !htfTrendFilter(state, types.DirectionBuy) {
+		dir = types.DirectionNoTrade
+		reasons = append(reasons, "HTF_BEARISH_VETO")
+	} else if dir == types.DirectionSell && !htfTrendFilter(state, types.DirectionSell) {
+		dir = types.DirectionNoTrade
+		reasons = append(reasons, "HTF_BULLISH_VETO")
+	}
 	result.Direction = dir
 	result.RawScore = raw
 	result.LongScore = long
@@ -917,6 +975,14 @@ func (s *UltraScalping) Evaluate(state *features.MarketState) StrategyResult {
 	candidateThresh, tradeThresh := getRegimeThresholds(s.ID(), state.Regime.Current, s.cfg.MinConfluence)
 	dir, raw, long, short, reasons := scoreDirectionWithThresholds(result.Evidence, candidateThresh, tradeThresh, decimal.Zero)
 	result.Direction = dir
+	// HARD VETO: Block BUY if price below H1 close, block SELL if above
+	if dir == types.DirectionBuy && !htfTrendFilter(state, types.DirectionBuy) {
+		dir = types.DirectionNoTrade
+		reasons = append(reasons, "HTF_BEARISH_VETO")
+	} else if dir == types.DirectionSell && !htfTrendFilter(state, types.DirectionSell) {
+		dir = types.DirectionNoTrade
+		reasons = append(reasons, "HTF_BULLISH_VETO")
+	}
 	result.RawScore = raw
 	result.LongScore = long
 	result.ShortScore = short
@@ -1114,6 +1180,14 @@ func (s *StandardSwing) Evaluate(state *features.MarketState) StrategyResult {
 	candidateThresh, tradeThresh := getRegimeThresholds(s.ID(), state.Regime.Current, s.cfg.MinConfluence)
 	dir, raw, long, short, reasons := scoreDirectionWithThresholds(result.Evidence, candidateThresh, tradeThresh, decimal.Zero)
 	result.Direction = dir
+	// HARD VETO: Block BUY if price below H1 close, block SELL if above
+	if dir == types.DirectionBuy && !htfTrendFilter(state, types.DirectionBuy) {
+		dir = types.DirectionNoTrade
+		reasons = append(reasons, "HTF_BEARISH_VETO")
+	} else if dir == types.DirectionSell && !htfTrendFilter(state, types.DirectionSell) {
+		dir = types.DirectionNoTrade
+		reasons = append(reasons, "HTF_BULLISH_VETO")
+	}
 	result.RawScore = raw
 	result.LongScore = long
 	result.ShortScore = short
@@ -1389,6 +1463,14 @@ func (s *TrendSwing) Evaluate(state *features.MarketState) StrategyResult {
 	candidateThresh, tradeThresh := getRegimeThresholds(s.ID(), state.Regime.Current, s.cfg.MinConfluence)
 	dir, raw, long, short, reasons := scoreDirectionWithThresholds(result.Evidence, candidateThresh, tradeThresh, decimal.Zero)
 	result.Direction = dir
+	// HARD VETO: Block BUY if price below H1 close, block SELL if above
+	if dir == types.DirectionBuy && !htfTrendFilter(state, types.DirectionBuy) {
+		dir = types.DirectionNoTrade
+		reasons = append(reasons, "HTF_BEARISH_VETO")
+	} else if dir == types.DirectionSell && !htfTrendFilter(state, types.DirectionSell) {
+		dir = types.DirectionNoTrade
+		reasons = append(reasons, "HTF_BULLISH_VETO")
+	}
 	result.RawScore = raw
 	result.LongScore = long
 	result.ShortScore = short
