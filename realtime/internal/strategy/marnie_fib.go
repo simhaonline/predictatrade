@@ -16,8 +16,6 @@ package strategy
 
 import (
 	"fmt"
-	"log"
-	
 
 	"github.com/predictatrade/realtime/internal/features"
 	"github.com/predictatrade/realtime/internal/types"
@@ -68,7 +66,8 @@ func (s *MarnieFibStrategy) ID() types.StrategyID { return types.StrategyMarnieF
 func (s *MarnieFibStrategy) DecisionTimeframes() []types.Timeframe { return s.cfg.DecisionTFs }
 
 func (s *MarnieFibStrategy) Evaluate(state *features.MarketState) StrategyResult {
-	log.Printf("[MARNIE_FIB] Evaluate called, ATR zero: %v", state.Indicators.ATR.IsZero())
+	// NOTE: per-evaluation logging removed to avoid noisy output on every tick;
+	// diagnostics are emitted only when a signal/structure is actually found.
 	result := StrategyResult{
 		StrategyID:      s.ID(),
 		Direction:       types.DirectionNoTrade,

@@ -12,6 +12,11 @@ async function bootstrap() {
     rawBody: true,
   });
 
+  // H2 fix: trust the single reverse-proxy hop (Nginx) so req.ip reflects the
+  // real client address. Without this, per-IP throttling buckets on the proxy
+  // IP (a single global bucket) instead of clients.
+  app.set('trust proxy', 1);
+
   // Cookie parsing for HttpOnly refresh-token cookie
   app.use(cookieParser());
 

@@ -306,7 +306,10 @@ export class BillingService {
     const providerEventId = String(body?.id || body?.event_id || `${event}:${body?.created_at ?? ''}`);
     const subId = body?.subscription_id || body?.data?.subscription_id || body?.data?.object?.subscription;
     // NOTE: subscription.active intentionally NOT treated as payment (audit CP1).
-    const paidEvents = ['payment.succeeded', 'invoice.paid', 'checkout.session.completed'];
+    // checkout.session.completed is ONLY the session-creation event, NOT a charge
+    // (payment is confirmed by payment.succeeded / invoice.paid). Treating it as
+    // paid would mark invoices settled before money is received.
+    const paidEvents = ['payment.succeeded', 'invoice.paid'];
     const paymentId = body?.payment_id || body?.id || body?.data?.id;
 
     // Idempotency: record the delivery first; unique(provider, provider_event_id)

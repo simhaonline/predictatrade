@@ -645,35 +645,12 @@ export class LicensingService {
         }
       }
 
-      // 3. Record the device activation (upsert — update if exists, insert if new)
-      await this.pool.query(
-        `INSERT INTO licensing.device_activations
-         (license_id, device_id, client_type, mt_account_login, broker_name,
-          terminal_build, ea_version, activation_ip, activated_at,
-          account_balance, account_equity, account_profit, open_positions)
-         VALUES ($1, NULL, 'MT5', $2, $3, $4, $5, NULL, now(), 0, 0, 0, 0)
-         ON CONFLICT ON CONSTRAINT device_activations_pkey DO NOTHING
-         ON CONFLICT DO NOTHING`,
-        [row.id, mtAccount, brokerName || '', terminalBuild || '', eaVersion || ''],
-      ).catch(() => {
-        // Upsert may fail if no unique constraint — try simple insert
-        return this.pool.query(
-          `INSERT INTO licensing.device_activations
-           (license_id, client_type, mt_account_login, broker_name,
-            terminal_build, ea_version, activated_at)
-           VALUES ($1, 'MT5', $2, $3, $4, $5, now())
-           ON CONFLICT DO NOTHING`,
-          [row.id, mtAccount, brokerName || '', terminalBuild || '', eaVersion || ''],
-        );
-      });
-
-      // 4. Update device last_seen_at
-      await this.pool.query(
-        `UPDATE licensing.devices
-         SET last_seen_at = now(), connection_status = 'ONLINE'
-         WHERE license_id = $1`,
-        [row.id],
-      ).catch(() => {});
+      // M3 fix: validate is a READ-ONLY policy/eligibility check. It must NOT
+      // insert device_activations or mutate device liveness — activation is
+      // performed by the authenticated device-auth activation flow. Writing here
+      // on every unauthenticated call is an abuse/DoS vector and created
+      // spurious activation rows. MT-account binding is still validated above
+      // (read-only) using the activations recorded by the auth flow.
     }
 
     return {

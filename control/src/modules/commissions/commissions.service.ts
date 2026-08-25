@@ -93,12 +93,6 @@ export class CommissionsService {
     const purchaseRule = pr.rows[0];
 
     const idemKey = `license:${licenseId}`;
-    const dup = await this.pool.query(
-      'SELECT 1 FROM referral.commission_ledger WHERE idempotency_key = $1 LIMIT 1',
-      [idemKey],
-    );
-    if (dup.rows.length > 0) return { credited: 0, skipped: true };
-
     const engine = new CommissionEngine();
     engine.setBaseRates(planId, baseRates);
     engine.setPurchaseRule('FIRST_PURCHASE', {
@@ -118,44 +112,68 @@ export class CommissionsService {
       eventType: 'NEW_SUBSCRIPTION',
     });
 
-    for (const c of result.commissions) {
-      const levelRule = ratesByLevel.get(c.level);
-      await this.pool.query(
-        `INSERT INTO referral.commission_ledger (
-          id, recipient_user_id, source_user_id, source_subscription_id, purchase_id, invoice_id,
-          plan_id, plan_version, purchase_number, purchase_type, level,
-          base_commission_rate, purchase_multiplier, effective_commission_rate,
-          commissionable_amount, commission_amount, currency, status,
-          commission_rule_id, purchase_rule_id, idempotency_key, created_at, updated_at
-        ) VALUES (
-          gen_random_uuid(), $1, $2, $3, $4, $5, $6, 1, $7, $8, $9,
-          $10, $11, $12, $13, $14, $15, 'PENDING',
-          $16, $17, $18, now(), now()
-        )`,
-        [
-          c.recipientUserId,
-          c.sourceUserId,
-          c.sourceSubscriptionId || null,
-          null,
-          c.invoiceId || null,
-          c.planId,
-          c.purchaseNumber,
-          c.purchaseType,
-          c.level,
-          c.baseCommissionRate.toString(),
-          c.purchaseMultiplier.toString(),
-          c.effectiveCommissionRate.toString(),
-          c.commissionableAmount.toString(),
-          c.commissionAmount.toString(),
-          c.currency,
-          levelRule?.id || null,
-          purchaseRule.id,
-          idemKey,
-        ],
-      );
-    }
+    if (result.commissions.length === 0) return { credited: 0 };
 
-    return { credited: result.commissions.length };
+    // M1 fix: idempotency check + all ledger inserts run inside ONE transaction
+    // so a failure mid-loop cannot leave a partially-credited, inconsistent
+    // ledger. A concurrent caller hits the unique idempotency_key and is treated
+    // as a benign duplicate.
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const dup = await client.query(
+        'SELECT 1 FROM referral.commission_ledger WHERE idempotency_key = $1 LIMIT 1',
+        [idemKey],
+      );
+      if (dup.rows.length > 0) {
+        await client.query('COMMIT');
+        return { credited: 0, skipped: true };
+      }
+      for (const c of result.commissions) {
+        const levelRule = ratesByLevel.get(c.level);
+        await client.query(
+          `INSERT INTO referral.commission_ledger (
+            id, recipient_user_id, source_user_id, source_subscription_id, purchase_id, invoice_id,
+            plan_id, plan_version, purchase_number, purchase_type, level,
+            base_commission_rate, purchase_multiplier, effective_commission_rate,
+            commissionable_amount, commission_amount, currency, status,
+            commission_rule_id, purchase_rule_id, idempotency_key, created_at, updated_at
+          ) VALUES (
+            gen_random_uuid(), $1, $2, $3, $4, $5, $6, 1, $7, $8, $9,
+            $10, $11, $12, $13, $14, $15, 'PENDING',
+            $16, $17, $18, now(), now()
+          )`,
+          [
+            c.recipientUserId,
+            c.sourceUserId,
+            c.sourceSubscriptionId || null,
+            null,
+            c.invoiceId || null,
+            c.planId,
+            c.purchaseNumber,
+            c.purchaseType,
+            c.level,
+            c.baseCommissionRate.toString(),
+            c.purchaseMultiplier.toString(),
+            c.effectiveCommissionRate.toString(),
+            c.commissionableAmount.toString(),
+            c.commissionAmount.toString(),
+            c.currency,
+            levelRule?.id || null,
+            purchaseRule.id,
+            idemKey,
+          ],
+        );
+      }
+      await client.query('COMMIT');
+      return { credited: result.commissions.length };
+    } catch (e: any) {
+      await client.query('ROLLBACK');
+      if (e?.code === '23505') return { credited: 0, skipped: true };
+      throw e;
+    } finally {
+      client.release();
+    }
   }
 
   async findByRecipient(userId: string) {
@@ -323,9 +341,26 @@ export class CommissionsService {
         throw new BadRequestException('Reversal amount must be > 0 and <= commission amount');
       }
       const type = revAmount < full ? 'PARTIAL_REVERSAL' : 'REVERSAL';
-      const updated = await this.transitionLedgerAndWallet(
-        client, id, 'REVERSED', actorId, reason, revAmount,
-      );
+      if (revAmount < full) {
+        // M6 fix: partial reversal must NOT flip the whole commission to
+        // REVERSED (that would mis-attribute the full commission_amount to the
+        // reversed bucket in summaries). Keep the original lifecycle status and
+        // move only the reversed amount into reversed_balance.
+        const srcBucket = bucketForStatus(row.status);
+        await client.query(
+          `UPDATE referral.affiliate_wallets
+             SET ${srcBucket} = ${srcBucket} - $1,
+                 reversed_balance = reversed_balance + $1,
+                 updated_at = now()
+           WHERE user_id = $2 AND currency = $3`,
+          [revAmount, row.recipient_user_id, row.currency],
+        );
+      } else {
+        const updated = await this.transitionLedgerAndWallet(
+          client, id, 'REVERSED', actorId, reason, revAmount,
+        );
+        void updated;
+      }
       await client.query(
         `INSERT INTO referral.commission_adjustments
            (id, original_commission_id, adjustment_type, amount, currency, reason, adjusted_by, created_at)

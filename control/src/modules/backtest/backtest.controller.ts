@@ -23,14 +23,24 @@ export class BacktestController {
 
   @UseGuards(JwtAuthGuard)
   @Get('runs')
-  async listRuns(@Query('limit') limit?: string) {
-    return this.backtestService.listRuns(limit ? parseInt(limit) : 20);
+  async listRuns(
+    @Query('limit') limit?: string,
+    @CurrentUser('sub') userId?: string,
+    @CurrentUser('role') role?: string,
+  ) {
+    const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN';
+    return this.backtestService.listRuns(limit ? parseInt(limit) : 20, userId, isAdmin);
   }
 
   @UseGuards(JwtAuthGuard)
   @Get('runs/:runId')
-  async getRunDetails(@Param('runId') runId: string) {
-    const result = await this.backtestService.getRunDetails(runId);
+  async getRunDetails(
+    @Param('runId') runId: string,
+    @CurrentUser('sub') userId?: string,
+    @CurrentUser('role') role?: string,
+  ) {
+    const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN';
+    const result = await this.backtestService.getRunDetails(runId, userId, isAdmin);
     if (!result) {
       return { error: 'Run not found' };
     }
@@ -60,15 +70,22 @@ export class BacktestController {
     // here instead of relying on JwtAuthGuard (which only reads the header).
     try {
       if (!token) throw new Error('missing token');
-      jwt.verify(token, this.config.get<string>('JWT_SECRET') || '');
-    } catch {
+      const payload = jwt.verify(token, this.config.get<string>('JWT_SECRET') || '') as {
+        sub?: string;
+        role?: string;
+      };
+      const userId = payload.sub;
+      const isAdmin = payload.role === 'ADMIN' || payload.role === 'SUPER_ADMIN';
+      if (format === 'csv') {
+        const csv = await this.backtestService.getRunTradesCSV(runId, userId, isAdmin);
+        if (csv === 'Access denied') throw new UnauthorizedException('Access denied');
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="backtest_${runId}_trades.csv"`);
+        return res.send(csv);
+      }
+    } catch (err) {
+      if (err instanceof UnauthorizedException) throw err;
       throw new UnauthorizedException('Invalid or missing token');
-    }
-    if (format === 'csv') {
-      const csv = await this.backtestService.getRunTradesCSV(runId);
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="backtest_${runId}_trades.csv"`);
-      return res.send(csv);
     }
     return res.status(HttpStatus.BAD_REQUEST).json({ error: 'Unsupported format. Use ?format=csv' });
   }

@@ -90,6 +90,13 @@ var globalCrossMarketEngine *crossmarket.Engine
 var globalAgentHub *gateway.AgentHub
 var globalPersister *marketdata.Persister
 
+// engineOverrideSLTP gates the strategy-engine SL/TP override matrix.
+// When false (default, ENVINE_OVERRIDE_SLTP unset or != "true"), the live
+// engine uses the same getStrategyConfig geometry as the backtest, avoiding
+// divergence between live and backtest SL/TP. Set ENGINE_OVERRIDE_SLTP=true
+// to deliberately opt into the Phase 6 override matrix.
+var engineOverrideSLTP bool
+
 // Agent strategy entitlements — maps agentID → allowed_strategies from license
 var (
 	agentStrategiesMu sync.RWMutex
@@ -1279,6 +1286,11 @@ func main() {
 	xmConfig.RealYieldsEnabled = os.Getenv("REAL_YIELD_ENABLED") == "true"
 	xmConfig.EURUSDEnabled = os.Getenv("EURUSD_ENABLED") != "false" // default true
 
+	// Engine SL/TP override matrix is OPT-IN. Default (unset) = NO overrides,
+	// so the live engine uses the same getStrategyConfig geometry as the
+	// backtest. Operators set ENGINE_OVERRIDE_SLTP=true to enable it.
+	engineOverrideSLTP = os.Getenv("ENGINE_OVERRIDE_SLTP") == "true"
+
 	// Cross-market persister + validation persister (separate connections)
 	var xmPersister *crossmarket.Persister
 	var xmValidation *crossmarket.ValidationPersister
@@ -2065,6 +2077,9 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 		// Try to get a specialized engine for this strategy.
 		// If found, apply engine-specific overrides (SL bypass, custom TPs, min ATR gate, regime gate).
 		// If not found (nil), fall back to legacy strategies.go logic — zero downtime.
+		// The override matrix is OPT-IN via ENGINE_OVERRIDE_SLTP; when disabled the
+		// live engine keeps the backtest-equivalent getStrategyConfig geometry.
+		if engineOverrideSLTP {
 		if eng, err := engines.GetEngine(strat.ID()); err == nil && eng != nil {
 			engineResult := eng.Evaluate(stratResult, mergedState)
 			if engineResult.Applied {
@@ -2075,6 +2090,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				stratResult = engineResult.Result // Result has Direction=NoTrade + reason codes
 			}
 			// If Fallback=true (NO-TRADE from legacy), pass through unchanged
+		}
 		}
 		// ===== END ADDON =====
 

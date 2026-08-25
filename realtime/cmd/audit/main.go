@@ -16,6 +16,7 @@ func main() {
 		strategy.NewUltraScalping(),
 		strategy.NewStandardSwing(),
 		strategy.NewTrendSwing(),
+		strategy.NewMarnieFibStrategy(),
 	}
 	
 	for _, s := range strategies {

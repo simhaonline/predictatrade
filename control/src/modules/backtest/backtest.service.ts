@@ -35,22 +35,29 @@ export class BacktestService {
       args.push('--higher-tfs', dto.higherTimeframes);
     }
 
-    // Inject the DB URL from the environment so the engine connects using the
-    // container-resolvable host (e.g. postgres:) instead of a host-only file
-    // that is unavailable inside the container.
-    if (process.env.DATABASE_URL) {
-      args.push('--db-url', process.env.DATABASE_URL);
-    }
+    // M8 fix: pass the DB URL via the child process ENVIRONMENT, never as a CLI
+    // argument (which would expose the password to `ps`/process listings). The
+    // Go engine falls back to DATABASE_URL when --db-url is not supplied.
+    const childEnv = { ...process.env };
 
     try {
       const { stdout, stderr } = await execFileAsync(BACKTEST_BINARY, args, {
         timeout: 300000, // 5 min max
         maxBuffer: 1024 * 1024 * 10,
+        env: childEnv,
       });
 
       // Parse the run_id from stdout
       const runIdMatch = stdout.match(/Backtest Run:\s*(\S+)/);
       const runId = runIdMatch ? runIdMatch[1] : 'unknown';
+
+      // H3 fix: attribute the run to its owner so subsequent reads can be
+      // scoped per-user. Best-effort: ignore errors (e.g. run_id parse failure).
+      if (runId !== 'unknown' && userId) {
+        await this.pool
+          .query(`UPDATE trading.backtest_runs SET user_id = $2 WHERE run_id = $1`, [runId, userId])
+          .catch(() => undefined);
+      }
 
       // Parse key metrics from stdout
       const finalBalance = this.parseMetric(stdout, 'Final balance:');
@@ -97,9 +104,11 @@ export class BacktestService {
     return match ? match[1] : '0';
   }
 
-  async listRuns(limit = 20) {
+  async listRuns(limit = 20, userId?: string, isAdmin = false) {
+    const where = !isAdmin && userId ? 'WHERE user_id = $2' : '';
+    const params = !isAdmin && userId ? [limit, userId] : [limit];
     const result = await this.pool.query(`
-      SELECT run_id, strategy_id, strategy_mode, status, 
+      SELECT run_id, strategy_id, strategy_mode, status,
              to_char(start_timestamp, 'YYYY-MM-DD') as start_date,
              to_char(end_timestamp, 'YYYY-MM-DD') as end_date,
              round(initial_balance, 0) as initial_balance,
@@ -113,18 +122,25 @@ export class BacktestService {
              round(duration_seconds, 1) as duration_seconds,
              created_at
       FROM trading.backtest_runs
+      ${where}
       ORDER BY created_at DESC
       LIMIT $1
-    `, [limit]);
+    `, params);
     return result.rows;
   }
 
-  async getRunDetails(runId: string) {
+  async getRunDetails(runId: string, userId?: string, isAdmin = false) {
     const runResult = await this.pool.query(`
       SELECT * FROM trading.backtest_runs WHERE run_id = $1
     `, [runId]);
 
     if (runResult.rows.length === 0) {
+      return null;
+    }
+
+    const run = runResult.rows[0];
+    // H3: non-admins may only access their own runs.
+    if (!isAdmin && userId && run.user_id && run.user_id !== userId) {
       return null;
     }
 
@@ -139,12 +155,24 @@ export class BacktestService {
     `, [runId]);
 
     return {
-      run: runResult.rows[0],
+      run,
       trades: tradesResult.rows,
     };
   }
 
-  async getRunTradesCSV(runId: string): Promise<string> {
+  async getRunTradesCSV(runId: string, userId?: string, isAdmin = false): Promise<string> {
+    // H3: verify ownership before streaming another user's trade data.
+    const ownerRes = await this.pool.query(
+      `SELECT user_id FROM trading.backtest_runs WHERE run_id = $1`,
+      [runId],
+    );
+    if (ownerRes.rows.length === 0) {
+      return 'Run not found';
+    }
+    if (!isAdmin && userId && ownerRes.rows[0].user_id && ownerRes.rows[0].user_id !== userId) {
+      return 'Access denied';
+    }
+
     const result = await this.pool.query(`
       SELECT direction, strategy_id, entry_price, exit_price, exit_reason,
              pnl, pnl_r, entry_time, exit_time, duration_bars as holding_bars

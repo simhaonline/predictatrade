@@ -53,8 +53,10 @@ export class DeviceAuthService {
         throw new UnauthorizedException(`License status: ${license.status}`);
       }
 
-      // Check if any device is already bound to this license
-      const existingDevice = await client.query(
+      // H4 fix: support MULTIPLE devices up to the license plan's max_devices.
+      // Match the incoming fingerprint against ALL bound devices; reuse a match,
+      // otherwise bind a new device if under the plan limit, else reject.
+      const existingDevices = await client.query(
         `SELECT id, fingerprint_hash, fingerprint_components, installation_id, device_credential_hash
          FROM licensing.devices WHERE bound_license_id = $1 AND revoked_at IS NULL`,
         [license.id],
@@ -63,44 +65,47 @@ export class DeviceAuthService {
       let deviceId: string;
       let isNewDevice = false;
 
-      if (existingDevice.rows.length === 0) {
-        // First activation — create and bind device
+      const bindNewDevice = async () => {
         isNewDevice = true;
         deviceId = crypto.randomUUID();
         const fpHash = this.computeFingerprintHash(fingerprint);
         const installationId = fingerprint.installation_id || crypto.randomUUID();
         const hashedComponents = this.hashFingerprintComponents(fingerprint);
-
         await client.query(
           `INSERT INTO licensing.devices (id, user_id, bound_license_id, installation_id, fingerprint_version,
-           fingerprint_hash, fingerprint_components, device_name, windows_version, connection_status, last_activation_at, last_seen_at, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, 'hwfp-v1', $5, $6, $7, $8, 'ONLINE', now(), now(), now(), now())`,
+             fingerprint_hash, fingerprint_components, device_name, windows_version, connection_status, last_activation_at, last_seen_at, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, 'hwfp-v1', $5, $6, $7, $8, 'ONLINE', now(), now(), now(), now())`,
           [deviceId, license.user_id, license.id, installationId, fpHash, JSON.stringify(hashedComponents),
-           terminal?.name || `${client_type} Terminal`, fingerprint.os || 'Windows'],
+            terminal?.name || `${client_type} Terminal`, fingerprint.os || 'Windows'],
         );
-
-        // Update license status to ACTIVE
         await client.query(
           `UPDATE licensing.licenses SET status = 'ACTIVE', updated_at = now() WHERE id = $1`,
           [license.id],
         );
+      };
+
+      if (existingDevices.rows.length === 0) {
+        await bindNewDevice();
       } else {
-        // Re-activation — check hardware fingerprint match
-        const existing = existingDevice.rows[0];
-        const matchScore = this.computeMatchScore(fingerprint, existing.fingerprint_components || {});
-
-        if (matchScore < MATCH_THRESHOLD) {
-          await client.query('ROLLBACK');
-          this.logger.warn(`Device mismatch for license ${license.id}, score: ${matchScore}`);
-          throw new ConflictException('DEVICE_ALREADY_BOUND');
+        let matched: any = null;
+        let bestScore = -1;
+        for (const d of existingDevices.rows) {
+          const score = this.computeMatchScore(fingerprint, d.fingerprint_components || {});
+          if (score > bestScore) { bestScore = score; matched = d; }
         }
-
-        deviceId = existing.id;
-        // Update last seen
-        await client.query(
-          `UPDATE licensing.devices SET last_seen_at = now(), last_activation_at = now(), updated_at = now() WHERE id = $1`,
-          [deviceId],
-        );
+        if (matched && bestScore >= MATCH_THRESHOLD) {
+          deviceId = matched.id;
+          await client.query(
+            `UPDATE licensing.devices SET last_seen_at = now(), last_activation_at = now(), updated_at = now() WHERE id = $1`,
+            [deviceId],
+          );
+        } else if (existingDevices.rows.length < (Number(license.max_devices) || 1)) {
+          await bindNewDevice();
+        } else {
+          await client.query('ROLLBACK');
+          this.logger.warn(`Device limit exceeded for license ${license.id}: ${existingDevices.rows.length}/${license.max_devices}`);
+          throw new ConflictException('DEVICE_LIMIT_EXCEEDED');
+        }
       }
 
       // Generate device credential (long-lived HMAC secret)

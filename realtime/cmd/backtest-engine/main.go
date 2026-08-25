@@ -21,7 +21,7 @@ import (
 )
 
 func main() {
-	strategyID := flag.String("strategy", "STANDARD_SCALPING", "Strategy: STANDARD_SCALPING, ULTRA_SCALPING, STANDARD_SWING, TREND_SWING")
+	strategyID := flag.String("strategy", "STANDARD_SCALPING", "Strategy: STANDARD_SCALPING, ULTRA_SCALPING, STANDARD_SWING, TREND_SWING, MARNIE_FIB")
 	timeframe := flag.String("timeframe", "M5", "Primary timeframe")
 	startStr := flag.String("start", "", "Start date YYYY-MM-DD")
 	endStr := flag.String("end", "", "End date YYYY-MM-DD")
@@ -41,6 +41,12 @@ func main() {
 			os.Exit(1)
 		}
 		url = strings.TrimSpace(string(data))
+	}
+	// Fall back to the DATABASE_URL environment variable (M8 fix): lets the
+	// control plane pass the connection string via the child process env
+	// instead of as a CLI argument (which would expose the password in `ps`).
+	if url == "" {
+		url = strings.TrimSpace(os.Getenv("DATABASE_URL"))
 	}
 
 	// Parse dates
