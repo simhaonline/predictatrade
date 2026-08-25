@@ -318,3 +318,86 @@ class TestPrecomputedReplay:
             signal = replay_strategy.evaluate(align, Portfolio())
             # Should produce valid SignalEvent
             assert signal.direction in ("BUY", "SELL", "NO_TRADE", "BLOCKED")
+
+
+class TestMarnieFib:
+    """MARNIE_FIB must be wired into the backtest adapter and produce valid
+    directional signals with correct SL/TP geometry when price is inside the
+    Fibonacci golden zone. This exercises the same path the live engine uses."""
+
+    def _build(self, idx, close, open_, ema9, ema21):
+        from patresearch.backtesting.data.loader import HistoricalCandle
+        candles = []
+        for i in range(60):
+            candles.append(HistoricalCandle(
+                timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc).fromtimestamp(
+                    1704067200 + i * 300),
+                open=open_, high=2000.0, low=1900.0, close=close,
+            ))
+        # Override the evaluated candle so body direction is explicit.
+        candles[idx] = HistoricalCandle(
+            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc).fromtimestamp(
+                1704067200 + idx * 300),
+            open=open_, high=2000.0, low=1900.0, close=close,
+        )
+        ind = {
+            "ema9": ema9, "ema21": ema21, "atr": 10.0, "rsi": 60.0,
+            "macd_main": 1.0, "macd_signal": 0.0, "adx": 30.0,
+        }
+        return candles, ind
+
+    def _eval(self, candles, ind, idx):
+        from patresearch.backtesting.data.alignment import TimeframeAlignment
+        from patresearch.backtesting.engine.portfolio import Portfolio
+        strategy = PTBStrategyAdapter("MARNIE_FIB")
+        strategy.initialize(candles)
+        # Inject deterministic indicators (bypass the simple EMA/RSI estimators).
+        strategy._indicators = [ind for _ in candles]
+        align = TimeframeAlignment(
+            timestamp=candles[idx].timestamp, primary_candle=candles[idx],
+            higher_tf_candles={}, primary_index=idx,
+        )
+        return strategy.evaluate(align, Portfolio())
+
+    def test_golden_zone_bullish_BUY(self):
+        # ema9>ema21 → bull direction; price 1930 is in bull golden zone
+        # [1921.4, 1938.2] of swing(2000,1900).
+        candles, ind = self._build(idx=40, close=1930.0, open_=1920.0,
+                                   ema9=4402.0, ema21=4398.0)
+        signal = self._eval(candles, ind, 40)
+        assert signal.direction == "BUY", signal.reason_codes
+        assert signal.strategy_id == "MARNIE_FIB"
+        assert signal.stop_loss < signal.entry_price
+        assert signal.tp1 > signal.entry_price
+
+    def test_golden_zone_bearish_SELL(self):
+        # ema9<ema21 → bear direction; price 1970 is in bear golden zone
+        # [1961.8, 1978.6] of swing(2000,1900).
+        candles, ind = self._build(idx=40, close=1970.0, open_=1980.0,
+                                   ema9=4398.0, ema21=4402.0)
+        signal = self._eval(candles, ind, 40)
+        assert signal.direction == "SELL", signal.reason_codes
+        assert signal.strategy_id == "MARNIE_FIB"
+        assert signal.stop_loss > signal.entry_price
+        assert signal.tp1 < signal.entry_price
+
+    def test_runs_on_synthetic_data(self):
+        """Smoke test: MARNIE_FIB must evaluate without error on real-shaped data."""
+        candles, _ = DataLoader.generate_synthetic("XAUUSD", "M5", 100, seed=7)
+        strategy = PTBStrategyAdapter("MARNIE_FIB")
+        strategy.initialize(candles)
+        from patresearch.backtesting.data.alignment import TimeframeAlignment
+        from patresearch.backtesting.engine.portfolio import Portfolio
+        for i in range(30, 50):
+            align = TimeframeAlignment(
+                timestamp=candles[i].timestamp, primary_candle=candles[i],
+                higher_tf_candles={}, primary_index=i,
+            )
+            signal = strategy.evaluate(align, Portfolio())
+            assert signal.direction in ("BUY", "SELL", "NO_TRADE", "WAIT")
+            if signal.direction in ("BUY", "SELL"):
+                assert signal.stop_loss is not None and signal.tp1 is not None
+                if signal.direction == "BUY":
+                    assert signal.stop_loss < signal.entry_price
+                else:
+                    assert signal.stop_loss > signal.entry_price

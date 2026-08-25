@@ -416,3 +416,103 @@ func TestStrategyRegression_AllFourStrategiesConsistent(t *testing.T) {
 		}
 	}
 }
+
+// === MARNIE_FIB POSITIVE COVERAGE ===
+// The regression test above only asserts NO-TRADE (fixture lacked swing anchors).
+// These tests exercise the REAL trade path of MARNIE_FIB now that the
+// nil-candle guard in features/marnie_fib.go is fixed. With confirmed swing
+// anchors and price inside the 0.618-0.786 golden zone, MarnieFib MUST produce
+// a directional signal with valid SL/TP geometry.
+
+// makeMarnieFibBullishState builds a market state where price sits inside the
+// bullish golden zone of a confirmed swing (high=2000, low=1900, range=100).
+// Bullish golden zone = swingHigh - [0.618..0.786]*range = [1921.4, 1938.2].
+func makeMarnieFibBullishState() *features.MarketState {
+	s := makeBullishState()
+	s.CurrentPrice = decimal.NewFromFloat(1930.0)
+	s.Bid = decimal.NewFromFloat(1929.8)
+	s.Ask = decimal.NewFromFloat(1930.2)
+	s.Mid = decimal.NewFromFloat(1930.0)
+	s.Structure.SwingHighs = []decimal.Decimal{decimal.NewFromFloat(2000.0)}
+	s.Structure.SwingLows = []decimal.Decimal{decimal.NewFromFloat(1900.0)}
+	s.Structure.CurrentTrend = "bullish"
+	s.Regime.Current = types.RegimeTrendingBullish
+	return s
+}
+
+// makeMarnieFibBearishState builds a market state where price sits inside the
+// bearish golden zone of a confirmed swing (high=2000, low=1900, range=100).
+// Bearish golden zone = swingLow + [0.618..0.786]*range = [1961.8, 1978.6].
+func makeMarnieFibBearishState() *features.MarketState {
+	s := makeBearishState()
+	s.CurrentPrice = decimal.NewFromFloat(1970.0)
+	s.Bid = decimal.NewFromFloat(1969.8)
+	s.Ask = decimal.NewFromFloat(1970.2)
+	s.Mid = decimal.NewFromFloat(1970.0)
+	s.Structure.SwingHighs = []decimal.Decimal{decimal.NewFromFloat(2000.0)}
+	s.Structure.SwingLows = []decimal.Decimal{decimal.NewFromFloat(1900.0)}
+	s.Structure.CurrentTrend = "bearish"
+	s.Regime.Current = types.RegimeTrendingBearish
+	return s
+}
+
+// Stale state without swing anchors must still produce a safe NO-TRADE.
+func TestMarnieFib_NoSwingAnchors_NoTrade(t *testing.T) {
+	s := NewMarnieFibStrategy()
+	state := makeBullishState() // has no SwingHighs/SwingLows
+	result := s.Evaluate(state)
+	if result.Direction != types.DirectionNoTrade {
+		t.Errorf("Expected NO-TRADE without swing anchors, got %s", result.Direction)
+	}
+	if len(result.ReasonCodes) == 0 {
+		t.Error("Expected FIB_NO_SWING_ANCHORS reason code")
+	}
+}
+
+func TestMarnieFib_GoldenZoneBullish_BUY(t *testing.T) {
+	s := NewMarnieFibStrategy()
+	state := makeMarnieFibBullishState()
+	result := s.Evaluate(state)
+	if result.Direction != types.DirectionBuy {
+		t.Fatalf("Expected BUY in bullish golden zone, got %s (score=%s reasons=%v)",
+			result.Direction, result.RawScore, result.ReasonCodes)
+	}
+	if result.EntryPrice.IsZero() || result.StopLoss.IsZero() {
+		t.Errorf("Expected valid SL/entry geometry, got entry=%s sl=%s", result.EntryPrice, result.StopLoss)
+	}
+	if result.TP1.IsZero() || result.TP3.IsZero() {
+		t.Errorf("Expected valid TP geometry, got tp1=%s tp3=%s", result.TP1, result.TP3)
+	}
+	// SL must be below entry for a BUY.
+	if result.StopLoss.GreaterThanOrEqual(result.EntryPrice) {
+		t.Errorf("BUY SL must be below entry: sl=%s entry=%s", result.StopLoss, result.EntryPrice)
+	}
+	// TP must be above entry for a BUY.
+	if result.TP1.LessThanOrEqual(result.EntryPrice) {
+		t.Errorf("BUY TP1 must be above entry: tp1=%s entry=%s", result.TP1, result.EntryPrice)
+	}
+}
+
+func TestMarnieFib_GoldenZoneBearish_SELL(t *testing.T) {
+	s := NewMarnieFibStrategy()
+	state := makeMarnieFibBearishState()
+	result := s.Evaluate(state)
+	if result.Direction != types.DirectionSell {
+		t.Fatalf("Expected SELL in bearish golden zone, got %s (score=%s reasons=%v)",
+			result.Direction, result.RawScore, result.ReasonCodes)
+	}
+	if result.EntryPrice.IsZero() || result.StopLoss.IsZero() {
+		t.Errorf("Expected valid SL/entry geometry, got entry=%s sl=%s", result.EntryPrice, result.StopLoss)
+	}
+	if result.TP1.IsZero() || result.TP3.IsZero() {
+		t.Errorf("Expected valid TP geometry, got tp1=%s tp3=%s", result.TP1, result.TP3)
+	}
+	// SL must be above entry for a SELL.
+	if result.StopLoss.LessThanOrEqual(result.EntryPrice) {
+		t.Errorf("SELL SL must be above entry: sl=%s entry=%s", result.StopLoss, result.EntryPrice)
+	}
+	// TP must be below entry for a SELL.
+	if result.TP1.GreaterThanOrEqual(result.EntryPrice) {
+		t.Errorf("SELL TP1 must be below entry: tp1=%s entry=%s", result.TP1, result.EntryPrice)
+	}
+}

@@ -1047,12 +1047,55 @@ let ws = null, wsRetry = 0;
 function wsConnect() {
   if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  let wsUrl = proto + "//" + location.host + "/ws/v1";
-  if (authToken) wsUrl += "?token=" + encodeURIComponent(authToken);
+  // Use the resilient relay WebSocket — this endpoint NEVER breaks
+  // even when the realtime engine restarts. It serves cached data
+  // with status="DEGRADED" during engine downtime.
+  let wsUrl = proto + "//" + location.host + "/ws/v1/relay";
   ws = new WebSocket(wsUrl);
   ws.onopen = () => { S.wsOnline = true; wsRetry = 0; setMode(); renderSystemChecks(); };
   ws.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
+
+    // ── Resilient Relay Format ──
+    // The relay sends a combined JSON with: status, engine_online, market_snapshot,
+    // system_health, agents_status, signals. This endpoint NEVER breaks — when the
+    // realtime engine is down, it serves cached data with status="DEGRADED".
+    if (m.status === "LIVE" || m.status === "DEGRADED" || m.status === "STALE") {
+      S.relayStatus = m.status;
+      S.engineOnline = m.engine_online;
+      S.online = m.engine_online;
+
+      // Market snapshot
+      if (m.market_snapshot) {
+        S.snap = m.market_snapshot; S.online = true;
+        renderAccount(); renderIndicators(); renderTicker(); renderChartHeader();
+      }
+
+      // System health
+      if (m.system_health) {
+        S.health = m.system_health;
+        renderSystemChecks();
+      }
+
+      // Agents status
+      if (m.agents_status) {
+        S.agents = m.agents_status;
+      }
+
+      // Signals
+      if (m.signals) {
+        const sigs = m.signals.signals || m.signals;
+        if (Array.isArray(sigs)) {
+          S.signals = sigs.slice(0, 20);
+          renderSignals(); updatePipeline();
+        }
+      }
+
+      setMode();
+      return;
+    }
+
+    // ── Legacy format (backward compat) ──
     const t = (m.Type || m.type || "").toUpperCase();
     if (t === "TRIAL_EXPIRED") { lpShowWall("LIVE_PREVIEW_EXPIRED"); return; }
     if (t === "SIGNAL") {
@@ -1063,7 +1106,6 @@ function wsConnect() {
     } else if (t === "MARKET_SNAPSHOT") {
       const p = m.Payload || m.payload || {};
       if (p && (p.tick || p.Tick)) {
-        // WS snapshot uses the exact same JSON shape as /api/v1/market/snapshot
         S.snap = p; S.online = true;
         renderAccount(); renderIndicators(); renderTicker(); renderChartHeader();
       }

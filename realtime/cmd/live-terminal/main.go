@@ -17,6 +17,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
@@ -93,6 +94,7 @@ func main() {
 		cfg: cfg, svc: svc, db: db, upstream: up,
 		proxy: httputil.NewSingleHostReverseProxy(up),
 		ent:   map[string]entEntry{},
+		dataCache: newDataCache(),
 	}
 
 	mux := http.NewServeMux()
@@ -116,6 +118,17 @@ func main() {
 	mux.HandleFunc("/ws/v1/agent", lt.handleAgentWS)
 	mux.HandleFunc("/ws/agent", lt.handleAgentWS)
 	// Static terminal
+	// Resilient relay WebSocket — serves cached data to browser clients.
+	// This endpoint NEVER breaks even when the realtime engine restarts.
+	// Browser clients get LIVE data when engine is up, DEGRADED (cached) when down.
+	mux.HandleFunc("/ws/relay", lt.handleRelayWS)
+	mux.HandleFunc("/ws/v1/relay", lt.handleRelayWS)
+
+	// Start background data poller — fetches from realtime engine every 2s
+	pollerCtx, pollerCancel := context.WithCancel(context.Background())
+	_ = pollerCancel
+	go lt.startDataPoller(pollerCtx, lt.dataCache)
+
 	mux.Handle("/", lt.staticHandler())
 
 	// Mid-connection entitlement sweep (§13): authorization at second zero
@@ -148,10 +161,174 @@ type liveTerminal struct {
 	upstream *url.URL
 	proxy    *httputil.ReverseProxy
 
-	mu      sync.Mutex
-	ent     map[string]entEntry
-	wsConns map[string]map[*websocket.Conn]bool // trialTokenHash → conns
+	mu       sync.Mutex
+	ent      map[string]entEntry
+	wsConns  map[string]map[*websocket.Conn]bool // trialTokenHash → conns
+	dataCache *dataCache
 }
+
+// ─── Data Cache for Resilient Live Dashboard ───
+// The live-terminal caches the latest market data, health, and signals
+// from the realtime engine. When the engine restarts, the cache continues
+// serving data to browser clients with a "DEGRADED" status.
+
+type dataCache struct {
+	mu              sync.RWMutex
+	marketSnapshot  json.RawMessage
+	systemHealth    json.RawMessage
+	agentsStatus    json.RawMessage
+	signals         json.RawMessage
+	lastUpdate      time.Time
+	engineOnline    bool
+}
+
+func newDataCache() *dataCache {
+	return &dataCache{
+		engineOnline: false,
+	}
+}
+
+func (dc *dataCache) update(key string, data []byte) {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	switch key {
+	case "market_snapshot":
+		dc.marketSnapshot = data
+	case "system_health":
+		dc.systemHealth = data
+	case "agents_status":
+		dc.agentsStatus = data
+	case "signals":
+		dc.signals = data
+	}
+	dc.lastUpdate = time.Now()
+	dc.engineOnline = true
+}
+
+func (dc *dataCache) setEngineOffline() {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	dc.engineOnline = false
+}
+
+func (dc *dataCache) snapshot() map[string]interface{} {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+	result := map[string]interface{}{
+		"engine_online":  dc.engineOnline,
+		"last_update":     dc.lastUpdate.Format(time.RFC3339),
+		"cache_age_sec":   time.Since(dc.lastUpdate).Seconds(),
+	}
+	if len(dc.marketSnapshot) > 0 {
+		var ms interface{}
+		if json.Unmarshal(dc.marketSnapshot, &ms) == nil {
+			result["market_snapshot"] = ms
+		}
+	}
+	if len(dc.systemHealth) > 0 {
+		var sh interface{}
+		if json.Unmarshal(dc.systemHealth, &sh) == nil {
+			result["system_health"] = sh
+		}
+	}
+	if len(dc.agentsStatus) > 0 {
+		var as interface{}
+		if json.Unmarshal(dc.agentsStatus, &as) == nil {
+			result["agents_status"] = as
+		}
+	}
+	if len(dc.signals) > 0 {
+		var sg interface{}
+		if json.Unmarshal(dc.signals, &sg) == nil {
+			result["signals"] = sg
+		}
+	}
+	if !dc.engineOnline {
+		result["status"] = "DEGRADED"
+	} else if time.Since(dc.lastUpdate) > 10*time.Second {
+		result["status"] = "STALE"
+	} else {
+		result["status"] = "LIVE"
+	}
+	return result
+}
+
+// startDataPoller fetches data from the realtime engine every 2 seconds.
+// If the engine is down, it marks the cache as degraded but continues serving.
+func (lt *liveTerminal) startDataPoller(ctx context.Context, cache *dataCache) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	client := &http.Client{Timeout: 3 * time.Second}
+	baseURL := lt.cfg.upstream
+
+	endpoints := []struct {
+		key string
+		path string
+	}{
+		{"market_snapshot", "/api/v1/market/snapshot"},
+		{"system_health", "/api/v1/system-health"},
+		{"agents_status", "/api/v1/agents/status"},
+		{"signals", "/api/v1/signals"},
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			for _, ep := range endpoints {
+				resp, err := client.Get(baseURL + ep.path)
+				if err != nil {
+					cache.setEngineOffline()
+					continue
+				}
+				data, err := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				if err != nil || resp.StatusCode != 200 {
+					cache.setEngineOffline()
+					continue
+				}
+				cache.update(ep.key, data)
+			}
+		}
+	}
+}
+
+// handleRelayWS serves cached + live data to browser WebSocket clients.
+// Clients receive a JSON snapshot every 2 seconds. If the engine is down,
+// they get cached data with status="DEGRADED" — the connection never breaks.
+func (lt *liveTerminal) handleRelayWS(w http.ResponseWriter, r *http.Request) {
+	cache := lt.dataCache
+	if cache == nil {
+		http.Error(w, "cache not initialized", http.StatusServiceUnavailable)
+		return
+	}
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	// Send initial snapshot immediately
+	snap := cache.snapshot()
+	if data, err := json.Marshal(snap); err == nil {
+		conn.WriteMessage(websocket.TextMessage, data)
+	}
+
+	// Push updates every 2 seconds
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		snap := cache.snapshot()
+		if data, err := json.Marshal(snap); err == nil {
+			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+				return // client disconnected
+			}
+		}
+	}
+}
+
 
 // ── authentication (existing control-plane JWT — no new auth stack) ──
 

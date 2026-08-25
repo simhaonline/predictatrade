@@ -68,8 +68,17 @@ def compute_marnie_fib(
             label = f"{r:.3f} Extension"
         extension_levels.append(FibLevel(ratio=r, price=price, label=label, is_retracement=False))
 
-    golden_zone_low = swing_high - (range_val * 0.618)
-    golden_zone_high = swing_high - (range_val * 0.786)
+    # Golden zone is direction-aware (mirrors the Go MarnieFibEngine):
+    # bull retracements measure down from the swing high, bear retracements
+    # measure up from the swing low.
+    if direction == "bull":
+        golden_zone_low = swing_high - (range_val * 0.618)
+        golden_zone_high = swing_high - (range_val * 0.786)
+    else:
+        golden_zone_low = swing_low + (range_val * 0.786)
+        golden_zone_high = swing_low + (range_val * 0.618)
+    if golden_zone_low > golden_zone_high:
+        golden_zone_low, golden_zone_high = golden_zone_high, golden_zone_low
 
     # Confluence scoring: price near golden zone = high score
     if golden_zone_low <= current_price <= golden_zone_high:

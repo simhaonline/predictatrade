@@ -24,6 +24,7 @@ from ..data.alignment import TimeframeAlignment
 from ..data.session_calendar import SessionCalendar
 from ..engine.events import SignalEvent
 from ..engine.portfolio import Portfolio
+from ...indicators.marnie_fib import compute_marnie_fib
 from .base import BaseStrategy
 
 
@@ -57,6 +58,18 @@ STRATEGY_CONFIGS = {
         "min_adx": 15, "min_rr": 2.5,
         "accepted_regimes": ["TRENDING_BULLISH", "TRENDING_BEARISH", "BREAKOUT"],
         "accepted_sessions": ["LONDON", "NEW_YORK", "OVERLAP"],
+    },
+    "MARNIE_FIB": {
+        # Mirrors Go MarnieFibStrategyConfig. RR floor kept at 1.0 to avoid
+        # blanket NO-TRADE (SL=1.5*ATR, TP1=2.0*ATR → RR≈1.33). The Go engine
+        # applies the MinRR gate downstream; this adapter reproduces a
+        # permissive-but-safe floor so the strategy is backtestable.
+        "min_confluence": 45, "min_mtf_alignment": 20,
+        "atr_sl": 1.5, "atr_tp1": 2.0, "atr_tp2": 3.5, "atr_tp3": 5.5,
+        "min_adx": 15, "min_rr": 1.0,
+        "accepted_regimes": ["TRENDING_BULLISH", "TRENDING_BEARISH", "BREAKOUT",
+                              "MEAN_REVERSION", "RANGE", "HIGH_VOLATILITY"],
+        "accepted_sessions": ["LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"],
     },
 }
 
@@ -159,6 +172,12 @@ class PTBStrategyAdapter(BaseStrategy):
 
         ind = self._indicators[idx]
         session_info = self.session_cal.get_session(candle.timestamp)
+
+        # MARNIE_FIB uses a Fibonacci-retracement evaluation path rather than the
+        # generic evidence set, so dispatch before the generic regime/session gate.
+        if self._strategy_id == "MARNIE_FIB":
+            regime = self._classify_regime(ind, candle)
+            return self._evaluate_marnie_fib(alignment, ind, regime, session_info)
 
         # Regime check
         regime = self._classify_regime(ind, candle)
@@ -311,6 +330,99 @@ class PTBStrategyAdapter(BaseStrategy):
             evidence.append(Evidence("CANDLE", "BEARISH_DISPLACEMENT", "SELL", 15, 0.10))
 
         return evidence
+
+    def _evaluate_marnie_fib(self, alignment: TimeframeAlignment, ind: Dict,
+                             regime: str, session_info) -> SignalEvent:
+        """Fibonacci-retracement evaluation path for MARNIE_FIB.
+
+        Mirrors the Go MarnieFibStrategy: derive confirmed swing anchors from a
+        lookback window, compute Marnie Fib levels via compute_marnie_fib, and
+        emit evidence when price is in/near the 0.618-0.786 golden zone.
+        """
+        idx = alignment.primary_index
+        candle = alignment.primary_candle
+        current_price = candle.close
+
+        # Confirmed swing anchors from a recent lookback window.
+        lo = max(0, idx - 50)
+        window = self._candles[lo:idx + 1]
+        swing_high = max(c.high for c in window)
+        swing_low = min(c.low for c in window)
+        if swing_high <= swing_low:
+            return SignalEvent(
+                timestamp=candle.timestamp, direction="NO_TRADE",
+                strategy_id=self._strategy_id, regime=regime,
+                session=session_info.session, reason_codes=["FIB_NO_SWING_ANCHORS"],
+            )
+
+        # Direction from short-term trend. Use the same EMA hierarchy as the
+        # base evidence generator (_generate_evidence: EMA9>EMA21 ⇒ BUY) so the
+        # Fib direction agrees with the rest of the evidence.
+        direction = "bull" if ind["ema9"] > ind["ema21"] else "bear"
+        fib = compute_marnie_fib(swing_high, swing_low, current_price, direction)
+
+        evidence = self._generate_evidence(candle, ind, alignment)
+        q = "AUTHORITATIVE"
+
+        in_golden = fib.golden_zone_low <= current_price <= fib.golden_zone_high
+        if in_golden or fib.confluence_score >= 100:
+            d = "BUY" if direction == "bull" else "SELL"
+            evidence.append(Evidence("FIBONACCI", "GOLDEN_ZONE", d, 20, 0.15, q))
+            evidence.append(Evidence("FIBONACCI", "HIGH_CONFLUENCE", d, 15, 0.10, q))
+        elif fib.confluence_score > 50:
+            d = "BUY" if direction == "bull" else "SELL"
+            evidence.append(Evidence("FIBONACCI", "NEAR_GOLDEN_ZONE", d, 12, 0.08, q))
+
+        evidence = self._apply_family_caps(evidence)
+
+        long_score = sum(e.contribution for e in evidence if e.direction == "BUY") * 100
+        short_score = sum(e.contribution for e in evidence if e.direction == "SELL") * 100
+        if long_score > short_score:
+            direction_out = "BUY"
+            raw_score = long_score
+        else:
+            direction_out = "SELL"
+            raw_score = short_score
+
+        if raw_score < self.config["min_confluence"]:
+            return SignalEvent(
+                timestamp=candle.timestamp, direction="NO_TRADE",
+                strategy_id=self._strategy_id, raw_score=raw_score, regime=regime,
+                session=session_info.session, reason_codes=["INSUFFICIENT_SCORE"],
+            )
+
+        entry = candle.close
+        atr_val = ind["atr"]
+        sl_mult = self.config["atr_sl"]
+        if direction_out == "BUY":
+            stop_loss = entry - atr_val * sl_mult
+            tp1 = entry + atr_val * self.config["atr_tp1"]
+            tp2 = entry + atr_val * self.config["atr_tp2"]
+            tp3 = entry + atr_val * self.config["atr_tp3"]
+        else:
+            stop_loss = entry + atr_val * sl_mult
+            tp1 = entry - atr_val * self.config["atr_tp1"]
+            tp2 = entry - atr_val * self.config["atr_tp2"]
+            tp3 = entry - atr_val * self.config["atr_tp3"]
+
+        risk = abs(entry - stop_loss)
+        reward = abs(tp1 - entry)
+        if risk > 0 and reward / risk < self.config["min_rr"]:
+            return SignalEvent(
+                timestamp=candle.timestamp, direction="NO_TRADE",
+                strategy_id=self._strategy_id, reason_codes=["POOR_RR"],
+            )
+
+        return SignalEvent(
+            timestamp=candle.timestamp, direction=direction_out,
+            strategy_id=self._strategy_id,
+            raw_score=raw_score, confluence=raw_score,
+            confidence=min(100, raw_score),
+            setup_grade=self._grade_score(raw_score),
+            regime=regime, session=session_info.session,
+            entry_price=entry, stop_loss=stop_loss,
+            tp1=tp1, tp2=tp2, tp3=tp3,
+        )
 
     def _apply_family_caps(self, evidence: List[Evidence]) -> List[Evidence]:
         """Apply family caps to prevent double-counting (from Go)."""
