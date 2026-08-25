@@ -23,23 +23,20 @@ func (m *MemStore) GetByTokenHash(hash string) (*Trial, error) {
 	if !ok {
 		return nil, nil
 	}
-	cp := *t
-	return &cp, nil
+	return t, nil  // return pointer directly — avoids copying Mutex
 }
 
 func (m *MemStore) Insert(t *Trial) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cp := *t
-	m.trials[t.TokenHash] = &cp
+	m.trials[t.TokenHash] = t  // store pointer directly — avoids copying Mutex
 	return nil
 }
 
 func (m *MemStore) Save(t *Trial) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cp := *t
-	m.trials[t.TokenHash] = &cp
+	m.trials[t.TokenHash] = t  // store pointer directly — avoids copying Mutex
 	return nil
 }
 
