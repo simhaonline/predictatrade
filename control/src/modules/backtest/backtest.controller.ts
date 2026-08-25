@@ -1,5 +1,6 @@
 import { Controller, Post, Get, Body, Param, Query, Res, UseGuards, HttpStatus, UnauthorizedException } from '@nestjs/common';
 import { Response } from 'express';
+import { ConfigService } from '@nestjs/config';
 import { BacktestService } from './backtest.service';
 import { RunBacktestDto } from './backtest.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -9,7 +10,10 @@ import * as jwt from 'jsonwebtoken';
 
 @Controller('backtest')
 export class BacktestController {
-  constructor(private backtestService: BacktestService) {}
+  constructor(
+    private backtestService: BacktestService,
+    private config: ConfigService,
+  ) {}
 
   @UseGuards(JwtAuthGuard)
   @Get('data')
@@ -56,7 +60,7 @@ export class BacktestController {
     // here instead of relying on JwtAuthGuard (which only reads the header).
     try {
       if (!token) throw new Error('missing token');
-      jwt.verify(token, process.env.JWT_SECRET || '');
+      jwt.verify(token, this.config.get<string>('JWT_SECRET') || '');
     } catch {
       throw new UnauthorizedException('Invalid or missing token');
     }

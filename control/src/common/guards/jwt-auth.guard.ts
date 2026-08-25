@@ -1,11 +1,12 @@
 import { Injectable, CanActivate, ExecutionContext, UnauthorizedException, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as jwt from 'jsonwebtoken';
-
-// DEV_JWT_SECRET removed — production must set JWT_SECRET env var
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   private readonly logger = new Logger(JwtAuthGuard.name);
+
+  constructor(private readonly config: ConfigService) {}
 
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest();
@@ -15,14 +16,14 @@ export class JwtAuthGuard implements CanActivate {
     }
     const token = auth.substring(7);
     try {
-      const secret = process.env.JWT_SECRET;
-    if (!secret) {
-      throw new UnauthorizedException('JWT_SECRET not configured');
-    }
+      const secret = this.config.get<string>('JWT_SECRET');
+      if (!secret) {
+        throw new UnauthorizedException('JWT_SECRET not configured');
+      }
       const payload = jwt.verify(token, secret) as { sub: string; email?: string; purpose?: string };
 
-      // Reject tokens with a password_reset purpose — those are not access tokens
-      if (payload.purpose && payload.purpose !== undefined && payload.purpose !== 'access') {
+      // Reject tokens with a non-access purpose (e.g. password_reset)
+      if (payload.purpose && payload.purpose !== 'access') {
         throw new UnauthorizedException('Invalid token type');
       }
 

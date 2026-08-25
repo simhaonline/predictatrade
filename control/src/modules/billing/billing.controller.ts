@@ -85,7 +85,9 @@ export class BillingController {
   @Post('webhook/nowpayments')
   async nowpaymentsWebhook(@Req() req: RawBodyRequest<Request>, @Headers() headers: any) {
     // Public by design: the x-nowpayments-sig HMAC-SHA512 verification inside
-    // handleIPN is the only authentication for gateway callbacks.
-    return this.nowPaymentsService.handleIPN(req.body, headers?.['x-nowpayments-sig']);
+    // handleIPN is the only authentication for gateway callbacks. Pass the RAW
+    // body so the signature matches exactly what NOWPayments computed.
+    const raw = req.rawBody ? req.rawBody.toString('utf8') : '';
+    return this.nowPaymentsService.handleIPN(raw, headers?.['x-nowpayments-sig']);
   }
 }

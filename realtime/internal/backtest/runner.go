@@ -260,10 +260,11 @@ func buildAllCandlesMap(primary *types.Candle, primaryTF types.Timeframe, higher
 		mostRecent := (*types.Candle)(nil)
 		for lookup.idx < len(lookup.candles) {
 			c := lookup.candles[lookup.idx]
-			// The candle is closed if the next period has started
-			// Approximation: candle time < current time means it started before
-			// current bar, so it should be closed (for higher TF)
-			if c.Time.Before(currentTime) || c.Time.Equal(currentTime) {
+			// A higher-TF candle is only usable once it has FULLY closed:
+			// its close time (start + tf duration) must be <= currentTime.
+			// Using c.Time <= currentTime would leak in-progress bars (look-ahead bias).
+			closeTime := c.Time.Add(tf.Duration())
+			if closeTime.Before(currentTime) || closeTime.Equal(currentTime) {
 				mostRecent = c
 				lookup.idx++
 			} else {

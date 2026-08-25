@@ -73,8 +73,8 @@ func NewPipeManager(commonDirs []string, wsSender func([]byte) error, apiURL str
 		wsSender:   wsSender,
 		apiURL:     apiURL,
 		stopChan:   make(chan struct{}),
-		licStatus:  "ACTIVE",
-		licPlan:    "ELITE",
+		licStatus:  "PENDING",
+		licPlan:    "",
 		terminals:  make(map[string]*TerminalInfo),
 	}
 }

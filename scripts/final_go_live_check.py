@@ -60,10 +60,16 @@ def check_quant_evidence(path):
         return False, "MISSING: quant_evidence.json"
     with open(path) as f:
         data = json.load(f)
+    # Reject simulated/fabricated evidence (AGENTS.md: never fabricate metrics).
+    if data.get("mode") == "DRY_RUN":
+        return False, "REJECTED: quant_evidence.json is a DRY_RUN simulation (not valid evidence)"
     if "strategies" not in data:
         return False, "MISSING: strategies field"
     if "overall_pass" not in data:
         return False, "MISSING: overall_pass field"
+    # Evidence must prove it was computed from real data, not invented.
+    if "provenance" not in data and "data_hash" not in data and "source" not in data:
+        return False, "MISSING: provenance/data_hash/source (cannot verify real data was used)"
     return True, f"OK: {len(data['strategies'])} strategies validated"
 
 def main():

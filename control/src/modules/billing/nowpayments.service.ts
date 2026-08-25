@@ -155,31 +155,32 @@ export class NowPaymentsService {
 
   /**
    * NOWPayments IPN handler. Signature IS the auth — endpoint must stay public.
-   * Canonical signed string per NOWPayments docs: sort payload keys alphabetically,
-   * join as `key:value` pairs with `|`, HMAC-SHA512 hex vs x-nowpayments-sig.
+   * NOWPayments signs the RAW request body with HMAC-SHA512 using the IPN
+   * secret; the hex digest is sent in the `x-nowpayments-sig` header. We verify
+   * over the raw body bytes (NOT a re-serialized/canonicalized object) so the
+   * signature matches exactly what the gateway computed.
    */
-  async handleIPN(body: unknown, signatureHeader?: string | string[]) {
+  async handleIPN(rawBody: string, signatureHeader?: string | string[]) {
     const secret = (process.env.NOWPAYMENTS_IPN_SECRET || '').trim();
     if (!secret) {
       this.logger.error('IPN rejected: NOWPAYMENTS_IPN_SECRET not configured');
       throw new UnauthorizedException('ipn_not_configured');
     }
     const provided = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
-    if (!provided || !body || typeof body !== 'object') {
+    if (!provided || typeof rawBody !== 'string' || rawBody.length === 0) {
       this.logger.warn('IPN rejected: missing signature or payload');
       throw new UnauthorizedException('invalid_ipn_signature');
     }
 
-    const record = body as Record<string, unknown>;
-    const sortedKeys = Object.keys(record).sort();
-    const sigString = sortedKeys.map((k) => `${k}:${record[k]}`).join('|');
-    const expected = crypto.createHmac('sha512', secret).update(sigString).digest('hex');
+    const expected = crypto.createHmac('sha512', secret).update(rawBody, 'utf8').digest('hex');
     const a = Buffer.from(String(provided), 'utf8');
     const b = Buffer.from(expected, 'utf8');
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
       this.logger.warn('IPN rejected: HMAC-SHA512 signature mismatch');
       throw new UnauthorizedException('invalid_ipn_signature');
     }
+
+    const record = JSON.parse(rawBody) as Record<string, unknown>;
 
     const status = String(record.payment_status ?? '');
     const gatewayPaymentRef = String(record.payment_id ?? record.invoice_id ?? '');

@@ -28,7 +28,14 @@ type AgentConnection struct {
 	ID   string
 	conn *websocket.Conn
 	send chan []byte
-	done chan struct{} // signals both read and write goroutines to stop
+	done     chan struct{} // signals both read and write goroutines to stop
+	doneOnce sync.Once     // guards close of done against double-close panics
+}
+
+// closeDone safely closes the done channel exactly once, even if both the
+// Run() defer and the read goroutine defer (or DisconnectAgent) attempt it.
+func (ac *AgentConnection) closeDone() {
+	ac.doneOnce.Do(func() { close(ac.done) })
 }
 
 type AgentHub struct {
@@ -116,13 +123,13 @@ func (h *AgentHub) Run() {
 			// Close any existing connection with the same agent ID
 			// to prevent duplicate connections and goroutine leaks
 			if existing, ok := h.agents[agent.ID]; ok {
-				close(existing.done)
+				existing.closeDone()
 				existing.conn.Close()
 			}
 			// Enforce max connection limit
 			if len(h.agents) >= maxAgentConnections {
 				h.mu.Unlock()
-				close(agent.done)
+				agent.closeDone()
 				agent.conn.Close()
 				continue
 			}
@@ -156,7 +163,7 @@ func (h *AgentHub) DisconnectAgent(agentID, reason string) {
 	h.mu.Lock()
 	agent, ok := h.agents[agentID]
 	if ok {
-		close(agent.done)
+		agent.closeDone()
 		agent.conn.Close()
 		delete(h.agents, agent.ID)
 	}
@@ -320,13 +327,9 @@ func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) 
 	// Read goroutine — reads agent messages; exits on done, read error, or deadline
 	go func() {
 		defer func() {
-			// Signal done to stop the write goroutine
-			select {
-			case <-agent.done:
-				// already closed
-			default:
-				close(agent.done)
-			}
+			// Signal done to stop the write goroutine (guarded against
+			// double-close by closeDone's sync.Once)
+			agent.closeDone()
 			h.unregister <- agent
 			conn.Close()
 		}()

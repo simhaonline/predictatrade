@@ -67,7 +67,7 @@ func PersistResult(ctx context.Context, conn *pgx.Conn, result *BacktestResult) 
 		config,
 		execJSON,
 		riskJSON,
-		"market.candles (KAGGLE)",
+		"market.candles",
 		"go-production-v1.0",
 		nil, // completed_at — use default
 		result.Duration.Seconds(),

@@ -100,7 +100,7 @@ class BacktestEngine:
 
     def __init__(self, config: BacktestConfig):
         self.config = config
-        self.run_id = str(uuid.uuid4())[:8]
+        self.run_id = str(uuid.uuid4())
         self.portfolio = Portfolio(
             initial_balance=config.initial_balance,
             trailing_stop_enabled=config.trailing_stop_enabled,
