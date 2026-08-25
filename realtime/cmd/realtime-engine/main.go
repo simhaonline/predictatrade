@@ -165,7 +165,7 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHu
 	// SERVER-SIDE STRATEGY FILTERING: Only send signals for strategies that
 	// the agent's license allows. A FREE subscriber should NOT receive
 	// ULTRA_SCALPING signals even if their EA has all checkboxes enabled.
-	// The server is the authority for entitlements, not the EA.
+	// The server is the authority for entitlements — it filters BEFORE sending.
 	dir := string(signal.Direction)
 	if dir == "BUY" || dir == "SELL" || dir == "BUY_CANDIDATE" || dir == "SELL_CANDIDATE" {
 		payload, _ := json.Marshal(signal)
@@ -176,18 +176,11 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHu
 		eventID := uuid.New().String()
 		streamID := fmt.Sprintf("signals:%s", signal.StrategyID)
 
-		// Log strategy entitlement check
-		strategyAllowed := true
-		// Note: BroadcastSignalToAgents sends to ALL connected agents.
-		// Per-agent filtering would require iterating agents individually.
-		// For now, we log the strategy and let the EA filter based on
-		// server-provided allowed_strategies from the license response.
-		// The REAL enforcement is: the server sends the signal, but the EA
-		// only executes if the strategy is in its allowed_strategies list
-		// (which comes from the license validation, NOT from local checkboxes).
-
-		_ = strategyAllowed
-		agentHub.BroadcastSignalToAgents(eventID, streamID, "SIGNAL", priority, "1.0.0", payload)
+		// SERVER-SIDE PER-AGENT FILTERING: Check each agent's allowed_strategies
+		// from their license. If the agent's plan doesn't include this strategy,
+		// the signal is NOT sent to that agent at all.
+		// This is the REAL enforcement — the signal never reaches the EA.
+		agentHub.SendFilteredSignalToAgents(eventID, streamID, "SIGNAL", priority, "1.0.0", payload, string(signal.StrategyID))
 		observability.Log.Info().
 			Str("signal_id", signal.ID).
 			Str("direction", dir).
@@ -920,6 +913,18 @@ func main() {
 	if isAgentProvider {
 		agentHub = gateway.NewAgentHub(agentProvider)
 	globalAgentHub = agentHub
+	// Wire up server-side strategy entitlement filter
+	// This ensures signals are only sent to agents whose license allows the strategy
+	agentHub.SetStrategyFilter(func(agentID, strategyID string) bool {
+		allowed := isStrategyAllowedForAgent(agentID, strategyID)
+		if !allowed {
+			observability.Log.Debug().
+				Str("agent_id", agentID).
+				Str("strategy_id", strategyID).
+				Msg("Signal filtered — agent plan does not include this strategy")
+		}
+		return allowed
+	})
 		go agentHub.Run()
 	} else {
 		agentHub = gateway.NewAgentHub(nil) // nil provider — agent WS still accepts connections

@@ -42,6 +42,10 @@ type AgentHub struct {
 	// status endpoint can report live MT4/MT5 connection liveness.
 	mt4States map[string]bool
 	mt5States map[string]bool
+	// Strategy entitlement filter — set by main.go to enable per-agent
+	// strategy filtering based on license allowed_strategies.
+	// Returns true if the agent is allowed to receive signals for the given strategy.
+	strategyFilter func(agentID, strategyID string) bool
 }
 
 func NewAgentHub(provider AgentDataProvider) *AgentHub {
@@ -95,6 +99,13 @@ func (h *AgentHub) MT5ConnectedCount() int {
 		}
 	}
 	return n
+}
+
+// SetStrategyFilter sets the per-agent strategy entitlement filter.
+// When set, SendFilteredSignalToAgents will only send signals to agents
+// whose license allows the given strategy.
+func (h *AgentHub) SetStrategyFilter(filter func(agentID, strategyID string) bool) {
+	h.strategyFilter = filter
 }
 
 func (h *AgentHub) Run() {
@@ -191,6 +202,56 @@ func (h *AgentHub) BroadcastSignalToAgents(eventID, streamID, eventType, priorit
 		}
 	}
 	h.mu.RUnlock()
+}
+
+// SendFilteredSignalToAgents sends a signal only to agents whose license
+// allows the given strategy. This is server-side entitlement enforcement —
+// unauthorized agents never receive signals for strategies they haven't paid for.
+func (h *AgentHub) SendFilteredSignalToAgents(eventID, streamID, eventType, priority, schemaVersion string, payload []byte, strategyID string) {
+	if len(payload) == 0 {
+		return
+	}
+
+	envelope := map[string]interface{}{
+		"event_id":       eventID,
+		"stream_id":      streamID,
+		"schema_version": schemaVersion,
+		"timestamp":      time.Now().UTC(),
+		"type":           eventType,
+		"priority":       priority,
+		"payload":        json.RawMessage(payload),
+	}
+
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return
+	}
+
+	h.mu.RLock()
+	sent := 0
+	skipped := 0
+	for agentID, agent := range h.agents {
+		// Check if this agent's license allows this strategy
+		allowed := true
+		if h.strategyFilter != nil {
+			allowed = h.strategyFilter(agentID, strategyID)
+		}
+		if !allowed {
+			skipped++
+			continue
+		}
+		select {
+		case agent.send <- data:
+			sent++
+		default:
+			// Agent buffer full — drop
+		}
+	}
+	h.mu.RUnlock()
+
+	if skipped > 0 {
+		log.Printf("[SIGNAL-FILTER] strategy=%s sent=%d skipped=%d (plan not entitled)", strategyID, sent, skipped)
+	}
 }
 
 func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
