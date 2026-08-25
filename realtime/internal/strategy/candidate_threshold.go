@@ -35,13 +35,13 @@ func DefaultCandidateThresholds() map[types.StrategyID]CandidateThresholdConfig 
 		types.StrategyStandardScalping: {
 			StrategyID:        types.StrategyStandardScalping,
 			CandidateThreshold: 35,  // raised from 30
-			TradeThreshold:    60,   // raised from 50 — only high-confidence signals execute
+			TradeThreshold:    55,   // raised from 50 — balanced quality vs frequency
 			Version:           "1.2.0",
 		},
 		types.StrategyUltraScalping: {
 			StrategyID:        types.StrategyUltraScalping,
 			CandidateThreshold: 35,  // raised from 30
-			TradeThreshold:    60,   // raised from 50 — only high-confidence signals execute
+			TradeThreshold:    55,   // raised from 50 — balanced quality vs frequency
 			Version:           "1.2.0",
 		},
 		types.StrategyStandardSwing: {

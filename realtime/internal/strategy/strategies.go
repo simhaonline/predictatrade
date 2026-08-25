@@ -661,8 +661,9 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 		return result
 	}
 
-	// HARD FILTER: Block when ADX < 20 (ranging = no directional edge)
-	if !adxTrendFilter(state, 20.0) {
+	// ADX filter: Block only in dead-flat ranging (ADX < 15)
+	// Scalping can work in mild trends (ADX 15-25)
+	if !adxTrendFilter(state, 15.0) {
 		result.ReasonCodes = append(result.ReasonCodes, types.NoTradeReason("LOW_ADX_NO_TREND"))
 		return result
 	}
