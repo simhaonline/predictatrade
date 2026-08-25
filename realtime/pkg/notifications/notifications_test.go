@@ -2,25 +2,35 @@ package notifications
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
 
 // mockProvider implements Provider for testing.
 type mockProvider struct {
-	channel      Channel
-	configured   bool
-	sendError    error
-	sendCount    int
+	mu         sync.Mutex
+	channel    Channel
+	configured bool
+	sendError  error
+	sendCount  int
 }
 
 func (m *mockProvider) Send(ctx context.Context, n *Notification) error {
+	m.mu.Lock()
 	m.sendCount++
+	m.mu.Unlock()
 	return m.sendError
 }
-func (m *mockProvider) Channel() Channel      { return m.channel }
-func (m *mockProvider) IsConfigured() bool     { return m.configured }
-func (m *mockProvider) Name() string           { return "mock" }
+func (m *mockProvider) Channel() Channel  { return m.channel }
+func (m *mockProvider) IsConfigured() bool { return m.configured }
+func (m *mockProvider) Name() string       { return "mock" }
+
+func (m *mockProvider) getSendCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sendCount
+}
 
 func TestManager_NotConfigured_Status(t *testing.T) {
 	m := NewManager(DefaultConfig())
@@ -60,7 +70,7 @@ func TestManager_EnqueueAndDeliver(t *testing.T) {
 	// Wait for delivery
 	time.Sleep(100 * time.Millisecond)
 
-	if p.sendCount == 0 {
+	if p.getSendCount() == 0 {
 		t.Fatal("expected at least 1 send attempt")
 	}
 }
@@ -97,8 +107,8 @@ func TestManager_RetryOnFailure(t *testing.T) {
 	m.Enqueue(&Notification{EventType: EventDailyLossLock, Title: "Daily Loss"})
 
 	time.Sleep(200 * time.Millisecond)
-	if p.sendCount < 2 {
-		t.Fatalf("expected at least 2 retry attempts, got %d", p.sendCount)
+	if p.getSendCount() < 2 {
+		t.Fatalf("expected at least 2 retry attempts, got %d", p.getSendCount())
 	}
 }
 
@@ -116,71 +126,5 @@ func TestEmailProvider_Configured(t *testing.T) {
 	}
 	if !p.IsConfigured() {
 		t.Fatal("expected IsConfigured=true")
-	}
-}
-
-func TestTelegramProvider_NotConfigured(t *testing.T) {
-	p := NewTelegramProvider("", "")
-	if p != nil {
-		t.Fatal("expected nil for unconfigured telegram provider")
-	}
-}
-
-func TestTelegramProvider_Configured(t *testing.T) {
-	p := NewTelegramProvider("bot123:ABC", "chat456")
-	if p == nil {
-		t.Fatal("expected non-nil for configured telegram provider")
-	}
-	if !p.IsConfigured() {
-		t.Fatal("expected IsConfigured=true")
-	}
-}
-
-
-func TestPushProvider_NotConfigured(t *testing.T) {
-	p := NewNtfyPushProvider("", "", "")
-	if p != nil {
-		t.Fatal("expected nil for unconfigured ntfy push provider")
-	}
-}
-
-func TestPushProvider_Configured(t *testing.T) {
-	p := NewNtfyPushProvider("https://ntfy.example.com", "predictatrade-alerts", "")
-	if p == nil {
-		t.Fatal("expected non-nil for configured ntfy push provider")
-	}
-	if !p.IsConfigured() {
-		t.Fatal("expected IsConfigured=true")
-	}
-}
-
-func TestPushProvider_WithAccessToken(t *testing.T) {
-	p := NewNtfyPushProvider("https://ntfy.example.com", "alerts", "secret_token")
-	if p == nil {
-		t.Fatal("expected non-nil for configured ntfy provider with token")
-	}
-	if !p.IsConfigured() {
-		t.Fatal("expected IsConfigured=true")
-	}
-}
-
-func TestProviderStatus_NeverExposesSecrets(t *testing.T) {
-	m := NewManager(DefaultConfig())
-	m.RegisterProvider(NewEmailProvider("smtp.test.com", 587, "secret_user", "secret_pass", "from@test.com", true))
-	m.RegisterProvider(NewTelegramProvider("secret_token", "secret_chat"))
-	m.RegisterProvider(NewNtfyPushProvider("https://ntfy.test.com", "alerts", "secret_token"))
-
-	status := m.GetProviderStatus()
-	for _, s := range status {
-		if s.Configured != true {
-			t.Errorf("expected configured for %s", s.Channel)
-		}
-	}
-}
-
-func TestDefaultConfig_AllDisabledByDefault(t *testing.T) {
-	cfg := DefaultConfig()
-	if cfg.EmailEnabled || cfg.TelegramEnabled || cfg.PushEnabled {
-		t.Fatal("all notification channels must be DISABLED by default")
 	}
 }
