@@ -578,10 +578,11 @@ export class LicensingService {
   }
 
   /** Public license validation by license key (no JWT — used by Windows Agent) */
-  async validateLicenseKey(licenseKey: string) {
+  async validateLicenseKey(licenseKey: string, mtAccount?: string, brokerName?: string, terminalBuild?: string, eaVersion?: string) {
+    // 1. Look up the license
     const r = await this.pool.query(
-      `SELECT l.status, l.license_key, l.max_devices, l.max_mt_accounts,
-              l.allowed_strategies, l.allowed_execution_modes,
+      `SELECT l.id, l.status, l.license_key, l.max_devices, l.max_mt_accounts,
+              l.allowed_strategies, l.allowed_execution_modes, l.user_id,
               p.code as plan_code, p.name as plan_name
        FROM licensing.licenses l
        LEFT JOIN control.plans p ON l.plan_id = p.id
@@ -593,8 +594,90 @@ export class LicensingService {
       return { valid: false, status: 'NOT_FOUND', error: 'License key not found' };
     }
     const row = r.rows[0];
+
+    if (row.status !== 'ACTIVE') {
+      return { valid: false, status: row.status, error: 'License is ' + row.status };
+    }
+
+    // 2. Enforce max_mt_accounts — count existing activations for this license
+    if (mtAccount) {
+      // Check if this MT account is already activated on THIS license
+      const existingAct = await this.pool.query(
+        `SELECT id FROM licensing.device_activations
+         WHERE license_id = $1 AND mt_account_login = $2
+         ORDER BY activated_at DESC LIMIT 1`,
+        [row.id, mtAccount],
+      );
+
+      if (existingAct.rows.length === 0) {
+        // New MT account — check if we have room
+        const countResult = await this.pool.query(
+          `SELECT COUNT(DISTINCT mt_account_login) as count
+           FROM licensing.device_activations
+           WHERE license_id = $1`,
+          [row.id],
+        );
+        const currentCount = parseInt(countResult.rows[0]?.count || '0');
+        if (currentCount >= row.max_mt_accounts) {
+          return {
+            valid: false,
+            status: 'MAX_MT_ACCOUNTS_EXCEEDED',
+            error: `License allows ${row.max_mt_accounts} MT account(s), ${currentCount} already activated`,
+            max_mt_accounts: row.max_mt_accounts,
+            current_count: currentCount,
+          };
+        }
+
+        // Check if this MT account is already bound to a DIFFERENT license
+        const otherLicense = await this.pool.query(
+          `SELECT l.license_key FROM licensing.device_activations da
+           JOIN licensing.licenses l ON da.license_id = l.id
+           WHERE da.mt_account_login = $1 AND da.license_id != $2 AND l.revoked_at IS NULL
+           LIMIT 1`,
+          [mtAccount, row.id],
+        );
+        if (otherLicense.rows.length > 0) {
+          return {
+            valid: false,
+            status: 'ACCOUNT_BOUND_TO_OTHER_LICENSE',
+            error: `MT account ${mtAccount} is already activated on a different license`,
+          };
+        }
+      }
+
+      // 3. Record the device activation (upsert — update if exists, insert if new)
+      await this.pool.query(
+        `INSERT INTO licensing.device_activations
+         (license_id, device_id, client_type, mt_account_login, broker_name,
+          terminal_build, ea_version, activation_ip, activated_at,
+          account_balance, account_equity, account_profit, open_positions)
+         VALUES ($1, NULL, 'MT5', $2, $3, $4, $5, NULL, now(), 0, 0, 0, 0)
+         ON CONFLICT ON CONSTRAINT device_activations_pkey DO NOTHING
+         ON CONFLICT DO NOTHING`,
+        [row.id, mtAccount, brokerName || '', terminalBuild || '', eaVersion || ''],
+      ).catch(() => {
+        // Upsert may fail if no unique constraint — try simple insert
+        return this.pool.query(
+          `INSERT INTO licensing.device_activations
+           (license_id, client_type, mt_account_login, broker_name,
+            terminal_build, ea_version, activated_at)
+           VALUES ($1, 'MT5', $2, $3, $4, $5, now())
+           ON CONFLICT DO NOTHING`,
+          [row.id, mtAccount, brokerName || '', terminalBuild || '', eaVersion || ''],
+        );
+      });
+
+      // 4. Update device last_seen_at
+      await this.pool.query(
+        `UPDATE licensing.devices
+         SET last_seen_at = now(), connection_status = 'ONLINE'
+         WHERE license_id = $1`,
+        [row.id],
+      ).catch(() => {});
+    }
+
     return {
-      valid: row.status === 'ACTIVE',
+      valid: true,
       status: row.status,
       plan: row.plan_code,
       plan_name: row.plan_name,

@@ -728,8 +728,16 @@ func (a *Agent) onLicenseCheck(msg LicenseCheckMsg) {
 		validateURL = a.config.APIURL + "/licensing/validate"
 	}
 
-	// POST license_key to the control plane for validation
-	reqBody, _ := json.Marshal(map[string]string{"license_key": msg.LicenseKey})
+	// POST license_key + MT account info to the control plane for validation
+	// The server uses mt_account to enforce max_mt_accounts and prevent
+	// the same license key from being used on unlimited terminals.
+	reqBody, _ := json.Marshal(map[string]string{
+		"license_key":    msg.LicenseKey,
+		"mt_account":     msg.Account,
+		"broker_name":    msg.Broker,
+		"terminal_build": "",
+		"ea_version":     "",
+	})
 	req, err := http.NewRequest("POST", validateURL, bytes.NewReader(reqBody))
 	if err != nil {
 		log.Printf("License validation request error: %v", err)
