@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"crypto/tls"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -595,7 +597,19 @@ func (a *Agent) connect() error {
 	url := a.config.LiveWSURL + "?agentId=" + a.deviceID + "&agentVersion=" + AgentVersion
 	log.Printf("Connecting to %s", url)
 
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	// CRITICAL: Use a custom dialer that forces HTTP/1.1 via TLS ALPN.
+	// The default dialer allows HTTP/2 negotiation, but HTTP/2 does NOT
+	// support WebSocket upgrades (HTTP 101 Switching Protocols). When nginx
+	// negotiates HTTP/2 via ALPN, the WebSocket connection fails silently —
+	// nginx returns HTTP 200 with the default page instead of HTTP 101.
+	// Forcing NextProtos=["http/1.1"] makes the TLS handshake negotiate
+	// HTTP/1.1 only, which properly supports WebSocket upgrades.
+	dialer := &websocket.Dialer{
+		TLSClientConfig: &tls.Config{
+			NextProtos: []string{"http/1.1"},
+		},
+	}
+	conn, _, err := dialer.Dial(url, nil)
 	if err != nil {
 		return err
 	}
