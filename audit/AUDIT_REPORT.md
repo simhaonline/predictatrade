@@ -97,4 +97,44 @@ JSON report at: `audit/report_20260821.json`
 
 **STATUS: PASS**  
 **Date:** 2026-08-21T12:16:51+03:00  
-**Auditor:** Automated Full Audit Script  
+**Auditor:** Automated Full Audit Script
+
+## Audit Update — 25 August 2026 (v1.15.0)
+
+### Server-Side SL Enforcement — 8 Gaps Closed
+
+| Gap | Severity | Status | Fix |
+|-----|----------|--------|-----|
+| EXECUTION_ACK not handled by server | CRITICAL | ✅ FIXED | Handler added with SL verification |
+| No position-level SL in broker snapshot | HIGH | ✅ FIXED | PositionDetail struct + checkPositionSLs() |
+| No CLOSE_POSITION command | CRITICAL | ✅ FIXED | Server→Agent→EA command chain |
+| No EMERGENCY_STOP command | CRITICAL | ✅ FIXED | Server→Agent→EA command chain |
+| No KILL_SWITCH command | HIGH | ✅ FIXED | Server→Agent→EA command chain |
+| No agent suspension for violations | HIGH | ✅ FIXED | 3-strike disconnect + audit log |
+| MQL EA can't receive server commands | CRITICAL | ✅ FIXED | CLOSE_POSITION/EMERGENCY_STOP/KILL_SWITCH handlers in MT4+MT5 |
+| No position SL in MARKET_SNAPSHOT | HIGH | ✅ FIXED | PAT_BuildPositionDetails() in MT4+MT5 |
+
+### Other Findings — All Clear
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Signal TTL/expiry | ✅ OK | EA checks server ExpiresAt + fallback 300s |
+| License enforcement | ✅ OK | EA checks g_licenseStatus, server validates via DB |
+| Signal idempotency | ✅ OK | EA dedup by signal ID, server dedup by strategy+bar |
+| Equity floor halt | ✅ OK | EA watchdog closes all + halts |
+| Daily loss cap | ✅ OK | EA sends CAPITAL_PROTECTION, server has loss caps |
+| Martingale ban | ✅ OK | MaxLotRatioVsBase=1.0 in EA + server |
+| Margin gate | ✅ OK | OrderCalcMargin before every order |
+| Spread gate | ✅ OK | Per-strategy max spread in EA + server |
+| Slippage gate | ✅ OK | CheckSlippage after fill + SLIPPAGE_EVENT to server |
+| ML/Sentiment | ✅ FIXED | DXY→macroHealth wiring fixed, both re-enabled |
+| Calibration | ✅ READY | DB tables created (migration 072), PROVISIONAL models active |
+| CI/CD | ✅ ALL PASS | 6/6 GitHub Actions jobs green |
+
+### Signal Delivery Verification
+
+Signal delivery is NOT blocked by SL enforcement:
+- `broadcastSignalToAll()` has no suspension check (removed to prevent global block)
+- `BroadcastSignalToAgents()` iterates only connected agents in `h.agents`
+- Suspended agents are removed from `h.agents` by `DisconnectAgent()`
+- Other agents continue receiving signals normally

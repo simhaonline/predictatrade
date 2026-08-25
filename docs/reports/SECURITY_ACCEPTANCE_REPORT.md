@@ -28,3 +28,25 @@
 - Payment webhook signature verification: requires payment provider credentials
 - JWT signature verification on WebSocket: currently parses without signature check (trusts NestJS-issued token)
 - Production secret rotation: requires provider console access
+
+
+## Security Update — 25 August 2026 (v1.15.0)
+
+### Server-Side SL Enforcement (Capital Protection)
+- Backend verifies every EXECUTION_ACK: SL must be > 0 and match server-sent value
+- Backend monitors all PAT positions via broker snapshot for missing SLs
+- CLOSE_POSITION command can close any position remotely
+- EMERGENCY_STOP command can halt all trading remotely
+- KILL_SWITCH command can completely stop an agent and remove EA
+- 3 SL violations → agent permanently disconnected
+
+### Consent & Legal Compliance
+- 3 required consent checkboxes (Terms, Privacy Policy, DPA) — enforced backend-side
+- 3 optional marketing opt-ins (email, SMS, phone) — stored with audit trail
+- Consent version + timestamp persisted per user
+- All consents logged to audit.client_events with IP and user-agent
+
+### CI/CD Security
+- Secret scan: precise patterns (ghp_ tokens, sk- API keys, AWS AKIA, private keys, .env passwords)
+- No false positives on legitimate code
+- All 6 CI jobs pass on every push to main

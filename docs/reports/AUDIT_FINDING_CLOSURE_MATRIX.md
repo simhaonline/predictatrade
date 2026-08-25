@@ -20,3 +20,26 @@
 | PERSIST-1 | HIGH | GrossRR and Executable not persisted | INSERT/SELECT missing fields | realtime/internal/marketdata/persistence.go | API check | FIXED + VERIFIED |
 | THEME-1 | MEDIUM | Default dark mode | defaultTheme="dark" in layout.tsx | frontend/src/app/layout.tsx | Visual check | FIXED + VERIFIED |
 | CONFLICT-1 | HIGH | 277 merge conflicts across 67 files | Bad merge from previous session | Multiple files | Go build pass | FIXED + VERIFIED |
+
+
+## Batch 3 — 25 August 2026 (v1.15.0) — SL Enforcement + Legal + CI/CD
+
+| # | Finding | Severity | Status | Evidence |
+|---|---------|----------|--------|----------|
+| B3-01 | EXECUTION_ACK not handled by server | CRITICAL | ✅ CLOSED | agent_provider.go: EXECUTION_ACK case + SL verification |
+| B3-02 | No position SL monitoring | HIGH | ✅ CLOSED | checkPositionSLs() + PositionDetail in SnapshotPositions |
+| B3-03 | No CLOSE_POSITION command | CRITICAL | ✅ CLOSED | AgentHub.SendToAgent → Windows Agent → EA HandleClosePosition |
+| B3-04 | No EMERGENCY_STOP command | CRITICAL | ✅ CLOSED | AgentHub.SendToAgent → Windows Agent → EA HandleEmergencyStop |
+| B3-05 | No KILL_SWITCH command | HIGH | ✅ CLOSED | AgentHub.SendToAgent → Windows Agent → EA HandleKillSwitch |
+| B3-06 | No agent suspension for violations | HIGH | ✅ CLOSED | recordSLViolation() → 3 strikes → DisconnectAgent() |
+| B3-07 | MQL EA can't receive server commands | CRITICAL | ✅ CLOSED | MT4+MT5: CLOSE_POSITION/EMERGENCY_STOP/KILL_SWITCH handlers |
+| B3-08 | No position SL in snapshot | HIGH | ✅ CLOSED | PAT_BuildPositionDetails() in MT4+MT5 MARKET_SNAPSHOT |
+| B3-09 | DXY→macroHealth not wired | CRITICAL | ✅ CLOSED | OnDXYFetchSuccess() call added to DXY refresh callback |
+| B3-10 | No calibration DB tables | MEDIUM | ✅ CLOSED | Migration 072: calibration.model_versions/predictions/outcomes |
+| B3-11 | CI/CD: Go test race condition | HIGH | ✅ CLOSED | sync.Mutex in mockProvider, Go version match, DBURL test fix |
+| B3-12 | CI/CD: Frontend npm ci peer-dep | HIGH | ✅ CLOSED | @testing-library/react v15→v16 (React 19 compat) |
+| B3-13 | CI/CD: Frontend lint errors | MEDIUM | ✅ CLOSED | useEffect→useState/useMemo, apostrophe escaping |
+| B3-14 | CI/CD: Security scan false positives | MEDIUM | ✅ CLOSED | Precise grep patterns for actual secrets only |
+| B3-15 | No legal documents | HIGH | ✅ CLOSED | Terms of Service (18 sections), Privacy Policy (16 sections), DPA (14 sections) |
+| B3-16 | No consent tracking | HIGH | ✅ CLOSED | RegisterDto 6 consent fields + audit.client_events logging |
+| B3-17 | Signal delivery blocked by suspension check | CRITICAL | ✅ CLOSED | Removed isAgentSuspended from broadcastSignalToAll |

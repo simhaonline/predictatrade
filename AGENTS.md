@@ -126,7 +126,19 @@ Preserve provenance and capability semantics. Never equate broker tick volume wi
 
 ## Risk and Execution
 
-Hard gates are deterministic, freshness/version stamped and fail closed. Mandatory per-candidate gates must not perform synchronous external I/O. Validate aggregate XAUUSD exposure, net R:R, total cost-to-target, exit geometry, margin/headroom, broker stop-out, news/session/rollover restrictions, TTL/replay/idempotency and emergency stops.
+Hard gates are deterministic, freshness/version stamped and fail closed.
+
+### Server-Side SL Enforcement (v1.15.0)
+
+The backend is the ENFORCEMENT authority for S/L and TP, not just the calculation authority:
+
+- **EXECUTION_ACK verification**: Server verifies SL > 0 and SL matches server-sent value (±0.5 points).
+- **Position SL monitoring**: Server scans broker snapshot for PAT positions with missing SL → sends CLOSE_POSITION.
+- **CLOSE_POSITION command**: Server → Windows Agent → EA — closes individual position by ticket/magic.
+- **EMERGENCY_STOP command**: Server → Windows Agent → EA — closes ALL PAT positions + halts trading.
+- **KILL_SWITCH command**: Server → Windows Agent → EA — closes all + ExpertRemove() + agent disconnect.
+- **Agent suspension**: 3 SL violations → agent disconnected, no future signals. Other agents unaffected.
+- **Signal delivery NOT blocked**: Suspension works through disconnection, not broadcast filtering. Mandatory per-candidate gates must not perform synchronous external I/O. Validate aggregate XAUUSD exposure, net R:R, total cost-to-target, exit geometry, margin/headroom, broker stop-out, news/session/rollover restrictions, TTL/replay/idempotency and emergency stops.
 
 Execution math uses validated broker profile data: symbol mapping, digits, tick size/value, contract economics, volume min/max/step, stop/freeze levels, fill/order modes, margin/stop-out, sessions/rollover and swaps/carry. Model missed/partial fills, rejects, latency, jitter, spread and slippage. Do not assume a universal XAUUSD pip definition or 100-ounce contract.
 

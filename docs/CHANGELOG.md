@@ -1,6 +1,127 @@
 # Changelog
 
-## Current Version: v1.10.1 (21 August 2026) — Cross-Check Remediation + News Risk Wiring
+## Current Version: v1.15.0 (25 August 2026) — Server-Side SL Enforcement + Legal Compliance + CI/CD
+
+### Version Summary (Recent)
+
+| Version | Date | Key Changes |
+|---------|------|-------------|
+| v1.11.0 | 2026-08-24 | Live dashboard neural shell indicator flow, Bloomberg-style terminal polish, SW cache bumps |
+| v1.12.0 | 2026-08-25 | Market-standard login/signup forms with consent checkboxes, 3 legal documents (Terms, Privacy, DPA), backend consent tracking, migration 071 |
+| v1.13.0 | 2026-08-25 | CI/CD all 6 jobs passing: Go test race fix, React 19 peer-dep fix, security scan precision, Go version match, config test DBURL fix |
+| v1.14.0 | 2026-08-25 | DXY→macroHealth wiring fix (ML/Sentiment re-enabled), calibration DB tables (migration 072), signal engine audit (5 engines verified) |
+| v1.15.0 | 2026-08-25 | Server-side SL enforcement — 8 safety gaps closed, MQL EA v1.09, Windows Agent v1.2.18 |
+
+### v1.15.0 Changes (25 August 2026) — Server-Side SL Enforcement
+
+#### Critical Safety: Backend is now the ENFORCEMENT authority for S/L and TP
+
+The backend was previously the CALCULATION authority (it computes SL/TP and sends them to the EA), but had no way to verify or enforce that the EA actually used them. Now the server can detect and respond to SL violations even if the MQL EA code is modified.
+
+**8 gaps closed:**
+
+1. **EXECUTION_ACK handler** (Go backend): Server receives and parses EXECUTION_ACK from EA, verifies SL > 0, verifies SL matches server-sent value (within 0.5 point tolerance), logs violations to audit.client_events, sends CLOSE_POSITION if SL is missing.
+
+2. **Position SL monitoring** (Go backend): SnapshotPositions now includes per-position Details (ticket, magic, SL, TP, volume, open_price, profit). checkPositionSLs() scans all PAT positions on every broker snapshot. If any PAT position has SL=0 → sends CLOSE_POSITION immediately.
+
+3. **CLOSE_POSITION command** (Go → Windows Agent → MQL EA): Server can close any individual position by ticket or magic number. EA executes close and sends CLOSE_ACK back. Used for SL violations and emergency position closure.
+
+4. **EMERGENCY_STOP command** (Go → Windows Agent → MQL EA): Server can trigger emergency stop on any agent. EA closes ALL PAT-managed positions immediately and sets halt flag. Used for capital protection and system-wide emergencies.
+
+5. **KILL_SWITCH command** (Go → Windows Agent → MQL EA): Server can completely stop an agent. EA closes all positions and calls ExpertRemove(). Windows Agent disconnects from server. Used for permanent agent ban and security incidents.
+
+6. **Agent suspension for SL violations** (Go backend): Per-agent violation counter tracks SL violations. After 3 violations: agent is disconnected via DisconnectAgent() and blocked from receiving future signals. Suspension logged to audit.client_events. Signal delivery to other agents is NOT blocked.
+
+7. **MQL EA v1.09** (MT4 + MT5): HandleClosePosition() — closes by ticket or magic. HandleEmergencyStop() — closes all PAT positions + sets halt. HandleKillSwitch() — closes all + ExpertRemove(). PAT_BuildPositionDetails() — reports SL/TP per position in MARKET_SNAPSHOT.
+
+8. **Windows Agent v1.2.18**: Handles CLOSE_POSITION, EMERGENCY_STOP, KILL_SWITCH from server. Forwards to EA via IPC pipe. KILL_SWITCH also disconnects from server.
+
+**Signal delivery verification:** Signal delivery is NOT blocked by SL enforcement. The isAgentSuspended check was removed from broadcastSignalToAll() — suspension works through agent disconnection only. BroadcastSignalToAgents() iterates only over connected agents in h.agents, so disconnected/suspended agents are automatically excluded.
+
+### v1.14.0 Changes (25 August 2026) — DXY Macro Health Fix + Calibration DB + Signal Engine Audit
+
+#### Critical Bug Fix: DXY→macroHealth wiring
+- **Problem:** DXY provider was successfully fetching data every 5 minutes but never called `macroHealth.OnDXYFetchSuccess()`. This caused permanent `MACRO_DATA_UNAVAILABLE` degradation, disabling ML inference and Ollama sentiment analysis on every candle evaluation.
+- **Impact:** ML contribution (weight=0.15) and sentiment contribution (weight=0.05) were zeroed on every signal — reducing score accuracy by ~20%.
+- **Fix:** Added `macroHealth.OnDXYFetchSuccess(value)` to the DXY refresh callback and `OnDXYFetchFailure()` to the error callback.
+- **Result:** ML and Sentiment are now staying enabled. Ollama sentiment analysis is active.
+
+#### Calibration DB tables (migration 072)
+- Created `calibration` schema with `model_versions`, `predictions`, and `outcomes` tables
+- Allows calibration models to be trained, validated, and promoted from historical data
+- Currently using PROVISIONAL default sigmoid models — will be replaced by statistically validated models when enough OOS data is collected
+
+#### Signal Engine Audit Results
+- 5 strategy engines verified: STANDARD_SCALPING (LIVE), ULTRA_SCALPING (LIVE), STANDARD_SWING (LIVE after M15 close), TREND_SWING (LIVE after H1 close), MARNIE_FIB (LIVE after M15 close)
+- 13 evidence pillars working: EMA, ADX, VWAP, MACD, OsMA, RSI, Stoch, CCI, MTF alignment, SMC/FVG, cross-market confluence
+- Risk gates: 14 gates registered, broker account hydrated, exposure/margin/execution gates PASS
+- All Go tests pass (30/30 packages, 0 failures)
+
+### v1.13.0 Changes (25 August 2026) — CI/CD All Jobs Passing
+
+#### 6 CI/CD jobs now all pass:
+1. **Go Real-Time Engine**: Fixed config_capital_test.go (DATABASE_URL required on CI), fixed notifications_test.go race condition (sync.Mutex), Go version matched to go.mod (1.25), test timeout increased to 300s
+2. **NestJS Control Plane**: Already passing ✅
+3. **Next.js Frontend**: Upgraded @testing-library/react v15→v16 (React 19 peer-dep), fixed 3 lint errors (useEffect→useState/useMemo, apostrophe escaping)
+4. **Python Research Plane**: Already passing ✅
+5. **Windows Agent (cross-compile)**: Already passing ✅
+6. **Security Scan**: Rewrote grep patterns to match actual secrets (ghp_ tokens, sk- API keys, AWS AKIA keys, private key blocks) instead of legitimate code
+
+### v1.12.0 Changes (25 August 2026) — Legal Compliance + Auth Forms
+
+#### Market-standard login/signup forms
+- **Login page**: email/password icons, remember me checkbox, registration success banner, password show/hide toggle, security note
+- **Signup page**: full name field, password strength meter (5-level), confirm password match indicator, 6 consent checkboxes
+
+#### Required consent checkboxes (signup):
+1. ✅ "I agree to the Terms of Use and Privacy Policy" → links to /terms + /privacy
+2. ✅ "I confirm that I have read and acknowledge the Simha FinTech Terms of Service" → links to /terms
+3. ✅ "I confirm that I have read and acknowledge the Privacy Policy and Data Processing and Security Agreement" → links to /data-processing-agreement
+
+#### Optional marketing preferences (signup):
+4. ☐ "I want to receive news and promotional offers by email"
+5. ☐ "I want to receive news and promotional offers by SMS"
+6. ☐ "I want to receive news and promotional offers by phone call"
+
+#### Legal documents (market-standard):
+- **Terms of Service** (`/terms`) — 18 sections: eligibility, trading risk disclaimer, billing, referrals, prohibited conduct, IP, MT integration, liability, indemnification, governing law
+- **Privacy Policy** (`/privacy`) — 16 sections: PDPL/GDPR compliant, data categories, legal basis, sharing, retention, rights, cookies, marketing consent, security, breach notification
+- **Data Processing and Security Agreement** (`/data-processing-agreement`) — 14 sections: technical+organizational measures, encryption, access control, network security, app security, sub-processors, breach notification, data subject rights, audit
+
+#### Backend consent tracking:
+- RegisterDto: 6 new consent fields (3 required Boolean, 3 optional Boolean)
+- AuthService.register(): validates required consents (BadRequestException if false), logs all 6 consents to audit.client_events, stores marketing prefs + consent_version + consent_timestamp
+- Migration 071: marketing_email_optin, marketing_sms_optin, marketing_phone_optin, consent_version, consent_timestamp columns
+
+### v1.11.0 Changes (24 August 2026) — Live Dashboard Polish
+
+- Neural shell indicator flow: sparkline grid with 14 indicators (RSI, ATR, EMA9/21/50, SMA200, ADX, BB, MACD, Stoch, CCI, Mom, OsMA, VWAP)
+- Each indicator: visible panel background, 24px spark chart, live flowing data every 2s
+- Rolling 20-point history per indicator for smooth animated sparklines
+- Light mode: spark-flow gets #f0f2f6 bg, spark-items get white bg + border
+- Service worker cache bumped through v17→v28
+
+---
+
+### Previous Versions
+
+| Version | Date | Key Changes | Tests |
+|---------|------|-------------|-------|
+| v1.0.0 | 2026-08-18 | Stage 4 PTB: 20+ intelligence modules, 4 strategies, 12 gates, golden tests | 252 |
+| v1.1.0 | 2026-08-18 | Advanced Risk: loss recovery, adaptation, hedging, ML/RL, sentiment, maintenance | 376 |
+| v1.2.0 | 2026-08-18 | Backtesting Framework: event-driven engine, execution sim, walk-forward, Monte Carlo | 448 |
+| v1.3.0 | 2026-08-18 | Production Remediation: gate fixes, COT/DXY adapters, SMTP, JWT/DB secrets, agent wiring | 490 |
+| v1.3.1 | 2026-08-19 | Signal display fix: BUY_CANDIDATE/SELL_CANDIDATE filters, PROB "Pending" label, candidate CalibratedProbability | 490 |
+| v1.4.0 | 2026-08-19 | Color palette replacement, signal delivery to MT4/MT5 agents, TP/SL geometry fix, MQL v1.05 strategy selection | 490 |
+| v1.5.0 | 2026-08-20 | Vectorized QuantitativeStrategyEngine (pandas/numpy), 25 obsolete/duplicate docs removed, 12 canonical docs updated | 519 |
+| v1.6.0 | 2026-08-20 | Microprofit candidate geometry, indicator bootstrap from DB, Valkey candle cache, Indicator Monitor page, HIGH_VOLATILITY regime fix, DB save fix | 519 |
+| v1.7.0 | 2026-08-20 | DXY live via Twelve Data, projected performance metrics, dashboard auto-refresh, COT configured, lightweight-charts for real-time charting | 519 |
+| v1.8.0 | 2026-08-20 | Trade management forensic audit, broker stop/freeze level validation, cost-aware break-even, SL modification history, management state machine, 27 invariant tests | 546 |
+| v1.9.0 | 2026-08-21 | pprof diagnostics endpoints, audit warning remediation (6/6 cleared), project root cleanup, .gitleaks.toml, documentation refresh | 546+ |
+| v1.10.0 | 2026-08-21 | Economic calendar provider, news breakout engine, OCO implementation, notification adapters, migration 022, 46 new tests | 592+ |
+| v1.10.1 | 2026-08-21 | Cross-check remediation: NewsGate EXTREME/DATA_UNAVAILABLE fix, RiskEngine wired into session engine, NestJS admin.service brace bug fix, migration 022 applied to DB, migration history tracking | 593+ |
+
+## v1.10.1 Details (21 August 2026)
 
 ### Version Summary
 

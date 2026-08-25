@@ -29,3 +29,25 @@ All repository-controlled P0 issues are fixed. Remaining blockers are genuinely 
 2. Live MT4/MT5 broker qualification — required for execution certification
 3. Historical OOS data for statistical calibration validation
 4. Off-host backup storage (S3) — required for DR certification
+
+
+## Release Gate Update — 25 August 2026 (v1.15.0)
+
+### New Pass Items
+- ✅ Server-side SL enforcement: EXECUTION_ACK verification, position monitoring, CLOSE_POSITION/EMERGENCY_STOP/KILL_SWITCH
+- ✅ Agent suspension for SL violations (3-strike disconnect)
+- ✅ MQL EA v1.09: CLOSE_POSITION/EMERGENCY_STOP/KILL_SWITCH handlers + position SL in snapshot
+- ✅ Windows Agent v1.2.18: command forwarding for all 3 server commands
+- ✅ DXY→macroHealth wiring fix (ML/Sentiment re-enabled)
+- ✅ Calibration DB tables (migration 072)
+- ✅ Legal compliance: Terms of Service, Privacy Policy, DPA + consent tracking
+- ✅ CI/CD: All 6 GitHub Actions jobs passing
+
+### Updated Status
+- Go tests: 30/30 packages pass (race + non-race)
+- Frontend: 0 lint errors, TypeScript passes, build passes
+- NestJS: lint passes, tests pass, build passes
+- Python: tests pass
+- Windows Agent: cross-compile passes
+- Security scan: passes (no false positives)
+- Docker: all services healthy

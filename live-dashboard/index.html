@@ -19,8 +19,6 @@
 <meta name="application-name" content="PredictATrade">
 <meta name="msapplication-TileColor" content="#0a0e17">
 <meta name="format-detection" content="telephone=no">
-<link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#0a0e17">
 <script src="/echarts.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap');
@@ -285,21 +283,79 @@ function updatePipeline() {
 .foot-links a:hover{color:var(--text-bright);text-decoration:underline}
 .foot-links span{color:var(--border2)}
 
-/* Responsive */
-@media(max-width:1100px){
-  html,body{overflow:auto}
-  #app{height:auto}
-  #main{grid-template-columns:1fr 1fr;grid-template-rows:auto}
-  .p-account{grid-column:1;grid-row:1}.p-price{grid-column:2;grid-row:1/span 2;min-height:420px}
-  .p-lifecycle{grid-column:1;grid-row:2}.p-neural{grid-column:1;grid-row:3}.p-resolution{grid-column:2;grid-row:3}
-  .p-indicators{grid-column:1;grid-row:4}.p-engines{grid-column:span 2;grid-row:5}.p-agents{grid-column:span 2;grid-row:6}
-  .eng-cards-row{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+/* Responsive — mobile / tablet / desktop / installed-app */
+/* Safe-area insets for notched devices (iOS standalone) */
+#app{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+
+/* Tablet ≤ 1280px: 2-column */
+@media(max-width:1280px){
+  #main{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:auto}
+  .p-account{grid-column:1;grid-row:1}
+  .p-price{grid-column:2;grid-row:1/span 2;min-height:460px}
+  .p-lifecycle{grid-column:1;grid-row:2;min-height:220px}
+  .p-neural{grid-column:1;grid-row:3}
+  .p-resolution{grid-column:2;grid-row:3}
+  .p-indicators{grid-column:1;grid-row:4}
+  .p-engines{grid-column:1/span 2;grid-row:5}
+  .p-agents{grid-column:1/span 2;grid-row:6}
+  .eng-cards-row{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
 }
-@media(max-width:640px){
-  #main{grid-template-columns:1fr}
+/* Large-phone / small-tablet ≤ 820px: single column, chart first after status */
+@media(max-width:820px){
+  html,body{overflow:auto;-webkit-overflow-scrolling:touch}
+  #app{height:auto;min-height:100vh}
+  .overlay-note{display:none}
+  #main{grid-template-columns:minmax(0,1fr);grid-template-rows:none}
   .p-account,.p-price,.p-lifecycle,.p-neural,.p-resolution,.p-indicators,.p-engines,.p-agents{grid-column:1;grid-row:auto}
-  .p-price{min-height:360px}
+  .p-account{grid-row:1}
+  .p-price{grid-row:2;min-height:380px;grid-column:1}
+  .p-lifecycle{grid-row:3;min-height:240px}
+  .p-engines{grid-row:4}
+  .p-resolution{grid-row:5}
+  .p-neural{grid-row:6}
+  .p-indicators{grid-row:7}
+  .p-agents{grid-row:8}
+  .big-price{font-size:26px}
+  .panel-head{font-size:8px}
+  .eng-score{font-size:14px}
+}
+/* Phone ≤ 560px: compact header, touch targets */
+@media(max-width:560px){
   .header-ticker{display:none}
+  #header{grid-template-columns:1fr auto auto auto;gap:6px;padding:0 8px}
+  .logo img{height:18px}
+  .logo-sub{display:none}
+  .clock{font-size:9px}
+  .live-pill{font-size:8px;padding:2px 8px}
+  .mode-banner{font-size:8px}
+  .news-label{flex-shrink:0}
+  .tf-tab{padding:3px 9px;font-size:10px}
+  .expand-btn{padding:4px 8px;font-size:11px}
+  .theme-toggle{padding:4px 8px;font-size:13px}
+  .kpi .v{font-size:12px}
+  .acc-row{font-size:11px;padding:3px 0}
+  .foot-row{flex-direction:column;gap:3px;text-align:center}
+  .pipeline-flow{flex-wrap:wrap;row-gap:3px}
+  .eng-cards-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .mtf-timeframe-grid{grid-template-columns:repeat(4,1fr)}
+}
+/* Landscape phones */
+@media(max-height:480px) and (orientation:landscape){
+  #app{height:auto}
+  #newsStrip{display:none}
+  .p-price{min-height:300px}
+}
+/* Installed PWA (standalone): extra top padding under status bar */
+@media all and (display-mode:standalone),all and (display-mode:minimal-ui){
+  #header{padding-top:2px}
+  body{user-select:none;-webkit-user-select:none}
+  .panel-body,.foot-links a{user-select:text;-webkit-user-select:text}
+}
+/* Touch devices: larger hit areas */
+@media(hover:none) and (pointer:coarse){
+  .tf-tab,.expand-btn,.theme-toggle{min-height:32px}
+  .sig-details-row{font-size:10px}
+  .acc-row{padding:4px 0}
 }
 @media(prefers-reduced-motion:reduce){.ticker-track,#newsTickerTrack{animation:none}}
 </style>
@@ -1108,6 +1164,13 @@ setInterval(pollNews, 60000);
 setInterval(pollSignals, 10000);
 wsConnect();
 new ResizeObserver(() => chart.resize()).observe($("priceChart"));
+
+/* ── PWA service worker registration ── */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+  });
+}
 </script>
 </body>
 </html>

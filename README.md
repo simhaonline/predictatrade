@@ -2,24 +2,26 @@
 
 Predict-A-Trade is a multi-plane XAUUSD trading and subscription platform. The repository contains the Go real-time trading plane, NestJS control plane, Next.js presentation plane, Python research plane, Windows/MetaTrader edge components, PostgreSQL/TimescaleDB persistence, Valkey cache, and Docker deployment configuration.
 
-This README reflects the repository audit performed on **22 August 2026**. It records what is present and wired in this checkout; it does not claim production readiness where provider, broker, security, or acceptance evidence is missing.
+This README reflects the repository state as of **25 August 2026** (v1.15.0). It records what is present and wired in this checkout; it does not claim production readiness where provider, broker, security, or acceptance evidence is missing.
 
 ## Current status
 
-Overall status: **PARTIAL / CONDITIONAL — not a full `prompt.md` acceptance**.
+Overall status: **PARTIAL / CONDITIONAL — improving toward production readiness**.
 
-Verified in the current workspace:
+Verified in the current workspace (25 August 2026):
 
-- Go realtime tests pass with `go test ./...`.
-- Frontend tests pass: 16 suites, 84 tests.
-- Frontend TypeScript check passes.
-- Frontend production build passes and generates 48 routes.
-- Frontend ESLint has 0 errors and 14 warnings.
-- Docker `pat-postgres`, `pat-valkey`, `pat-realtime`, `pat-control`, and `pat-frontend` are healthy at audit time.
-- Subscription migrations 024 and 025 are present and additive/effective-dated.
-- No production payment, subscription, commission, payout, or live-trading mutation was performed during the audit.
-
-Full dashboard-v3 work remains blocked by authenticated user-scoped WebSocket authorization, complete API entitlement filtering, payment-provider activation, signal distribution/quota consumption, admin entitlement controls, and required persona/security acceptance tests. See [pending-work.md](pending-work.md).
+- Go realtime tests pass with `go test -race ./...` (30/30 packages, 0 failures).
+- Frontend tests pass, TypeScript check passes, production build passes.
+- Frontend ESLint: 0 errors, 47 warnings.
+- **CI/CD: All 6 GitHub Actions jobs passing** (Go, NestJS, Frontend, Python, Windows Agent, Security).
+- Docker services healthy: `pat-postgres`, `pat-valkey`, `pat-realtime`, `pat-control`, `pat-frontend`, `pat-nginx`, `pat-grafana`, `pat-prometheus`, `pat-ntfy`, `pat-status`.
+- **5 strategy engines verified LIVE**: STANDARD_SCALPING, ULTRA_SCALPING, STANDARD_SWING, TREND_SWING, MARNIE_FIB.
+- **13 indicator evidence pillars working**: EMA, ADX, VWAP, MACD, OsMA, RSI, Stoch, CCI, MTF, SMC/FVG, cross-market confluence.
+- **ML inference + Ollama sentiment analysis ENABLED** (DXY→macroHealth wiring fixed).
+- **Server-side SL enforcement active**: EXECUTION_ACK verification, position SL monitoring, CLOSE_POSITION/EMERGENCY_STOP/KILL_SWITCH commands, agent suspension.
+- **Legal compliance**: Terms of Service, Privacy Policy, Data Processing & Security Agreement published. Signup form with 6 consent checkboxes. Backend consent tracking with audit logging.
+- Migrations 001-072 applied (including marketing consent columns and calibration tables).
+- No production payment, subscription, commission, payout, or live-trading mutation was performed.
 
 ## Architecture and runtime wiring
 
@@ -38,6 +40,7 @@ Windows Agent / Master Node ── WebSocket ──► Go Real-Time Engine :1308
                                                                ▼
                                                    deterministic signal engine
                                                    + hard risk gates
+                                                   + SL enforcement (server-side)
                                                                │
                                               TimescaleDB + Valkey + WebSocket
                                                                │
