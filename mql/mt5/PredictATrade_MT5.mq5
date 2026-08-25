@@ -1,20 +1,20 @@
 //+------------------------------------------------------------------+
 //|                                          PredictATrade_MT5.mq5   |
-//|                              Predict-A-Trade v1.00              |
+//|                              Predict-A-Trade v1.00               |
 //+------------------------------------------------------------------+
 //| ARCHITECTURE: THIN EXECUTOR (FINAL - NO RECOMPILE NEEDED)        |
 //|                                                                  |
-//| The Go backend engine is the SOLE authority for:                |
+//| The Go backend engine is the SOLE authority for:                 |
 //|   - Risk calculation (lot size, risk%, position limits)          |
 //|   - SL/TP calculation (ATR multipliers, percentage geometry)     |
 //|   - Spread checks (SpreadGate)                                   |
 //|   - Signal TTL / expiry / entry drift                            |
-//|   - Margin / exposure / broker profile constraints              |
+//|   - Margin / exposure / broker profile constraints               |
 //|   - Subscription plan -> strategy allocation                     |
-//|   - Trade management commands (CLOSE_POSITION, EMERGENCY_STOP)  |
+//|   - Trade management commands (CLOSE_POSITION, EMERGENCY_STOP)   |
 //|                                                                  |
 //| The EA ONLY does:                                                |
-//|   1. Receives signal from server (via Windows Agent)            |
+//|   1. Receives signal from server (via Windows Agent)             |
 //|   2. Checks: LicenseKey is ACTIVE                                |
 //|   3. Executes trade with server-provided SL/TP/lot               |
 //|   4. Watchdog: verifies SL present every 15s (fail-closed)       |
@@ -22,12 +22,12 @@
 //|                                                                  |
 //| USER INPUTS (only 3 - shown in EA Properties dialog):            |
 //|   - LicenseKey: Your Predict-A-Trade license key                 |
-//|   - AutoExecute: true = auto-trade, false = display only        |
-//|   - ExecuteCandidates: true = execute candidate signals too     |
+//|   - AutoExecute: true = auto-trade, false = display only         |
+//|   - ExecuteCandidates: true = execute candidate signals too      |
 //|                                                                  |
 //| ALL other parameters are hardcoded with safe defaults.           |
 //| Changes to risk/strategy/trade management are made on the        |
-//| SERVER - no EA recompile required.                              |
+//| SERVER - no EA recompile required.                               |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
 #property version   "1.00"
