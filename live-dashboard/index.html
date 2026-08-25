@@ -1497,7 +1497,7 @@ async function pollMarketState() {
     const d1 = candles.D1 || [];
     if (d1.length) dayOpen = num(d1[d1.length - 1].open);
     renderMtf(); renderAccount();
-  } catch (e) { /* keep last */ }
+  } catch (e) { console.warn("[PAT] pollMarketState error:", e.message); }
 }
 
 async function pollCandles() {
@@ -1512,7 +1512,7 @@ async function pollCandles() {
     updateVolLiqChart(S.candles);
     updateRsiChart(S.candles);
     updateMacdChart(S.candles);
-  } catch (e) { /* keep last */ }
+  } catch (e) { console.warn("[PAT] pollSnapshot error:", e.message); }
 }
 
 async function pollEngines() {
@@ -1520,7 +1520,7 @@ async function pollEngines() {
     const d = await jget("/api/v1/engines/status");
     S.engines = d.engines || [];
     renderEngines();
-  } catch (e) { /* keep last */ }
+  } catch (e) { console.warn("[PAT] pollEngines error:", e.message); }
 }
 
 async function pollInfra() {
@@ -1908,19 +1908,106 @@ async function lpInit() {
   };
 })();
 
-// Trial bootstrap FIRST — data polls start only once access is resolved so
-// parallel cookie-less fetches never race the trial creation.
+// ═══════════════ OPTIMIZED LIVE DATA POLLING (Page Visibility API) ═══════════════
+// Background data refresh that pauses when the tab is hidden to save
+// server bandwidth and client battery life. Automatically resumes
+// when the user switches back to the tab.
+
 window.__pat_intervals = [];
+window.__pat_polling_active = false;
+
+// Polling configuration — intervals in ms
+const POLL_CONFIG = {
+  pollSnapshot: 2000,    // market snapshot (price/indicators)
+  pollMarketState: 5000, // MTF state
+  pollEngines: 5000,     // strategy engine status
+  pollInfra: 10000,      // system health
+  pollCandles: 15000,    // candlestick data
+  pollNews: 60000,       // news calendar
+  pollSignals: 10000,    // signal feed
+};
+
+// Start all polling intervals
+function startPolling() {
+  if (window.__pat_polling_active) return;
+  window.__pat_polling_active = true;
+  
+  for (const [fn, interval] of Object.entries(POLL_CONFIG)) {
+    if (typeof window[fn] === "function") {
+      window.__pat_intervals.push(setInterval(window[fn], interval));
+    }
+  }
+  
+  // Immediate first fetch on start (no flicker — data updates in place)
+  try {
+    pollSnapshot(); pollMarketState(); pollCandles(); 
+    pollEngines(); pollInfra(); pollNews(); pollSignals();
+  } catch (e) { console.warn("[PAT] Initial poll error:", e); }
+  
+  // Restart LP timers if trial is active
+  if (typeof LP !== "undefined" && (LP.state === "ANONYMOUS_ACTIVE" || LP.state === "ANONYMOUS_EXPIRING")) {
+    if (!LP.tickTimer) LP.tickTimer = setInterval(lpRenderCountdown, 1000);
+    if (!LP.pollTimer) {
+      LP.pollTimer = setInterval(async () => {
+        if (LP.state !== "ANONYMOUS_ACTIVE" && LP.state !== "ANONYMOUS_EXPIRING") return;
+        try {
+          const r = await fetch("/api/v1/live-preview/status", { cache: "no-store" });
+          const p = await r.json();
+          if (r.status === 403 || p.registration_required) lpShowWall(p.code);
+          else if (p.trial_expires_at) LP.expiresAt = new Date(p.trial_expires_at).getTime();
+        } catch (e) { console.warn("[PAT] LP poll error:", e.message); }
+      }, 30000);
+    }
+  }
+  
+  // Reconnect WebSocket
+  if (typeof wsConnect === "function") {
+    try { wsConnect(); } catch (e) { console.warn("[PAT] WS reconnect error:", e.message); }
+  }
+  
+  console.log("[PAT] Background polling started");
+}
+
+// Stop all polling intervals (when tab is hidden)
+function stopPolling() {
+  (window.__pat_intervals || []).forEach(id => clearInterval(id));
+  window.__pat_intervals = [];
+  // Also pause the live-preview countdown and trial sync timers
+  if (typeof LP !== "undefined") {
+    if (LP.tickTimer) { clearInterval(LP.tickTimer); LP.tickTimer = null; }
+    if (LP.pollTimer) { clearInterval(LP.pollTimer); LP.pollTimer = null; }
+  }
+  // Close WebSocket to save resources (will reconnect on resume)
+  if (typeof ws !== "undefined" && ws) {
+    try { ws.close(4001, "tab_hidden"); } catch (e) {}
+  }
+  window.__pat_polling_active = false;
+  console.log("[PAT] Background polling paused (tab hidden)");
+}
+
+// Page Visibility API — pause polling when tab is hidden, resume when visible
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    // Tab is hidden — stop all polling to save battery + bandwidth
+    stopPolling();
+  } else {
+    // Tab is visible again — immediately refresh data, then resume polling
+    if (window.__pat_lp_allowed) {
+      startPolling();
+      // Force immediate refresh so user sees fresh data instantly
+      try {
+        pollSnapshot(); pollMarketState(); pollSignals();
+      } catch (e) { console.warn("[PAT] Resume poll error:", e); }
+    }
+  }
+});
+
+// Trial bootstrap FIRST — data polls start only once access is resolved
+window.__pat_lp_allowed = false;
 lpInit().then((allowed) => {
   if (!allowed) return;
-  window.__pat_intervals.push(setInterval(pollSnapshot, 2000));
-  window.__pat_intervals.push(setInterval(pollMarketState, 5000));
-  window.__pat_intervals.push(setInterval(pollEngines, 5000));
-  window.__pat_intervals.push(setInterval(() => { pollInfra(); }, 10000));
-  window.__pat_intervals.push(setInterval(pollCandles, 15000));
-  window.__pat_intervals.push(setInterval(pollNews, 60000));
-  window.__pat_intervals.push(setInterval(pollSignals, 10000));
-  pollSnapshot(); pollMarketState(); pollCandles(); pollEngines(); pollInfra(); pollNews(); pollSignals();
+  window.__pat_lp_allowed = true;
+  startPolling();
 });
 
 // Initialize all sub-charts — ALWAYS, regardless of auth/trial status
