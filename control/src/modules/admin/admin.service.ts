@@ -343,7 +343,7 @@ export class AdminService {
     const r = await this.pool.query(
       `INSERT INTO licensing.licenses (id, user_id, plan_id, status, license_key, issued_at, valid_from, max_devices, max_mt_accounts, allowed_strategies, created_by, created_at, updated_at)
        VALUES ($1, $2, $3, 'ACTIVE', $4, now(), now(), 2, 2, $5, $6, now(), now()) RETURNING *`,
-      [id, userId, planId, key, actorId, allowedStrategies],
+      [id, userId, planId, key, allowedStrategies, actorId],
     );
 
     // Audit the license assignment
