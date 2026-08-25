@@ -32,12 +32,10 @@
 #property copyright "Predict-A-Trade"
 #property version   "1.00"
 #property strict
+#include "PAT_Config.mqh"
 
 // ─── Signal/Execution inputs ───
 input bool    AutoExecute    = true;
-bool SendTickData = true;
-int TickIntervalMs = 0;
-string BrokerSymbol = "";
 input string  LicenseKey     = "";
 
 // ─── Strategy/Direction filters ───
@@ -45,59 +43,13 @@ input string  LicenseKey     = "";
 // Just enter your License Key — the server handles strategy filtering.
 
 
-bool ReceiveBuy = true;
-bool ReceiveSell = true;
-bool ReceiveBuyCandidate = true;
-bool ReceiveSellCandidate = true;
 input bool    ExecuteCandidates  = false;  // Execute BUY_CANDIDATE/SELL_CANDIDATE as real trades
 
-// ─── Position Management ───
-bool UseTrailingStop = true;     // Trail SL behind price after TP2 (stage 2)
-double TrailingATRMult = 2.0;      // Trailing distance = ATR * this multiplier
-bool UseBreakEven = true;     // Move SL to breakeven (entry +/- spread) after TP1
-int MaxHoldHours = 4;        // Max holding time in hours (0 = unlimited)
-bool UsePartialClose = true;     // Enable partial close at TP1/TP2
-double TP1ClosePct = 33.33;    // Close ~1/3 of lot at TP1
-double TP2ClosePct = 33.33;    // Close ~1/3 of lot at TP2
-double TP3TrailATRMult = 1.5;      // ATR multiplier for stage-2 trailing
-
-// ─── Swap Avoidance ───
-bool AvoidSwapCharges = true;     // Close positions before swap/rollover
-int SwapCutoffHour = 22;       // Server hour to close before (default 22:00)
-int SwapCutoffBuffer = 15;        // Close N minutes before cutoff
-bool AvoidTripleSwapDay = true;     // Don't open new positions on triple swap day
-string TripleSwapDay = "Wednesday"; // Day that gets 3x swap charge
-
-// ─── Slippage Control ───
-int MaxSlippagePoints = 3;        // Max acceptable slippage in points (0 = no limit)
-bool RejectOnHighSlippage = true;  // Reject orders that exceed max slippage
-
-// ─── Capital Protection ───
-double MaxDailyLossPct = 6.0;      // Hard halt threshold
-double WarningLossPct = 3.0;      // Warning level
-bool EmergencyCloseAll = true;     // Close all positions when daily loss hits limit
-// (WarningLossPct and MaxDailyLossPct already declared above — no duplicates)
 
 // ─── Execution Safety v1.00 (mql-fix.md — fail-closed) ───
-double BaseLot = 0.01;    // Reference base lot (martingale-ban anchor)
-double MaxLotRatioVsBase = 1.0;     // Reject lot > baseLot * this ratio
-int MaxSameDirPositions = 1;       // Max same-direction PAT positions
-int MaxTotalPositions = 2;       // Max total concurrent PAT positions
-double MaxMarginUsagePct = 30.0;    // Max % of free margin a new order may require
-int MaxSignalAgeSeconds = 300;     // Fallback TTL when signal has no expiry field
-double MinEquityFloorPct = 40.0;    // Halt if equity < this % of day-start balance
-string OnMissingSL = "CLOSE"; // RESTORE or CLOSE (default CLOSE = fail-closed)
-bool ReEnableAfterHalt = false;   // Manual re-enable after equity-floor halt
 
-// ─── Per-Strategy Spread/Slippage Limits ───
-int UltraScalp_MaxSlippage = 5;   // Ultra Scalping: max slippage in points
-int StdScalp_MaxSlippage = 10;  // Standard Scalping: max slippage in points
-int StdSwing_MaxSlippage = 20;  // Standard Swing: max slippage in points
-int TrendSwing_MaxSlippage = 30;  // Trend Swing: max slippage in points
 
 // ─── Position Sizing ───
-double RiskPerTradePct = 1.0;  // Risk per trade as % of equity (1%)
-bool UseAutoLotSizing = true; // Calculate lot size from risk % and stop distance
 
 // ─── Constants ───
 #define PAT_TICK_FILE   "PAT_ticks.txt"
