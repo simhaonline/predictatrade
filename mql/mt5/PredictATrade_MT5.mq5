@@ -1452,13 +1452,22 @@ string PAT_BuildPositionDetails()
 //+------------------------------------------------------------------+
 bool IsStrategyEnabled(string strategyID)
 {
-    // SERVER-CONTROLLED: Check if strategy is in the server-provided allowed_strategies
-    // The server validates the license and sends allowed_strategies based on the plan.
-    // This prevents users from receiving strategies they haven't paid for.
+    // SERVER-CONTROLLED: Check if strategy is in the server-provided allowed_strategies.
+    // The server ALSO filters signals before sending to the agent (primary defense).
+    // This EA check is a secondary defense layer.
+
+    // If license is ACTIVE but strategies not yet received from agent,
+    // allow all — the server already filters by plan before sending signals.
     if(StringLen(g_allowedStrategies) == 0)
     {
-        // License not yet validated — block all trading until server confirms
-        Print("Strategy check: no allowed_strategies from server yet — blocking ", strategyID);
+        if(g_licenseStatus == "ACTIVE")
+        {
+            // License is valid but agent hasn't forwarded strategies yet.
+            // Server-side filtering is the primary defense — allow through.
+            return true;
+        }
+        // License not yet validated — block all trading
+        Print("Strategy check: license not validated — blocking ", strategyID);
         return false;
     }
 
