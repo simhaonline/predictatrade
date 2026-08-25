@@ -1793,16 +1793,8 @@ void ExecuteBuy()
     int magic = PAT_NextMagic(magicBase);
     string comment = PAT_StrategyPrefix(g_signalStrategy) + PAT_ShortSignalID(g_signalID);
 
-    // 3. Lot sizing (risk-based; reject instead of forcing min lot)
-    double vol = 0;
-    if(UseAutoLotSizing)
-        vol = PAT_CalcLotSize(AccountEquity(), MathAbs(g_entry - g_sl));
-    if(vol <= 0) vol = PAT_NormalizeLot(BaseLot);
-    if(vol <= 0)
-    {
-        Print("REJECTED lot_below_min: computed lot below broker minimum — refusing to force size");
-        return;
-    }
+    // Use server-calculated lot size if provided, otherwise minimum lot
+    double vol = PAT_NormalizeLot(g_suggestedLot > 0 ? g_suggestedLot : MarketInfo(g_symbol, MODE_MINLOT));
 
     // 4. EA-side risk gate (spread, drift, TTL, caps, risk$, martingale, margin)
     if(!PAT_PreTradeGate(true, vol, g_signalStrategy)) return;
