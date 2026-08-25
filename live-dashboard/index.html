@@ -1196,18 +1196,6 @@ renderSystemChecks();
 initExpandButtons();
 buildPipeline();
 
-lpInit();
-window.__pat_intervals = [];
-window.__pat_intervals.push(setInterval(pollSnapshot, 2000));
-window.__pat_intervals.push(setInterval(pollMarketState, 5000));
-window.__pat_intervals.push(setInterval(pollEngines, 5000));
-window.__pat_intervals.push(setInterval(() => { pollInfra(); }, 10000));
-window.__pat_intervals.push(setInterval(pollCandles, 15000));
-window.__pat_intervals.push(setInterval(pollNews, 60000));
-window.__pat_intervals.push(setInterval(pollSignals, 10000));
-wsConnect();
-new ResizeObserver(() => chart.resize()).observe($("priceChart"));
-
 /* ═══════════ LIVE PREVIEW (server-enforced anonymous trial) ═══════════
    The browser countdown is PRESENTATION ONLY — the backend timer
    (live-preview/status) is the authority. Expiry locks data server-side;
@@ -1351,6 +1339,18 @@ async function lpInit() {
     return res;
   };
 })();
+
+lpInit();
+window.__pat_intervals = [];
+window.__pat_intervals.push(setInterval(pollSnapshot, 2000));
+window.__pat_intervals.push(setInterval(pollMarketState, 5000));
+window.__pat_intervals.push(setInterval(pollEngines, 5000));
+window.__pat_intervals.push(setInterval(() => { pollInfra(); }, 10000));
+window.__pat_intervals.push(setInterval(pollCandles, 15000));
+window.__pat_intervals.push(setInterval(pollNews, 60000));
+window.__pat_intervals.push(setInterval(pollSignals, 10000));
+wsConnect();
+new ResizeObserver(() => chart.resize()).observe($("priceChart"));
 
 /* ── PWA service worker registration ── */
 if ("serviceWorker" in navigator) {

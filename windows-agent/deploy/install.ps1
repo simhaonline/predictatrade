@@ -65,8 +65,7 @@ $nssmDest = Join-Path $InstallDir $NssmExe
 $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($svc) {
     if ($svc.Status -eq "Running") {
-        if (Test-Path $nssmDest) { & $nssmDest stop $ServiceName 2>&1 | Out-Null }
-        else { Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue }
+        Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 3
     }
     Write-Host "  OK: Service stopped"
@@ -100,22 +99,9 @@ try {
     exit 1
 }
 
-# Step 6: Download NSSM
-Write-Host "[6/9] Downloading NSSM (service manager)..."
-$is64bit = [Environment]::Is64BitOperatingSystem
-$nssmArch = if ($is64bit) { "nssm/win64/nssm.exe" } else { "nssm/win32/nssm.exe" }
+# Step 6: No NSSM needed — agent has native Windows Service support
+Write-Host "[6/9] Agent has native Windows Service support (no NSSM required)"
 $nssmDownloaded = $false
-try {
-    if (Test-Path $nssmDest) { Remove-Item $nssmDest -Force -ErrorAction SilentlyContinue }
-    Invoke-WebRequest -Uri "$BaseUrl/$nssmArch" -OutFile $nssmDest -UseBasicParsing -TimeoutSec 60
-    Unblock-File -Path $nssmDest -ErrorAction SilentlyContinue
-    if (Test-Path $nssmDest) {
-        $nssmDownloaded = $true
-        Write-Host "  OK: Downloaded nssm.exe ($(if ($is64bit) { '64-bit' } else { '32-bit' }))"
-    }
-} catch {
-    Write-Host "  WARN: NSSM download failed: $_"
-}
 
 # Step 6b: Download supporting scripts
 Write-Host "[6b/9] Downloading supporting scripts..."
@@ -143,44 +129,28 @@ if (-not (Test-Path $settingsPath)) {
     Write-Host "  OK: Preserving existing settings.json"
 }
 
-# Step 7: Remove old service and create fresh
-Write-Host "[7/9] Creating Windows service..."
+# Step 7: Remove old service and create fresh using native sc.exe
+Write-Host "[7/9] Creating Windows service (native SCM)..."
 if ($svc) {
-    if ($nssmDownloaded) { & $nssmDest remove $ServiceName confirm 2>&1 | Out-Null }
-    else { sc.exe delete $ServiceName 2>&1 | Out-Null }
+    sc.exe delete $ServiceName 2>&1 | Out-Null
     Start-Sleep -Seconds 2
 }
 
-if ($nssmDownloaded -and (Test-Path $nssmDest)) {
-    $result = & $nssmDest install $ServiceName $agentPath 2>&1
-    Write-Host "  NSSM install result: $result"
-    & $nssmDest set $ServiceName AppDirectory $InstallDir 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppStdout (Join-Path $logsDir "stdout.log") 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppStderr (Join-Path $logsDir "stderr.log") 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppRotateFiles 1 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppRotateOnline 1 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppNoConsole 1 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppExit Default Restart 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppExit 0 Exit 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppRestartDelay 5000 2>&1 | Out-Null
-    & $nssmDest set $ServiceName DisplayName "Predict-A-Trade XAUUSD Agent" 2>&1 | Out-Null
-    & $nssmDest set $ServiceName Description "Predict-A-Trade XAUUSD Windows Agent" 2>&1 | Out-Null
-    & $nssmDest set $ServiceName Start SERVICE_AUTO_START 2>&1 | Out-Null
-    Write-Host "  OK: Service created with NSSM (auto-restart on crash)"
-} else {
-    Write-Host "  Using sc.exe fallback (no NSSM)..."
-    $scResult = sc.exe create $ServiceName binPath= "`"$agentPath`"" start= auto 2>&1
-    Write-Host "  sc.exe result: $scResult"
-    sc.exe description $ServiceName "Predict-A-Trade XAUUSD Windows Agent" 2>&1 | Out-Null
-}
+# Use sc.exe to create the service — the agent uses svc.Run() to communicate
+# directly with the Windows Service Control Manager (no NSSM wrapper needed)
+$scResult = sc.exe create $ServiceName binPath= "`"$agentPath`"" start= auto 2>&1
+Write-Host "  sc.exe create result: $scResult"
+sc.exe description $ServiceName "Predict-A-Trade XAUUSD Windows Agent" 2>&1 | Out-Null
+sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/10000/restart/30000 2>&1 | Out-Null
+Write-Host "  OK: Service created with auto-restart (5s/10s/30s)"
 
 # Step 8: Start the service
 Write-Host "[8/9] Starting service..."
-if ($nssmDownloaded) {
-    $startResult = & $nssmDest start $ServiceName 2>&1
-    Write-Host "  NSSM start result: $startResult"
-} else {
-    try { Start-Service -Name $ServiceName -ErrorAction Stop } catch { Write-Host "  Start-Service error: $_" }
+try {
+    Start-Service -Name $ServiceName -ErrorAction Stop
+    Write-Host "  OK: Start command sent"
+} catch {
+    Write-Host "  Start-Service result: $_"
 }
 Start-Sleep -Seconds 3
 
