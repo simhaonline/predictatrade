@@ -83,14 +83,14 @@ export default function PreviewPage() {
             <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${
               (agentsStatus?.mt4_connected ?? 0) > 0 ? "bg-pat-success/10 text-pat-success border border-pat-success/20" : "bg-pat-danger/10 text-pat-danger border border-pat-danger/20"
             }`}>
-              <span className={`inline-block h-2 w-2 rounded-full ${(agentsStatus?.mt4_connected ?? 0) > 0 ? "bg-pat-success animate-pulse" : "bg-pat-danger"}`} />
-              MT4 {(agentsStatus?.mt4_connected ?? 0) > 0 ? "Online" : "Offline"}
+              <span className={`inline-block h-2 w-2 rounded-full bg-pat-danger`} />
+              MT4 Offline
             </span>
             <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${
               (agentsStatus?.mt5_connected ?? 0) > 0 ? "bg-pat-success/10 text-pat-success border border-pat-success/20" : "bg-pat-danger/10 text-pat-danger border border-pat-danger/20"
             }`}>
-              <span className={`inline-block h-2 w-2 rounded-full ${(agentsStatus?.mt5_connected ?? 0) > 0 ? "bg-pat-success animate-pulse" : "bg-pat-danger"}`} />
-              MT5 {(agentsStatus?.mt5_connected ?? 0) > 0 ? "Online" : "Offline"}
+              <span className={`inline-block h-2 w-2 rounded-full bg-pat-danger`} />
+              MT5 Offline
             </span>
           </div>
           <span className="text-[10px] text-pat-text-muted">Terminal link status updates live</span>

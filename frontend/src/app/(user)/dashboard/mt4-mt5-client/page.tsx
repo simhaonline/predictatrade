@@ -52,7 +52,8 @@ export default function UserMtClientPage() {
     refetchInterval: 5000,
   });
 
-  // Go engine live agent connection status (includes per-platform MT4/MT5 liveness)
+  // Per-user terminal status — derived from the user's OWN registered devices
+  // NOT global agent status (which shows ALL agents on the server)
   const { data: agentsStatus, refetch: refetchAgents } = useQuery<{
     agents_connected: number;
     master_node_connected: boolean;
@@ -62,7 +63,22 @@ export default function UserMtClientPage() {
     backend_reachable: boolean;
   }>({
     queryKey: ["user-mt-agents"],
-    queryFn: async () => (await customInstance.get("/agents/status")).data,
+    queryFn: async () => {
+      // Derive terminal status from the user's own registered devices
+      // Each device has client_type (MT4/MT5) and connection_status
+      const userDevices = devices || [];
+      const mt4Devices = userDevices.filter((d: any) => d.client_type === "MT4");
+      const mt5Devices = userDevices.filter((d: any) => d.client_type === "MT5");
+      const onlineDevices = userDevices.filter((d: any) => d.connection_status === "ONLINE");
+      return {
+        agents_connected: onlineDevices.length,
+        master_node_connected: onlineDevices.length > 0,
+        snapshot_count: 0,
+        mt4_connected: mt4Devices.filter((d: any) => d.connection_status === "ONLINE").length,
+        mt5_connected: mt5Devices.filter((d: any) => d.connection_status === "ONLINE").length,
+        backend_reachable: true,
+      };
+    },
     refetchInterval: 5000,
   });
   const { data: licenses } = useQuery<{ license_key: string; status: string; max_devices: number; max_mt_accounts: number }[]>({
