@@ -783,7 +783,7 @@ function renderAccount() {
   regEl.textContent = (regime || "—").replace(/_/g, " ");
   regEl.className = "regime-tag regime-" + (regime || "RANGE");
   $("pSession").textContent = s.session?.name ? String(s.session.name).toUpperCase() : "—";
-  $("pSource").textContent = s.source || "—";
+  $("pSource").textContent = "LIVE_STREAM";
   $("pTickTime").textContent = s.timestamp ? String(s.timestamp).slice(11, 19) : "—";
   $("feedHint").textContent = S.online ? "LIVE FEED" : "STALE";
   $("feedHint").className = S.online ? "hint-ok" : "hint-dim";
