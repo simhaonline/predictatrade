@@ -554,7 +554,7 @@ function renderAccount() {
   const s = S.snap; if (!s) return;
   const tick = s.tick || {};
   const bid = num(tick.bid), ask = num(tick.ask), spread = num(tick.spread);
-  const mid = num(tick.mid) ?? num(s.current_price);
+  const mid = (bid && ask) ? +(((bid + ask) / 2).toFixed(3)) : null;
   const el = $("bigPrice");
   if (mid && S.prevPrice && mid !== S.prevPrice) {
     el.classList.remove("up", "down");
@@ -563,12 +563,12 @@ function renderAccount() {
   el.textContent = fmt(mid);
   S.prevPrice = mid ?? S.prevPrice;
   $("pBid").textContent = fmt(bid); $("pAsk").textContent = fmt(ask); $("pSpread").textContent = fmt(spread);
-  $("pVol").textContent = tick.tick_volume != null ? Number(tick.tick_volume).toLocaleString() : "—";
+  $("pVol").textContent = tick.volume != null ? Number(tick.volume).toLocaleString() : "—";
   const regime = (S.engines.find(e => e.engine === "STANDARD_SCALPING") || {}).regime;
   const regEl = $("pRegime");
   regEl.textContent = (regime || "—").replace(/_/g, " ");
   regEl.className = "regime-tag regime-" + (regime || "RANGE");
-  $("pSession").textContent = s.session?.session ? String(s.session.session).toUpperCase() : "—";
+  $("pSession").textContent = s.session?.name ? String(s.session.name).toUpperCase() : "—";
   $("pSource").textContent = s.source || "—";
   $("pTickTime").textContent = s.timestamp ? String(s.timestamp).slice(11, 19) : "—";
   $("feedHint").textContent = S.online ? "LIVE FEED" : "STALE";
@@ -745,7 +745,7 @@ function renderTicker() {
     ["EMA9", fmt(num(ind.ema9)), "t-b"],
     ["EMA50", fmt(num(ind.ema50)), "t-b"],
     ["VWAP", fmt(num(ind.vwap)), "t-a"],
-    ["SESSION", esc((s?.session?.session || "—").toUpperCase()), "t-b"],
+    ["SESSION", esc((s?.session?.name || "—").toUpperCase()), "t-b"],
   ];
   const html = items.map(([k, v, c]) => `<span class="t-item">${k} <span class="tv ${c}">${v}</span></span>`).join("");
   $("tickerTrack").innerHTML = html + html; // duplicate for seamless loop
@@ -843,8 +843,9 @@ function wsConnect() {
       renderSignals();
     } else if (t === "MARKET_SNAPSHOT") {
       const p = m.Payload || m.payload || {};
-      if (p && (p.Tick || p.tick)) {
-        S.snap = normalizeSnapshot(p); S.online = true;
+      if (p && (p.tick || p.Tick)) {
+        // WS snapshot uses the exact same JSON shape as /api/v1/market/snapshot
+        S.snap = p; S.online = true;
         renderAccount(); renderIndicators(); renderTicker(); renderChartHeader();
       }
     }
@@ -855,15 +856,7 @@ function wsConnect() {
   };
   ws.onerror = () => { try { ws.close(); } catch {} };
 }
-function normalizeSnapshot(p) {
-  const t = p.Tick || p.tick || {};
-  return {
-    symbol: p.Symbol || p.symbol, timestamp: p.GMT || p.Timestamp || p.timestamp || p.gmt,
-    source: p.Source || p.source, session: p.Session || p.session || {}, indicators: p.Indicators || p.indicators || {},
-    tick: { bid: t.Bid || t.bid, ask: t.Ask || t.ask, mid: t.Mid || t.mid, spread: t.Spread || t.spread, tick_volume: t.TickVolume || t.tick_volume, quality: t.Quality || t.quality },
-    vwap: p.VWAP || p.vwap,
-  };
-}
+function normalizeSnapshot(p) { return p; } // WS payload === REST shape
 
 /* ── Timeframe tabs ── */
 function buildTfTabs() {
