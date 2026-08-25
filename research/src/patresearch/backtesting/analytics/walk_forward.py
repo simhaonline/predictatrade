@@ -1,15 +1,18 @@
-"""Walk-forward analysis.
+"""Walk-forward analysis (rolling in-sample / out-of-sample backtest).
 
 Methodology:
-1. Training/in-sample window
-2. Parameter optimization on training only
-3. Locked parameter selection
-4. Out-of-sample evaluation
-5. Roll window forward
-6. Repeat
-7. Aggregate only out-of-sample results
+1. Reserve a final untouched holdout dataset (never used for any tuning).
+2. Slide a train/test window across the remaining data.
+3. Run the FIXED strategy configuration on the in-sample (train) window.
+4. Run the SAME fixed configuration on the out-of-sample (test) window,
+   with a freshly-reset strategy instance to guarantee no state leakage.
+5. Roll the window forward and repeat.
+6. Aggregate only the out-of-sample trades/metrics (plus a final holdout run).
 
-Never optimize on the final untouched holdout dataset.
+NOTE: This implementation evaluates a FIXED parameter set across folds. It does
+NOT perform parameter optimization on the training window (no grid/random search,
+no locked-parameter selection). It is a walk-forward STABILITY / OOS evaluation,
+not an optimizer. Never tune on the final untouched holdout dataset.
 """
 from __future__ import annotations
 

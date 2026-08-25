@@ -115,3 +115,28 @@ export function downloadCSVUrl(runId: string): string {
   const token = getAccessToken();
   return `${API_BASE}/backtest/runs/${runId}/download?format=csv&token=${token || ""}`;
 }
+
+// F3 fix: download the CSV via fetch + blob so the JWT-bearing URL never
+// lands in browser history, the address bar, or a Referer header. The token
+// is still sent (backend reads ?token=), but only inside the network request.
+export async function downloadCSV(runId: string): Promise<void> {
+  const url = downloadCSVUrl(runId);
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) throw new Error("Failed to download CSV");
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition");
+  let filename = `backtest-${runId}.csv`;
+  if (disposition) {
+    const match = /filename="?([^";]+)"?/.exec(disposition);
+    if (match) filename = match[1];
+  }
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = filename;
+  a.rel = "noopener noreferrer";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(objectUrl);
+}

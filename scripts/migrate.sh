@@ -1,14 +1,29 @@
 #!/usr/bin/env bash
 
 # ─── B-07: Duplicate sequence number check ───
+# Duplicates that already exist were applied to the live database long ago and
+# are documented in database/migrations/MIGRATION_ORDER.md. Renumbering applied
+# migrations is unsafe (migration_history keys on filename). So we ALLOWLIST the
+# known duplicates and HARD-FAIL only on NEW duplicate sequence numbers, which
+# would otherwise break ordering for future deploys.
+KNOWN_APPLIED_DUPES="018 019 020 028 062 071"
 duplicates=$(ls database/migrations/*.sql 2>/dev/null | sed 's/.*\/\([0-9]*\)_.*/\1/' | sort | uniq -d)
 if [ -n "$duplicates" ]; then
-    echo "WARNING: Duplicate migration sequence numbers found:"
+    unknown=""
     for d in $duplicates; do
-        echo "  $d: $(ls database/migrations/${d}_*.sql 2>/dev/null)"
+        if ! echo " $KNOWN_APPLIED_DUPES " | grep -q " $d "; then
+            unknown="$unknown $d"
+        fi
     done
-    echo "Existing duplicates are already applied and cannot be renamed."
-    echo "New migrations must use unique sequence numbers."
+    if [ -n "$unknown" ]; then
+        echo "ERROR: NEW duplicate migration sequence numbers found (not in applied allowlist):"
+        for d in $unknown; do
+            echo "  $d: $(ls database/migrations/${d}_*.sql 2>/dev/null)"
+        done
+        echo "New migrations MUST use unique sequence numbers. Aborting."
+        exit 1
+    fi
+    echo "NOTE: known duplicate sequence numbers (already applied, see MIGRATION_ORDER.md):$duplicates"
 fi
 
 # Predict-A-Trade v1.0.0 — Canonical Migration Runner

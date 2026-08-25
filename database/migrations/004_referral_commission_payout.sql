@@ -164,7 +164,8 @@ CREATE TABLE referral.commission_ledger (
     commission_amount           DECIMAL(18,8) NOT NULL,
     currency                    VARCHAR(3) NOT NULL DEFAULT 'USD',
     status                      VARCHAR(20) NOT NULL DEFAULT 'PENDING',
-    -- PENDING, CLEARED, AVAILABLE, PAID, CANCELLED, REVERSED, CHARGEBACK, FRAUD_HOLD
+    -- PENDING, CLEARED, RESERVED, AVAILABLE, PAID, CANCELLED, REVERSED, CHARGEBACK, FRAUD_HOLD
+    -- RESERVED = commissions held by a pending payout request (prevents double-spend)
     commission_rule_id          UUID REFERENCES referral.commission_rules(id),
     commission_rule_snapshot    JSONB NOT NULL DEFAULT '{}',
     -- Immutable snapshot of the rule at creation time

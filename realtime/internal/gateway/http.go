@@ -356,11 +356,12 @@ func (h *HTTPServer) handleCandles(w http.ResponseWriter, r *http.Request) {
 	if timeframe == "" {
 		timeframe = "M5"
 	}
+	source := r.URL.Query().Get("source")
 	limit := 200
 
 	// Step 1: Try Valkey cache first (fast path — sub-millisecond)
 	if h.valkeyCache != nil {
-		if cached, err := h.valkeyCache.GetChartCandles(symbol, timeframe, limit); err == nil && len(cached) > 0 {
+		if cached, err := h.valkeyCache.GetChartCandles(symbol, timeframe, source, limit); err == nil && len(cached) > 0 {
 			json.NewEncoder(w).Encode(map[string]interface{}{"candles": cached, "source": "valkey_cache"})
 			return
 		}
@@ -390,8 +391,9 @@ func (h *HTTPServer) handleCandles(w http.ResponseWriter, r *http.Request) {
 		SELECT time, open, high, low, close, volume, source, quality, is_closed
 		FROM market.candles
 		WHERE symbol = $1 AND timeframe = $2 AND time >= $3
+		  AND ($5 = '' OR source = $5)
 		ORDER BY time DESC LIMIT $4
-	`, symbol, timeframe, timeStart, limit)
+	`, symbol, timeframe, timeStart, limit, source)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"candles": []interface{}{}, "error": err.Error()})
 		return
@@ -417,7 +419,7 @@ func (h *HTTPServer) handleCandles(w http.ResponseWriter, r *http.Request) {
 
 	// Cache in Valkey for subsequent requests (60-second TTL)
 	if h.valkeyCache != nil && len(cachedCandles) > 0 {
-		h.valkeyCache.SetChartCandles(symbol, timeframe, limit, cachedCandles)
+		h.valkeyCache.SetChartCandles(symbol, timeframe, source, limit, cachedCandles)
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{"candles": cachedCandles, "source": "timescaledb"})

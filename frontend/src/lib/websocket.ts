@@ -43,6 +43,9 @@ export interface GateRiskEvent {
 
 export type ConnectionState = 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' | 'RECONNECTING';
 
+// Honest feed status reported by the relay/provider (never assume LIVE).
+export type FeedStatus = 'LIVE' | 'DEGRADED' | 'STALE' | 'REPLAY' | 'UNKNOWN';
+
 // Normalize Go engine EventEnvelope to frontend WsMessage format.
 // The Go engine sends: { type: "SIGNAL", payload: { ID, Direction, StrategyID, ... } }
 // The frontend expects: { type: "signal", payload: { id, direction, strategy, ... } }
@@ -153,6 +156,8 @@ export class WebSocketManager {
   private stateListeners = new Set<(state: ConnectionState) => void>();
   private shouldReconnect = true;
   private connectionState: ConnectionState = 'DISCONNECTED';
+  private feedStatus: FeedStatus = 'UNKNOWN';
+  private feedStatusListeners = new Set<(status: FeedStatus) => void>();
 
   constructor(url: string) {
     this.url = url;
@@ -161,6 +166,11 @@ export class WebSocketManager {
   private setState(state: ConnectionState) {
     this.connectionState = state;
     this.stateListeners.forEach(cb => cb(state));
+  }
+
+  private setFeedStatus(status: FeedStatus) {
+    this.feedStatus = status;
+    this.feedStatusListeners.forEach(cb => cb(status));
   }
 
   connect() {
@@ -187,7 +197,10 @@ export class WebSocketManager {
           // The relay sends a combined JSON: {status, engine_online, market_snapshot, 
           // system_health, agents_status, signals}
           // Parse and dispatch as individual typed events.
-          if (raw.status === "LIVE" || raw.status === "DEGRADED" || raw.status === "STALE") {
+          if (raw.status === "LIVE" || raw.status === "DEGRADED" || raw.status === "STALE" || raw.status === "REPLAY") {
+            // F4 fix: thread the parsed feed status so the UI can render an
+            // honest LIVE/DEGRADED/STALE/REPLAY badge instead of assuming LIVE.
+            this.setFeedStatus(raw.status as FeedStatus);
             // Market snapshot → emit as "market" event
             if (raw.market_snapshot) {
               const ms = raw.market_snapshot;
@@ -259,11 +272,13 @@ export class WebSocketManager {
 
       this.ws.onclose = () => {
         this.setState('DISCONNECTED');
+        this.setFeedStatus('UNKNOWN');
         if (this.shouldReconnect) this.scheduleReconnect();
       };
 
       this.ws.onerror = () => {
         this.setState('DISCONNECTED');
+        this.setFeedStatus('UNKNOWN');
         if (this.shouldReconnect) this.scheduleReconnect();
       };
     } catch {
@@ -306,6 +321,12 @@ export class WebSocketManager {
     this.stateListeners.add(callback);
     callback(this.connectionState);
     return () => { this.stateListeners.delete(callback); };
+  }
+
+  subscribeFeedStatus(callback: (status: FeedStatus) => void) {
+    this.feedStatusListeners.add(callback);
+    callback(this.feedStatus);
+    return () => { this.feedStatusListeners.delete(callback); };
   }
 
   send(data: unknown) {

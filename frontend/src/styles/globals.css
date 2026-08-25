@@ -208,4 +208,14 @@ input:-webkit-autofill:focus {
 
 /* Reduced motion */
 .reduce-motion * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+
+/* F7: respect user reduced-motion preference (no animation/transition) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 /* Predict-A-Trade color palette v1.3.2 — Wed Aug 19 22:15:28 +03 2026 */

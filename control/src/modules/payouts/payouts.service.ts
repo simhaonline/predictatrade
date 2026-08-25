@@ -126,6 +126,19 @@ export class PayoutsService {
         );
       }
 
+      // C3 fix: transition the reserved commissions out of CLEARED into RESERVED
+      // so a concurrent payout request cannot re-select and double-spend the
+      // same funds. They move to PAID only on successful reconciliation, or
+      // back to CLEARED on cancel/reject.
+      if (items.length) {
+        await client.query(
+          `UPDATE referral.commission_ledger
+             SET status = 'RESERVED', updated_at = now()
+           WHERE id = ANY($1)`,
+          [items.map((i) => i.id)],
+        );
+      }
+
       await client.query('COMMIT');
       return inserted.rows[0];
     } catch (err) {
@@ -168,6 +181,14 @@ export class PayoutsService {
   }
 
   async rejectPayout(id: string, reason: string) {
+    // Return any RESERVED commissions to CLEARED so the funds become available again.
+    await this.pool.query(
+      `UPDATE referral.commission_ledger
+         SET status = 'CLEARED', updated_at = now()
+       WHERE status = 'RESERVED'
+         AND id IN (SELECT commission_id FROM referral.payout_items WHERE payout_id = $1)`,
+      [id],
+    );
     const r = await this.pool.query(
       `UPDATE referral.payouts
         SET status = 'REJECTED', reviewed_at = now(),
@@ -291,6 +312,14 @@ export class PayoutsService {
   }
 
   async cancelPayout(id: string, reason: string) {
+    // Return any RESERVED commissions to CLEARED so the funds become available again.
+    await this.pool.query(
+      `UPDATE referral.commission_ledger
+         SET status = 'CLEARED', updated_at = now()
+       WHERE status = 'RESERVED'
+         AND id IN (SELECT commission_id FROM referral.payout_items WHERE payout_id = $1)`,
+      [id],
+    );
     const r = await this.pool.query(
       `UPDATE referral.payouts
         SET status = 'CANCELLED', cancelled_at = now(),

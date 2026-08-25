@@ -26,8 +26,10 @@ type CachedCandle struct {
 
 // SetBootstrapCandles caches historical candles for engine startup bootstrap.
 // TTL: 5 minutes (historical data doesn't change frequently).
-func (v *ValkeyCache) SetBootstrapCandles(symbol, timeframe string, candles []CachedCandle) error {
-	key := fmt.Sprintf("pat:bootstrap_candles:%s:%s", symbol, timeframe)
+// `source` is part of the cache key so candles from different providers are
+// never served interchangeably (D6).
+func (v *ValkeyCache) SetBootstrapCandles(symbol, timeframe, source string, candles []CachedCandle) error {
+	key := fmt.Sprintf("pat:bootstrap_candles:%s:%s:%s", symbol, timeframe, source)
 	b, err := json.Marshal(candles)
 	if err != nil {
 		return err
@@ -37,8 +39,8 @@ func (v *ValkeyCache) SetBootstrapCandles(symbol, timeframe string, candles []Ca
 
 // GetBootstrapCandles retrieves cached bootstrap candles from Valkey.
 // Returns nil, nil if not cached (caller should fall back to PostgreSQL).
-func (v *ValkeyCache) GetBootstrapCandles(symbol, timeframe string) ([]CachedCandle, error) {
-	key := fmt.Sprintf("pat:bootstrap_candles:%s:%s", symbol, timeframe)
+func (v *ValkeyCache) GetBootstrapCandles(symbol, timeframe, source string) ([]CachedCandle, error) {
+	key := fmt.Sprintf("pat:bootstrap_candles:%s:%s:%s", symbol, timeframe, source)
 	b, err := v.client.Get(v.ctx, key).Bytes()
 	if err != nil {
 		return nil, err // cache miss
@@ -52,8 +54,8 @@ func (v *ValkeyCache) GetBootstrapCandles(symbol, timeframe string) ([]CachedCan
 
 // SetChartCandles caches candles for chart data endpoint.
 // TTL: 60 seconds (chart data refreshes frequently but doesn't need sub-second freshness).
-func (v *ValkeyCache) SetChartCandles(symbol, timeframe string, limit int, candles []CachedCandle) error {
-	key := fmt.Sprintf("pat:chart_candles:%s:%s:%d", symbol, timeframe, limit)
+func (v *ValkeyCache) SetChartCandles(symbol, timeframe, source string, limit int, candles []CachedCandle) error {
+	key := fmt.Sprintf("pat:chart_candles:%s:%s:%s:%d", symbol, timeframe, source, limit)
 	b, err := json.Marshal(candles)
 	if err != nil {
 		return err
@@ -62,8 +64,8 @@ func (v *ValkeyCache) SetChartCandles(symbol, timeframe string, limit int, candl
 }
 
 // GetChartCandles retrieves cached chart candles from Valkey.
-func (v *ValkeyCache) GetChartCandles(symbol, timeframe string, limit int) ([]CachedCandle, error) {
-	key := fmt.Sprintf("pat:chart_candles:%s:%s:%d", symbol, timeframe, limit)
+func (v *ValkeyCache) GetChartCandles(symbol, timeframe, source string, limit int) ([]CachedCandle, error) {
+	key := fmt.Sprintf("pat:chart_candles:%s:%s:%s:%d", symbol, timeframe, source, limit)
 	b, err := v.client.Get(v.ctx, key).Bytes()
 	if err != nil {
 		return nil, err // cache miss

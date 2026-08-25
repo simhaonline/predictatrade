@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
-import { getGlobalWs, type WsMessage, type MarketDataEvent } from "@/lib/websocket";
+import { getGlobalWs, type WsMessage, type MarketDataEvent, type FeedStatus } from "@/lib/websocket";
 import { rafBatch } from "@/lib/performance";
 import { useServerTime, formatServerTime, formatDrift } from "@/lib/use-server-time";
 
@@ -20,6 +20,7 @@ export function MarketHeader() {
   const spreadRef = useRef<HTMLSpanElement>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [wsLost, setWsLost] = useState(false);
+  const [feedStatus, setFeedStatus] = useState<FeedStatus>("UNKNOWN");
   const [lastUpdate, setLastUpdate] = useState<number>(0);
   const [clockTick, setClockTick] = useState<number>(0);
   const ws = getGlobalWs();
@@ -65,7 +66,8 @@ export function MarketHeader() {
       // prompt.md Section 59: never keep displaying stale values as live.
       setWsLost(s === "DISCONNECTED" || s === "RECONNECTING");
     });
-    return () => { unsub(); unsubState(); };
+    const unsubFeed = ws.subscribeFeedStatus((s) => setFeedStatus(s));
+    return () => { unsub(); unsubState(); unsubFeed(); };
   }, [ws]);
 
   const bid = snapshot?.tick?.bid ?? Number(marketState?.LastTick?.Bid ?? marketState?.Bid ?? 0);
@@ -141,8 +143,17 @@ export function MarketHeader() {
               ⏰ {formatDrift(driftMs)}
             </span>
           ) : null}
-          <span className={`inline-block h-2 w-2 rounded-full ${wsConnected ? "bg-pat-success animate-pulse" : "bg-pat-warning"}`} />
-          <span className="text-[10px] text-pat-text-muted">{wsConnected ? "LIVE" : lastUpdate > 0 ? "REST 3s" : "CONNECTING"}</span>
+          <span className={`inline-block h-2 w-2 rounded-full ${
+            feedStatus === "LIVE" ? "bg-pat-success animate-pulse"
+            : feedStatus === "DEGRADED" ? "bg-pat-warning animate-pulse"
+            : feedStatus === "STALE" ? "bg-pat-danger"
+            : feedStatus === "REPLAY" ? "bg-pat-text-muted"
+            : wsConnected ? "bg-pat-success animate-pulse" : "bg-pat-warning"
+          }`} />
+          <span className="text-[10px] text-pat-text-muted">{
+            feedStatus !== "UNKNOWN" ? feedStatus
+            : wsConnected ? "LIVE" : lastUpdate > 0 ? "REST 3s" : "CONNECTING"
+          }</span>
           {newsRisk !== "NONE" && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-pat-danger/10 text-pat-danger border border-pat-danger/20">{newsRisk}</span>
           )}

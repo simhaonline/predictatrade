@@ -13,6 +13,7 @@ import numpy as np
 import math
 
 from ..engine.portfolio import TradeRecord, EquityPoint
+from ...reference_math import sharpe_ratio as ref_sharpe_ratio, sortino_ratio as ref_sortino_ratio
 
 
 @dataclass
@@ -133,20 +134,23 @@ def calculate_metrics(trades: List[TradeRecord],
     metrics.max_consecutive_losses = _max_consecutive(pnls, positive=False)
     metrics.longest_losing_streak = metrics.max_consecutive_losses
 
-    # Sharpe ratio (annualized from trade returns)
-    if len(pnls) > 1:
-        std = np.std(pnls, ddof=1)
-        if std > 0:
-            # Annualize: assume ~252 trading days, ~5 trades/day
-            annualization = math.sqrt(252 * 5)
-            metrics.sharpe_ratio = (np.mean(pnls) / std) * annualization
+    # Sharpe / Sortino — computed from the equity-curve RETURN SERIES, not from
+    # absolute PnL. Absolute PnL inflates both ratios and contradicts the
+    # canonical reference_math contracts (SOW 134.3). Must use a returns series
+    # (pct change of the equity curve); raw pnls are not returns.
+    equity_returns = None
+    if equity_curve:
+        equities = [ep.equity if hasattr(ep, 'equity') else ep.get('equity', initial_balance) for ep in equity_curve]
+        equities = np.asarray(equities, dtype=float)
+        if len(equities) >= 2 and np.all(equities[:-1] != 0):
+            rets = np.diff(equities) / equities[:-1]
+            rets = rets[np.isfinite(rets)]
+            if len(rets) >= 2:
+                equity_returns = rets
 
-    # Sortino ratio
-    if losses:
-        downside_std = np.std(losses, ddof=1)
-        if downside_std > 0 and len(pnls) > 1:
-            annualization = math.sqrt(252 * 5)
-            metrics.sortino_ratio = (np.mean(pnls) / downside_std) * annualization
+    if equity_returns is not None:
+        metrics.sharpe_ratio = ref_sharpe_ratio(equity_returns)
+        metrics.sortino_ratio = ref_sortino_ratio(equity_returns)
 
     # Max drawdown
     if equity_curve:

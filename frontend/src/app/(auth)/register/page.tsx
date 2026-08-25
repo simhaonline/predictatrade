@@ -1,5 +1,5 @@
 "use client";
-import { useState, Suspense, useMemo } from "react";
+import { useState, Suspense, useMemo, useId } from "react";
 import Link from "next/link";
 import { customInstance } from "@/lib/axios-instance";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -251,7 +251,7 @@ function RegisterForm() {
   );
 }
 
-// ── Reusable consent checkbox component ──
+// ── Reusable consent checkbox component (F6: real, accessible input) ──
 function ConsentCheckbox({
   checked, onChange, label, required,
 }: {
@@ -260,26 +260,39 @@ function ConsentCheckbox({
   label: React.ReactNode;
   required?: boolean;
 }) {
+  const id = useId();
+  const [focused, setFocused] = useState(false);
   return (
-    <label style={{ display: "flex", alignItems: "flex-start", gap: "8px", cursor: "pointer", fontSize: "13px", color: "#343842", lineHeight: 1.45 }}>
-      <div
-        onClick={() => onChange(!checked)}
+    <label htmlFor={id} style={{ display: "flex", alignItems: "flex-start", gap: "8px", cursor: "pointer", fontSize: "13px", color: "#343842", lineHeight: 1.45 }}>
+      <input
+        id={id}
+        type="checkbox"
+        checked={checked}
+        required={required}
+        onChange={(e) => onChange(e.target.checked)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={{ position: "absolute", opacity: 0, width: 0, height: 0 }}
+      />
+      <span
+        aria-hidden="true"
         style={{
           width: "18px",
           height: "18px",
           minWidth: "18px",
           borderRadius: "4px",
-          border: checked ? "2px solid #205fdc" : "2px solid #c5c9d0",
+          border: `2px solid ${focused ? "#205fdc" : checked ? "#205fdc" : "#c5c9d0"}`,
           background: checked ? "#205fdc" : "#ffffff",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           marginTop: "1px",
           transition: "all 0.15s",
+          boxShadow: focused ? "0 0 0 3px rgba(32,95,220,0.25)" : "none",
         }}
       >
         {checked && <IconCheck size={13} color="#ffffff" strokeWidth={3} />}
-      </div>
+      </span>
       <span>
         {label}
         {required && <span style={{ color: "#ef4444", marginLeft: "2px" }}>*</span>}

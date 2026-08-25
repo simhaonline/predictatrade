@@ -6,7 +6,7 @@ import {
   IconChartBar, IconCoin, IconTrendingUp, IconTrendingDown, IconLoader
 } from "@tabler/icons-react";
 import {
-  fetchAvailableData, fetchRuns, runBacktest, downloadCSVUrl,
+  fetchAvailableData, fetchRuns, runBacktest, downloadCSV,
   type DataSummary, type BacktestRun, type RunBacktestResponse
 } from "@/lib/backtest-api";
 
@@ -68,8 +68,12 @@ export default function BacktestPanel({ isAdmin }: { isAdmin?: boolean }) {
     finally { setRunning(false); }
   };
 
-  const handleDownload = (runId: string) => {
-    window.open(downloadCSVUrl(runId), "_blank");
+  const handleDownload = async (runId: string) => {
+    try {
+      await downloadCSV(runId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to download CSV");
+    }
   };
 
   const fmt = (v: string | number, suffix = "") => {
@@ -167,7 +171,11 @@ export default function BacktestPanel({ isAdmin }: { isAdmin?: boolean }) {
             <h2 className="text-sm font-semibold text-pat-text-primary">Results: {result.runId}</h2>
             <IconChevronDown size={16} className={`text-pat-text-muted transition-transform ${showResults ? "rotate-180" : ""}`} />
           </button>
-          {showResults && result.metrics && (
+          {result.status === "FAILED" || result.error ? (
+            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-md text-sm text-red-500">
+              <span className="font-semibold">Backtest failed:</span> {result.error || "The run did not complete successfully."}
+            </div>
+          ) : showResults && result.metrics && (
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
               {[
                 { label: "Balance", val: `$${fmt(result.metrics.finalBalance)}` },

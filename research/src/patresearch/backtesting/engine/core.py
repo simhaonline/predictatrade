@@ -413,16 +413,21 @@ class BacktestEngine:
             self.atr_history = atrs
 
     def _update_atr(self, candle: HistoricalCandle):
-        """Update ATR with new candle."""
-        if not self.atr_history:
-            self.atr_history.append(candle.high - candle.low)
-            return
+        """Update ATR with new candle.
 
-        prev_close = candle.close  # simplified
-        tr = max(candle.high - candle.low,
-                 abs(candle.high - prev_close),
-                 abs(candle.low - prev_close))
+        Uses the PREVIOUS candle's close to compute true range. Using the
+        current close (as the prior implementation did) collapses TR to
+        high-low and ignores overnight gaps, biasing ATR low.
+        """
+        prev_close = getattr(self, '_prev_close', None)
+        if prev_close is None or not self.atr_history:
+            tr = candle.high - candle.low
+        else:
+            tr = max(candle.high - candle.low,
+                     abs(candle.high - prev_close),
+                     abs(candle.low - prev_close))
 
+        self._prev_close = candle.close
         self.atr_history.append(tr)
         if len(self.atr_history) > self.atr_period:
             self.atr_history = self.atr_history[-self.atr_period:]

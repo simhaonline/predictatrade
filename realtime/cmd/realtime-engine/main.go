@@ -501,7 +501,7 @@ func main() {
 			// Step 1: Try Valkey cache first (fast path — avoids PostgreSQL query)
 			var candles []*types.Candle
 			if valkeyCache != nil {
-				cached, cacheErr := valkeyCache.GetBootstrapCandles("XAUUSD", tf)
+				cached, cacheErr := valkeyCache.GetBootstrapCandles("XAUUSD", tf, "bootstrap")
 				if cacheErr == nil && len(cached) >= 20 {
 					// Convert cached candles back to types.Candle
 					for _, cc := range cached {
@@ -625,7 +625,7 @@ func main() {
 
 				// Cache in Valkey for next startup (5-minute TTL)
 				if valkeyCache != nil && len(cachedCandles) >= 20 {
-					valkeyCache.SetBootstrapCandles("XAUUSD", tf, cachedCandles)
+					valkeyCache.SetBootstrapCandles("XAUUSD", tf, "bootstrap", cachedCandles)
 				}
 			}
 			if len(candles) < 20 {
