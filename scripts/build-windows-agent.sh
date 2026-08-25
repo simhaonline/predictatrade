@@ -71,13 +71,12 @@ fi
 # ─── Step 3: Build the Windows binary ───
 log "Cross-compiling for Windows amd64..."
 cd "$AGENT_DIR"
-# Regenerate Windows resource (.syso) from updated manifest
-log "Regenerating Windows resource file from manifest..."
-cd "$AGENT_DIR/cmd/agent"
-rsrc -manifest manifest.xml -arch amd64 -o resource_windows_amd64.syso 2>/dev/null || true
-cd "$AGENT_DIR"
+# Build WITHOUT .syso resource file — the manifest was causing Windows
+# App Control to reject the binary. The agent works fine without a manifest
+# when managed by NSSM (NSSM handles the service protocol itself).
+# Remove the .syso file if it exists to prevent Go from embedding it
+rm -f "$AGENT_DIR/cmd/agent/resource_windows_amd64.syso"
 
-# Build with version info embedded via ldflags + manifest via .syso
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
   -ldflags="-s -w -X github.com/predictatrade/windows-agent/internal/agent.AgentVersion=$NEW_VERSION" \
   -o "$BIN_PATH" ./cmd/agent/ || fatal "Build failed"
