@@ -22,10 +22,10 @@ input string  BrokerSymbol   = "";
 input string  LicenseKey     = "PAT-A1B2C3D4-0003-4000-8000-000000000003";
 
 // ─── Strategy/Direction filters ───
-input bool    ReceiveStandardScalping = true;
-input bool    ReceiveUltraScalping    = true;
-input bool    ReceiveStandardSwing   = true;
-input bool    ReceiveTrendSwing      = true;
+// Strategy selection is SERVER-CONTROLLED based on your license plan.
+// Just enter your License Key — the server handles strategy filtering.
+
+
 input bool    ReceiveBuy             = true;
 input bool    ReceiveSell            = true;
 input bool    ReceiveBuyCandidate    = true;

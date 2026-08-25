@@ -28,10 +28,14 @@ input string  BrokerSymbol   = "";       // Empty = auto-detect chart symbol
 input string  LicenseKey     = "PAT-A1B2C3D4-0004-4000-8000-000000000004"; // Your Predict-A-Trade license key
 
 //=== Strategy Selection ===
-input bool    ReceiveStandardScalping = true;   // STANDARD_SCALPING (M1/M5 scalping)
-input bool    ReceiveUltraScalping    = true;   // ULTRA_SCALPING (M1 ultra-fast scalping)
-input bool    ReceiveStandardSwing   = true;   // STANDARD_SWING (M15/H1 swing trading)
-input bool    ReceiveTrendSwing      = true;   // TREND_SWING (H1/H4 trend following)
+// Strategy selection is controlled by the SERVER based on your license plan.
+// You do NOT need to select strategies here — just enter your License Key above.
+// The server sends allowed_strategies in the license response, and the EA
+// automatically filters signals based on your plan:
+//   FREE     → STANDARD_SCALPING only
+//   STANDARD → STANDARD_SCALPING + STANDARD_SWING
+//   PRO      → STANDARD_SCALPING + ULTRA_SCALPING + STANDARD_SWING + TREND_SWING
+//   ELITE    → All strategies
 
 //=== Signal Direction Filter ===
 input bool    ReceiveBuy             = true;   // Receive BUY signals (qualified)
@@ -116,6 +120,7 @@ string        g_symbol;
 string        g_connection    = "OFFLINE";
 string        g_licenseStatus  = "UNKNOWN";
 string        g_licensePlan    = "—";
+string        g_allowedStrategies = "";  // Server-provided comma-separated list from license
 string        g_licenseKey    = "";
 string        g_authStatus     = "UNKNOWN";
 string        g_deviceStatus   = "UNKNOWN";
@@ -1464,10 +1469,23 @@ string PAT_BuildPositionDetails()
 //+------------------------------------------------------------------+
 bool IsStrategyEnabled(string strategyID)
 {
-    if(strategyID == "STANDARD_SCALPING" && ReceiveStandardScalping) return true;
-    if(strategyID == "ULTRA_SCALPING"    && ReceiveUltraScalping)    return true;
-    if(strategyID == "STANDARD_SWING"   && ReceiveStandardSwing)     return true;
-    if(strategyID == "TREND_SWING"      && ReceiveTrendSwing)        return true;
+    // SERVER-CONTROLLED: Check if strategy is in the server-provided allowed_strategies
+    // The server validates the license and sends allowed_strategies based on the plan.
+    // This prevents users from receiving strategies they haven't paid for.
+    if(StringLen(g_allowedStrategies) == 0)
+    {
+        // License not yet validated — block all trading until server confirms
+        Print("Strategy check: no allowed_strategies from server yet — blocking ", strategyID);
+        return false;
+    }
+
+    // Check if strategyID is in the comma-separated g_allowedStrategies
+    string search = "," + strategyID + ",";
+    string list = "," + g_allowedStrategies + ",";
+    if(StringFind(list, search) >= 0)
+        return true;
+
+    Print("Strategy check: ", strategyID, " NOT in allowed list (", g_allowedStrategies, ")");
     return false;
 }
 
@@ -1559,10 +1577,25 @@ void HandleLicenseResponse(string json)
     g_sessionStatus = ExtractJSONString(json, "session");
     g_tradingStatus = ExtractJSONString(json, "trading");
 
+    // Parse allowed_strategies from server license response
+    // Format: ["STANDARD_SCALPING","ULTRA_SCALPING",...]
+    string strategiesRaw = ExtractJSONString(json, "allowed_strategies");
+    if(StringLen(strategiesRaw) > 0)
+    {
+        // Convert JSON array to comma-separated string for easy checking
+        string cleaned = strategiesRaw;
+        StringReplace(cleaned, "[", "");
+        StringReplace(cleaned, "]", "");
+        StringReplace(cleaned, "\"", "");
+        StringReplace(cleaned, " ", "");
+        g_allowedStrategies = cleaned;
+        Print("License strategies from server: ", g_allowedStrategies);
+    }
+
     if(oldStatus != g_licenseStatus)
     {
         Print("License status changed: ", oldStatus, " → ", g_licenseStatus,
-              " Plan:", g_licensePlan);
+              " Plan:", g_licensePlan, " Strategies: ", g_allowedStrategies);
     }
 }
 
