@@ -425,8 +425,7 @@ bool PAT_PreTradeGate(bool isBuy, double lot, string strategyName)
         return false;
     }
 
-    // 1. Pre-trade spread gate (previously dead code — now wired)
-    if(!PAT_CheckSpread(strategyName)) return false;
+    // Spread is checked by the SERVER engine — EA trusts server decision
 
     // 2. Entry drift gate
     double point = SymbolInfoDouble(g_symbol, SYMBOL_POINT);
@@ -1501,6 +1500,7 @@ void HandleSignal(string json)
     g_entry  = ExtractJSONDouble(json, "EntryPrice");
     g_sl     = ExtractJSONDouble(json, "StopLoss");
     g_tp1    = ExtractJSONDouble(json, "TP1");
+    g_suggestedLot = ExtractJSONDouble(json, "SuggestedLot");
     g_tp2    = ExtractJSONDouble(json, "TP2");
     g_tp3    = ExtractJSONDouble(json, "TP3");
     g_rawScore = ExtractJSONDouble(json, "RawScore");
@@ -1614,10 +1614,8 @@ void ExecuteBuy()
     string comment = PAT_StrategyPrefix(g_signalStrategy) + PAT_ShortSignalID(g_signalID);
 
     // 3. Lot sizing (risk-based; reject instead of forcing min lot)
-    double vol = 0;
-    if(UseAutoLotSizing)
-        vol = PAT_CalcLotSize(AccountInfoDouble(ACCOUNT_EQUITY), MathAbs(g_entry - g_sl));
-    if(vol <= 0) vol = PAT_NormalizeLot(BaseLot);
+    // Use server-calculated lot size if provided, otherwise minimum lot
+    double vol = PAT_NormalizeLot(g_suggestedLot > 0 ? g_suggestedLot : SymbolInfoDouble(g_symbol, SYMBOL_VOLUME_MIN));
     if(vol <= 0)
     {
         Print("REJECTED lot_below_min: computed lot below broker minimum — refusing to force size");
@@ -1684,10 +1682,8 @@ void ExecuteSell()
     ulong magic = PAT_NextMagic(magicBase);
     string comment = PAT_StrategyPrefix(g_signalStrategy) + PAT_ShortSignalID(g_signalID);
 
-    double vol = 0;
-    if(UseAutoLotSizing)
-        vol = PAT_CalcLotSize(AccountInfoDouble(ACCOUNT_EQUITY), MathAbs(g_entry - g_sl));
-    if(vol <= 0) vol = PAT_NormalizeLot(BaseLot);
+    // Use server-calculated lot size if provided, otherwise minimum lot
+    double vol = PAT_NormalizeLot(g_suggestedLot > 0 ? g_suggestedLot : SymbolInfoDouble(g_symbol, SYMBOL_VOLUME_MIN));
     if(vol <= 0)
     {
         Print("REJECTED lot_below_min: computed lot below broker minimum — refusing to force size");

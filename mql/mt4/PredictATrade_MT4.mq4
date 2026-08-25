@@ -108,6 +108,7 @@ string  g_connection      = "OFFLINE";
 string  g_licenseStatus    = "PENDING";
 string  g_licensePlan      = "";
 string  g_allowedStrategies = "";  // Server-provided from license
+string  g_suggestedLot   = "";     // Server-calculated lot size
 string  g_licenseKey       = "";
 string  g_authStatus       = "UNKNOWN";
 string  g_deviceStatus     = "UNKNOWN";
@@ -1672,6 +1673,7 @@ void HandleSignal(string json)
     g_entry  = ExtractJSONDouble(json, "EntryPrice");
     g_sl     = ExtractJSONDouble(json, "StopLoss");
     g_tp1    = ExtractJSONDouble(json, "TP1");
+    g_suggestedLot = ExtractJSONDouble(json, "SuggestedLot");
     g_tp2    = ExtractJSONDouble(json, "TP2");
     g_tp3    = ExtractJSONDouble(json, "TP3");
     g_rawScore = ExtractJSONDouble(json, "RawScore");
