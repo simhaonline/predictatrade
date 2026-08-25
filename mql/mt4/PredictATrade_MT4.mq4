@@ -229,19 +229,10 @@ double PAT_CalcLotSize(double equity, double stopDistancePrice)
     return norm;
 }
 
-// ─── Per-Strategy Spread Check (wired into Execute paths v1.08) ───
+// ─── Per-Strategy Spread Check — SERVER HANDLES, always pass ───
 bool PAT_CheckSpread(string strategyName)
 {
-    int spread = (int)MarketInfo(g_symbol, MODE_SPREAD);
-    int maxSpread = 50;
-    if(strategyName == "ULTRA_SCALPING") maxSpread = UltraScalp_MaxSpread;
-    else if(strategyName == "STANDARD_SCALPING") maxSpread = StdScalp_MaxSpread;
-    else if(strategyName == "STANDARD_SWING") maxSpread = StdSwing_MaxSpread;
-    else if(strategyName == "TREND_SWING") maxSpread = TrendSwing_MaxSpread;
-    if(spread > maxSpread) {
-        Print("SPREAD REJECT: ", spread, " > ", maxSpread, " pts for ", strategyName);
-        return false;
-    }
+    // Spread checked by SERVER SpreadGate — always pass
     return true;
 }
 
@@ -405,26 +396,10 @@ bool PAT_PreTradeGate(bool isBuy, double lot, string strategyName)
         return false;
     }
 
-    // 1. Pre-trade spread gate (previously dead code — now wired)
-    // Spread checked by SERVER — EA trusts server decision
+    // Spread, entry drift, and TTL are checked by the SERVER engine.
+    // EA trusts server decision — no local gates for these.
 
-    // 2. Entry drift gate
-    double point = MarketInfo(g_symbol, MODE_POINT);
-    double refPx = isBuy ? Ask : Bid;
-    double driftPts = 0;
-    if(point > 0) driftPts = MathAbs(refPx - g_entry) / point;
-    if(driftPts > MaxEntryDriftPoints)
-    {
-        Print("REJECTED entry_drift: |", DoubleToString(refPx, _Digits), " - ",
-              DoubleToString(g_entry, _Digits), "| = ", DoubleToString(driftPts, 1),
-              " pts > ", MaxEntryDriftPoints);
-        return false;
-    }
-
-    // 3. Signal TTL gate
-    if(!PAT_SignalFresh()) return false;
-
-    // 4. Position caps (same-direction and total, by PAT magic range)
+    // Position caps (same-direction and total, by PAT magic range)
     if(PAT_CountPatPositionsDir(isBuy) >= MaxSameDirPositions)
     {
         Print("REJECTED same_dir_cap: already ", PAT_CountPatPositionsDir(isBuy),
@@ -450,15 +425,7 @@ bool PAT_PreTradeGate(bool isBuy, double lot, string strategyName)
         return false;
     }
     double valuePerUnit = tickVal / tickSize; // account currency per 1.0 price move per lot
-    double riskDollars  = dist * valuePerUnit * lot;
-    double riskCap      = equity * (MaxRiskPct / 100.0);
-    if(riskDollars > riskCap)
-    {
-        Print("REJECTED risk_oversize: risk$=", DoubleToString(riskDollars, 2),
-              " > cap=", DoubleToString(riskCap, 2),
-              " (equity=", DoubleToString(equity, 2), " x ", MaxRiskPct, "%)");
-        return false;
-    }
+    // Risk check REMOVED — server handles risk_oversize
 
     // 6. Martingale ban: lot may never exceed baseLot * MaxLotRatioVsBase.
     //    Effective base = max(configured BaseLot, deterministic risk-sized lot

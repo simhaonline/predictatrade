@@ -176,14 +176,30 @@ func (e *MLEngine) IsEnabled() bool {
 	return e != nil && e.enabled
 }
 
+// IsInitialized returns true if models were successfully loaded (not just a stub).
+func (e *MLEngine) IsInitialized() bool {
+	if e == nil {
+		return false
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.xgbSession != nil && len(e.featureCols) > 0
+}
+
 // SetEnabled enables or disables ML inference at runtime.
 // When disabled, Predict() returns HOLD/0 (fail-open).
+// Guard: cannot enable if models were never loaded (prevents feature count mismatch spam).
 func (e *MLEngine) SetEnabled(enabled bool) {
 	if e == nil {
 		return
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if enabled && (e.xgbSession == nil || len(e.featureCols) == 0) {
+		// Cannot enable — models not loaded. Stay disabled silently.
+		e.enabled = false
+		return
+	}
 	e.enabled = enabled
 }
 

@@ -976,7 +976,21 @@ func main() {
 			RealizedPnL float64 `json:"realized_pnl"`
 			SLCorrect   bool    `json:"sl_correct"`
 		}
-		if err := json.Unmarshal(data, &tr); err != nil {
+		// FIX: The agent sends {"type":"TRADE_RESULT","payload":{...}}.
+		// Extract the inner payload before unmarshalling into our struct.
+		var outerMsg struct {
+			Type    string          `json:"type"`
+			Payload json.RawMessage `json:"payload"`
+		}
+		if err := json.Unmarshal(data, &outerMsg); err != nil {
+			log.Warn().Err(err).Str("agent_id", agentID).Msg("TRADE_RESULT outer parse failed")
+			return
+		}
+		payloadData := data
+		if len(outerMsg.Payload) > 0 {
+			payloadData = outerMsg.Payload
+		}
+		if err := json.Unmarshal(payloadData, &tr); err != nil {
 			log.Warn().Err(err).Str("agent_id", agentID).Msg("TRADE_RESULT parse failed")
 			return
 		}
@@ -988,13 +1002,20 @@ func main() {
 		if reason == "" {
 			reason = "manual"
 		}
+		// Fallback: if signal_id is still empty (old EA versions), generate one
+		signalID := tr.SignalID
+		if signalID == "" {
+			signalID = uuid.New().String()
+			log.Warn().Str("agent_id", agentID).Int64("ticket", tr.Ticket).
+				Msg("TRADE_RESULT had empty signal_id — generated fallback UUID")
+		}
 		_, err := persister.GetDB().ExecContext(ctxTR, `
 			INSERT INTO trading.trade_results
 				(signal_id, account_id, strategy_id, symbol, direction,
 				 broker_ticket, entry_price, exit_price, lot_size, pnl, close_reason, is_win, is_loss)
 			VALUES ($1,$2,$3,'XAUUSD','',
 				 $4,$5,$6,$7,$8,$9,$10,$11)`,
-			tr.SignalID, "agent:"+agentID, tr.StrategyID,
+			signalID, "agent:"+agentID, tr.StrategyID,
 			fmt.Sprintf("%d", tr.Ticket), tr.Entry, tr.Exit, tr.Lot,
 			tr.RealizedPnL, reason, isWin, isLoss)
 		if err != nil {
@@ -1608,10 +1629,10 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 	}
 
 	// ─── Update candle freshness BEFORE health check ───
-	// FIX: Update lastCandleTime first so the stale checker sees the CURRENT
-	// candle, not the previous one. Previously this was called AFTER the health
-	// check, causing false STALE_DATA_CRITICAL when candles arrive at minute boundaries.
-	staleChecker.UpdateLastCandleTime(candle.Time)
+	// FIX: Use time.Now() (arrival time) not candle.Time (bucket-open time).
+	// candle.Time for M1 is the bar open, which is already ~60s old when the bar
+	// closes and is processed. Using candle.Time caused false STALE_DATA_CRITICAL.
+	staleChecker.UpdateLastCandleTime(time.Now())
 
 	// ─── Graceful Degradation Check ───
 	healthManager.Update()
