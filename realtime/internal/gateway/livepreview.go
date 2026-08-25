@@ -102,8 +102,9 @@ func (g *TrialGuard) Resolve(r *http.Request) livepreview.Decision {
 		// user; a paid user would have been entitled above).
 	}
 
-	// 2) Anonymous server-side trial.
-	return g.svc.Evaluate(r)
+	// 2) Anonymous server-side trial (data endpoints never mint trials —
+	// the browser bootstraps via /api/v1/live-preview/status first).
+	return g.svc.Evaluate(r, false)
 }
 
 // entitlement checks the EXISTING subscription system (§64 — no new engine):
@@ -166,7 +167,7 @@ func writeAccessDenied(w http.ResponseWriter, d livepreview.Decision) {
 
 // handleLivePreviewStatus is the anonymous countdown source of truth (§9/§85).
 func (h *HTTPServer) handleLivePreviewStatus(w http.ResponseWriter, r *http.Request) {
-	d := h.trialGuard.Resolve(r)
+	d := h.trialSvc.Evaluate(r, true) // status endpoint is the ONLY trial creator
 	if d.NewCookie != nil {
 		http.SetCookie(w, h.trialSvc.Cookie(*d.NewCookie))
 	}

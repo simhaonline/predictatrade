@@ -27,7 +27,7 @@ func TestFreshVisitorGetsTrial(t *testing.T) {
 	s := New(cfg(), NewMemStore())
 	r := httptest.NewRequest("GET", "/api/v1/market/snapshot", nil)
 
-	d := s.Evaluate(r)
+	d := s.Evaluate(r, true)
 	if !d.Allowed || d.NewCookie == nil || d.Trial == nil {
 		t.Fatalf("expected allowed trial with cookie, got %+v", d)
 	}
@@ -47,7 +47,7 @@ func TestFreshVisitorGetsTrial(t *testing.T) {
 func TestRefreshDoesNotResetTimer(t *testing.T) {
 	s := New(cfg(), NewMemStore())
 	r := httptest.NewRequest("GET", "/", nil)
-	d := s.Evaluate(r)
+	d := s.Evaluate(r, true)
 	token := *d.NewCookie
 	started := d.Trial.StartedAt
 
@@ -59,7 +59,7 @@ func TestRefreshDoesNotResetTimer(t *testing.T) {
 	s.mu.Unlock()
 
 	r2 := reqWithCookie(httptest.NewRequest("GET", "/", nil), "pat_live_trial", token)
-	d2 := s.Evaluate(r2)
+	d2 := s.Evaluate(r2, true)
 	if !d2.Allowed {
 		t.Fatalf("expected still active, got %+v", d2)
 	}
@@ -76,7 +76,7 @@ func TestRefreshDoesNotResetTimer(t *testing.T) {
 func TestTamperedCookieRejected(t *testing.T) {
 	s := New(cfg(), NewMemStore())
 	r := reqWithCookie(httptest.NewRequest("GET", "/", nil), "pat_live_trial", "forged-token-value")
-	d := s.Evaluate(r)
+	d := s.Evaluate(r, true)
 	if d.Allowed {
 		t.Fatal("tampered cookie must be rejected")
 	}
@@ -102,7 +102,7 @@ func TestExpiredTrialDenied(t *testing.T) {
 	s.cache[tk.TokenHash] = tk
 	s.mu.Unlock()
 
-	d2 := s.Evaluate(reqWithCookie(httptest.NewRequest("GET", "/", nil), "pat_live_trial", token))
+	d2 := s.Evaluate(reqWithCookie(httptest.NewRequest("GET", "/", nil), "pat_live_trial", token), true)
 	if d2.Allowed || d2.Reason != ReasonExpired {
 		t.Fatalf("expected expired denial, got %+v", d2)
 	}
@@ -119,14 +119,14 @@ func TestRepeatVisitorAbuseFlow(t *testing.T) {
 	r.Header.Set("X-Forwarded-For", "203.0.113.7")
 	r.Header.Set("User-Agent", "Mozilla/5.0 Chrome Test")
 
-	d := s.Evaluate(r)
+	d := s.Evaluate(r, true)
 	_ = *d.NewCookie
 	// expire first trial
 	d.Trial.ExpiresAt = time.Now().UTC().Add(-time.Second)
 	s.expire(d.Trial, "NATURAL")
 
 	// second visit, no cookie (deleted): 1 prior match → LOW confidence → allowed
-	d2 := s.Evaluate(r)
+	d2 := s.Evaluate(r, true)
 	if !d2.Allowed {
 		t.Fatalf("first repeat should be allowed (low confidence), got %+v", d2)
 	}
@@ -135,7 +135,7 @@ func TestRepeatVisitorAbuseFlow(t *testing.T) {
 	s.expire(d2.Trial, "NATURAL")
 
 	// third visit: 2 prior matches → high confidence repeat → blocked
-	d3 := s.Evaluate(r)
+	d3 := s.Evaluate(r, true)
 	if d3.Allowed || d3.Reason != ReasonRepeatBlocked {
 		t.Fatalf("expected REPEAT_TRIAL_BLOCKED on third visit, got %+v", d3)
 	}
@@ -148,7 +148,7 @@ func TestSharedIPDifferentUAAllowed(t *testing.T) {
 		r := httptest.NewRequest("GET", "/", nil)
 		r.Header.Set("X-Forwarded-For", "198.51.100.9") // same office NAT
 		r.Header.Set("User-Agent", "DifferentBrowser/"+string(rune('a'+i)))
-		d := s.Evaluate(r)
+		d := s.Evaluate(r, true)
 		if !d.Allowed {
 			t.Fatalf("distinct visitor on shared IP must get a trial, got %+v", d)
 		}
@@ -191,7 +191,7 @@ func TestSameCookieSameTrial(t *testing.T) {
 
 	r1 := reqWithCookie(httptest.NewRequest("GET", "/", nil), "pat_live_trial", token)
 	r2 := reqWithCookie(httptest.NewRequest("GET", "/", nil), "pat_live_trial", token)
-	d1, d2 := s.Evaluate(r1), s.Evaluate(r2)
+	d1, d2 := s.Evaluate(r1, true), s.Evaluate(r2, true)
 	if d1.Trial.TokenHash != d2.Trial.TokenHash {
 		t.Fatal("same cookie must resolve the same trial (multi-tab)")
 	}
@@ -231,6 +231,19 @@ func TestStatusPayloadShape(t *testing.T) {
 	exp := s.StatusFor(Decision{Allowed: false, Reason: ReasonExpired})
 	if !exp.RegistrationRequired || exp.Code != ReasonExpired {
 		t.Fatalf("expired payload wrong: %+v", exp)
+	}
+}
+
+// Data endpoints never mint trials — status is the only creator (§12).
+func TestDataEndpointDoesNotCreateTrial(t *testing.T) {
+	s := New(cfg(), NewMemStore())
+	r := httptest.NewRequest("GET", "/api/v1/market/snapshot", nil) // no cookie
+	d := s.Evaluate(r, false)
+	if d.Allowed {
+		t.Fatal("cookie-less data request must be denied")
+	}
+	if s.store.(*MemStore).Count() != 0 {
+		t.Fatal("data endpoint must not create trial rows")
 	}
 }
 

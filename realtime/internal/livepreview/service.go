@@ -185,7 +185,10 @@ func classifyUA(ua string) (browser, device string) {
 // Evaluate resolves anonymous access for the request. It never panics and
 // fails CLOSED on storage errors (prompt.md §47) — an unavailable trial
 // store must not expose unlimited protected live data.
-func (s *Service) Evaluate(r *http.Request) Decision {
+// Evaluate resolves anonymous access. allowCreate=true ONLY on the status
+// endpoint — data endpoints must never mint trials (prevents trial spam from
+// parallel boot requests; the browser always calls status first).
+func (s *Service) Evaluate(r *http.Request, allowCreate bool) Decision {
 	if !s.cfg.Enabled {
 		return Decision{Allowed: true}
 	}
@@ -199,6 +202,12 @@ func (s *Service) Evaluate(r *http.Request) Decision {
 		// Cookie present but unknown/tampered → reject; do NOT silently mint
 		// a fresh trial (prevents cookie-churn reset attacks).
 		return Decision{Allowed: false, Reason: ReasonInvalidToken}
+	}
+
+	if !allowCreate {
+		// No cookie on a data endpoint → the visitor must obtain a trial via
+		// /api/v1/live-preview/status first.
+		return Decision{Allowed: false, Reason: ReasonExpired}
 	}
 
 	// No cookie: privacy-conscious repeat-visitor check (§24–26). Coarse
