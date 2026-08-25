@@ -1,9 +1,14 @@
 package agent
 
 import (
+	"crypto"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
@@ -54,6 +59,56 @@ func NewUpdater(manifestURL, currentVer, dataDir, installDir, channel string) *U
 	}
 }
 
+// updaterPublicKeyPEM is the RSA public key used to verify update-manifest
+// signatures (W9). PRODUCTION MUST ROTATE THIS: replace with the public half
+// of the code-signing keypair. While this is the placeholder (empty string),
+// signature verification is SKIPPED and only the SHA-256 checksum is enforced,
+// so updates still work in dev/test. Once a real key is embedded, a manifest
+// without a valid signature is refused.
+const updaterPublicKeyPEM = ""
+
+// verifyManifestSignature verifies an RSA-PKCS1v15/SHA-256 signature over the
+// canonical manifest payload (version|download_url|checksum|min_version|timestamp).
+// Returns nil when the signature is valid. When no production key is embedded it
+// logs a warning and skips verification (checksum-only mode).
+func (u *Updater) verifyManifestSignature(manifest *UpdateManifest) error {
+	if strings.TrimSpace(updaterPublicKeyPEM) == "" {
+		logf("[updater] WARNING: no production code-signing public key embedded — SKIPPING signature verification (checksum-only). Set updaterPublicKeyPEM before production.")
+		return nil
+	}
+	if strings.TrimSpace(manifest.Signature) == "" {
+		return fmt.Errorf("update manifest has no signature — refusing to update")
+	}
+	block, _ := pem.Decode([]byte(updaterPublicKeyPEM))
+	if block == nil {
+		return fmt.Errorf("invalid embedded public key PEM")
+	}
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse public key: %w", err)
+	}
+	rsaPub, ok := pub.(*rsa.PublicKey)
+	if !ok {
+		return fmt.Errorf("embedded key is not RSA")
+	}
+	signed := strings.Join([]string{
+		manifest.Version,
+		manifest.DownloadURL,
+		manifest.Checksum,
+		manifest.MinVersion,
+		manifest.Timestamp,
+	}, "|")
+	digest := sha256.Sum256([]byte(signed))
+	sig, err := base64.StdEncoding.DecodeString(manifest.Signature)
+	if err != nil {
+		return fmt.Errorf("manifest signature not base64: %w", err)
+	}
+	if err := rsa.VerifyPKCS1v15(rsaPub, crypto.SHA256, digest[:], sig); err != nil {
+		return fmt.Errorf("manifest signature verification FAILED: %w", err)
+	}
+	return nil
+}
+
 // CheckForUpdate fetches the manifest from the server and compares versions.
 // Returns the manifest if an update is available, nil if up-to-date.
 func (u *Updater) CheckForUpdate() (*UpdateManifest, error) {
@@ -74,6 +129,12 @@ func (u *Updater) CheckForUpdate() (*UpdateManifest, error) {
 	var manifest UpdateManifest
 	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
 		return nil, fmt.Errorf("failed to decode update manifest: %w", err)
+	}
+
+	// W9: verify the manifest signature before trusting any field (e.g. the
+	// download URL could be redirected to a malicious binary).
+	if err := u.verifyManifestSignature(&manifest); err != nil {
+		return nil, fmt.Errorf("update manifest rejected: %w", err)
 	}
 
 	// P0-WA1 fix: numeric semantic-version comparison.

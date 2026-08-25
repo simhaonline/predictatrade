@@ -5,6 +5,9 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	cryptorand "crypto/rand"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -48,6 +51,9 @@ type Agent struct {
 	processedSignals map[string]bool // idempotency: track processed signal IDs
 	clockDriftMs     int64           // clock drift (server - local) in ms
 
+	halted    bool       // W8: set by KILL_SWITCH — stop forwarding and disconnect
+	stopOnce  sync.Once  // guards stopChan close against double-close
+
 	statusMu      sync.RWMutex
 	backendName   string // display URL of the backend the agent connects to
 	startedAt     time.Time
@@ -87,6 +93,7 @@ type HeartbeatData struct {
 	ClockDriftMs    int64      `json:"clock_drift_ms"`
 	AgentVersion    string     `json:"agent_version"`
 	MTConnected     bool       `json:"mt_connected"`
+	AuthMAC         string     `json:"auth_mac,omitempty"` // W3: HMAC of agent_id|timestamp for server-side impersonation check
 }
 
 func NewAgent(config *Config) *Agent {
@@ -307,7 +314,13 @@ func (a *Agent) registerTerminalWithBackend(term TerminalInfo) error {
 		return nil
 	}
 
-	fp := CollectFingerprint(a.config.AgentDataDir)
+	fp, err := CollectFingerprint(a.config.AgentDataDir)
+	if err != nil {
+		// W10: fingerprint collection failed — do not register a meaningless
+		// device binding. Log and skip registration (non-fatal for the agent).
+		log.Printf("Terminal registration skipped: fingerprint collection failed: %v", err)
+		return nil
+	}
 
 	activationReq := map[string]interface{}{
 		"license_key": a.config.LicenseKey,
@@ -500,7 +513,7 @@ func (a *Agent) sendHeartbeatToBackend() error {
 
 func (a *Agent) Stop() {
 	a.running = false
-	close(a.stopChan)
+	a.closeStop()
 	if a.health != nil {
 		a.health.stop()
 	}
@@ -512,6 +525,75 @@ func (a *Agent) Stop() {
 		a.conn.Close()
 	}
 	a.mu.Unlock()
+}
+
+// closeStop safely closes the stop channel exactly once.
+func (a *Agent) closeStop() {
+	a.stopOnce.Do(func() { close(a.stopChan) })
+}
+
+// isHalted reports whether a KILL_SWITCH has been processed.
+func (a *Agent) isHalted() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.halted
+}
+
+// halt stops all agent loops and disconnects after a server KILL_SWITCH.
+// W8: the agent must STOP forwarding signals and disconnect, not keep running.
+func (a *Agent) halt() {
+	a.mu.Lock()
+	if a.halted {
+		a.mu.Unlock()
+		return
+	}
+	a.halted = true
+	a.mu.Unlock()
+
+	log.Printf("KILL_SWITCH received — halting agent (stopping forwarding and disconnecting)")
+	a.running = false
+	a.closeStop()
+	if a.pipeManager != nil {
+		a.pipeManager.Stop()
+	}
+	if a.health != nil {
+		a.health.stop()
+	}
+	a.mu.Lock()
+	if a.conn != nil {
+		a.conn.Close()
+	}
+	a.mu.Unlock()
+}
+
+// wsHMAC returns an HMAC-SHA256 over msg using PAT_WS_HMAC_SECRET, falling back
+// to the IPC secret. W3: prevents WS impersonation of the agent.
+func (a *Agent) wsHMAC(msg string) string {
+	secret := strings.TrimSpace(os.Getenv("PAT_WS_HMAC_SECRET"))
+	if secret == "" {
+		secret = ipcHMACSecret()
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(msg))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// sendWSHandshake sends a signed handshake so the server can reject spoofed
+// agent connections. The server side verifies HMAC(agent_id|timestamp|nonce).
+func (a *Agent) sendWSHandshake() {
+	ts := time.Now().UTC().Format(time.RFC3339)
+	nonce := uuid.New().String()
+	mac := a.wsHMAC(a.deviceID + "|" + ts + "|" + nonce)
+	handshake := map[string]interface{}{
+		"type":      "HANDSHAKE",
+		"agent_id":  a.deviceID,
+		"timestamp": ts,
+		"nonce":     nonce,
+		"hmac":      mac,
+		"version":   AgentVersion,
+	}
+	data, _ := json.Marshal(handshake)
+	a.sendToServer(data)
 }
 
 func (a *Agent) loadOrCreateDeviceKey() error {
@@ -564,6 +646,9 @@ func (a *Agent) connectLoop() {
 		}
 
 		err := a.connect()
+		if a.isHalted() {
+			return
+		}
 		if err != nil {
 			log.Printf("WARN: Connection failed: %v, retrying in %v", err, a.reconnectDelay)
 			select {
@@ -619,6 +704,9 @@ func (a *Agent) connect() error {
 	a.mu.Unlock()
 
 	log.Printf("Connected to live.predictatrade.com")
+
+	// W3: send a signed handshake so the server can reject impersonated agents.
+	a.sendWSHandshake()
 
 	// Read loop — receives signals and messages from Go RT server.
 	// This runs synchronously so connectLoop cannot open a second WebSocket while
@@ -705,10 +793,12 @@ func (a *Agent) connect() error {
 				a.pipeManager.WriteToPipe("EMERGENCY_STOP", fmt.Sprintf(`{"reason":"%s"}`, emergencyPayload.Reason))
 			}
 		} else if event.Type == "KILL_SWITCH" {
-			log.Printf("KILL_SWITCH from server - closing all and disconnecting")
+			// W8: STOP forwarding signals and disconnect — do not keep running.
+			log.Printf("KILL_SWITCH from server - halting agent and disconnecting")
 			if a.pipeManager != nil {
 				a.pipeManager.WriteToPipe("KILL_SWITCH", `{"reason":"SERVER_KILL_SWITCH"}`)
 			}
+			a.halt()
 			return fmt.Errorf("kill switch activated by server")
 		
 		} else if event.Type == "ERROR" || event.Type == "DENIAL" {
@@ -879,6 +969,9 @@ func (a *Agent) sendLicenseResponse(key, status, plan string, strategies []strin
 	respData, _ := json.Marshal(response)
 	if a.pipeManager != nil {
 		a.pipeManager.WriteToPipe("LICENSE_RESPONSE", string(respData))
+		// W3: write detached HMAC signature alongside the license file so the
+		// EA can reject spoofed license status (operator-compiled follow-up).
+		a.pipeManager.writeLicenseSig(status, plan)
 	}
 }
 
@@ -986,6 +1079,7 @@ func (a *Agent) heartbeatLoop() {
 				MTConnected:     a.pipeManager != nil,
 				LatencyMs:       0, // Updated below after measuring round-trip
 				ClockDriftMs:    a.clockDriftMs,
+				AuthMAC:         a.wsHMAC(a.deviceID + "|" + localNow.Format(time.RFC3339)),
 			}
 			data, _ := json.Marshal(hb)
 			sendStart := time.Now()

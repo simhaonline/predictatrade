@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -125,6 +128,17 @@ func (pm *PipeManager) GetLicense() (string, string) {
 	return pm.licStatus, pm.licPlan
 }
 
+// safeRun wraps a loop body so a single malformed IPC payload or transient
+// panic cannot crash the whole agent. W7: pipe goroutines must recover.
+func (pm *PipeManager) safeRun(fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[panic] recovered in pipe routine: %v", r)
+		}
+	}()
+	fn()
+}
+
 func (pm *PipeManager) Start() {
 	pm.running = true
 	// Only use folders that already exist. MetaTrader creates its
@@ -144,10 +158,10 @@ func (pm *PipeManager) Start() {
 	// dead locations (never the live per-user Common\Files folders the EA uses).
 	cleanupLegacyIpc()
 
-	go pm.heartbeatLoop()
-	go pm.readLoop()
-	go pm.licenseLoop()  // Continuously write license response
-	go pm.masterReadLoop() // Read master node data (indicators, bars, snapshots)
+	go pm.safeRun(pm.heartbeatLoop)
+	go pm.safeRun(pm.readLoop)
+	go pm.safeRun(pm.licenseLoop)  // Continuously write license response
+	go pm.safeRun(pm.masterReadLoop) // Read master node data (indicators, bars, snapshots)
 
 	log.Printf("File IPC started at %d folder(s): %v", len(pm.commonDirs), pm.commonDirs)
 }
@@ -190,6 +204,63 @@ func cleanupLegacyIpc() {
 func (pm *PipeManager) Stop() {
 	pm.running = false
 	close(pm.stopChan)
+}
+
+// --- W3: IPC license signing (anti-spoofing of PAT_license.txt) ---
+//
+// The EA reads PAT_license.txt to learn its license status/plan. Without a
+// signature, any local process could write a forged file granting an
+// unlimited plan. We HMAC-sign the (status|plan|timestamp) tuple with a secret
+// the agent and EA share on the same machine, and write the result to
+// PAT_license.sig. The EA MUST verify this signature before trusting the
+// license file (operator-compiled follow-up).
+//
+// Secret priority:
+//   1. PAT_IPC_HMAC_SECRET env (operator-configured, preferred).
+//   2. A per-host derived secret (machine id / hostname). This is NOT
+//      operator-configured — log a warning so production sets the env var.
+
+func ipcHMACSecret() string {
+	if s := strings.TrimSpace(os.Getenv("PAT_IPC_HMAC_SECRET")); s != "" {
+		return s
+	}
+	id := hostMachineID()
+	if id == "" {
+		if h, err := os.Hostname(); err == nil {
+			id = h
+		}
+	}
+	if id == "" {
+		id = "pat-unknown-host"
+	}
+	mac := hmac.New(sha256.New, []byte("PAT-IPC-DERIVED-V1"))
+	mac.Write([]byte(id))
+	log.Printf("[WARN] PAT_IPC_HMAC_SECRET not set — deriving per-host IPC secret (NOT operator-configured; set PAT_IPC_HMAC_SECRET in production)")
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// hostMachineID returns a stable per-host identifier where available.
+// Cross-platform safe: returns "" if no ID source is present.
+func hostMachineID() string {
+	for _, p := range []string{"/etc/machine-id", "/var/lib/dbus/machine-id"} {
+		if data, err := os.ReadFile(p); err == nil {
+			return strings.TrimSpace(string(data))
+		}
+	}
+	return ""
+}
+
+// writeLicenseSig writes a detached HMAC signature for the current license
+// status so the EA can reject spoofed license files.
+func (pm *PipeManager) writeLicenseSig(status, plan string) {
+	ts := time.Now().UTC().Format(time.RFC3339)
+	secret := ipcHMACSecret()
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(status + "|" + plan + "|" + ts))
+	sig := hex.EncodeToString(mac.Sum(nil))
+	for _, d := range pm.commonDirs {
+		os.WriteFile(filepath.Join(d, "PAT_license.sig"), []byte(ts+" "+sig), 0644)
+	}
 }
 
 // findCommonFolders returns the MetaQuotes "Common\Files" directory used for
@@ -303,6 +374,8 @@ func (pm *PipeManager) licenseLoop() {
 			for _, d := range pm.commonDirs {
 				os.WriteFile(filepath.Join(d, "PAT_license.txt"), respData, 0644)
 			}
+			// W3: write detached HMAC signature alongside the license file.
+			pm.writeLicenseSig(pm.licStatus, plan)
 		case <-pm.stopChan:
 			return
 		}

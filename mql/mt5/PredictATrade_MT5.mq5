@@ -122,6 +122,7 @@ string        g_connection    = "OFFLINE";
 string        g_licenseStatus  = "UNKNOWN";
 string        g_licensePlan    = "—";
 string        g_allowedStrategies = "";  // Server-provided comma-separated list from license
+bool          g_strategiesEnforced = false; // W2: true when server sent allowed_strategies (even if empty → deny all)
 double        g_suggestedLot   = 0;     // Server-calculated lot size
 string        g_licenseKey    = "";
 string        g_authStatus     = "UNKNOWN";
@@ -1299,6 +1300,16 @@ void HandleClosePosition(string payload)
     {
         if(PositionSelectByTicket(ticket))
         {
+            // W6 FIX: only close positions that belong to PAT (magic within our
+            // range) AND match the EA symbol. Prevents closing an arbitrary
+            // position a user happens to hold on the same ticket.
+            long posMagic = PositionGetInteger(POSITION_MAGIC);
+            string posSymbol = PositionGetString(POSITION_SYMBOL);
+            if(!PAT_IsPatMagic(posMagic) || posSymbol != g_symbol)
+            {
+                Print("CLOSE_POSITION: ticket=", ticket, " ignored — not a PAT position (magic=", posMagic, " symbol=", posSymbol, ")");
+                return;
+            }
             if(trade.PositionClose(ticket))
             {
                 Print("CLOSE_POSITION: ticket=", ticket, " closed");
@@ -1313,7 +1324,7 @@ void HandleClosePosition(string payload)
         {
             ulong t = PositionGetTicket(i);
             if(t == 0) continue;
-            if(PositionGetInteger(POSITION_MAGIC) == magic)
+            if(PositionGetInteger(POSITION_MAGIC) == magic && PositionGetString(POSITION_SYMBOL) == g_symbol)
             {
                 if(trade.PositionClose(t))
                 {
@@ -1433,18 +1444,22 @@ bool IsStrategyEnabled(string strategyID)
     // The server ALSO filters signals before sending to the agent (primary defense).
     // This EA check is a secondary defense layer.
 
-    // If license is ACTIVE but strategies not yet received from agent,
-    // allow all — the server already filters by plan before sending signals.
-    if(StringLen(g_allowedStrategies) == 0)
+    // If the server OMITTED allowed_strategies entirely (legacy backend /
+    // not yet received), allow all — the server already filters by plan before
+    // sending signals (primary defense).
+    if(!g_strategiesEnforced)
     {
         if(g_licenseStatus == "ACTIVE")
-        {
-            // License is valid but agent hasn't forwarded strategies yet.
-            // Server-side filtering is the primary defense — allow through.
             return true;
-        }
-        // License not yet validated — block all trading
         Print("Strategy check: license not validated — blocking ", strategyID);
+        return false;
+    }
+
+    // Server sent an explicit list. An EMPTY list means NO strategies are
+    // allowed (fail closed) — never fall through to allow-all.
+    if(StringLen(g_allowedStrategies) == 0)
+    {
+        Print("Strategy check: empty allowed list (deny-all) — blocking ", strategyID);
         return false;
     }
 
@@ -1547,12 +1562,20 @@ void HandleLicenseResponse(string json)
     g_sessionStatus = ExtractJSONString(json, "session");
     g_tradingStatus = ExtractJSONString(json, "trading");
 
-    // Parse allowed_strategies from server license response
-    // Format: ["STANDARD_SCALPING","ULTRA_SCALPING",...]
-    string strategiesRaw = ExtractJSONString(json, "allowed_strategies");
-    if(StringLen(strategiesRaw) > 0)
+    // Parse allowed_strategies from server license response.
+    // The backend sends it as a JSON ARRAY: ["STANDARD_SCALPING",...].
+    // W2 FIX: ExtractJSONString only matched a quoted STRING value, so the
+    // array was never parsed and every strategy stayed enabled. Use the new
+    // ExtractJSONArrayRaw helper. A legacy quoted-string value is still
+    // accepted for backwards compatibility.
+    bool listPresent = (StringFind(json, "\"allowed_strategies\":") >= 0);
+    if(listPresent)
     {
-        // Convert JSON array to comma-separated string for easy checking
+        g_strategiesEnforced = true;
+        string strategiesRaw = ExtractJSONArrayRaw(json, "allowed_strategies");
+        if(StringLen(strategiesRaw) == 0)
+            strategiesRaw = ExtractJSONString(json, "allowed_strategies"); // legacy string
+        // Convert the array inner content to a comma-separated list.
         string cleaned = strategiesRaw;
         StringReplace(cleaned, "[", "");
         StringReplace(cleaned, "]", "");
@@ -1609,6 +1632,9 @@ void ExecuteBuy()
           " magic=", magic, " comment=", comment);
 
     trade.SetExpertMagicNumber(magic);
+    // W5 FIX: apply per-strategy max slippage (overrides the global default
+    // set at init) so each strategy respects its configured slippage budget.
+    trade.SetDeviationInPoints(PAT_GetMaxSlippage(g_signalStrategy));
     if(trade.Buy(vol, g_symbol, ask, g_sl, finalTP, comment))
     {
         g_lastExecutedSignalID = g_signalID;
@@ -1676,6 +1702,8 @@ void ExecuteSell()
           " magic=", magic, " comment=", comment);
 
     trade.SetExpertMagicNumber(magic);
+    // W5 FIX: apply per-strategy max slippage (see ExecuteBuy).
+    trade.SetDeviationInPoints(PAT_GetMaxSlippage(g_signalStrategy));
     if(trade.Sell(vol, g_symbol, bid, g_sl, finalTP, comment))
     {
         g_lastExecutedSignalID = g_signalID;
@@ -1930,6 +1958,31 @@ string ExtractJSONString(string json, string key)
     int e = StringFind(json, "\"", s);
     if(e < 0) return "";
     return StringSubstr(json, s, e - s);
+}
+
+// ExtractJSONArrayRaw returns the INNER content of a JSON array value for `key`.
+// Example: for {"allowed_strategies":["A","B"]} with key="allowed_strategies",
+// returns "A","B" (brackets/quotes/spaces stripped by the caller).
+// Returns "" if the value is not a JSON array (so callers can fall back to a
+// quoted-string value via ExtractJSONString). W2 FIX.
+string ExtractJSONArrayRaw(string json, string key)
+{
+    string sk = "\"" + key + "\":[";
+    int s = StringFind(json, sk);
+    if(s < 0) return "";
+    s += StringLen(sk);
+    int depth = 1;
+    int n = StringLen(json);
+    int i = s;
+    while(i < n)
+    {
+        int c = StringGetCharacter(json, i);
+        if(c == '[') depth++;
+        else if(c == ']') { depth--; if(depth == 0) break; }
+        i++;
+    }
+    if(i >= n) return "";
+    return StringSubstr(json, s, i - s);
 }
 
 double ExtractJSONDouble(string json, string key)

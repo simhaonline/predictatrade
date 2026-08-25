@@ -113,6 +113,7 @@ string  g_connection      = "OFFLINE";
 string  g_licenseStatus    = "PENDING";
 string  g_licensePlan      = "";
 string  g_allowedStrategies = "";  // Server-provided from license
+bool    g_strategiesEnforced = false; // W2: true when server sent allowed_strategies (empty → deny all)
 double  g_suggestedLot   = 0;     // Server-calculated lot size
 string  g_licenseKey       = "";
 string  g_authStatus       = "UNKNOWN";
@@ -1467,6 +1468,14 @@ void HandleClosePosition(string payload)
     {
         if(OrderSelect(ticket, SELECT_BY_TICKET))
         {
+            // W6 FIX: only close if the position belongs to PAT (within our magic
+            // range) AND matches this EA's symbol. Prevents closing an arbitrary
+            // user position that happens to share the ticket number.
+            if(!PAT_IsPatMagic(OrderMagicNumber()) || OrderSymbol() != g_symbol)
+            {
+                Print("CLOSE_POSITION: ticket=", ticket, " ignored — not a PAT position (magic=", OrderMagicNumber(), " symbol=", OrderSymbol(), ")");
+                return;
+            }
             int type = OrderType();
             bool isBuy = (type == OP_BUY);
             double closePrice = isBuy ? MarketInfo(g_symbol, MODE_BID) : MarketInfo(g_symbol, MODE_ASK);
@@ -1604,15 +1613,21 @@ bool IsStrategyEnabled(string strategyID)
     // The server ALSO filters signals before sending to the agent (primary defense).
     // This EA check is a secondary defense layer.
 
-    // If license is ACTIVE but strategies not yet received from agent,
-    // allow all — the server already filters by plan before sending signals.
-    if(StringLen(g_allowedStrategies) == 0)
+    // If the server OMITTED allowed_strategies entirely (legacy backend /
+    // not yet received), allow all — server-side filtering is primary defense.
+    if(!g_strategiesEnforced)
     {
         if(g_licenseStatus == "ACTIVE")
-        {
             return true;
-        }
         Print("Strategy check: license not validated — blocking ", strategyID);
+        return false;
+    }
+
+    // Server sent an explicit list. An EMPTY list means NO strategies allowed
+    // (fail closed) — never fall through to allow-all.
+    if(StringLen(g_allowedStrategies) == 0)
+    {
+        Print("Strategy check: empty allowed list (deny-all) — blocking ", strategyID);
         return false;
     }
 
@@ -1725,10 +1740,18 @@ void HandleLicenseResponse(string json)
     g_sessionStatus = ExtractJSONString(json, "session");
     g_tradingStatus = ExtractJSONString(json, "trading");
 
-    // Parse allowed_strategies from server license response
-    string strategiesRaw = ExtractJSONString(json, "allowed_strategies");
-    if(StringLen(strategiesRaw) > 0)
+    // Parse allowed_strategies from server license response.
+    // Backend sends a JSON ARRAY: ["STANDARD_SCALPING",...]. W2 FIX: the old
+    // ExtractJSONString only matched a quoted STRING, so the array was never
+    // parsed and all strategies stayed enabled. Use ExtractJSONArrayRaw, with
+    // legacy quoted-string fallback.
+    bool listPresent = (StringFind(json, "\"allowed_strategies\":") >= 0);
+    if(listPresent)
     {
+        g_strategiesEnforced = true;
+        string strategiesRaw = ExtractJSONArrayRaw(json, "allowed_strategies");
+        if(StringLen(strategiesRaw) == 0)
+            strategiesRaw = ExtractJSONString(json, "allowed_strategies"); // legacy string
         string cleaned = strategiesRaw;
         StringReplace(cleaned, "[", "");
         StringReplace(cleaned, "]", "");
@@ -1765,8 +1788,17 @@ void ExecuteBuy()
     int magic = PAT_NextMagic(magicBase);
     string comment = PAT_StrategyPrefix(g_signalStrategy) + PAT_ShortSignalID(g_signalID);
 
-    // Use server-calculated lot size if provided, otherwise minimum lot
-    double vol = PAT_NormalizeLot(g_suggestedLot > 0 ? g_suggestedLot : MarketInfo(g_symbol, MODE_MINLOT));
+    // W4 FIX: BUY must size identically to SELL — use PAT_CalcLotSize when
+    // auto lot sizing is enabled, else fall back to the base lot.
+    double vol = 0;
+    if(UseAutoLotSizing)
+        vol = PAT_CalcLotSize(AccountEquity(), MathAbs(g_entry - g_sl));
+    if(vol <= 0) vol = PAT_NormalizeLot(BaseLot);
+    if(vol <= 0)
+    {
+        Print("REJECTED lot_below_min: computed lot below broker minimum — refusing to force size");
+        return;
+    }
 
     // 4. EA-side risk gate (spread, drift, TTL, caps, risk$, martingale, margin)
     // Risk gates handled by SERVER — EA trusts server decision
@@ -1962,6 +1994,30 @@ string ExtractJSONString(string json, string key)
     int end = StringFind(json, "\"", start);
     if(end < 0) return "";
     return StringSubstr(json, start, end - start);
+}
+
+// ExtractJSONArrayRaw returns the INNER content of a JSON array value for `key`.
+// Example: for {"allowed_strategies":["A","B"]} with key="allowed_strategies",
+// returns "A","B" (brackets/quotes/spaces stripped by the caller).
+// Returns "" if the value is not a JSON array. W2 FIX.
+string ExtractJSONArrayRaw(string json, string key)
+{
+    string sk = "\"" + key + "\":[";
+    int s = StringFind(json, sk);
+    if(s < 0) return "";
+    s += StringLen(sk);
+    int depth = 1;
+    int n = StringLen(json);
+    int i = s;
+    while(i < n)
+    {
+        int c = StringGetCharacter(json, i);
+        if(c == '[') depth++;
+        else if(c == ']') { depth--; if(depth == 0) break; }
+        i++;
+    }
+    if(i >= n) return "";
+    return StringSubstr(json, s, i - s);
 }
 
 double ExtractJSONDouble(string json, string key)

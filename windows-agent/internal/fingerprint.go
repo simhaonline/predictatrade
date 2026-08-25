@@ -2,6 +2,9 @@ package agent
 
 import (
 	"log"
+	"os/exec"
+	"runtime"
+	"strings"
 
 	"crypto/hmac"
 	"crypto/rand"
@@ -10,7 +13,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 )
 
 // HardwareFingerprint collects privacy-aware composite device identity.
@@ -26,10 +28,11 @@ type HardwareFingerprint struct {
 }
 
 // CollectFingerprint gathers hardware identifiers from the OS.
-// On non-Windows (dev), generates synthetic values.
-// On Windows, reads from registry/WMI. If hardware IDs are unavailable,
-// falls back to installation_id + hostname for a stable fingerprint.
-func CollectFingerprint(dataDir string) *HardwareFingerprint {
+// On non-Windows (dev), generates synthetic values so the agent still runs.
+// On Windows, reads real hardware IDs via WMI/registry. If hardware IDs are
+// unavailable on Windows (the intended production platform), it returns an
+// error so device binding cannot be trivially copied/empty (W10).
+func CollectFingerprint(dataDir string) (*HardwareFingerprint, error) {
 	hostname, _ := os.Hostname()
 	fp := &HardwareFingerprint{
 		OS:       runtime.GOOS,
@@ -37,7 +40,7 @@ func CollectFingerprint(dataDir string) *HardwareFingerprint {
 	}
 
 	if runtime.GOOS == "windows" {
-		// Windows: read from registry/WMI
+		// Windows: read real hardware identifiers.
 		fp.MachineGUID = readRegistry("SOFTWARE\\Microsoft\\Cryptography", "MachineGuid")
 		fp.SystemUUID = getSystemUUID()
 		fp.Motherboard = getMotherboardID()
@@ -53,14 +56,37 @@ func CollectFingerprint(dataDir string) *HardwareFingerprint {
 	// Load or create installation ID (persists across restarts)
 	fp.InstallationID = loadOrCreateInstallationID(dataDir)
 
-	// Fallback: if hardware IDs are empty, use hostname + installation_id
-	// This ensures a non-empty fingerprint hash even when WMI/registry fails
+	// On the production platform, hardware IDs MUST be collectable. If every
+	// hardware source is empty, device binding would be trivially copyable —
+	// fail hard so the agent does not register a meaningless fingerprint.
+	if runtime.GOOS == "windows" &&
+		fp.MachineGUID == "" && fp.SystemUUID == "" && fp.Motherboard == "" && fp.Disk == "" {
+		return nil, fmt.Errorf("hardware fingerprint collection failed: no BIOS UUID, motherboard serial, disk serial or machine GUID available")
+	}
+
+	// Fallback (non-Windows / dev): if hardware IDs are empty, use hostname +
+	// installation_id so the fingerprint hash is still stable.
 	if fp.MachineGUID == "" && fp.SystemUUID == "" && fp.Motherboard == "" && fp.Disk == "" {
 		fp.MachineGUID = hashStr("hw-fallback-" + hostname + "-" + fp.InstallationID)
 		log.Printf("WARNING: Hardware IDs unavailable, using fallback fingerprint (hostname + installation_id)")
 	}
 
-	return fp
+	return fp, nil
+}
+
+// runCmd executes a command and returns trimmed stdout, or "" on any error.
+// Used to read Windows hardware identifiers. Safe to compile on non-Windows
+// (the callers are runtime-guarded to Windows only).
+func runCmd(name string, args ...string) string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	cmd := exec.Command(name, args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // ComputeHash returns a SHA256 hash of the fingerprint components.
@@ -100,25 +126,28 @@ func HMACWithPepper(pepper, value string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// --- Windows-specific helpers (stubs on non-Windows) ---
+// --- Windows-specific helpers (real reads; no-ops on non-Windows) ---
 
 func readRegistry(keyPath, valueName string) string {
-	// On Windows: use golang.org/x/sys/windows/registry
-	// For now, return empty (agent will use installation_id as fallback)
-	return ""
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	// Query the registry via reg.exe (avoids importing the windows-only
+	// golang.org/x/sys/windows/registry package so the agent still builds on Linux).
+	return runCmd("reg", "query", keyPath, "/v", valueName)
 }
 
 func getSystemUUID() string {
-	// On Windows: WMI SELECT UUID FROM Win32_ComputerSystemProduct
-	return ""
+	// WMI: UUID from Win32_ComputerSystemProduct
+	return runCmd("wmic", "csproduct", "get", "UUID")
 }
 
 func getMotherboardID() string {
-	// On Windows: WMI SELECT SerialNumber FROM Win32_BaseBoard
-	return ""
+	// WMI: SerialNumber from Win32_BaseBoard
+	return runCmd("wmic", "baseboard", "get", "SerialNumber")
 }
 
 func getDiskID() string {
-	// On Windows: WMI SELECT SerialNumber FROM Win32_DiskDrive
-	return ""
+	// WMI: SerialNumber from Win32_DiskDrive
+	return runCmd("wmic", "diskdrive", "get", "SerialNumber")
 }
