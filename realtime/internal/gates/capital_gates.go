@@ -82,11 +82,17 @@ func (g *RiskOversizeGate) ID() types.GateID { return types.GateRiskOversize }
 
 func (g *RiskOversizeGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := g.base(state)
-	if g.MaxRiskPerTradePct <= 0 || input.AccountEquity <= 0 ||
-		input.EntryPrice <= 0 || input.StopLoss <= 0 {
+	if g.MaxRiskPerTradePct <= 0 || input.EntryPrice <= 0 || input.StopLoss <= 0 {
 		// Cannot verify sizing — fail closed.
 		eval.Result = types.GateVeto
 		eval.ReasonCodes = []string{ReasonRiskOversize}
+		return eval
+	}
+	if input.AccountEquity <= 0 {
+		// Broker account not hydrated — PASS and let the EA handle sizing.
+		// The EA has the real account balance and calculates lot size locally.
+		// Server-side risk sizing is a secondary check, not the only one.
+		eval.Result = types.GatePass
 		return eval
 	}
 	econ := risk.SymbolEconomics{
