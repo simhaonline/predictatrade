@@ -39,9 +39,10 @@ type PipeManager struct {
 	running     bool
 	stopChan    chan struct{}
 	apiURL      string
-	licStatus   string
-	licPlan     string
-	licKey      string
+	licStatus     string
+	licPlan       string
+	licKey        string
+	licStrategies []string
 	terminals   map[string]*TerminalInfo // keyed by "MT4:<account>" or "MT5:<account>"
 	onTerminalConnect func(TerminalInfo) // callback when a new terminal connects
 	onLicense   func(LicenseCheckMsg)    // callback to validate a license against the server
@@ -110,6 +111,9 @@ func (pm *PipeManager) SetLicenseResult(status, plan string, strategies []string
 	}
 	if plan != "" {
 		pm.licPlan = plan
+	}
+	if strategies != nil {
+		pm.licStrategies = strategies
 	}
 }
 
@@ -289,10 +293,11 @@ func (pm *PipeManager) licenseLoop() {
 				plan = "ELITE" // never write a blank plan; EA always shows a type
 			}
 			response := LicenseResponse{
-				Type:   "LICENSE_RESPONSE",
-				Status: pm.licStatus,
-				Plan:   plan,
-				Key:    pm.licKey,
+				Type:              "LICENSE_RESPONSE",
+				Status:            pm.licStatus,
+				Plan:              plan,
+				Key:               pm.licKey,
+				AllowedStrategies: pm.licStrategies,
 			}
 			respData, _ := json.Marshal(response)
 			for _, d := range pm.commonDirs {
