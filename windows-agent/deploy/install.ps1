@@ -138,7 +138,7 @@ if ($svc) {
 
 # Use sc.exe to create the service — the agent uses svc.Run() to communicate
 # directly with the Windows Service Control Manager (no NSSM wrapper needed)
-$scResult = sc.exe create $ServiceName binPath= "`"$agentPath`"" start= auto 2>&1
+$scResult = sc.exe create $ServiceName binPath= $agentPath start= auto 2>&1
 Write-Host "  sc.exe create result: $scResult"
 sc.exe description $ServiceName "Predict-A-Trade XAUUSD Windows Agent" 2>&1 | Out-Null
 sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/10000/restart/30000 2>&1 | Out-Null
