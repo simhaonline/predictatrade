@@ -1999,8 +1999,9 @@ void PAT_Write(string filename, string content)
 void PAT_Append(string filename, string content)
 {
     int retry = 0;
-    while(retry < 3)
+    while(retry < 5)
     {
+        if(retry > 0) Sleep(5);
         int h = FileOpen(filename, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
         if(h == INVALID_HANDLE)
         {

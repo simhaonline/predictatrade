@@ -335,7 +335,7 @@ func (pm *PipeManager) readLoop() {
 			}
 			os.WriteFile(ticksPath, []byte(""), 0644)
 		}
-		time.Sleep(1 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
@@ -652,7 +652,7 @@ func (pm *PipeManager) masterReadLoop() {
 			}
 			os.WriteFile(masterPath, []byte(""), 0644)
 		}
-		time.Sleep(1 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
