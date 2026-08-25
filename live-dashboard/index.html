@@ -440,11 +440,7 @@ function updatePipeline() {
         <div class="acc-row"><span class="acc-label">LAST TICK (UTC)</span><span class="acc-val" id="pTickTime">—</span></div>
         <div class="acc-row"><span class="acc-label">DAY CHANGE</span><span class="acc-val" id="pDayChg">—</span></div>
         
-        <!-- Volume & Liquidity Trends mini-chart -->
-        <div style="margin-top:6px;flex-shrink:0">
-          <div style="font-size:8px;font-weight:800;color:var(--text-dim);margin-bottom:3px;font-family:var(--mono);letter-spacing:.4px">VOLUME & LIQUIDITY TRENDS</div>
-          <div id="volLiqChart" style="width:100%;height:90px;min-height:90px"></div>
-        </div>
+
       </div>
     </section>
 
@@ -461,6 +457,11 @@ function updatePipeline() {
       <div class="chart-wrap">
         <div id="priceChart"></div>
         <div class="overlay-note">EMA/BB/RSI curves are display overlays computed from candle closes · numeric panels show server-authoritative values</div>
+      </div>
+      <!-- Volume & Liquidity Trends chart — fills empty space below price chart -->
+      <div style="flex-shrink:0;padding:4px 7px 2px;border-top:1px solid var(--border)">
+        <div style="font-size:8px;font-weight:800;color:var(--text-dim);margin-bottom:2px;font-family:var(--mono);letter-spacing:.4px">VOLUME & LIQUIDITY TRENDS</div>
+        <div id="volLiqChart" style="width:100%;height:140px;min-height:140px"></div>
       </div>
     </section>
 
