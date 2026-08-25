@@ -11,7 +11,7 @@
 //| Lightweight adapter only — contains NO predictive logic.         |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.10"
+#property version   "1.00"
 #property strict
 
 // ─── Signal/Execution inputs ───

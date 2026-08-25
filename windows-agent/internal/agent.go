@@ -683,6 +683,34 @@ func (a *Agent) connect() error {
 			default:
 				log.Printf("Signal buffer full, dropping: %s", event.EventID)
 			}
+		} else if event.Type == "CLOSE_POSITION" {
+			var closePayload struct {
+				Ticket   int64  `json:"ticket"`
+				Magic    int64  `json:"magic"`
+				Reason   string `json:"reason"`
+				SignalID string `json:"signal_id"`
+			}
+			json.Unmarshal(event.Payload, &closePayload)
+			log.Printf("CLOSE_POSITION from server: ticket=%d magic=%d reason=%s", closePayload.Ticket, closePayload.Magic, closePayload.Reason)
+			if a.pipeManager != nil {
+				a.pipeManager.WriteToPipe("CLOSE_POSITION", fmt.Sprintf(`{"ticket":%d,"magic":%d,"reason":"%s","signal_id":"%s"}`, closePayload.Ticket, closePayload.Magic, closePayload.Reason, closePayload.SignalID))
+			}
+		} else if event.Type == "EMERGENCY_STOP" {
+			var emergencyPayload struct {
+				Reason string `json:"reason"`
+			}
+			json.Unmarshal(event.Payload, &emergencyPayload)
+			log.Printf("EMERGENCY_STOP from server: reason=%s", emergencyPayload.Reason)
+			if a.pipeManager != nil {
+				a.pipeManager.WriteToPipe("EMERGENCY_STOP", fmt.Sprintf(`{"reason":"%s"}`, emergencyPayload.Reason))
+			}
+		} else if event.Type == "KILL_SWITCH" {
+			log.Printf("KILL_SWITCH from server - closing all and disconnecting")
+			if a.pipeManager != nil {
+				a.pipeManager.WriteToPipe("KILL_SWITCH", `{"reason":"SERVER_KILL_SWITCH"}`)
+			}
+			return fmt.Errorf("kill switch activated by server")
+		
 		} else if event.Type == "ERROR" || event.Type == "DENIAL" {
 			// P1-001: Distinguish distinct failure types — never conflate
 			// auth failures with signal halts, license issues, etc.
