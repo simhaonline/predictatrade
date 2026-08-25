@@ -12,6 +12,15 @@ interface ProviderConfig {
   detected_from_env?: boolean;
 }
 
+// M2 guarded subscription lifecycle state machine. Only these transitions are
+// permitted; CANCELLED is terminal. PAUSED/PAST_DUE both resume to ACTIVE.
+const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+  ACTIVE: ['PAUSED', 'CANCELLED', 'PAST_DUE'],
+  PAUSED: ['ACTIVE', 'CANCELLED'],
+  PAST_DUE: ['ACTIVE', 'CANCELLED'],
+  CANCELLED: [],
+};
+
 @Injectable()
 export class SubscriptionsService {
   private logger = new Logger(SubscriptionsService.name);
@@ -138,6 +147,59 @@ export class SubscriptionsService {
     );
 
     return { selected_strategies: decision.selected };
+  }
+
+  /** Apply a guarded status transition after ownership + matrix validation. */
+  private async transition(id: string, userId: string, toStatus: string, reason?: string) {
+    const cur = await this.pool.query(
+      `SELECT id, user_id, status FROM billing.subscriptions WHERE id = $1`,
+      [id],
+    );
+    if (!cur.rows[0]) throw new NotFoundException('Subscription not found');
+    if (cur.rows[0].user_id !== userId) throw new NotFoundException('Subscription not found');
+
+    const from = cur.rows[0].status;
+    const allowed = ALLOWED_TRANSITIONS[from] || [];
+    if (!allowed.includes(toStatus)) {
+      throw new BadRequestException(`Invalid transition: ${from} -> ${toStatus}`);
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const updateCols: string[] = ['status = $2', 'updated_at = now()'];
+      if (toStatus === 'PAUSED') updateCols.push('paused_at = now()');
+      if (toStatus === 'CANCELLED') updateCols.push('cancelled_at = now()', 'cancel_reason = $3');
+      await client.query(
+        `UPDATE billing.subscriptions SET ${updateCols.join(', ')} WHERE id = $1`,
+        toStatus === 'CANCELLED' ? [id, toStatus, reason ?? null] : [id, toStatus],
+      );
+      await client.query(
+        `INSERT INTO billing.subscription_events (subscription_id, event_type, metadata, actor_id, created_at)
+         VALUES ($1, $2, $3::jsonb, $4, now())`,
+        [id, toStatus, JSON.stringify({ from, to: toStatus, reason: reason ?? null }), userId],
+      );
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      this.logger.error(`Subscription transition failed: ${e instanceof Error ? e.message : e}`);
+      throw e;
+    } finally {
+      client.release();
+    }
+    return { id, status: toStatus };
+  }
+
+  async pauseSubscription(id: string, userId: string) {
+    return this.transition(id, userId, 'PAUSED', 'PAUSED_BY_USER');
+  }
+
+  async resumeSubscription(id: string, userId: string) {
+    return this.transition(id, userId, 'ACTIVE', 'RESUMED_BY_USER');
+  }
+
+  async cancelSubscription(id: string, userId: string, reason?: string) {
+    return this.transition(id, userId, 'CANCELLED', reason ?? 'CANCELLED_BY_USER');
   }
 
 }

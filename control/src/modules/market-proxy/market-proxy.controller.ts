@@ -4,7 +4,9 @@ import {
   HttpException,
   HttpStatus,
   Logger,
+  UseGuards,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 const REALTIME_BASE =
   process.env.REALTIME_URL && process.env.REALTIME_URL.trim().length > 0
@@ -14,6 +16,7 @@ const REALTIME_BASE =
 const UPSTREAM_TIMEOUT_MS = 5000;
 
 @Controller('market')
+@UseGuards(JwtAuthGuard)
 export class MarketProxyController {
   private readonly logger = new Logger(MarketProxyController.name);
 
