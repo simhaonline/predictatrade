@@ -458,10 +458,32 @@ function updatePipeline() {
         <div id="priceChart"></div>
         <div class="overlay-note">EMA/BB/RSI curves are display overlays computed from candle closes · numeric panels show server-authoritative values</div>
       </div>
-      <!-- Volume & Liquidity Trends chart — fills empty space below price chart -->
-      <div style="flex-shrink:0;padding:4px 7px 2px;border-top:1px solid var(--border)">
-        <div style="font-size:8px;font-weight:800;color:var(--text-dim);margin-bottom:2px;font-family:var(--mono);letter-spacing:.4px">VOLUME & LIQUIDITY TRENDS</div>
-        <div id="volLiqChart" style="width:100%;height:140px;min-height:140px"></div>
+      <!-- Multi-indicator sub-charts — fills space below main price chart -->
+      <div style="flex-shrink:0;padding:3px 7px 2px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:2px">
+        
+        <!-- Volume & Liquidity -->
+        <div>
+          <div style="font-size:7px;font-weight:800;color:var(--text-dim);margin-bottom:1px;font-family:var(--mono);letter-spacing:.4px">VOLUME & LIQUIDITY</div>
+          <div id="volLiqChart" style="width:100%;height:80px;min-height:80px"></div>
+        </div>
+        
+        <!-- RSI + MACD side by side -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px">
+          <div>
+            <div style="font-size:7px;font-weight:800;color:var(--text-dim);margin-bottom:1px;font-family:var(--mono);letter-spacing:.4px">RSI (14)</div>
+            <div id="rsiChart" style="width:100%;height:70px;min-height:70px"></div>
+          </div>
+          <div>
+            <div style="font-size:7px;font-weight:800;color:var(--text-dim);margin-bottom:1px;font-family:var(--mono);letter-spacing:.4px">MACD (12,26,9)</div>
+            <div id="macdChart" style="width:100%;height:70px;min-height:70px"></div>
+          </div>
+        </div>
+        
+        <!-- Spread monitor -->
+        <div>
+          <div style="font-size:7px;font-weight:800;color:var(--text-dim);margin-bottom:1px;font-family:var(--mono);letter-spacing:.4px">SPREAD MONITOR (pts)</div>
+          <div id="spreadChart" style="width:100%;height:55px;min-height:55px"></div>
+        </div>
       </div>
     </section>
 
@@ -784,7 +806,7 @@ function renderAccount() {
   }
   el.textContent = fmt(mid);
   S.prevPrice = mid ?? S.prevPrice;
-  $("pBid").textContent = fmt(bid); $("pAsk").textContent = fmt(ask); $("pSpread").textContent = fmt(spread);
+  $("pBid").textContent = fmt(bid); $("pAsk").textContent = fmt(ask); $("pSpread").textContent = fmt(spread); updateSpreadChart(num(spread));
   $("pVol").textContent = tick.volume != null ? Number(tick.volume).toLocaleString() : "—";
   const regime = (S.engines.find(e => e.engine === "STANDARD_SCALPING") || {}).regime;
   const regEl = $("pRegime");
@@ -1039,6 +1061,133 @@ function updateVolLiqChart(candles) {
   });
 }
 
+/* ── RSI Chart ── */
+let rsiChart = null;
+function initRsiChart() {
+  const el = $("rsiChart");
+  if (!el || typeof echarts === "undefined") return;
+  if (el.offsetWidth < 10) return;
+  if (rsiChart) { try { rsiChart.dispose(); } catch {} }
+  rsiChart = echarts.init(el, null, { renderer: "canvas" });
+  rsiChart.setOption({
+    grid: { left: 22, right: 5, top: 4, bottom: 14 },
+    xAxis: { type: "category", show: false, data: [] },
+    yAxis: { 
+      type: "value", min: 0, max: 100,
+      axisLabel: { color: "#6c707a", fontSize: 6 },
+      splitLine: { lineStyle: { color: "rgba(42,53,72,.2)" } }
+    },
+    series: [{
+      type: "line", data: [], smooth: true, symbol: "none",
+      lineStyle: { color: "#9c27b0", width: 1.5 },
+      areaStyle: { color: "rgba(156,39,176,.08)" },
+      markLine: {
+        silent: true,
+        lineStyle: { color: "#f44336", type: "dashed", width: 0.5 },
+        data: [{ yAxis: 70 }, { yAxis: 30 }, { yAxis: 50 }]
+      }
+    }]
+  });
+}
+function updateRsiChart(candles) {
+  if (!rsiChart) { initRsiChart(); if (!rsiChart) return; }
+  if (!candles || !candles.length) return;
+  // Calculate RSI(14) from candle closes
+  const closes = candles.map(k => k.close);
+  const rsiData = [];
+  const period = 14;
+  for (let i = 0; i < closes.length; i++) {
+    if (i < period) { rsiData.push(50); continue; }
+    let gains = 0, losses = 0;
+    for (let j = i - period + 1; j <= i; j++) {
+      const diff = closes[j] - closes[j-1];
+      if (diff > 0) gains += diff; else losses -= diff;
+    }
+    const rs = losses === 0 ? 100 : gains / losses;
+    rsiData.push(+(100 - 100 / (1 + rs)).toFixed(2));
+  }
+  rsiChart.setOption({ xAxis: { data: rsiData.map(() => "") }, series: [{ data: rsiData.slice(-30) }] });
+}
+
+/* ── MACD Chart ── */
+let macdChart = null;
+function initMacdChart() {
+  const el = $("macdChart");
+  if (!el || typeof echarts === "undefined") return;
+  if (el.offsetWidth < 10) return;
+  if (macdChart) { try { macdChart.dispose(); } catch {} }
+  macdChart = echarts.init(el, null, { renderer: "canvas" });
+  macdChart.setOption({
+    grid: { left: 22, right: 5, top: 4, bottom: 14 },
+    xAxis: { type: "category", show: false, data: [] },
+    yAxis: { type: "value", axisLabel: { color: "#6c707a", fontSize: 6 }, splitLine: { lineStyle: { color: "rgba(42,53,72,.2)" } } },
+    series: [
+      { name: "MACD", type: "line", data: [], smooth: true, symbol: "none", lineStyle: { color: "#2196f3", width: 1 } },
+      { name: "Signal", type: "line", data: [], smooth: true, symbol: "none", lineStyle: { color: "#ff9800", width: 1 } },
+      { name: "Hist", type: "bar", data: [], barWidth: "40%", itemStyle: { color: function(p) { return p.value >= 0 ? "rgba(0,200,83,.4)" : "rgba(255,23,68,.4)"; } } }
+    ]
+  });
+}
+function updateMacdChart(candles) {
+  if (!macdChart) { initMacdChart(); if (!macdChart) return; }
+  if (!candles || !candles.length) return;
+  const closes = candles.map(k => k.close);
+  // EMA helper
+  function ema(data, period) {
+    const k = 2 / (period + 1);
+    const result = [data[0]];
+    for (let i = 1; i < data.length; i++) {
+      result.push(data[i] * k + result[i-1] * (1-k));
+    }
+    return result;
+  }
+  const ema12 = ema(closes, 12);
+  const ema26 = ema(closes, 26);
+  const macdLine = closes.map((_, i) => +(ema12[i] - ema26[i]).toFixed(3));
+  const signalLine = ema(macdLine, 9);
+  const hist = macdLine.map((v, i) => +(v - signalLine[i]).toFixed(3));
+  const n = 30;
+  macdChart.setOption({
+    xAxis: { data: hist.slice(-n).map(() => "") },
+    series: [
+      { data: macdLine.slice(-n) },
+      { data: signalLine.slice(-n) },
+      { data: hist.slice(-n) }
+    ]
+  });
+}
+
+/* ── Spread Chart ── */
+let spreadChart = null;
+const spreadHistory = [];
+function initSpreadChart() {
+  const el = $("spreadChart");
+  if (!el || typeof echarts === "undefined") return;
+  if (el.offsetWidth < 10) return;
+  if (spreadChart) { try { spreadChart.dispose(); } catch {} }
+  spreadChart = echarts.init(el, null, { renderer: "canvas" });
+  spreadChart.setOption({
+    grid: { left: 22, right: 5, top: 4, bottom: 14 },
+    xAxis: { type: "category", show: false, data: [] },
+    yAxis: { type: "value", axisLabel: { color: "#6c707a", fontSize: 6 }, splitLine: { lineStyle: { color: "rgba(42,53,72,.2)" } } },
+    series: [{
+      type: "line", data: [], smooth: true, symbol: "none",
+      lineStyle: { color: "#00bcd4", width: 1.5 },
+      areaStyle: { color: "rgba(0,188,212,.08)" }
+    }]
+  });
+}
+function updateSpreadChart(spread) {
+  if (!spreadChart) { initSpreadChart(); if (!spreadChart) return; }
+  if (spread <= 0) return;
+  spreadHistory.push(spread);
+  if (spreadHistory.length > 40) spreadHistory.shift();
+  spreadChart.setOption({
+    xAxis: { data: spreadHistory.map(() => "") },
+    series: [{ data: spreadHistory.slice() }]
+  });
+}
+
 /* Header ticker + news */
 function renderTicker() {
   const s = S.snap, ind = s?.indicators || {};
@@ -1098,8 +1247,10 @@ async function pollCandles() {
       open: num(k.open), high: num(k.high), low: num(k.low), close: num(k.close), volume: num(k.volume) || 0,
     })).filter(k => k.open && k.high && k.low && k.close);
     chart.render(); renderChartHeader();
-    // Update volume/liquidity chart with fresh candle data
+    // Update all sub-charts with fresh candle data
     updateVolLiqChart(S.candles);
+    updateRsiChart(S.candles);
+    updateMacdChart(S.candles);
   } catch (e) { /* keep last */ }
 }
 
@@ -1511,14 +1662,17 @@ lpInit().then((allowed) => {
   pollSnapshot(); pollMarketState(); pollCandles(); pollEngines(); pollInfra(); pollNews(); pollSignals();
 });
 
-// Initialize volume/liquidity chart — ALWAYS, regardless of auth/trial status
-setTimeout(initVolLiqChart, 1500);
-setTimeout(initVolLiqChart, 3000);
-setTimeout(initVolLiqChart, 5000); // third retry for slow connections
+// Initialize all sub-charts — ALWAYS, regardless of auth/trial status
+setTimeout(() => { initVolLiqChart(); initRsiChart(); initMacdChart(); initSpreadChart(); }, 1500);
+setTimeout(() => { initVolLiqChart(); initRsiChart(); initMacdChart(); initSpreadChart(); }, 3000);
+setTimeout(() => { initVolLiqChart(); initRsiChart(); initMacdChart(); initSpreadChart(); }, 5000);
 
 // Resize vol/liquidity chart when window resizes
 window.addEventListener("resize", () => {
   if (volLiqChart) { try { volLiqChart.resize(); } catch {} }
+  if (rsiChart) { try { rsiChart.resize(); } catch {} }
+  if (macdChart) { try { macdChart.resize(); } catch {} }
+  if (spreadChart) { try { spreadChart.resize(); } catch {} }
 });
 new ResizeObserver(() => chart.resize()).observe($("priceChart"));
 
