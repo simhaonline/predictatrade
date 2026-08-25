@@ -1,7 +1,13 @@
 import { Injectable, Inject, Logger, BadRequestException, UnauthorizedException, ConflictException, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Pool } from 'pg';
 import * as crypto from 'crypto';
 import { DB_POOL } from '../../common/database.module';
+
+// H-fix: single source of truth for the JWT-derived secret, matching
+// common/jwt.module.ts. Previously this service read process.env.JWT_SECRET
+// directly, which could diverge from the ConfigService-backed signer.
+const DEV_JWT_SECRET = 'pat_local_dev_secret_change_in_production';
 
 const FINGERPRINT_WEIGHTS: Record<string, number> = {
   machine_guid: 25,
@@ -17,7 +23,10 @@ const MATCH_THRESHOLD = 75;
 export class DeviceAuthService {
   private readonly logger = new Logger(DeviceAuthService.name);
 
-  constructor(@Inject(DB_POOL) private pool: Pool) {}
+  constructor(
+    @Inject(DB_POOL) private pool: Pool,
+    private config: ConfigService,
+  ) {}
 
   /**
    * Activate a device against a license key.
@@ -508,8 +517,12 @@ export class DeviceAuthService {
     return crypto.createHash('sha256').update(hashes).digest('hex');
   }
 
+  private get jwtSecret(): string {
+    return this.config.get<string>('JWT_SECRET') || DEV_JWT_SECRET;
+  }
+
   private hashComponent(value: string): string {
-    const pepper = process.env.JWT_SECRET || 'pat_local_dev_secret_change_in_production';
+    const pepper = this.jwtSecret;
     return crypto.createHmac('sha256', pepper).update(value).digest('hex');
   }
 
@@ -522,7 +535,7 @@ export class DeviceAuthService {
   // The encryption key is derived from JWT_SECRET (never logged, never exposed).
 
   private getEncryptionKey(): Buffer {
-    const baseKey = process.env.JWT_SECRET || 'pat_local_dev_secret_change_in_production';
+    const baseKey = this.jwtSecret;
     // Derive a 32-byte key using SHA-256
     return crypto.createHash('sha256').update(baseKey + ':device_secret_encryption').digest();
   }

@@ -12,7 +12,7 @@ describe('DeviceAuthService', () => {
       connect: jest.fn(),
       query: jest.fn(),
     };
-    service = new DeviceAuthService(pool);
+    service = new DeviceAuthService(pool, { get: (k: string) => process.env[k] ?? 'pat_local_dev_secret_change_in_production' } as any);
   });
 
   describe('activate', () => {
@@ -206,7 +206,7 @@ describe('DeviceAuthService HMAC Verification', () => {
 
   beforeEach(() => {
     pool = { connect: jest.fn(), query: jest.fn() };
-    service = new (require('./device-auth.service').DeviceAuthService)(pool);
+    service = new (require('./device-auth.service').DeviceAuthService)(pool, { get: (k: string) => process.env[k] ?? 'pat_local_dev_secret_change_in_production' } as any);
   });
 
   describe('verifyRequestSignature', () => {
