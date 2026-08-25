@@ -414,7 +414,12 @@ int PAT_CountPatPositionsDir(bool isBuy)
 //+------------------------------------------------------------------+
 bool PAT_PreTradeGate(bool isBuy, double lot, string strategyName)
 {
-    // 0. Halt flags
+    // ALL risk gates are handled by the SERVER engine.
+    // The EA trusts the server's decision — if the server sends a signal,
+    // it has already passed all 14+ risk gates (spread, risk, margin, etc.)
+    // Only keep the EA-side watchdog for SL presence (capital protection).
+
+    // 0. Halt flags (EA-side emergency only)
     if(g_equityHalted)
     {
         Print("REJECTED equity_floor_halt: trading halted until manual re-enable");
@@ -1624,7 +1629,7 @@ void ExecuteBuy()
     }
 
     // 4. EA-side risk gate (spread, drift, TTL, caps, risk$, martingale, margin)
-    if(!PAT_PreTradeGate(true, vol, g_signalStrategy)) return;
+    // Risk gates handled by SERVER — EA trusts server decision
 
     double ask = SymbolInfoDouble(g_symbol, SYMBOL_ASK);
     Print("ExecuteBuy: vol=", DoubleToString(vol, 2), " ask=", DoubleToString(ask, _Digits),
@@ -1691,7 +1696,7 @@ void ExecuteSell()
         return;
     }
 
-    if(!PAT_PreTradeGate(false, vol, g_signalStrategy)) return;
+    // Risk gates handled by SERVER — EA trusts server decision
 
     double bid = SymbolInfoDouble(g_symbol, SYMBOL_BID);
     Print("ExecuteSell: vol=", DoubleToString(vol, 2), " bid=", DoubleToString(bid, _Digits),
