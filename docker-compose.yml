@@ -15,6 +15,10 @@ services:
   postgres:
     image: timescale/timescaledb-ha:pg17
     container_name: pat-postgres
+    # Fix for "No space left on device" / shared-memory exhaustion: Docker's
+    # default /dev/shm is 64MB, which PostgreSQL exceeds on large sorts/hashes
+    # (e.g. multi-year backtest queries). Bump it well above working set.
+    shm_size: '2gb'
     environment:
       POSTGRES_USER: pat_admin
       POSTGRES_PASSWORD: pat_local_dev_only

@@ -200,7 +200,7 @@ function updatePipeline() {
 .nv-HIGH{color:var(--red);font-weight:800}.nv-MEDIUM{color:var(--amber);font-weight:700}.nv-LOW{color:var(--text-dim)}
 
 /* ── Main grid ── */
-#main{display:grid;grid-template-columns:240px minmax(0,1fr) 300px;grid-template-rows:minmax(0,.95fr) minmax(0,1.25fr) minmax(0,.75fr);gap:3px;padding:3px;min-height:0;background:var(--bg)}
+#main{display:grid;grid-template-columns:minmax(200px,240px) minmax(0,1fr) minmax(260px,300px);grid-template-rows:minmax(0,.95fr) minmax(0,1.25fr) minmax(0,.75fr);gap:3px;padding:3px;min-height:0;background:var(--bg)}
 .panel{background:var(--panel);border:1px solid var(--border);border-radius:3px;display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden}
 .p-account{grid-column:1;grid-row:1}.p-price{grid-column:2;grid-row:1/span 2}.p-lifecycle{grid-column:3;grid-row:1}
 .p-neural{grid-column:1;grid-row:2}.p-resolution{grid-column:3;grid-row:2}
@@ -282,7 +282,7 @@ function updatePipeline() {
 
 /* Engines */
 /* ═══ LIVE PIPELINE FLOW WIDGET ═══ */
-.pipeline-flow{display:flex;align-items:center;justify-content:center;padding:5px 2px;flex-shrink:0;margin-bottom:4px;overflow:hidden}
+.pipeline-flow{display:flex;align-items:center;justify-content:center;padding:5px 2px;flex-shrink:0;margin-bottom:4px;overflow:hidden;flex-wrap:wrap;row-gap:3px}
 .pipe-node{font-size:7px;padding:2px 6px;border-radius:2px;background:var(--panel2);color:var(--text-dim);white-space:nowrap;font-family:var(--mono);font-weight:700;position:relative;z-index:1;letter-spacing:.3px}
 .pipe-node.on{background:var(--green-bg);color:var(--green)}
 .pipe-node.live{background:var(--blue-bg);color:var(--blue);animation:pipePulse 1.6s ease-in-out infinite}
@@ -399,6 +399,178 @@ function updatePipeline() {
   .acc-row{padding:4px 0}
 }
 @media(prefers-reduced-motion:reduce){.ticker-track,#newsTickerTrack{animation:none}}
+
+/* ═══════════════ RESPONSIVE ENHANCEMENTS ═══════════════ */
+
+/* Desktop large ≥ 1440px: wider side columns */
+@media(min-width:1440px){
+  #main{grid-template-columns:minmax(220px,280px) minmax(0,1fr) minmax(280px,340px)}
+  .big-price{font-size:34px}
+}
+
+/* Desktop 1024px–1279px: slightly narrower side columns */
+@media(max-width:1279px) and (min-width:1024px){
+  #main{grid-template-columns:minmax(180px,220px) minmax(0,1fr) minmax(240px,280px)}
+  .eng-cards-row{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+}
+
+/* Tablet 768px–1023px: 2-column with stacking */
+@media(max-width:1023px) and (min-width:768px){
+  html,body{overflow:auto;-webkit-overflow-scrolling:touch}
+  #app{height:auto;min-height:100vh}
+  #main{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:auto;gap:4px;padding:4px}
+  .p-account{grid-column:1;grid-row:1}
+  .p-price{grid-column:2;grid-row:1/span 2;min-height:420px}
+  .p-lifecycle{grid-column:1;grid-row:2;min-height:200px}
+  .p-neural{grid-column:1;grid-row:3}
+  .p-resolution{grid-column:2;grid-row:3}
+  .p-indicators{grid-column:1;grid-row:4;min-height:240px}
+  .p-engines{grid-column:1/span 2;grid-row:5}
+  .p-agents{grid-column:1/span 2;grid-row:6}
+  .eng-cards-row{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+  .neural-ind-grid{grid-template-columns:repeat(3,1fr)}
+  .ind-grid-full{grid-template-columns:repeat(3,1fr)}
+  .mtf-timeframe-grid{grid-template-columns:repeat(8,1fr)}
+  .gates-list{grid-template-columns:repeat(2,1fr)}
+  /* Sub-charts: keep side-by-side on tablet */
+  #volLiqChart{height:70px;min-height:70px}
+  #rsiChart,#macdChart{height:60px;min-height:60px}
+  #spreadChart{height:50px;min-height:50px}
+  #atrChart{height:55px;min-height:55px}
+  #sessionChart{height:45px;min-height:45px}
+}
+
+/* Mobile ≤ 767px: single column, optimized for touch */
+@media(max-width:767px){
+  html,body{overflow:auto;-webkit-overflow-scrolling:touch;font-size:11px}
+  #app{height:auto;min-height:100vh}
+  .overlay-note{display:none}
+  #main{grid-template-columns:minmax(0,1fr);grid-template-rows:none;gap:4px;padding:4px}
+  .p-account,.p-price,.p-lifecycle,.p-neural,.p-resolution,.p-indicators,.p-engines,.p-agents{
+    grid-column:1;grid-row:auto
+  }
+  .p-account{grid-row:1}
+  .p-price{grid-row:2;min-height:320px;grid-column:1}
+  .p-lifecycle{grid-row:3;min-height:180px}
+  .p-engines{grid-row:4}
+  .p-resolution{grid-row:5}
+  .p-neural{grid-row:6}
+  .p-indicators{grid-row:7;min-height:200px}
+  .p-agents{grid-row:8}
+  
+  /* Header: compact */
+  #header{grid-template-columns:auto minmax(0,1fr) auto;gap:6px;padding:0 8px}
+  .header-ticker{display:none}
+  .logo-sub{display:none}
+  .logo img{height:18px}
+  .clock{font-size:9px}
+  .live-pill{font-size:8px;padding:2px 8px}
+  .mode-banner{font-size:8px;padding:2px 8px}
+  #newsStrip{padding:2px 6px}
+  .news-label{flex-shrink:0;font-size:8px}
+  
+  /* Price + panels: readable on mobile */
+  .big-price{font-size:24px}
+  .panel-head{font-size:8px;padding:5px 8px}
+  .panel-body{padding:6px 8px}
+  .kpi .v{font-size:12px}
+  .kpi .k{font-size:8px}
+  .acc-row{font-size:11px;padding:3px 0}
+  .acc-label{font-size:9px}
+  .pl-sym{font-size:12px}
+  .pl-price{font-size:13px}
+  
+  /* Sub-charts: stack vertically on mobile, shorter */
+  #volLiqChart{height:60px;min-height:60px}
+  #rsiChart,#macdChart{height:55px;min-height:55px}
+  #spreadChart{height:45px;min-height:45px}
+  #atrChart{height:50px;min-height:50px}
+  #sessionChart{height:40px;min-height:40px}
+  
+  /* RSI+MACD side-by-side grid → single column on narrow mobile */
+  .p-price > div:last-child > div:nth-child(2){
+    grid-template-columns:1fr !important
+  }
+  
+  /* Engine cards: 2 per row */
+  .eng-cards-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
+  .eng-score{font-size:14px}
+  
+  /* Indicators: 2 per row */
+  .neural-ind-grid{grid-template-columns:repeat(2,1fr)}
+  .ind-grid-full{grid-template-columns:repeat(2,1fr)}
+  
+  /* MTF: 4 per row */
+  .mtf-timeframe-grid{grid-template-columns:repeat(4,1fr)}
+  .gates-list{grid-template-columns:1fr 1fr}
+  
+  /* Signal feed: larger text */
+  .sig-head-row{font-size:10px}
+  .sig-details-row{font-size:9px;gap:6px}
+  .signal-feed-card{padding:5px 8px}
+  
+  /* Footer: stack */
+  .foot-row{flex-direction:column;gap:3px;text-align:center}
+  .foot-links{flex-wrap:wrap;justify-content:center}
+  .foot-risk{font-size:8px;padding:4px 8px}
+  
+  /* Pipeline: wrap */
+  .pipeline-flow{flex-wrap:wrap;row-gap:3px}
+  .pipe-node{font-size:8px;padding:3px 7px}
+  
+  /* Expand button: larger touch target */
+  .expand-btn{padding:5px 10px;font-size:12px}
+  .theme-toggle{padding:5px 10px;font-size:14px}
+  .tf-tab{padding:4px 10px;font-size:10px;min-height:32px}
+  
+  /* Agents table: compact */
+  .agents-table th,.agents-table td{font-size:9px;padding:3px 4px}
+  
+  /* Reg wall: full width */
+  .reg-card{max-width:calc(100% - 24px);padding:20px 18px;margin:12px}
+  .reg-card h2{font-size:15px}
+  .reg-card p{font-size:11px}
+  .reg-btn{padding:14px 16px;font-size:13px}
+}
+
+/* Small phone ≤ 400px: ultra compact */
+@media(max-width:400px){
+  html,body{font-size:10px}
+  .big-price{font-size:20px}
+  #header{gap:4px;padding:0 6px}
+  .logo img{height:16px}
+  .clock{font-size:8px}
+  .kpi .v{font-size:10px}
+  .acc-row{font-size:10px}
+  .eng-cards-row{grid-template-columns:1fr}
+  .neural-ind-grid{grid-template-columns:1fr 1fr}
+  .mtf-timeframe-grid{grid-template-columns:repeat(2,1fr)}
+  .gates-list{grid-template-columns:1fr}
+  #volLiqChart{height:50px;min-height:50px}
+  #rsiChart,#macdChart{height:45px;min-height:45px}
+  #spreadChart{height:40px;min-height:40px}
+  .sig-details-row{font-size:8px}
+  .panel-head{font-size:7px;padding:4px 6px}
+}
+
+/* Landscape mobile: height-constrained */
+@media(max-height:500px) and (orientation:landscape) and (max-width:900px){
+  #app{height:auto}
+  #newsStrip{display:none}
+  .p-price{min-height:260px}
+  #volLiqChart{height:40px;min-height:40px}
+  #rsiChart,#macdChart{height:35px;min-height:35px}
+  #spreadChart{height:30px;min-height:30px}
+  #atrChart{height:35px;min-height:35px}
+  #sessionChart{height:30px;min-height:30px}
+}
+
+/* Ensure all images scale */
+img{max-width:100%;height:auto}
+/* Ensure echarts containers never overflow */
+[id$="Chart"]{max-width:100%;overflow:hidden}
+/* Ensure canvas elements scale */
+canvas{max-width:100%;height:auto !important}
 </style>
 </head>
 <body>
@@ -468,8 +640,8 @@ function updatePipeline() {
         </div>
         
         <!-- RSI + MACD side by side -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px">
-          <div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;flex-wrap:wrap">
+          <div style="min-width:120px">
             <div style="font-size:7px;font-weight:800;color:var(--text-dim);margin-bottom:1px;font-family:var(--mono);letter-spacing:.4px">RSI (14)</div>
             <div id="rsiChart" style="width:100%;height:70px;min-height:70px"></div>
           </div>
