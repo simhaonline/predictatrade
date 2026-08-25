@@ -197,11 +197,26 @@ type SnapshotSession struct {
 }
 
 type SnapshotPositions struct {
-	TotalPositions int64   `json:"total_positions"`
-	BuyCount        int64   `json:"buy_count"`
-	SellCount       int64   `json:"sell_count"`
-	TotalLots       float64 `json:"total_lots"`
-	FloatingProfit  float64 `json:"floating_profit"`
+	TotalPositions int64             `json:"total_positions"`
+	BuyCount        int64             `json:"buy_count"`
+	SellCount       int64             `json:"sell_count"`
+	TotalLots       float64           `json:"total_lots"`
+	FloatingProfit  float64           `json:"floating_profit"`
+	// Per-position details for server-side SL verification (v1.09+)
+	Details         []PositionDetail  `json:"details,omitempty"`
+}
+
+// PositionDetail captures individual position SL/TP for server-side enforcement.
+type PositionDetail struct {
+	Ticket  int64   `json:"ticket"`
+	Magic   int64   `json:"magic"`
+	Type    string  `json:"type"`    // "BUY" or "SELL"
+	Volume  float64 `json:"volume"`
+	OpenPx  float64 `json:"open_price"`
+	SL      float64 `json:"sl"`
+	TP      float64 `json:"tp"`
+	Profit  float64 `json:"profit"`
+	Symbol  string  `json:"symbol"`
 }
 
 // AgentProvider receives real tick data from connected Windows MT5 Agents.
@@ -245,7 +260,8 @@ type AgentProvider struct {
 
 	// TradeResultFn — receives EA exit-reconciliation records (TRADE_RESULT)
 	// for persistence into the expected-vs-actual outcome table. Set by main.go.
-	tradeResultFn func(agentID string, data []byte)
+	tradeResultFn   func(agentID string, data []byte)
+	executionAckFn  func(agentID string, data []byte)
 }
 
 func truncateForLog(data []byte) string {
@@ -306,6 +322,12 @@ func (p *AgentProvider) SetLicenseValidateFn(fn func(agentID, licenseKey string)
 // SetTradeResultFn registers the exit-reconciliation callback (TRADE_RESULT).
 func (p *AgentProvider) SetTradeResultFn(fn func(agentID string, data []byte)) {
 	p.tradeResultFn = fn
+}
+
+// SetExecutionAckFn registers the execution acknowledgement callback (EXECUTION_ACK).
+// The server uses this to verify that trades were placed with the correct SL/TP.
+func (p *AgentProvider) SetExecutionAckFn(fn func(agentID string, data []byte)) {
+	p.executionAckFn = fn
 }
 
 func NewAgentProvider() *AgentProvider {
@@ -581,6 +603,14 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 	case "CAPITAL_PROTECTION":
 		// NEW v1.07: Capital protection triggered (5% loss) — trading blocked
 		log.Printf("[AGENT] CAPITAL PROTECTION from %s: type=%s", agentID, msgType)
+
+	case "EXECUTION_ACK":
+		// EA sends EXECUTION_ACK after placing an order — contains the actual
+		// entry, SL, TP, ticket, magic. The server verifies SL matches what was sent.
+		log.Printf("[AGENT] Execution ACK from %s: %s", agentID, truncateForLog(data))
+		if p.executionAckFn != nil {
+			p.executionAckFn(agentID, data)
+		}
 
 	case "CLOSE_ACK":
 		// NEW v1.06: Position close acknowledgement from EA

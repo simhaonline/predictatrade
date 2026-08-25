@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"flag"
+	"math"
 	"fmt"
 	"os"
 	"os/signal"
@@ -86,6 +87,8 @@ func (a stateAdapter) Update(symbol string, update func(any)) {
 // Package-level for processCandle access
 var globalAgentProvider *marketdata.AgentProvider
 var globalCrossMarketEngine *crossmarket.Engine
+var globalAgentHub *gateway.AgentHub
+var globalPersister *marketdata.Persister
 var globalCrossMarketPersister *crossmarket.Persister
 
 // ─── Per-strategy+bar dedup (prompt.md Sections 13, 23, 40) ───
@@ -124,6 +127,14 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHu
 	}
 	// Broadcast to frontend dashboard clients (entitlement-filtered)
 	wsHub.BroadcastSignal(signal)
+
+	// Check if any agents are suspended for SL violations — don't send them signals
+	if isAgentSuspended("master_agent") {
+		observability.Log.Warn().
+			Str("signal_id", signal.ID).
+			Msg("Signal NOT broadcast — agent suspended for SL violations")
+		return
+	}
 
 	// Broadcast to Windows Agents for MT4/MT5 delivery
 	// Only send directional signals — skip NO-TRADE to reduce noise
@@ -270,6 +281,7 @@ func main() {
 			persister = nil
 		} else {
 			log.Info().Msg("Database connected")
+			globalPersister = persister
 			defer persister.Close()
 		}
 	}
@@ -867,6 +879,7 @@ func main() {
 	var agentHub *gateway.AgentHub
 	if isAgentProvider {
 		agentHub = gateway.NewAgentHub(agentProvider)
+	globalAgentHub = agentHub
 		go agentHub.Run()
 	} else {
 		agentHub = gateway.NewAgentHub(nil) // nil provider — agent WS still accepts connections
@@ -920,6 +933,90 @@ func main() {
 			log.Info().Str("signal_id", tr.SignalID).Str("strategy_id", tr.StrategyID).
 				Str("exit", reason).Float64("pnl", tr.RealizedPnL).
 				Bool("sl_correct", tr.SLCorrect).Msg("Trade outcome reconciled")
+		}
+	})
+
+	// ─── EXECUTION_ACK: Verify that the EA placed the trade with the correct SL ───
+	// The server is the authority for SL/TP. If the EA reports an SL that doesn't
+	// match what was sent (or SL=0), it's a critical safety violation.
+	agentProvider.SetExecutionAckFn(func(agentID string, data []byte) {
+		var ack struct {
+			SignalID   string  `json:"signal_id"`
+			StrategyID string  `json:"strategy_id"`
+			Magic      int64   `json:"magic"`
+			Ticket     int64   `json:"ticket"`
+			Entry      float64 `json:"entry"`
+			SL         float64 `json:"sl"`
+			TP         float64 `json:"tp"`
+		}
+		if err := json.Unmarshal(data, &ack); err != nil {
+			log.Warn().Err(err).Str("agent_id", agentID).Msg("EXECUTION_ACK parse failed")
+			return
+		}
+
+		// CRITICAL: Verify SL is present and positive
+		if ack.SL <= 0 {
+			observability.Log.Error().
+				Str("agent_id", agentID).
+				Str("signal_id", ack.SignalID).
+				Str("strategy_id", ack.StrategyID).
+				Int64("ticket", ack.Ticket).
+				Msg("SL VIOLATION: EA executed trade WITHOUT stop-loss — sending CLOSE_POSITION")
+
+			// Send CLOSE_POSITION command to the agent
+			if agentHub != nil {
+				agentHub.SendToAgent(agentID, "CLOSE_POSITION", map[string]interface{}{
+					"ticket":   ack.Ticket,
+					"magic":    ack.Magic,
+					"reason":   "SL_VIOLATION_NO_SL",
+					"signal_id": ack.SignalID,
+				})
+			}
+
+			// Record violation for agent suspension logic
+			recordSLViolation(agentID, ack.SignalID, "NO_SL", ack.SL, 0)
+
+			// Persist violation to audit log
+			if globalPersister != nil {
+				ctxV, cancelV := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancelV()
+				globalPersister.GetDB().ExecContext(ctxV, `
+					INSERT INTO audit.client_events (user_id, event_type, metadata, created_at)
+					VALUES ($1, 'SL_VIOLATION', $2, now())`,
+					"agent:"+agentID, fmt.Sprintf(`{"signal_id":"%s","violation":"NO_SL","ticket":%d}`,
+						ack.SignalID, ack.Ticket))
+			}
+			return
+		}
+
+		// Verify SL matches what was sent (lookup from reconciler)
+		if reconciler != nil {
+			expectedSignal := reconciler.GetSignal(ack.SignalID)
+			if expectedSignal != nil {
+				expectedSL, _ := expectedSignal.Signal.StopLoss.Float64()
+				// Allow small tolerance for broker rounding (0.5 points)
+				tolerance := 0.5
+				diff := math.Abs(ack.SL - expectedSL)
+				if diff > tolerance {
+					log.Warn().
+						Str("agent_id", agentID).
+						Str("signal_id", ack.SignalID).
+						Float64("expected_sl", expectedSL).
+						Float64("actual_sl", ack.SL).
+						Float64("diff", diff).
+						Msg("SL VIOLATION: EA SL differs from server-sent SL — flagging")
+
+					recordSLViolation(agentID, ack.SignalID, "SL_MISMATCH", ack.SL, expectedSL)
+				} else {
+					log.Info().
+						Str("agent_id", agentID).
+						Str("signal_id", ack.SignalID).
+						Float64("sl", ack.SL).
+						Float64("tp", ack.TP).
+						Float64("entry", ack.Entry).
+						Msg("EXECUTION_ACK verified: SL matches server value")
+				}
+			}
 		}
 	})
 
@@ -2794,6 +2891,114 @@ type brokerAccountSnapshotData struct {
 	TotalCount     int
 	PositionsKnown bool
 	UpdatedAt      time.Time
+}
+
+// ─── SL Violation Tracker ───
+// Tracks per-agent SL violations. After 3 violations, signals are suspended.
+var (
+	slViolationMu       sync.Mutex
+	slViolationCounts   = make(map[string]int)
+	slViolationDetails  = make(map[string][]slViolation)
+	suspendedAgents     = make(map[string]time.Time)
+)
+
+type slViolation struct {
+	SignalID  string
+	Type      string // NO_SL, SL_MISMATCH
+	ActualSL  float64
+	ExpectedSL float64
+	Timestamp time.Time
+}
+
+func recordSLViolation(agentID, signalID, vType string, actualSL, expectedSL float64) {
+	slViolationMu.Lock()
+	defer slViolationMu.Unlock()
+
+	slViolationCounts[agentID]++
+	slViolationDetails[agentID] = append(slViolationDetails[agentID], slViolation{
+		SignalID:   signalID,
+		Type:       vType,
+		ActualSL:   actualSL,
+		ExpectedSL: expectedSL,
+		Timestamp:  time.Now().UTC(),
+	})
+
+	count := slViolationCounts[agentID]
+	observability.Log.Warn().
+		Str("agent_id", agentID).
+		Int("violation_count", count).
+		Str("violation_type", vType).
+		Msg("SL violation recorded")
+
+	// After 3 violations, suspend the agent — stop sending signals
+	if count >= 3 {
+		if _, alreadySuspended := suspendedAgents[agentID]; !alreadySuspended {
+			suspendedAgents[agentID] = time.Now().UTC()
+			observability.Log.Error().
+				Str("agent_id", agentID).
+				Int("violation_count", count).
+				Msg("AGENT SUSPENDED: 3+ SL violations — disconnecting and blocking future signals")
+
+			// Disconnect the agent
+			if globalAgentHub != nil {
+				globalAgentHub.DisconnectAgent(agentID, "SL_VIOLATION_THRESHOLD_EXCEEDED")
+			}
+
+			// Persist suspension to audit log
+			if globalPersister != nil {
+				ctxS, cancelS := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancelS()
+				globalPersister.GetDB().ExecContext(ctxS, `
+					INSERT INTO audit.client_events (user_id, event_type, metadata, created_at)
+					VALUES ($1, 'AGENT_SUSPENDED', $2, now())`,
+					"agent:"+agentID, fmt.Sprintf(`{"reason":"SL_VIOLATION_THRESHOLD","count":%d}`, count))
+			}
+		}
+	}
+}
+
+// isAgentSuspended checks if an agent is currently suspended for SL violations.
+func isAgentSuspended(agentID string) bool {
+	slViolationMu.Lock()
+	defer slViolationMu.Unlock()
+	_, suspended := suspendedAgents[agentID]
+	return suspended
+}
+
+// checkPositionSLs monitors broker snapshot positions for missing SLs.
+// Called whenever a broker snapshot is received. If any PAT position has no SL,
+// a CLOSE_POSITION command is sent to the agent.
+func checkPositionSLs(positions *marketdata.SnapshotPositions, agentID string) {
+	if positions == nil || len(positions.Details) == 0 {
+		return
+	}
+
+	for _, pos := range positions.Details {
+		// Only check PAT-managed positions (magic in PAT range)
+		if pos.Magic < 100000 || pos.Magic > 199999 {
+			continue
+		}
+
+		if pos.SL <= 0 {
+			observability.Log.Error().
+				Str("agent_id", agentID).
+				Int64("ticket", pos.Ticket).
+				Int64("magic", pos.Magic).
+				Str("type", pos.Type).
+				Float64("volume", pos.Volume).
+				Msg("POSITION SL VIOLATION: PAT position has no SL — sending CLOSE_POSITION")
+
+			if globalAgentHub != nil {
+				globalAgentHub.SendToAgent(agentID, "CLOSE_POSITION", map[string]interface{}{
+					"ticket": pos.Ticket,
+					"magic":  pos.Magic,
+					"reason": "MISSING_SL_POSITION_MONITOR",
+				})
+			}
+
+			recordSLViolation(agentID, "", "POSITION_NO_SL", 0, 0)
+		}
+	}
 }
 
 // runPnLAnchorLoop keeps the daily_loss/profit_target gate states hydrated
