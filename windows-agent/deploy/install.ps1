@@ -14,38 +14,9 @@
     Preserves settings.json on update (does NOT overwrite user's credentials).
 #>
 
-# ─── Bypass SmartScreen and App Control for this trusted installer ───
-# These steps are necessary because the binary is not digitally signed
-# (code signing certificates cost $200+/year). The binary is verified by
-# SHA256 checksum instead.
-$ErrorActionPreference = "Continue"
-
-# Add exclusion for our binary in Windows Defender
-try {
-    Add-MpPreference -ExclusionPath "C:\Program Files\PredictATrade" -ErrorAction SilentlyContinue
-    Add-MpPreference -ExclusionProcess "pat-agent.exe" -ErrorAction SilentlyContinue
-} catch {
-    Write-Host "[INFO] Windows Defender exclusion could not be added (may require manual approval)"
-}
-
-# Bypass SmartScreen for downloaded files (Mark-of-the-Web removal)
-function Remove-MOTW {
-    param([string]$Path)
-    try {
-        # Remove Zone.Identifier (Mark-of-the-Web) that triggers SmartScreen
-        if (Test-Path "$Path:Zone.Identifier") {
-            Remove-Item "$Path:Zone.Identifier" -Force -ErrorAction SilentlyContinue
-            Write-Host "[INFO] Removed Mark-of-the-Web from $Path"
-        }
-    } catch {
-        # Alternative: use streams.exe approach or PowerShell Unblock-File
-        try {
-            Unblock-File -Path $Path -ErrorAction SilentlyContinue
-        } catch {
-            Write-Host "[WARN] Could not unblock $Path — user may need to manually click 'Run anyway'"
-        }
-    }
-}
+# ─── SmartScreen / App Control bypass ───
+try { Add-MpPreference -ExclusionPath "C:\Program Files\PredictATrade" -ErrorAction SilentlyContinue } catch {}
+try { Add-MpPreference -ExclusionProcess "pat-agent.exe" -ErrorAction SilentlyContinue } catch {}
 
 # ─── Configuration ───
 $BaseUrl       = "https://downloads.predictatrade.com/windows-agent"
@@ -256,6 +227,8 @@ foreach ($file in $FilesToDownload) {
             Remove-Item $dest -Force -ErrorAction SilentlyContinue
         }
         Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -TimeoutSec 120
+        # Unblock downloaded file (removes Mark-of-the-Web that triggers SmartScreen)
+        try { Unblock-File -Path $dest -ErrorAction SilentlyContinue } catch {}
         Write-Host "  OK: Downloaded $($file.Name)"
     } catch {
         Write-Host "  FAIL: Could not download $($file.Name): $_"

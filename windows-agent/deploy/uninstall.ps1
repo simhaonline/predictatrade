@@ -185,6 +185,55 @@ if ($svc) {
     Write-Host "  OK: Service not found — skipping"
 }
 
+# ─── 1.5. Kill any running pat-agent.exe processes (in case service didn't stop) ───
+Write-Host "[uninstall] Killing any running pat-agent processes..."
+$agentProcs = Get-Process -Name "pat-agent" -ErrorAction SilentlyContinue
+if ($agentProcs) {
+    $agentProcs | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    Write-Host "  OK: Killed $($agentProcs.Count) pat-agent process(es)"
+} else {
+    Write-Host "  OK: No running pat-agent processes found"
+}
+
+# ─── 1.6. Clean up IPC files in MetaQuotes Common folder ───
+# The Master Node EA and execution EAs write to IPC files (PAT_ticks.txt,
+# PAT_signals.txt, etc.) in the MetaQuotes Common\Files folder.
+# Even after the agent is uninstalled, the EAs keep writing to these files.
+# We clean them up so stale data doesn't cause confusion.
+Write-Host "[uninstall] Cleaning up IPC files in MetaQuotes Common folder..."
+$commonPaths = @(
+    "$env:APPDATA\MetaQuotes\Terminal\Common\Files",
+    "C:\Users\$env:USERNAME\AppData\Roaming\MetaQuotes\Terminal\Common\Files",
+    "C:\Users\Public\Documents\MetaQuotes\Terminal\Common\Files"
+)
+$ipcFiles = @("PAT_ticks.txt", "PAT_signals.txt", "PAT_license.txt", "PAT_init.txt", "PAT_commands.txt")
+$cleanedCount = 0
+foreach ($commonPath in $commonPaths) {
+    if (Test-Path $commonPath) {
+        foreach ($ipcFile in $ipcFiles) {
+            $ipcPath = Join-Path $commonPath $ipcFile
+            if (Test-Path $ipcPath) {
+                try {
+                    Remove-Item $ipcPath -Force -ErrorAction SilentlyContinue
+                    $cleanedCount++
+                } catch {}
+            }
+        }
+    }
+}
+if ($cleanedCount -gt 0) {
+    Write-Host "  OK: Cleaned up $cleanedCount IPC file(s) in MetaQuotes Common folder"
+} else {
+    Write-Host "  OK: No IPC files found to clean"
+}
+
+# ─── 1.7. Remove Windows Defender exclusions (if we added them) ───
+try {
+    Remove-MpPreference -ExclusionPath "C:\Program Files\PredictATrade" -ErrorAction SilentlyContinue
+    Remove-MpPreference -ExclusionProcess "pat-agent.exe" -ErrorAction SilentlyContinue
+} catch {}
+
 # ─── 2. Delete the Scheduled Task ───
 Write-Host "[uninstall] Removing Scheduled Task '$TaskName'..."
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -255,5 +304,13 @@ Write-Host "  Service:     Removed"
 Write-Host "  Health Task:  Removed"
 Write-Host "  Event Log:    Removed"
 Write-Host "  Install Dir:  $(if ($keepLogs) { 'Logs kept' } else { 'Removed' })"
+Write-Host "=========================================="
+Write-Host ""
+Write-Host "  IMPORTANT: The MetaTrader EAs are still running!"
+Write-Host "  To fully stop data feed, remove the EAs from your MT4/MT5 terminals:"
+Write-Host "    1. Open MetaTrader"
+Write-Host "    2. Right-click the chart -> Expert Advisors -> Remove"
+Write-Host "    3. Repeat for each terminal (Master Node + execution EAs)"
+Write-Host ""
 Write-Host "=========================================="
 Write-Host ""

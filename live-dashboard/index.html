@@ -19,6 +19,23 @@
 <meta name="application-name" content="PredictATrade">
 <meta name="msapplication-TileColor" content="#0a0e17">
 <meta name="format-detection" content="telephone=no">
+<div class="reg-wall hidden" id="regWall" role="dialog" aria-modal="true" aria-label="Registration required">
+  <div class="reg-card">
+    <img id="wallLogo" src="/predict-a-trade_horizontal_white.svg" alt="Predict-A-Trade by Simha FinTech">
+    <h2>Your 5-Minute Live Market Preview Has Ended</h2>
+    <p>Create your FREE Predict-A-Trade account to continue accessing the XAUUSD Live Intelligence Dashboard — real-time price action, strategy engines and signal pipeline.</p>
+    <div class="reg-timer" id="wallTimer" style="display:none"></div>
+    <div class="reg-actions">
+      <a class="reg-btn primary" href="https://platform.predictatrade.com/register?source=LIVE_DASHBOARD_5MIN_GATE">CREATE FREE ACCOUNT</a>
+      <a class="reg-btn secondary" href="https://platform.predictatrade.com/login">Already registered? SIGN IN</a>
+    </div>
+    <div class="reg-legal">By continuing you agree to our
+      <a href="https://platform.predictatrade.com/terms" target="_blank" rel="noopener">Terms</a> and
+      <a href="https://platform.predictatrade.com/privacy" target="_blank" rel="noopener">Privacy Policy</a>.
+      Risk warning: trading gold (XAUUSD) involves substantial risk of loss and is not suitable for all investors.</div>
+  </div>
+</div>
+
 <script src="/echarts.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap');
@@ -111,6 +128,26 @@ function updatePipeline() {
   setPipe(10, "");
 }
 
+/* ── Live preview countdown + registration wall ── */
+.preview-pill{font-family:var(--mono);font-size:9px;font-weight:800;padding:3px 10px;border-radius:20px;background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue);letter-spacing:.5px;white-space:nowrap}
+.preview-pill.ending{background:var(--amber-bg);color:var(--amber);border-color:var(--amber);animation:pipePulse 1s ease-in-out infinite}
+.pre-expiry-note{position:fixed;bottom:34px;left:50%;transform:translateX(-50%);z-index:900;background:var(--panel);border:1px solid var(--amber);border-radius:6px;padding:6px 14px;font-size:10px;color:var(--amber);font-family:var(--mono);font-weight:700;box-shadow:0 4px 16px rgba(0,0,0,.4)}
+.pre-expiry-note a{color:var(--text-bright);text-decoration:underline}
+.reg-wall{position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;background:rgba(4,7,12,.82);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.reg-wall.hidden{display:none}
+.reg-card{background:var(--panel);border:1px solid var(--border2);border-radius:10px;max-width:440px;width:calc(100% - 32px);padding:28px 26px;text-align:center;box-shadow:0 12px 48px rgba(0,0,0,.6)}
+.reg-card img{height:30px;margin-bottom:14px}
+.reg-card h2{font-size:16px;font-weight:800;color:var(--text-bright);margin-bottom:8px}
+.reg-card p{font-size:11px;color:var(--text-dim);line-height:1.5;margin-bottom:16px}
+.reg-card .reg-timer{font-family:var(--mono);font-size:10px;color:var(--red);font-weight:800;margin-bottom:14px;letter-spacing:.5px}
+.reg-actions{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+.reg-btn{display:block;border-radius:7px;padding:11px 16px;font-size:12px;font-weight:800;text-decoration:none;font-family:var(--sans)}
+.reg-btn.primary{background:linear-gradient(135deg,var(--blue),var(--green));color:#fff}
+.reg-btn.secondary{background:var(--panel2);border:1px solid var(--border2);color:var(--text)}
+.reg-btn:hover{opacity:.92}
+.reg-legal{font-size:8px;color:var(--text-dim);line-height:1.4}
+.reg-legal a{color:var(--text-dim);text-decoration:underline}
+
 /* ── Panel fullscreen expand ── */
 .expand-btn{background:none;border:1px solid var(--border2);border-radius:4px;color:var(--text-dim);cursor:pointer;font-size:10px;line-height:1;padding:2px 5px;font-family:var(--mono)}
 .expand-btn:hover{color:var(--text-bright);border-color:var(--text-dim);background:var(--panel2)}
@@ -137,7 +174,7 @@ function updatePipeline() {
 .mode-banner.offline{background:var(--red-bg);color:var(--red);border-bottom:1px solid var(--border)}
 
 /* ── Header ── */
-#header{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto;align-items:center;gap:10px;padding:0 10px;background:var(--panel);border-bottom:1px solid var(--border)}
+#header{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto auto;align-items:center;gap:10px;padding:0 10px;background:var(--panel);border-bottom:1px solid var(--border)}
 .logo{display:flex;align-items:center;gap:8px}
 .logo-icon{width:24px;height:24px;border-radius:6px;background:linear-gradient(135deg,var(--blue),var(--green));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px}
 .logo-text{font-weight:800;font-size:12px;color:var(--text-bright);line-height:1.1}
@@ -322,7 +359,8 @@ function updatePipeline() {
 /* Phone ≤ 560px: compact header, touch targets */
 @media(max-width:560px){
   .header-ticker{display:none}
-  #header{grid-template-columns:1fr auto auto auto;gap:6px;padding:0 8px}
+  #header{grid-template-columns:1fr auto auto;gap:6px;padding:0 8px}
+  #previewPill{display:none!important}
   .logo img{height:18px}
   .logo-sub{display:none}
   .clock{font-size:9px}
@@ -376,6 +414,7 @@ function updatePipeline() {
     <div class="header-ticker"><div class="ticker-track" id="tickerTrack"></div></div>
     <div class="clock" id="clockUTC">--:--:-- UTC</div>
     <div class="live-pill pill-off" id="livePill">● OFFLINE</div>
+    <div class="preview-pill hidden" id="previewPill" style="display:none">FREE LIVE PREVIEW · --:--</div>
     <button class="theme-toggle" id="themeToggle" title="Toggle Light / Dark Theme">🌙</button>
   </header>
 
@@ -1017,11 +1056,14 @@ let ws = null, wsRetry = 0;
 function wsConnect() {
   if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  ws = new WebSocket(proto + "//" + location.host + "/ws/v1");
+  let wsUrl = proto + "//" + location.host + "/ws/v1";
+  if (authToken) wsUrl += "?token=" + encodeURIComponent(authToken);
+  ws = new WebSocket(wsUrl);
   ws.onopen = () => { S.wsOnline = true; wsRetry = 0; setMode(); renderSystemChecks(); };
   ws.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
     const t = (m.Type || m.type || "").toUpperCase();
+    if (t === "TRIAL_EXPIRED") { lpShowWall("LIVE_PREVIEW_EXPIRED"); return; }
     if (t === "SIGNAL") {
       const p = m.Payload || m.payload || {};
       S.signals.unshift(p); S.signals = S.signals.slice(0, 20);
@@ -1154,16 +1196,161 @@ renderSystemChecks();
 initExpandButtons();
 buildPipeline();
 
-pollSnapshot(); pollMarketState(); pollCandles(); pollEngines(); pollInfra(); pollNews(); pollSignals();
-setInterval(pollSnapshot, 2000);
-setInterval(pollMarketState, 5000);
-setInterval(pollEngines, 5000);
-setInterval(() => { pollInfra(); }, 10000);
-setInterval(pollCandles, 15000);
-setInterval(pollNews, 60000);
-setInterval(pollSignals, 10000);
+lpInit();
+window.__pat_intervals = [];
+window.__pat_intervals.push(setInterval(pollSnapshot, 2000));
+window.__pat_intervals.push(setInterval(pollMarketState, 5000));
+window.__pat_intervals.push(setInterval(pollEngines, 5000));
+window.__pat_intervals.push(setInterval(() => { pollInfra(); }, 10000));
+window.__pat_intervals.push(setInterval(pollCandles, 15000));
+window.__pat_intervals.push(setInterval(pollNews, 60000));
+window.__pat_intervals.push(setInterval(pollSignals, 10000));
 wsConnect();
 new ResizeObserver(() => chart.resize()).observe($("priceChart"));
+
+/* ═══════════ LIVE PREVIEW (server-enforced anonymous trial) ═══════════
+   The browser countdown is PRESENTATION ONLY — the backend timer
+   (live-preview/status) is the authority. Expiry locks data server-side;
+   removing this wall from DevTools restores nothing (§2). */
+const LP = {
+  state: "LOADING",           // LOADING|ANONYMOUS_ACTIVE|ANONYMOUS_EXPIRING|ANONYMOUS_EXPIRED|AUTHENTICATED|DISABLED
+  expiresAt: null,            // server-authoritative expiry (ms, skew-corrected)
+  serverOffset: 0,            // server_time - client clock
+  remainingAtLoad: null,
+  pollTimer: null, tickTimer: null,
+};
+let authToken = null; // authenticated visitors (via #access_token fragment)
+
+function lpNow() { return Date.now() + LP.serverOffset; }
+
+function lpSetTokenFromFragment() {
+  if (location.hash.startsWith("#access_token=")) {
+    authToken = decodeURIComponent(location.hash.slice("#access_token=".length));
+    history.replaceState(null, "", location.pathname + location.search); // strip from URL/bar
+  }
+}
+function authHeaders(extra) {
+  const h = Object.assign({}, extra || {});
+  if (authToken) h["Authorization"] = "Bearer " + authToken;
+  return h;
+}
+
+function lpPill() { return $("previewPill"); }
+
+function lpRenderCountdown() {
+  const pill = lpPill();
+  if (LP.state !== "ANONYMOUS_ACTIVE" && LP.state !== "ANONYMOUS_EXPIRING") { pill.style.display = "none"; return; }
+  pill.style.display = "";
+  const rem = Math.max(0, Math.floor((LP.expiresAt - lpNow()) / 1000));
+  const mm = String(Math.floor(rem / 60)).padStart(2, "0"), ss = String(rem % 60).padStart(2, "0");
+  pill.textContent = `FREE LIVE PREVIEW · ${mm}:${ss}`;
+  if (rem <= 60) {
+    pill.classList.add("ending");
+    LP.state = "ANONYMOUS_EXPIRING";
+    lpShowPreExpiry(rem);
+  }
+}
+
+let preExpiryShown = false;
+function lpShowPreExpiry(rem) {
+  if (preExpiryShown || rem <= 0) return;
+  preExpiryShown = true;
+  const n = document.createElement("div");
+  n.className = "pre-expiry-note";
+  n.innerHTML = `Preview ending soon · <a href="https://platform.predictatrade.com/register?source=LIVE_DASHBOARD_5MIN_GATE" target="_blank" rel="noopener">Create your free account to continue</a>`;
+  document.body.appendChild(n);
+}
+
+function lpStopAllFeeds() {
+  (window.__pat_intervals || []).forEach(id => clearInterval(id));
+  window.__pat_intervals = [];
+  try { if (ws && ws.readyState <= 1) ws.close(4003, "REGISTRATION_REQUIRED"); } catch {}
+}
+
+function lpShowWall(reason) {
+  if (LP.state === "ANONYMOUS_EXPIRED" || LP.state === "AUTHENTICATED") return;
+  LP.state = "ANONYMOUS_EXPIRED";
+  lpStopAllFeeds();
+  clearInterval(LP.pollTimer); clearInterval(LP.tickTimer);
+  lpPill().style.display = "none";
+  const note = document.querySelector(".pre-expiry-note"); if (note) note.remove();
+  $("modeBanner").className = "mode-banner offline";
+  $("modeBanner").textContent = "● PREVIEW ENDED — live data access terminated. Registration required.";
+  $("livePill").className = "live-pill pill-off"; $("livePill").textContent = "● LOCKED";
+  const wall = $("regWall");
+  wall.classList.remove("hidden");
+  const t = $("wallTimer");
+  if (reason === "LIVE_ACCESS_UNAVAILABLE") {
+    t.style.display = ""; t.textContent = "Unable to verify live access. Please refresh or sign in.";
+  }
+  if (document.body.classList.contains("light")) $("wallLogo").src = "/predict-a-trade_horizontal.svg";
+  // Funnel analytics (once)
+  try {
+    fetch("/api/v1/live-preview/event", { method: "POST", headers: authHeaders({ "Content-Type": "application/json" }), body: JSON.stringify({ event: "REGISTRATION_WALL_SHOWN" }) });
+  } catch {}
+}
+
+function lpHandleStatusPayload(p) {
+  if (!p) return;
+  if (p.server_time) LP.serverOffset = new Date(p.server_time).getTime() - Date.now();
+  if (p.status === "DISABLED") { LP.state = "DISABLED"; lpPill().style.display = "none"; return; }
+  if (p.status === "ACTIVE" && p.trial_expires_at) {
+    LP.state = "ANONYMOUS_ACTIVE";
+    LP.expiresAt = new Date(p.trial_expires_at).getTime();
+    lpRenderCountdown();
+  } else {
+    lpShowWall(p.code || "LIVE_PREVIEW_EXPIRED");
+  }
+}
+
+async function lpInit() {
+  lpSetTokenFromFragment();
+  if (authToken) {
+    LP.state = "AUTHENTICATED";
+    lpPill().style.display = "none";
+    return; // entitlement enforced server-side via Authorization header
+  }
+  try {
+    const r = await fetch("/api/v1/live-preview/status", { cache: "no-store" });
+    const p = await r.json();
+    if (r.status === 403 || p.registration_required) { lpHandleStatusPayload(p); lpShowWall(p.code); return; }
+    lpHandleStatusPayload(p);
+  } catch {
+    // Fail-safe: cannot reach trial service → do NOT unlock data (§47).
+    lpShowWall("LIVE_ACCESS_UNAVAILABLE");
+  }
+  // Re-sync with the backend every 30s (never trust local elapsed time alone)
+  LP.pollTimer = setInterval(async () => {
+    if (LP.state !== "ANONYMOUS_ACTIVE" && LP.state !== "ANONYMOUS_EXPIRING") return;
+    try {
+      const r = await fetch("/api/v1/live-preview/status", { cache: "no-store" });
+      const p = await r.json();
+      if (r.status === 403 || p.registration_required) lpShowWall(p.code);
+      else if (p.trial_expires_at) LP.expiresAt = new Date(p.trial_expires_at).getTime();
+    } catch {}
+  }, 30000);
+  LP.tickTimer = setInterval(lpRenderCountdown, 1000);
+}
+
+/* Wrap fetch so any protected-endpoint denial instantly locks the UI (§37/§38). */
+(() => {
+  const _f = window.fetch;
+  window.fetch = async function (input, init) {
+    init = init || {};
+    if (authToken) init.headers = Object.assign({}, init.headers, { "Authorization": "Bearer " + authToken });
+    const res = await _f.call(window, input, init);
+    if (res.status === 403) {
+      try {
+        const ct = res.headers.get("content-type") || "";
+        if (ct.includes("application/json")) {
+          const body = await res.clone().json();
+          if (body.code === "REGISTRATION_REQUIRED" || body.reason === "LIVE_PREVIEW_EXPIRED") lpShowWall(body.reason);
+        }
+      } catch {}
+    }
+    return res;
+  };
+})();
 
 /* ── PWA service worker registration ── */
 if ("serviceWorker" in navigator) {
