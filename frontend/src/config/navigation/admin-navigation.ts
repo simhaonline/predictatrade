@@ -18,7 +18,7 @@ export interface NavItem {
 export const adminNavigation: NavItem[] = [
   // ── Real-Time Operations ──
   { label: 'Real-Time Console', href: '/admin/dashboard', icon: IconDashboard, section: 'Real-Time Operations' },
-  { label: 'Signal Panel', href: '/admin/signals', icon: IconChartLine, section: 'Real-Time Operations' },
+  { label: 'Signal Monitor', href: '/admin/signals', icon: IconChartLine, section: 'Real-Time Operations' },
   { label: 'Indicator Monitor', href: '/admin/indicator-monitor', icon: IconActivity, section: 'Real-Time Operations' },
   { label: 'Strategy Panel', href: '/admin/strategies', icon: IconBolt, section: 'Real-Time Operations' },
   { label: 'Regime Diagnostics', href: '/admin/regime-diagnostics', icon: IconChartBar, section: 'Real-Time Operations' },
@@ -43,13 +43,13 @@ export const adminNavigation: NavItem[] = [
 
   // ── Market & Intelligence ──
   { label: 'Market Data', href: '/admin/market-data', icon: IconBroadcast, section: 'Market & Intelligence' },
-  { label: 'Macro & News', href: '/admin/macro-news', icon: IconWorld, section: 'Market & Intelligence' },
+  { label: 'Macro Calendar', href: '/admin/macro-news', icon: IconWorld, section: 'Market & Intelligence' },
   { label: 'Macro Intelligence', href: '/admin/macro-intelligence', icon: IconActivity, section: 'Market & Intelligence' },
   { label: 'AI Providers', href: '/admin/ai-providers', icon: IconBrain, section: 'Market & Intelligence' },
   { label: 'Broker Qualification', href: '/admin/broker-qualification', icon: IconBuildingBank, section: 'Market & Intelligence' },
 
   // ── Platform & System ──
-  { label: 'Signal Accuracy', href: '/admin/signal-accuracy', icon: IconChartBar, section: 'Market & Intelligence' },
+  { label: 'Signal Accuracy', href: '/admin/signal-accuracy', icon: IconChartBar, section: 'Platform & System' },
   { label: 'Releases', href: '/admin/releases', icon: IconRocket, section: 'Platform & System' },
   { label: 'Backup & DR', href: '/admin/backup-dr', icon: IconDatabase, section: 'Platform & System' },
   { label: 'Feature Flags', href: '/admin/feature-flags', icon: IconFlag, section: 'Platform & System' },

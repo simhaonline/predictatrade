@@ -1,7 +1,8 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
-import { IconNews, IconAlertTriangle } from "@tabler/icons-react";
+import { IconNews } from "@tabler/icons-react";
+import { DegradedBanner } from "@/components/ui/degraded-banner";
 
 interface MacroNewsRow {
   id: number;
@@ -23,15 +24,6 @@ interface MacroNewsData {
   note?: string;
 }
 
-function DegradedBanner({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="bg-pat-warning/10 border border border-pat-warning/20 rounded-lg p-3 flex items-start gap-2">
-      <IconAlertTriangle size={16} className="text-pat-warning mt-0.5 shrink-0" />
-      <div className="text-xs text-pat-warning">{children}</div>
-    </div>
-  );
-}
-
 function fmt(ts: string | null) {
   return ts ? new Date(ts).toISOString().slice(0, 19).replace("T", " ") : "—";
 }
@@ -45,7 +37,7 @@ export default function AdminMacroNewsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-pat-text-primary">Macro &amp; News</h1>
+        <h1 className="text-xl font-bold text-pat-text-primary">Macro Calendar</h1>
         <p className="text-sm text-pat-text-secondary mt-1">
           Economic calendar and macro/news events. Honest read-only view from the event registry.
         </p>

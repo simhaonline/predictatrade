@@ -17,15 +17,28 @@ export function Tabs({
   onChange: (id: string) => void;
 }) {
   return (
-    <div className="flex flex-wrap gap-1.5 border-b border-pat-border pb-3">
+    <div role="tablist" aria-label="Content tabs" className="flex flex-wrap gap-1.5 border-b border-pat-border pb-3">
       {tabs.map((t) => {
         const Icon = t.icon;
         const isActive = active === t.id;
         return (
           <button
             key={t.id}
+            role="tab"
+            aria-selected={isActive}
+            aria-controls={`tab-panel-${t.id}`}
             onClick={() => onChange(t.id)}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+            onKeyDown={(e) => {
+              const idx = tabs.indexOf(t);
+              if (e.key === "ArrowRight" && idx < tabs.length - 1) {
+                e.preventDefault();
+                onChange(tabs[idx + 1].id);
+              } else if (e.key === "ArrowLeft" && idx > 0) {
+                e.preventDefault();
+                onChange(tabs[idx - 1].id);
+              }
+            }}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pat-primary ${
               isActive
                 ? "bg-primary text-primary-foreground"
                 : "text-pat-text-secondary hover:bg-pat-bg-surface-secondary hover:text-pat-text-primary"

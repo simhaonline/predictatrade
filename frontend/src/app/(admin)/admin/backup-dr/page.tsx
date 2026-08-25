@@ -1,7 +1,8 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
-import { IconDatabase, IconAlertTriangle } from "@tabler/icons-react";
+import { IconDatabase } from "@tabler/icons-react";
+import { DegradedBanner } from "@/components/ui/degraded-banner";
 
 interface BackupComponent {
   config_key: string;
@@ -17,15 +18,6 @@ interface BackupDrData {
   last_archived_time: string | null;
   note: string;
   components?: BackupComponent[];
-}
-
-function DegradedBanner({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="bg-pat-warning/10 border border-pat-warning/20 rounded-lg p-3 flex items-start gap-2">
-      <IconAlertTriangle size={16} className="text-pat-warning mt-0.5 shrink-0" />
-      <div className="text-xs text-pat-warning">{children}</div>
-    </div>
-  );
 }
 
 function StatusPill({ status }: { status: string }) {

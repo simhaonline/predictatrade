@@ -1,6 +1,6 @@
 "use client";
 
-import { IconChevronLeft, IconChevronRight, IconChevronsLeft, IconChevronsRight, IconChevronUp, IconChevronDown } from "@tabler/icons-react";
+import { IconChevronLeft, IconChevronRight, IconChevronsLeft, IconChevronsRight, IconChevronUp, IconChevronDown, IconArrowsUpDown } from "@tabler/icons-react";
 import React from "react";
 
 export interface DataTableColumn<T> {
@@ -8,6 +8,7 @@ export interface DataTableColumn<T> {
   header: string;
   cell: (row: T) => React.ReactNode;
   sortable?: boolean;
+  sortFn?: (a: T, b: T) => number;
 }
 
 interface DataTableProps<T> {
@@ -29,9 +30,19 @@ export default function DataTable<T>({ data, columns, loading, error, onRetry }:
     const col = columns.find((c) => c.key === sortKey);
     if (!col || !col.sortable) return data || [];
     return [...data].sort((a: T, b: T) => {
-      const av = String((a as Record<string, unknown>)[sortKey] ?? "");
-      const bv = String((b as Record<string, unknown>)[sortKey] ?? "");
-      return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+      if (col.sortFn) {
+        return sortDir === "asc" ? col.sortFn(a, b) : col.sortFn(b, a);
+      }
+      const av = (a as Record<string, unknown>)[sortKey];
+      const bv = (b as Record<string, unknown>)[sortKey];
+      const aNum = Number(av);
+      const bNum = Number(bv);
+      if (!isNaN(aNum) && !isNaN(bNum)) {
+        return sortDir === "asc" ? aNum - bNum : bNum - aNum;
+      }
+      const aStr = String(av ?? "");
+      const bStr = String(bv ?? "");
+      return sortDir === "asc" ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
     });
   }, [data, sortKey, sortDir, columns]);
 
@@ -89,20 +100,31 @@ export default function DataTable<T>({ data, columns, loading, error, onRetry }:
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className={`px-4 py-3 font-medium border-b border-pat-border whitespace-nowrap ${col.sortable ? "cursor-pointer hover:text-pat-text-primary select-none" : ""}`}
-                  onClick={() => col.sortable && toggleSort(col.key)}
+                  className="px-4 py-3 font-medium border-b border-pat-border whitespace-nowrap"
+                  aria-sort={col.sortable && sortKey === col.key ? (sortDir === "asc" ? "ascending" : "descending") : undefined}
                 >
-                  <div className="flex items-center gap-1">
-                    {col.header}
-                    {col.sortable && sortKey === col.key && (
-                      sortDir === "asc" ? <IconChevronUp size={12} /> : <IconChevronDown size={12} />
-                    )}
-                  </div>
+                  {col.sortable ? (
+                    <button
+                      onClick={() => toggleSort(col.key)}
+                      className="flex items-center gap-1 hover:text-pat-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pat-primary rounded"
+                    >
+                      {col.header}
+                      {sortKey === col.key ? (
+                        sortDir === "asc" ? <IconChevronUp size={12} /> : <IconChevronDown size={12} />
+                      ) : (
+                        <IconArrowsUpDown size={12} className="opacity-40" />
+                      )}
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      {col.header}
+                    </div>
+                  )}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-neutral-800">
+          <tbody className="divide-y divide-pat-border">
             {paginated.map((row, idx) => (
               <tr key={idx} className="hover:bg-pat-table-hover transition-colors">
                 {columns.map((col) => (

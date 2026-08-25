@@ -3,8 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import {
   IconWorld, IconActivity, IconShieldCheck, IconChartBar,
-  IconAlertTriangle, IconCheck, IconX, IconClock,
+  IconCheck, IconX, IconClock,
 } from "@tabler/icons-react";
+import StatusBadge from "@/components/ui/status-badge";
 
 interface CrossMarketDriver {
   name: string;
@@ -54,26 +55,6 @@ interface ValidationStatus {
   walk_forward_ready: boolean;
   activation_eligible: boolean;
   message?: string;
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    CONNECTED: "bg-pat-success/10 text-pat-success border border-pat-success/20",
-    HEALTHY: "bg-pat-success/10 text-pat-success border border-pat-success/20",
-    DEGRADED: "bg-pat-warning/10 text-pat-warning border border-pat-warning/20",
-    STALE: "bg-pat-warning/10 text-pat-warning border border-pat-warning/20",
-    MISSING: "bg-pat-text-muted/10 text-pat-text-muted border border-pat-border",
-    DISABLED: "bg-pat-text-muted/10 text-pat-text-muted border border-pat-border",
-    NOT_CONFIGURED: "bg-pat-text-muted/10 text-pat-text-muted border border-pat-border",
-    ERROR: "bg-pat-danger/10 text-pat-danger border border-pat-danger/20",
-    UNAVAILABLE: "bg-pat-danger/10 text-pat-danger border border-pat-danger/20",
-  };
-  const cls = colors[status] || colors["MISSING"];
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium ${cls}`}>
-      {status}
-    </span>
-  );
 }
 
 function ScoreBadge({ score }: { score: number }) {

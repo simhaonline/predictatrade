@@ -5,6 +5,7 @@ import { getGlobalWs, type WsMessage, type ConnectionState } from "@/lib/websock
 import { fetchEnginesStatus } from "@/lib/engines-api";
 import AdminEngineCards from "@/components/admin/engine-cards";
 import { IconUsers, IconReceipt, IconCoin, IconChartBar, IconShield, IconDeviceDesktop, IconActivity, IconBolt, IconServer, IconDatabase, IconBroadcast, IconKey } from "@tabler/icons-react";
+import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
 import { useState, useEffect, useRef } from "react";
 
@@ -169,11 +170,11 @@ export default function AdminDashboardPage() {
   ];
 
   const metricCards = [
-    { label: "Total Users", value: parseInt(overview?.users?.total ?? "0"), sub: `${overview?.users?.active ?? "0"} active`, icon: IconUsers, color: "text-pat-info" },
-    { label: "Subscriptions", value: parseInt(overview?.subscriptions?.total ?? "0"), sub: `${overview?.subscriptions?.active ?? "0"} active · MRR $${parseFloat(overview?.subscriptions?.mrr ?? "0").toFixed(2)}`, icon: IconReceipt, color: "text-pat-success" },
-    { label: "Commissions", value: parseInt(overview?.commissions?.total_entries ?? "0"), sub: `$${parseFloat(overview?.commissions?.confirmed_amount ?? "0").toFixed(2)} confirmed`, icon: IconCoin, color: "text-pat-warning" },
-    { label: "Payouts", value: parseInt(overview?.payouts?.total ?? "0"), sub: `${overview?.payouts?.pending ?? "0"} pending`, icon: IconChartBar, color: "text-pat-info" },
-    { label: "Plans", value: parseInt(overview?.plans?.total ?? "0"), sub: `${overview?.plans?.active ?? "0"} active`, icon: IconShield, color: "text-pat-success" },
+    { label: "Total Users", value: Number(overview?.users?.total || 0), sub: `${Number(overview?.users?.active || 0)} active`, icon: IconUsers, color: "text-pat-info" },
+    { label: "Subscriptions", value: Number(overview?.subscriptions?.total || 0), sub: `${Number(overview?.subscriptions?.active || 0)} active · MRR $${Number(overview?.subscriptions?.mrr || 0).toFixed(2)}`, icon: IconReceipt, color: "text-pat-success" },
+    { label: "Commissions", value: Number(overview?.commissions?.total_entries || 0), sub: `$${Number(overview?.commissions?.confirmed_amount || 0).toFixed(2)} confirmed`, icon: IconCoin, color: "text-pat-warning" },
+    { label: "Payouts", value: Number(overview?.payouts?.total || 0), sub: `${Number(overview?.payouts?.pending || 0)} pending`, icon: IconChartBar, color: "text-pat-info" },
+    { label: "Plans", value: Number(overview?.plans?.total || 0), sub: `${Number(overview?.plans?.active || 0)} active`, icon: IconShield, color: "text-pat-success" },
     { label: "Agents", value: agentCount, sub: hasAgents ? "Connected" : "No agents", icon: IconDeviceDesktop, color: hasAgents ? "text-pat-success" : "text-pat-danger" },
   ];
 
@@ -209,15 +210,7 @@ export default function AdminDashboardPage() {
           {platformStatusItems.map((item) => (
             <div key={item.label} className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-pat-bg-surface-secondary">
               <span className="text-xs text-pat-text-muted">{item.label}</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${
-                item.status === 'active' || item.status === 'operational' || item.status === 'healthy' || item.status === 'connected' || item.status === 'live' || item.status === 'online'
-                  ? "bg-pat-badge-success-bg text-pat-badge-success-text border-pat-badge-success-bg"
-                  : item.status === 'halted' || item.status === 'offline' || item.status === 'disconnected' || item.status === 'error'
-                  ? "bg-pat-badge-danger-bg text-pat-badge-danger-text border-pat-badge-danger-bg"
-                  : "bg-pat-badge-warning-bg text-pat-badge-warning-text border-pat-badge-warning-bg"
-              }`}>
-                {item.status}
-              </span>
+              <StatusBadge status={item.status} size="sm" />
             </div>
           ))}
         </div>
@@ -252,6 +245,7 @@ export default function AdminDashboardPage() {
             <div className="text-sm text-pat-text-muted py-4 text-center">No live market data</div>
           )}
           <div className="text-xs text-pat-text-muted mt-2">
+            {tickTimeStr && <div>Last Tick: {new Date(tickTimeStr).toLocaleTimeString()} UTC ({tickAgeSec !== null ? `${Math.round(tickAgeSec)}s ago` : "—"})</div>}
             {tickSource && <div>Source: {tickSource}</div>}
             {currentSession && <div>Session: {currentSession}</div>}
             {currentRegime && <div>Regime: {currentRegime}</div>}
@@ -289,27 +283,19 @@ export default function AdminDashboardPage() {
           <div className="space-y-2 text-xs">
             <div className="flex justify-between items-center">
               <span className="text-pat-text-muted">RT Engine</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${engineAlive ? "bg-pat-badge-success-bg text-pat-badge-success-text border-pat-badge-success-bg" : "bg-pat-badge-neutral-bg text-pat-badge-neutral-text border-pat-badge-neutral-bg"}`}>
-                {engineAlive ? "Operational" : "Unknown"}
-              </span>
+              <StatusBadge status={engineAlive ? "operational" : "unknown"} size="sm" />
             </div>
             <div className="flex justify-between items-center">
               <span className="text-pat-text-muted">Control Plane</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${(nestHealth?.status as string) === "ok" ? "bg-pat-badge-success-bg text-pat-badge-success-text border-pat-badge-success-bg" : "bg-pat-badge-neutral-bg text-pat-badge-neutral-text border-pat-badge-neutral-bg"}`}>
-                {(nestHealth?.status as string) === "ok" ? "Operational" : "Unknown"}
-              </span>
+              <StatusBadge status={(nestHealth?.status as string) === "ok" ? "operational" : "unknown"} size="sm" />
             </div>
             <div className="flex justify-between items-center">
               <span className="text-pat-text-muted">Database</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${(nestHealth?.database as string) === "healthy" ? "bg-pat-badge-success-bg text-pat-badge-success-text border-pat-badge-success-bg" : "bg-pat-badge-neutral-bg text-pat-badge-neutral-text border-pat-badge-neutral-bg"}`}>
-                {(nestHealth?.database as string) === "healthy" ? "Healthy" : "Unknown"}
-              </span>
+              <StatusBadge status={(nestHealth?.database as string) === "healthy" ? "healthy" : "unknown"} size="sm" />
             </div>
             <div className="flex justify-between items-center">
               <span className="text-pat-text-muted">WebSocket</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${wsConnected ? "bg-pat-badge-success-bg text-pat-badge-success-text border-pat-badge-success-bg" : wsState === 'RECONNECTING' ? "bg-pat-badge-warning-bg text-pat-badge-warning-text border-pat-badge-warning-bg" : "bg-pat-badge-danger-bg text-pat-badge-danger-text border-pat-badge-danger-bg"}`}>
-                {wsState}
-              </span>
+              <StatusBadge status={wsState.toLowerCase()} size="sm" />
             </div>
           </div>
         </div>
@@ -377,9 +363,7 @@ export default function AdminDashboardPage() {
               return (
                 <div key={name} className="flex items-center justify-between rounded-md bg-pat-bg-surface-secondary px-3 py-2">
                   <span className="text-xs text-pat-text-primary">{name}</span>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${isActive ? "bg-pat-badge-success-bg text-pat-badge-success-text border-pat-badge-success-bg" : "bg-pat-badge-neutral-bg text-pat-badge-neutral-text border-pat-badge-neutral-bg"}`}>
-                    {isActive ? "Active" : "Inactive"}
-                  </span>
+                  <StatusBadge status={isActive ? "active" : "inactive"} size="sm" />
                 </div>
               );
             })}
@@ -393,15 +377,11 @@ export default function AdminDashboardPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div className="flex items-center justify-between rounded-md bg-pat-bg-surface-secondary px-3 py-2">
             <span className="text-xs text-pat-text-muted">Trading Mode</span>
-            <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${tradingHalted ? "bg-pat-badge-danger-bg text-pat-badge-danger-text border-pat-badge-danger-bg" : "bg-pat-badge-success-bg text-pat-badge-success-text border-pat-badge-success-bg"}`}>
-              {tradingHalted ? "Halted" : "Active"}
-            </span>
+            <StatusBadge status={tradingHalted ? "halted" : "active"} size="sm" />
           </div>
           <div className="flex items-center justify-between rounded-md bg-pat-bg-surface-secondary px-3 py-2">
             <span className="text-xs text-pat-text-muted">Signal Generation</span>
-            <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${signalsPaused ? "bg-pat-badge-warning-bg text-pat-badge-warning-text border-pat-badge-warning-bg" : "bg-pat-badge-success-bg text-pat-badge-success-text border-pat-badge-success-bg"}`}>
-              {signalsPaused ? "Paused" : "Active"}
-            </span>
+            <StatusBadge status={signalsPaused ? "paused" : "active"} size="sm" />
           </div>
           {opsState?.last_updated && (
             <div className="flex items-center justify-between rounded-md bg-pat-bg-surface-secondary px-3 py-2">

@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import { getGlobalWs, type ConnectionState } from "@/lib/websocket";
+import { IconChartBar, IconCoins, IconCheck, IconHourglass } from "@tabler/icons-react";
 import { format } from "date-fns";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -167,6 +168,12 @@ function GlobalMarketHeader({ snapshot, wsState, marketState }: {
   const adx = Number(indicators.adx || 0);
   const rsi = Number(indicators.rsi || 0);
   const source = snapshot?.source || "—";
+  const tickTime = tick?.time;
+  const tickAgeSec = tickTime ? Math.max(0, (Date.now() - new Date(tickTime).getTime()) / 1000) : null;
+  const snack = !tick ? "UNKNOWN"
+    : tickAgeSec !== null && tickAgeSec < 60 ? "LIVE"
+    : tickAgeSec !== null && tickAgeSec < 300 ? "DEGRADED"
+    : "STALE";
 
   return (
     <div className="rounded-lg border border-pat-border bg-pat-bg-surface p-3">
@@ -174,7 +181,7 @@ function GlobalMarketHeader({ snapshot, wsState, marketState }: {
         {/* Left: Symbol + price */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1.5">
-            <span className={`inline-block h-2 w-2 rounded-full ${wsState === "CONNECTED" ? "bg-pat-success animate-pulse" : "bg-pat-warning"}`} />
+            <span title={wsState === "CONNECTED" ? "WS Connected" : wsState === "RECONNECTING" ? "WS Retry" : "WS Off"} className={`inline-block h-2 w-2 rounded-full ${wsState === "CONNECTED" ? "bg-pat-success animate-pulse" : wsState === "RECONNECTING" ? "bg-pat-warning" : "bg-pat-danger"}`} />
             <span className="text-sm font-bold text-pat-text-primary">XAUUSD</span>
           </div>
           <div className="flex items-center gap-3">
@@ -229,10 +236,11 @@ function GlobalMarketHeader({ snapshot, wsState, marketState }: {
           <div className="flex items-center gap-1">
             <span className="text-pat-text-muted">Feed:</span>
             <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${
-              wsState === "CONNECTED" ? "bg-pat-badge-success-bg text-pat-badge-success-text border-pat-badge-success-bg" :
-              wsState === "RECONNECTING" ? "bg-pat-badge-warning-bg text-pat-badge-warning-text border-pat-badge-warning-bg" :
-              "bg-pat-badge-danger-bg text-pat-badge-danger-text border-pat-badge-danger-bg"
-            }`}>{wsState === "CONNECTED" ? "LIVE" : wsState}</span>
+              snack === "LIVE" ? "bg-pat-badge-success-bg text-pat-badge-success-text border-pat-badge-success-bg" :
+              snack === "DEGRADED" ? "bg-pat-badge-warning-bg text-pat-badge-warning-text border-pat-badge-warning-bg" :
+              snack === "STALE" ? "bg-pat-badge-neutral-bg text-pat-badge-neutral-text border-pat-badge-neutral-bg" :
+              "bg-pat-badge-info-bg text-pat-badge-info-text border-pat-badge-info-bg"
+            }`}>{snack}</span>
           </div>
           <span className="text-[10px] text-pat-text-muted">{source.replace("+LOCAL_COMPUTE", "")}</span>
         </div>
@@ -431,10 +439,10 @@ function GrowthMode({ subscriptions, commission, referrals }: {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <GrowthCard label="Active Subscriptions" value={subCount} icon="📊" />
-        <GrowthCard label="Total Earnings" value={`$${totalEarnings.toFixed(2)}`} icon="💰" />
-        <GrowthCard label="Confirmed" value={`$${confirmedAmt.toFixed(2)}`} icon="✅" color="text-pat-success" />
-        <GrowthCard label="Pending" value={`$${pendingAmt.toFixed(2)}`} icon="⏳" color="text-pat-warning" />
+        <GrowthCard label="Active Subscriptions" value={subCount} icon={IconChartBar} />
+        <GrowthCard label="Total Earnings" value={`$${totalEarnings.toFixed(2)}`} icon={IconCoins} />
+        <GrowthCard label="Confirmed" value={`$${confirmedAmt.toFixed(2)}`} icon={IconCheck} color="text-pat-success" />
+        <GrowthCard label="Pending" value={`$${pendingAmt.toFixed(2)}`} icon={IconHourglass} color="text-pat-warning" />
       </div>
 
       <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-4">
@@ -498,7 +506,7 @@ function CommandCenterMode({ snapshot, signals, subscriptions, commission }: {
 
 // ─── Helper Components ─────────────────────────────────────────────────────
 function IndicatorCard({ label, value, hint, highlight }: { label: string; value?: number | string | boolean; hint?: string; highlight?: boolean }) {
-  const display = value === undefined || value === null || value === 0 || value === false ? "—" : typeof value === "number" ? value.toFixed(2) : typeof value === "boolean" ? (value ? "Yes" : "No") : String(value);
+  const display = value === undefined || value === null ? "—" : typeof value === "number" ? value.toFixed(2) : typeof value === "boolean" ? (value ? "Yes" : "No") : String(value);
   return (
     <div className={`rounded-lg border p-2.5 ${highlight ? "border-pat-warning/30 bg-pat-warning/5" : "border-pat-border/50 bg-pat-bg-surface-secondary/30"}`}>
       <div className="text-[10px] text-pat-text-muted uppercase">{label}</div>
@@ -529,9 +537,11 @@ function SignalCard({ signal }: { signal: SignalRecord }) {
             signal.Direction === "BUY" ? "text-pat-success" :
             signal.Direction === "SELL" ? "text-pat-danger" :
             signal.Direction === "BUY_CANDIDATE" ? "text-pat-warning" :
-            "text-pat-candidate-sell"
+            signal.Direction === "SELL_CANDIDATE" ? "text-pat-candidate-sell" :
+            signal.Direction === "NO-TRADE" ? "text-pat-text-muted" :
+            "text-pat-text-muted"
           }`}>{signal.Direction}</span>
-          <span className="text-xs text-pat-text-muted">{signal.StrategyID.replace(/_/g, " ")}</span>
+          <span className="text-xs text-pat-text-muted">{signal.StrategyID?.replace(/_/g, " ") || "Unknown"}</span>
         </div>
         <div className="flex items-center gap-3 text-xs">
           <span className="text-pat-text-muted">Score: <span className="text-pat-text-primary font-mono">{score.toFixed(1)}</span></span>
@@ -588,12 +598,12 @@ function AccountRow({ label, value, currency, highlight }: { label: string; valu
   );
 }
 
-function GrowthCard({ label, value, icon, color }: { label: string; value: string | number; icon: string; color?: string }) {
+function GrowthCard({ label, value, icon: Icon, color }: { label: string; value: string | number; icon: React.ComponentType<{ size?: number; className?: string }>; color?: string }) {
   return (
     <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-4">
       <div className="flex items-center justify-between mb-1">
         <span className="text-xs text-pat-text-muted uppercase">{label}</span>
-        <span className="text-lg">{icon}</span>
+        <Icon size={18} className={color || "text-pat-text-secondary"} />
       </div>
       <div className={`text-lg font-bold ${color || "text-pat-text-primary"}`}>{value}</div>
     </div>
@@ -628,7 +638,7 @@ function CompactSignalsView({ signals }: { signals: SignalRecord[] }) {
         <div key={s.ID} className="flex items-center justify-between text-xs rounded-md bg-pat-bg-surface-secondary/30 px-2 py-1.5">
           <div className="flex items-center gap-2">
             <span className={`font-bold ${s.Direction.includes("BUY") ? "text-pat-success" : "text-pat-danger"}`}>{s.Direction.replace("_", " ")}</span>
-            <span className="text-pat-text-muted">{s.StrategyID.replace(/_/g, " ")}</span>
+            <span className="text-pat-text-muted">{s.StrategyID?.replace(/_/g, " ") || "Unknown"}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-pat-text-muted">Score: <span className="font-mono text-pat-text-primary">{parseFloat(s.RawScore || "0").toFixed(1)}</span></span>

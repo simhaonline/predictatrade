@@ -10,6 +10,7 @@ export default function LiveDashboard({ isAdmin }: { isAdmin: boolean }) {
   const spreadRef = useRef<HTMLSpanElement>(null);
   const [signals, setSignals] = useState<SignalEvent[]>([]);
   const [agentConnected, setAgentConnected] = useState(false);
+  const [hasTick, setHasTick] = useState(false);
   const sigBuffer = useRef(new RingBuffer<SignalEvent>(50));
   const ws = getGlobalWs();
 
@@ -22,6 +23,7 @@ export default function LiveDashboard({ isAdmin }: { isAdmin: boolean }) {
           if (bidRef.current) bidRef.current.innerText = d.bid.toFixed(2);
           if (askRef.current) askRef.current.innerText = d.ask.toFixed(2);
           if (spreadRef.current) spreadRef.current.innerText = d.spread.toFixed(2);
+          setHasTick(true);
         });
       }
       if (msg.type === "signal") {
@@ -41,21 +43,19 @@ export default function LiveDashboard({ isAdmin }: { isAdmin: boolean }) {
         <div className="rounded-lg border border-pat-card-border bg-pat-card-bg p-4 shadow-sm">
           <div className="text-xs text-pat-text-muted uppercase">Bid</div>
           <div className="text-3xl font-mono mt-1">
-            <span className="text-pat-text-secondary">2500</span>
-            <span ref={bidRef} className="text-pat-success">.00</span>
+            <span ref={bidRef} className={hasTick ? "text-pat-success" : "text-pat-text-muted"}>—</span>
           </div>
         </div>
         <div className="rounded-lg border border-pat-card-border bg-pat-card-bg p-4 shadow-sm">
           <div className="text-xs text-pat-text-muted uppercase">Ask</div>
           <div className="text-3xl font-mono mt-1">
-            <span className="text-pat-text-secondary">2500</span>
-            <span ref={askRef} className="text-pat-danger">.50</span>
+            <span ref={askRef} className={hasTick ? "text-pat-danger" : "text-pat-text-muted"}>—</span>
           </div>
         </div>
         <div className="rounded-lg border border-pat-card-border bg-pat-card-bg p-4 shadow-sm">
           <div className="text-xs text-pat-text-muted uppercase">Spread</div>
           <div className="text-3xl font-mono mt-1">
-            <span ref={spreadRef} className="text-pat-warning">0.50</span>
+            <span ref={spreadRef} className={hasTick ? "text-pat-warning" : "text-pat-text-muted"}>—</span>
           </div>
         </div>
       </div>

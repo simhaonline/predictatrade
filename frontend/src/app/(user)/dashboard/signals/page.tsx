@@ -150,7 +150,7 @@ export default function UserSignalsPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
-        <FilterSelect label="Strategy" value={filterStrategy} onChange={setFilterStrategy} options={["ALL", ...STRATEGIES]} />
+        <FilterSelect label="Strategy" value={filterStrategy} onChange={setFilterStrategy} options={["ALL", ...(allowedStrategies.length > 0 ? STRATEGIES.filter(s => allowedStrategies.includes(s)) : STRATEGIES)]} />
         <FilterSelect label="Direction" value={filterDirection} onChange={setFilterDirection} options={["ALL", ...DIRECTIONS]} />
         <FilterSelect label="Regime" value={filterRegime} onChange={setFilterRegime} options={["ALL", ...regimes]} />
       </div>
@@ -169,7 +169,22 @@ export default function UserSignalsPage() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-12 border border-pat-table-border rounded-lg bg-pat-bg-surface/50">
-          <div className="text-pat-text-muted text-sm">No signals match the current filters</div>
+          {allowedStrategies.length === 0 ? (
+            <>
+              <div className="text-pat-text-muted text-sm mb-2">No license found</div>
+              <div className="text-pat-text-muted text-xs">Subscribe to a plan to access trading signals.</div>
+            </>
+          ) : combinedSignals.length === 0 ? (
+            <>
+              <div className="text-pat-text-muted text-sm mb-2">No signals available</div>
+              <div className="text-pat-text-muted text-xs">Signals will appear when the engine generates them for your entitled strategies.</div>
+            </>
+          ) : (
+            <>
+              <div className="text-pat-text-muted text-sm mb-2">No signals match the current filters</div>
+              <div className="text-pat-text-muted text-xs">Try adjusting your strategy, direction, or regime filters.</div>
+            </>
+          )}
         </div>
       ) : (
         <div className="overflow-x-auto border border-pat-table-border rounded-lg">
@@ -189,14 +204,21 @@ export default function UserSignalsPage() {
                 <th className="px-3 py-3 font-medium">Date</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-neutral-800">
+            <tbody className="divide-y divide-pat-border">
               {filtered.map((row) => {
                 const isOpen = expanded === row.ID;
                 return (
                   <React.Fragment key={row.ID}>
-                    <tr className="hover:bg-pat-table-hover transition-colors cursor-pointer" onClick={() => setExpanded(isOpen ? null : row.ID)}>
+                    <tr className="hover:bg-pat-table-hover transition-colors">
                       <td className="px-3 py-3">
-                        {isOpen ? <IconChevronDown size={14} className="text-pat-text-muted" /> : <IconChevronRight size={14} className="text-pat-text-muted" />}
+                        <button
+                          onClick={() => setExpanded(isOpen ? null : row.ID)}
+                          aria-expanded={isOpen}
+                          aria-label={`Expand signal ${row.ID}`}
+                          className="p-1 rounded hover:bg-pat-bg-surface-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pat-primary"
+                        >
+                          {isOpen ? <IconChevronDown size={14} className="text-pat-text-muted" /> : <IconChevronRight size={14} className="text-pat-text-muted" />}
+                        </button>
                       </td>
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-1.5">
@@ -220,7 +242,7 @@ export default function UserSignalsPage() {
                     </tr>
                     {isOpen && (
                       <tr className="bg-pat-bg-surface-secondary/30">
-                        <td colSpan={11} className="px-4 py-4 space-y-3">
+                        <td colSpan={12} className="px-4 py-4 space-y-3">
                           <div className="flex flex-wrap gap-4 text-xs text-pat-text-secondary">
                             <span title="Engine-recommended lot (risk-capped, margin-aware)">
                               Lot: <b className="text-pat-text-primary">{num(row.SuggestedLot) > 0 ? Number(row.SuggestedLot).toFixed(2) : "—"}</b>
