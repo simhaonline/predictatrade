@@ -38,6 +38,32 @@ body.light{
 }
 html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px}
 
+/* ── Custom scrollbars (thin, themed, unobtrusive) ── */
+*{scrollbar-width:thin;scrollbar-color:var(--border2) transparent}
+.panel-body::-webkit-scrollbar,.signal-scroll-feed::-webkit-scrollbar{width:6px;height:6px}
+.panel-body::-webkit-scrollbar-track,.signal-scroll-feed::-webkit-scrollbar-track{background:transparent}
+.panel-body::-webkit-scrollbar-thumb,.signal-scroll-feed::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+.panel-body::-webkit-scrollbar-thumb:hover,.signal-scroll-feed::-webkit-scrollbar-thumb:hover{background:var(--text-dim)}
+.panel-body{scrollbar-gutter:stable}
+.panel-body:hover{scrollbar-color:var(--text-dim) transparent}
+
+/* ── Panel fullscreen expand ── */
+.expand-btn{background:none;border:1px solid var(--border2);border-radius:4px;color:var(--text-dim);cursor:pointer;font-size:10px;line-height:1;padding:2px 5px;font-family:var(--mono)}
+.expand-btn:hover{color:var(--text-bright);border-color:var(--text-dim);background:var(--panel2)}
+.panel.expanded{position:fixed;inset:0;z-index:1000;border-radius:0;border:none;background:var(--bg);padding:6px}
+.panel.expanded .panel-body{overflow:auto}
+.panel.expanded .chart-wrap{min-height:calc(100vh - 90px)}
+:fullscreen .panel-head{padding:8px 12px}
+:fullscreen .panel-body{padding:10px 12px}
+:fullscreen .eng-cards-row{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+:fullscreen .neural-ind-grid,:fullscreen .ind-grid-full{grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}
+:fullscreen .mtf-timeframe-grid{grid-template-columns:repeat(8,1fr)}
+:fullscreen .gates-list{grid-template-columns:repeat(3,1fr)}
+:fullscreen .agents-table td{font-size:12px;padding:5px 8px}
+:fullscreen .big-price{font-size:44px}
+:fullscreen .signal-feed-card{padding:8px 10px}
+:fullscreen .sig-details-row{font-size:11px}
+
 #app{display:grid;height:100vh;width:100vw;grid-template-rows:auto 30px auto minmax(0,1fr) 20px}
 
 /* ── Mode banner ── */
@@ -222,7 +248,7 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
   <main id="main">
 
     <section class="panel p-account">
-      <div class="panel-head"><span><span class="diamond">◆</span> MARKET STATUS</span><span class="hint-dim" id="feedHint">CONNECTING…</span></div>
+      <div class="panel-head"><span><span class="diamond">◆</span> MARKET STATUS</span><span class="hint-dim" id="feedHint">CONNECTING…</span><button class="expand-btn" data-expand title="Expand to full screen">⛶</button></div>
       <div class="panel-body">
         <div class="big-price" id="bigPrice">—</div>
         <div class="kpi-row">
@@ -245,6 +271,7 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
       <div class="panel-head">
         <span><span class="diamond">◆</span> XAUUSD · <span id="chartTfLabel">M5</span> · CANDLES + EMA 9/21/50 · BB(20) · VWAP · RSI</span>
         <span class="tf-tabs" id="tfTabs"></span>
+        <button class="expand-btn" data-expand title="Expand to full screen">⛶</button>
       </div>
       <div class="price-header-bar">
         <div><span class="pl-sym">XAUUSD</span><span class="pl-price" id="plPrice">—</span><span class="pl-chg chg-up" id="plChg">—</span></div>
@@ -257,12 +284,12 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
     </section>
 
     <section class="panel p-lifecycle">
-      <div class="panel-head"><span><span class="diamond">◆</span> SIGNAL FEED</span><span class="hint-dim" id="sigCount">0 signals</span></div>
+      <div class="panel-head"><span><span class="diamond">◆</span> SIGNAL FEED</span><span class="hint-dim" id="sigCount">0 signals</span><button class="expand-btn" data-expand title="Expand to full screen">⛶</button></div>
       <div class="panel-body"><div class="signal-scroll-feed" id="signalScrollFeed"></div></div>
     </section>
 
     <section class="panel p-neural">
-      <div class="panel-head"><span><span class="diamond">◆</span> NEURAL SHELL · KEY INDICATORS</span><span class="hint-ok" id="neuralFeed">FEED —</span></div>
+      <div class="panel-head"><span><span class="diamond">◆</span> NEURAL SHELL · KEY INDICATORS</span><span class="hint-ok" id="neuralFeed">FEED —</span><button class="expand-btn" data-expand title="Expand to full screen">⛶</button></div>
       <div class="panel-body">
         <div class="neural-canvas-box"><canvas id="neuralCanvas"></canvas></div>
         <div class="neural-ind-grid" id="neuralIndGrid"></div>
@@ -270,7 +297,7 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
     </section>
 
     <section class="panel p-resolution">
-      <div class="panel-head"><span><span class="diamond">◆</span> TIMEFRAMES + SYSTEM HEALTH</span><span class="hint-ok" id="mtfHint">—</span></div>
+      <div class="panel-head"><span><span class="diamond">◆</span> TIMEFRAMES + SYSTEM HEALTH</span><span class="hint-ok" id="mtfHint">—</span><button class="expand-btn" data-expand title="Expand to full screen">⛶</button></div>
       <div class="panel-body">
         <div class="mtf-timeframe-grid" id="mtfGridCells"></div>
         <div style="font-size:8px;font-weight:800;color:var(--text-dim);margin:4px 0 3px;font-family:var(--mono)">OBSERVED SYSTEM CHECKS</div>
@@ -279,12 +306,12 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
     </section>
 
     <section class="panel p-indicators">
-      <div class="panel-head"><span><span class="diamond">◆</span> ALL INDICATORS · SERVER FEED</span><span class="hint-dim" id="indCount">0</span></div>
+      <div class="panel-head"><span><span class="diamond">◆</span> ALL INDICATORS · SERVER FEED</span><span class="hint-dim" id="indCount">0</span><button class="expand-btn" data-expand title="Expand to full screen">⛶</button></div>
       <div class="panel-body"><div class="ind-grid-full" id="allIndicatorsGrid"></div></div>
     </section>
 
     <section class="panel p-engines">
-      <div class="panel-head"><span><span class="diamond">◆</span> STRATEGY ENGINES SCOREBOARD</span><span class="hint-dim" id="engEvalCount">—</span></div>
+      <div class="panel-head"><span><span class="diamond">◆</span> STRATEGY ENGINES SCOREBOARD</span><span class="hint-dim" id="engEvalCount">—</span><button class="expand-btn" data-expand title="Expand to full screen">⛶</button></div>
       <div class="panel-body">
         <div class="pipeline-flow-box">MT5 → AGENT → GO RT → FEATURES → STRATEGY → SCORE → X-MKT → GATES → SIGNAL → DELIVER → MT5 EXEC</div>
         <div class="eng-cards-row" id="strategyEngineCards"></div>
@@ -292,7 +319,7 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
     </section>
 
     <section class="panel p-agents">
-      <div class="panel-head"><span><span class="diamond">◆</span> AGENTS + CONNECTIVITY</span></div>
+      <div class="panel-head"><span><span class="diamond">◆</span> AGENTS + CONNECTIVITY</span><button class="expand-btn" data-expand title="Expand to full screen">⛶</button></div>
       <div class="panel-body">
         <table class="agents-table"><tbody id="agentsTableBody"></tbody></table>
       </div>
@@ -448,12 +475,12 @@ const chart = {
         { left: 54, right: 12, top: "80%", height: "15%" },
       ],
       xAxis: [0, 1, 2].map(i => ({
-        type: "category", data: times, boundaryGap: i === 0,
+        type: "category", data: times, boundaryGap: i === 0, gridIndex: i,
         axisLine: { lineStyle: { color: axisCol } }, axisLabel: { show: i === 2, color: txtCol, fontSize: 9, fontFamily: "JetBrains Mono" },
         axisTick: { show: false }, splitLine: { show: false },
       })),
       yAxis: [
-        { scale: true, position: "left", axisLine: { show: false }, axisLabel: { color: txtCol, fontSize: 9, fontFamily: "JetBrains Mono" }, splitLine: { lineStyle: { color: dark ? "#161d2c" : "#eee8dc" } } },
+        { scale: true, gridIndex: 0, axisLine: { show: false }, axisLabel: { color: txtCol, fontSize: 9, fontFamily: "JetBrains Mono" }, splitLine: { lineStyle: { color: dark ? "#161d2c" : "#eee8dc" } } },
         { scale: true, gridIndex: 1, axisLabel: { show: false }, splitLine: { show: false } },
         { min: 0, max: 100, gridIndex: 2, interval: 50, axisLabel: { color: txtCol, fontSize: 8, fontFamily: "JetBrains Mono" }, splitLine: { show: false } },
       ],
@@ -868,12 +895,51 @@ function buildTfTabs() {
   });
 }
 
+/* ── Panel fullscreen expand ── */
+function initExpandButtons() {
+  document.querySelectorAll("[data-expand]").forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      toggleExpand(btn.closest(".panel"), btn);
+    };
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") document.querySelectorAll(".panel.expanded").forEach(p => collapsePanel(p));
+  });
+}
+function toggleExpand(panel, btn) {
+  if (panel.classList.contains("expanded")) collapsePanel(panel, btn);
+  else expandPanel(panel, btn);
+}
+function expandPanel(panel, btn) {
+  panel.classList.add("expanded");
+  if (btn) btn.textContent = "✕";
+  if (panel.contains($("priceChart"))) setTimeout(() => chart.resize(), 50);
+  const el = document.documentElement;
+  if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+  else if (panel.requestFullscreen) panel.requestFullscreen().catch(() => {});
+}
+function collapsePanel(panel, btn) {
+  panel.classList.remove("expanded");
+  if (btn) btn.textContent = "⛶";
+  panel.querySelectorAll("[data-expand]").forEach(b => b.textContent = "⛶");
+  if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  if (panel.contains($("priceChart"))) setTimeout(() => chart.resize(), 50);
+}
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement) {
+    document.querySelectorAll(".panel.expanded").forEach(p => collapsePanel(p));
+  }
+  setTimeout(() => chart.resize(), 60);
+});
+
 /* ── Boot ── */
 initTheme();
 buildTfTabs();
 setMode();
 chart.init();
 renderSystemChecks();
+initExpandButtons();
 
 pollSnapshot(); pollMarketState(); pollCandles(); pollEngines(); pollInfra(); pollNews(); pollSignals();
 setInterval(pollSnapshot, 2000);

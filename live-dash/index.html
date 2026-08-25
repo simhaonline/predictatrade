@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PAT Terminal — XAUUSD</title>
+  <meta name="description" content="Predict-A-Trade XAUUSD Real-Time Terminal">
+  <link rel="icon" href="https://predictatrade.com/media/predict-a-trade_icon-only.webp" type="image/webp">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+  <!-- Full App Grid -->
+  <div id="app">
+
+    <!-- Row 1: Mode Banner -->
+    <div id="modeBanner" class="mode-banner live">
+      ● LIVE — MT5 master node connected · streaming XAUUSD real-time signal pipeline
+    </div>
+
+    <!-- Row 2: Header -->
+    <header id="header">
+      <div class="logo">
+        <div class="logo-icon">P</div>
+        <div>
+          <div class="logo-text">PAT Terminal</div>
+          <div class="logo-sub">XAUUSD Signal Generation Pipeline v1.0.0</div>
+        </div>
+      </div>
+
+      <div class="header-ticker">
+        <div class="ticker-track">
+          <span class="t-item">XAUUSD <span class="tv t-g">2,515.00</span></span>
+          <span class="t-item">SPREAD <span class="tv t-a">0.30</span></span>
+          <span class="t-item">REGIME <span class="tv t-b">RANGE</span></span>
+          <span class="t-item">SESSION <span class="tv t-b">SYDNEY</span></span>
+          <span class="t-item">MTF BIAS <span class="tv t-g">+20 LONG</span></span>
+          <span class="t-item">CONFIDENCE <span class="tv t-g">60%</span></span>
+          <span class="t-item">DXY <span class="tv t-r">101.15</span></span>
+          <span class="t-item">EURUSD <span class="tv t-g">1.0885</span></span>
+          <span class="t-item">US10Y <span class="tv t-r">3.81%</span></span>
+        </div>
+      </div>
+
+      <div class="clock font-mono" id="clockUTC">18:15:00 UTC</div>
+      <div class="live-pill pill-live" id="livePill">● LIVE</div>
+      <button class="theme-toggle" id="themeToggle" title="Toggle Light / Dark Theme">🌙</button>
+    </header>
+
+    <!-- Row 3: News Strip -->
+    <div id="newsStrip">
+      <span class="news-label">NEWS:</span>
+      <span id="newsTickerTrack">HIGH CB Consumer Confidence (Aug) @14:00Z · MEDIUM Chicago Fed National Activity Index (Jul) @12:30Z · MEDIUM S&P/Case-Shiller Home Price YoY (Jun) @13:00Z</span>
+    </div>
+
+    <!-- Row 4: Main 3x3 Grid -->
+    <main id="main">
+
+      <!-- Panel 1: Top Left - Account / Price Box -->
+      <section class="panel p-account">
+        <div class="panel-head">
+          <span><span class="diamond">◆</span>SYSTEM STATUS</span>
+          <span style="color:var(--green); font-weight:800;">LIVE FEED</span>
+        </div>
+        <div class="panel-body">
+          <div class="big-price up" id="bigPrice">2,515.00</div>
+          
+          <div class="kpi-row">
+            <div class="kpi">
+              <div class="k">BID</div>
+              <div class="v" id="pBid">2,514.85</div>
+            </div>
+            <div class="kpi">
+              <div class="k">ASK</div>
+              <div class="v" id="pAsk">2,515.15</div>
+            </div>
+            <div class="kpi">
+              <div class="k">SPREAD</div>
+              <div class="v a" id="pSpread">0.30</div>
+            </div>
+          </div>
+
+          <div style="height:1px; background:var(--border); margin:4px 0;"></div>
+
+          <div class="acc-row">
+            <span class="acc-label">SYMBOL</span>
+            <span class="acc-val" style="color:var(--accent-rust);">XAUUSD.sd</span>
+          </div>
+          <div class="acc-row">
+            <span class="acc-label">VOLUME</span>
+            <span class="acc-val" id="pVol">40</span>
+          </div>
+          <div class="acc-row">
+            <span class="acc-label">REGIME</span>
+            <span class="regime-tag regime-RANGE" id="pRegime">RANGE</span>
+          </div>
+          <div class="acc-row">
+            <span class="acc-label">SESSION</span>
+            <span class="acc-val" id="pSession" style="color:var(--blue);">SYDNEY</span>
+          </div>
+          <div class="acc-row">
+            <span class="acc-label">MTF BIAS</span>
+            <span class="acc-val" id="pMtfBias" style="color:var(--green);">+20 LONG</span>
+          </div>
+          <div class="acc-row">
+            <span class="acc-label">CONFIDENCE</span>
+            <span class="acc-val" id="pConfidence" style="color:var(--green);">60%</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Panel 2: Top Center - Price Chart & Ladder DOM Table -->
+      <section class="panel p-price">
+        <div class="panel-head">
+          <span><span class="diamond">◆</span>XAUUSD · M5 · PRICE + EMA9/21/50 + VWAP</span>
+          <button class="expand-btn">⛶</button>
+        </div>
+        <div class="panel-body" style="padding:0;">
+          <div class="price-header-bar">
+            <div>
+              <span class="pl-sym">XAUUSD.sd</span>
+              <span class="pl-price">2,515.00</span>
+              <span class="pl-chg chg-up">+0.00 (+0%)</span>
+            </div>
+            <div class="phb-right font-mono">
+              H <b>2,518.60</b> L <b>2,496.20</b> VOL <b>0.7k</b> SPREAD <b>0.30</b>
+            </div>
+          </div>
+
+          <div class="chart-ladder-wrap">
+            <div id="priceChart" style="flex:1;">
+              <canvas id="priceChartCanvas"></canvas>
+            </div>
+            
+            <!-- DOM Ladder Table -->
+            <div class="dom-table" id="domTableBody"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Panel 3: Top Right - Signal Feed (20 signals) -->
+      <section class="panel p-lifecycle">
+        <div class="panel-head">
+          <span><span class="diamond">◆</span>SIGNAL FEED</span>
+          <span style="color:var(--text-dim); font-size:8px;">20 signals</span>
+        </div>
+        <div class="panel-body">
+          <div class="signal-scroll-feed" id="signalScrollFeed"></div>
+        </div>
+      </section>
+
+      <!-- Panel 4: Middle Left - Neural Shell 42 Indicators -->
+      <section class="panel p-neural">
+        <div class="panel-head">
+          <span><span class="diamond">◆</span>NEURAL SHELL · 42 INDICATORS · 7 TIMEFRAMES · 5 ENGINES</span>
+          <span style="color:var(--green); font-size:8px;">FEED 44 IND</span>
+        </div>
+        <div class="panel-body">
+          <div class="neural-canvas-box">
+            <canvas id="neuralCanvas"></canvas>
+          </div>
+
+          <div class="neural-ind-grid" id="neuralIndGrid"></div>
+        </div>
+      </section>
+
+      <!-- Panel 5: Middle Right - MTF Grid + 14 Hard Gates -->
+      <section class="panel p-resolution">
+        <div class="panel-head">
+          <span><span class="diamond">◆</span>MTF GRID + HARD GATES</span>
+          <span style="color:var(--green);">+20</span>
+        </div>
+        <div class="panel-body">
+          <div class="mtf-timeframe-grid" id="mtfGridCells"></div>
+
+          <div style="font-size:8px; font-weight:800; color:var(--text-dim); margin:4px 0 2px 0;">14 HARD GATES AUDIT</div>
+          <div class="gates-list" id="hardGatesList"></div>
+        </div>
+      </section>
+
+      <!-- Panel 6: Bottom Left - All Indicators (42+) -->
+      <section class="panel p-indicators">
+        <div class="panel-head">
+          <span><span class="diamond">◆</span>ALL INDICATORS · 42+</span>
+          <button class="expand-btn">⛶</button>
+        </div>
+        <div class="panel-body">
+          <div class="ind-grid-full" id="allIndicatorsGrid"></div>
+        </div>
+      </section>
+
+      <!-- Panel 7: Bottom Center - Strategy Engines (5 Strategies) -->
+      <section class="panel p-engines">
+        <div class="panel-head">
+          <span><span class="diamond">◆</span>STRATEGY ENGINES · 5 STRATEGIES</span>
+          <button class="expand-btn">⛶</button>
+        </div>
+        <div class="panel-body">
+          <div class="pipeline-flow-box font-mono">
+            MT5 → AGENT → GO RT → FEATURES → STRATEGY → SCORE → X-MKT → GATES → SIGNAL → DELIVER → MT5 EXEC
+          </div>
+
+          <div class="eng-cards-row" id="strategyEngineCards"></div>
+        </div>
+      </section>
+
+      <!-- Panel 8: Bottom Right - Agents + Connectivity -->
+      <section class="panel p-agents">
+        <div class="panel-head">
+          <span><span class="diamond">◆</span>AGENTS + CONNECTIVITY</span>
+          <button class="expand-btn">⛶</button>
+        </div>
+        <div class="panel-body">
+          <table class="agents-table">
+            <tbody id="agentsTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Row 5: Footer Status Bar -->
+    <footer id="footer">
+      <div>
+        Predict-A-Trade © 2026 Simha FinTech LLC — PAT Terminal v1.0.0
+      </div>
+      <div>
+        Pipeline: <span style="color:var(--green); font-weight:800;">MT5 MASTER NODE AUTHORITATIVE</span>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- JavaScript Modules -->
+  <script src="js/data.js"></script>
+  <script src="js/chart.js"></script>
+  <script src="js/neural.js"></script>
+  <script src="js/terminal.js"></script>
+
+</body>
+</html>
