@@ -9,7 +9,7 @@
 
 # ─── Config ───
 $BaseUrl     = "https://downloads.predictatrade.com/windows-agent"
-$InstallDir  = "C:\Program Files\PredictATrade\XAUUSD"
+$InstallDir  = "C:\PredictATrade\XAUUSD"
 $ServiceName = "pat-agent"
 $EventSource = "pat-agent"
 $TaskName    = "PredictATradeHealthCheck"
@@ -45,7 +45,7 @@ Write-Host ""
 # Step 1: Add Defender exclusion BEFORE downloading (prevents quarantine)
 Write-Host "[1/9] Adding Windows Defender exclusion..."
 try {
-    Add-MpPreference -ExclusionPath $InstallDir -ErrorAction SilentlyContinue
+    Add-MpPreference -ExclusionPath "C:\PredictATrade" -ErrorAction SilentlyContinue
     Add-MpPreference -ExclusionProcess $AgentExe -ErrorAction SilentlyContinue
     Write-Host "  OK"
 } catch {

@@ -21,7 +21,7 @@ param(
 
 # ─── Configuration ───
 $BaseUrl       = "https://downloads.predictatrade.com/windows-agent"
-$InstallDir    = "C:\Program Files\PredictATrade\XAUUSD"
+$InstallDir    = "C:\PredictATrade\XAUUSD"
 $ServiceName   = "pat-agent"
 $EventSource   = "pat-agent"
 $TaskName      = "PredictATradeHealthCheck"
@@ -230,7 +230,7 @@ if ($cleanedCount -gt 0) {
 
 # ─── 1.7. Remove Windows Defender exclusions (if we added them) ───
 try {
-    Remove-MpPreference -ExclusionPath "C:\Program Files\PredictATrade" -ErrorAction SilentlyContinue
+    Remove-MpPreference -ExclusionPath "C:\PredictATrade" -ErrorAction SilentlyContinue
     Remove-MpPreference -ExclusionProcess "pat-agent.exe" -ErrorAction SilentlyContinue
 } catch {}
 
