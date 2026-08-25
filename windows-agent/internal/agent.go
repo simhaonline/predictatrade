@@ -181,9 +181,12 @@ func (a *Agent) getStatus() AgentStatus {
 func (a *Agent) Start() error {
 	a.running = true
 
-	// Load or create device identity
+	// Load or create device identity — non-fatal if it fails
 	if err := a.loadOrCreateDeviceKey(); err != nil {
-		return fmt.Errorf("device key: %w", err)
+		log.Printf("Warning: device key issue (non-fatal, using in-memory ID): %v", err)
+		if a.deviceID == "" {
+			a.deviceID = uuid.New().String()
+		}
 	}
 	log.Printf("Device ID: %s", a.deviceID)
 
@@ -514,19 +517,33 @@ func (a *Agent) loadOrCreateDeviceKey() error {
 	dir := filepath.Dir(keyPath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		keyPath = filepath.Join(os.TempDir(), "pat_device.key")
+		dir = filepath.Dir(keyPath)
+		_ = os.MkdirAll(dir, 0700) // try temp dir
 	}
 
+	// Try to load existing device key
 	if data, err := os.ReadFile(keyPath); err == nil {
-		a.deviceID = string(data[:36])
-		log.Printf("Loaded device identity: %s", a.deviceID)
-		return nil
+		if len(data) >= 36 {
+			a.deviceID = string(data[:36])
+			log.Printf("Loaded device identity: %s", a.deviceID)
+			return nil
+		}
+		// File exists but is corrupt/too short — regenerate
+		log.Printf("Device key file corrupt (len=%d, need 36) — regenerating", len(data))
+	}
+
+	// Generate new device identity (a.deviceID was already set by NewAgent)
+	if a.deviceID == "" {
+		a.deviceID = uuid.New().String()
 	}
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), cryptorand.Reader)
 	if err != nil {
-		return err
+		// Non-fatal: continue without ECDSA key (deviceID is still set)
+		log.Printf("Warning: ECDSA key generation failed (non-fatal): %v", err)
+	} else {
+		a.deviceKey = key
 	}
-	a.deviceKey = key
 
 	if err := os.WriteFile(keyPath, []byte(a.deviceID), 0600); err != nil {
 		log.Printf("Warning: could not save device key: %v", err)
