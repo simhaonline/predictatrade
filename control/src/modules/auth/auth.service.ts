@@ -139,7 +139,7 @@ export class AuthService {
     for (const c of consents) {
       try {
         await this.pool.query(
-          `INSERT INTO audit.client_events (user_id, event_type, metadata, created_at)
+          `INSERT INTO audit.client_events (user_id, event_type, metadata, event_time)
            VALUES ($1, 'CONSENT_LOG', $2, now())`,
           [userId, JSON.stringify({ consentType: c.type, accepted: c.accepted, textVersion: consentVersion, consentText: c.text })],
         );

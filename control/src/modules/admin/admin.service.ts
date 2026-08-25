@@ -334,7 +334,11 @@ export class AdminService {
       'SELECT allowed_strategies FROM control.plans WHERE id = $1',
       [planId],
     );
-    const allowedStrategies = planStrategies.rows[0]?.allowed_strategies || '[]';
+    // pg returns jsonb as a JS object already — stringify it for the INSERT
+    const rawStrategies = planStrategies.rows[0]?.allowed_strategies;
+    const allowedStrategies = typeof rawStrategies === 'string'
+      ? rawStrategies
+      : JSON.stringify(rawStrategies || []);
 
     const r = await this.pool.query(
       `INSERT INTO licensing.licenses (id, user_id, plan_id, status, license_key, issued_at, valid_from, max_devices, max_mt_accounts, allowed_strategies, created_by, created_at, updated_at)

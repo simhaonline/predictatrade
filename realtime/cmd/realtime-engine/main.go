@@ -1026,7 +1026,7 @@ func main() {
 				ctxV, cancelV := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancelV()
 				globalPersister.GetDB().ExecContext(ctxV, `
-					INSERT INTO audit.client_events (user_id, event_type, metadata, created_at)
+					INSERT INTO audit.client_events (user_id, event_type, metadata, event_time)
 					VALUES ($1, 'SL_VIOLATION', $2, now())`,
 					"agent:"+agentID, fmt.Sprintf(`{"signal_id":"%s","violation":"NO_SL","ticket":%d}`,
 						ack.SignalID, ack.Ticket))
@@ -3007,7 +3007,7 @@ func recordSLViolation(agentID, signalID, vType string, actualSL, expectedSL flo
 				ctxS, cancelS := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancelS()
 				globalPersister.GetDB().ExecContext(ctxS, `
-					INSERT INTO audit.client_events (user_id, event_type, metadata, created_at)
+					INSERT INTO audit.client_events (user_id, event_type, metadata, event_time)
 					VALUES ($1, 'AGENT_SUSPENDED', $2, now())`,
 					"agent:"+agentID, fmt.Sprintf(`{"reason":"SL_VIOLATION_THRESHOLD","count":%d}`, count))
 			}
