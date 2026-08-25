@@ -39,13 +39,25 @@ from .reporting.report import ReportGenerator
 def cmd_run(args):
     """Run a backtest."""
     # Load data
-    if args.data_file:
+    if args.db_url:
+        start = _parse_dt(args.start) if args.start else None
+        end = _parse_dt(args.end) if args.end else None
+        candles, meta = DataLoader.from_database(
+            args.db_url, args.symbol, args.timeframe, start, end
+        )
+        print(f"Loaded {len(candles)} candles from TimescaleDB (market.candles) "
+              f"from {meta.start_time} to {meta.end_time}")
+    elif args.data_file:
         candles, meta = DataLoader.from_csv(args.data_file, args.symbol, args.timeframe)
     else:
         n = args.candles or 500
         candles, meta = DataLoader.generate_synthetic(
             args.symbol, args.timeframe, n_candles=n, seed=args.seed
         )
+
+    if not candles:
+        print("ERROR: no candles loaded — check data source / db-url / symbol / timeframe")
+        return 1
 
     print(f"Loaded {len(candles)} candles ({meta.source}) from {meta.start_time} to {meta.end_time}")
 
@@ -95,6 +107,20 @@ def cmd_run(args):
     print(f"\n--- Artifacts ---")
     for name, path in artifacts.items():
         print(f"  {name}: {path}")
+
+    # Persist to TimescaleDB for online retrieval / reporting when a db-url is set.
+    if args.db_url:
+        try:
+            from .reporting.db_writer import store_run
+            run_id = store_run(
+                result, args.db_url,
+                data_source="TIMESCALEDB",
+                data_hash=meta.data_hash if hasattr(meta, "data_hash") else None,
+            )
+            print(f"\n[STORED] run_id={run_id} persisted to trading.backtest_runs "
+                  f"(equity + metrics in trading.backtest_artifacts)")
+        except Exception as e:  # pragma: no cover - storage is best-effort here
+            print(f"\n[WARN] failed to persist run to DB: {e}")
 
     return 0 if result.status == "COMPLETED" else 1
 
@@ -321,6 +347,113 @@ def cmd_show(args):
     return 0
 
 
+def _parse_dt(s: str):
+    """Parse a CLI datetime string (ISO or YYYY-MM-DD) into UTC datetime."""
+    from datetime import datetime, timezone
+    s = s.strip()
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(s, fmt)
+            return dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    # Try ISO with timezone
+    try:
+        dt = datetime.fromisoformat(s)
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise SystemExit(f"Invalid --start/--end value: {s!r} (use YYYY-MM-DD or ISO8601)")
+
+
+def cmd_db_list(args):
+    """List persisted backtest runs from TimescaleDB."""
+    import psycopg2
+    conn = psycopg2.connect(args.db_url)
+    try:
+        with conn.cursor() as cur:
+            where, params = [], []
+            if args.symbol:
+                where.append("symbol = %s"); params.append(args.symbol)
+            if args.strategy:
+                where.append("strategy_id = %s"); params.append(args.strategy)
+            sql = (
+                "SELECT run_id, symbol, strategy_id, primary_timeframe, status, "
+                "start_timestamp, end_timestamp, final_balance, total_return_pct, "
+                "sharpe_ratio, trades_count, created_at "
+                "FROM trading.backtest_runs"
+            )
+            if where:
+                sql += " WHERE " + " AND ".join(where)
+            sql += " ORDER BY created_at DESC LIMIT %s"
+            params.append(args.limit)
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        print("No stored runs found.")
+        return 0
+    print(f"{'RUN_ID':<10} {'SYM':<7} {'STRATEGY':<18} {'TF':<4} {'STATUS':<9} "
+          f"{'RET%':>8} {'SHARPE':>7} {'TRADES':>6} CREATED")
+    for r in rows:
+        print(f"{r[0]:<10} {r[1]:<7} {r[2]:<18} {r[3]:<4} {r[4]:<9} "
+              f"{_fmt(r[7]):>8} {_fmt(r[8]):>7} {r[9]:>6} {r[11]}")
+    return 0
+
+
+def cmd_db_show(args):
+    """Show a stored backtest run (summary + equity curve) from TimescaleDB."""
+    import psycopg2
+    conn = psycopg2.connect(args.db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT run_id, symbol, strategy_id, primary_timeframe, status, "
+                "start_timestamp, end_timestamp, initial_balance, final_balance, "
+                "total_return_pct, sharpe_ratio, sortino_ratio, max_drawdown_pct, "
+                "win_rate_pct, profit_factor, expectancy, trades_count, "
+                "no_trade_count, data_source, data_hash, created_at "
+                "FROM trading.backtest_runs WHERE run_id = %s",
+                (args.run_id,),
+            )
+            run = cur.fetchone()
+            if not run:
+                print(f"Run {args.run_id} not found in TimescaleDB.")
+                return 1
+            cols = ["run_id", "symbol", "strategy_id", "primary_timeframe", "status",
+                    "start_timestamp", "end_timestamp", "initial_balance", "final_balance",
+                    "total_return_pct", "sharpe_ratio", "sortino_ratio", "max_drawdown_pct",
+                    "win_rate_pct", "profit_factor", "expectancy", "trades_count",
+                    "no_trade_count", "data_source", "data_hash", "created_at"]
+            summary = dict(zip(cols, run))
+            cur.execute(
+                "SELECT artifact_type, artifact_payload FROM trading.backtest_artifacts "
+                "WHERE run_id = %s",
+                (args.run_id,),
+            )
+            artifacts = {row[0]: row[1] for row in cur.fetchall()}
+    finally:
+        conn.close()
+
+    print(json.dumps(summary, indent=2, default=str))
+    if "equity" in artifacts:
+        eq = artifacts["equity"]
+        print(f"\nEquity curve points: {len(eq)}")
+        if eq:
+            print(f"  first: {eq[0]}")
+            print(f"  last:  {eq[-1]}")
+    return 0
+
+
+def _fmt(v) -> str:
+    if v is None:
+        return "-"
+    if isinstance(v, float):
+        return f"{v:.2f}"
+    return str(v)
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -341,7 +474,25 @@ def main():
     p_run.add_argument("--data-file", default=None)
     p_run.add_argument("--candles", type=int, default=500)
     p_run.add_argument("--output", default=None)
+    p_run.add_argument("--db-url", default=None,
+                       help="PostgreSQL/TimescaleDB connection string. When set, "
+                            "candles are read from market.candles and the run is "
+                            "persisted to trading.backtest_runs for online retrieval.")
     p_run.set_defaults(func=cmd_run)
+
+    # db-list — list persisted runs from TimescaleDB
+    p_dbl = subparsers.add_parser("db-list", help="List backtest runs stored in TimescaleDB")
+    p_dbl.add_argument("--db-url", required=True)
+    p_dbl.add_argument("--symbol", default=None)
+    p_dbl.add_argument("--strategy", default=None)
+    p_dbl.add_argument("--limit", type=int, default=50)
+    p_dbl.set_defaults(func=cmd_db_list)
+
+    # db-show — show a persisted run (summary + equity curve) from TimescaleDB
+    p_dbs = subparsers.add_parser("db-show", help="Show a stored backtest run from TimescaleDB")
+    p_dbs.add_argument("--db-url", required=True)
+    p_dbs.add_argument("run_id")
+    p_dbs.set_defaults(func=cmd_db_show)
 
     # validate-data
     p_vd = subparsers.add_parser("validate-data", help="Validate data quality")
