@@ -1,94 +1,41 @@
-# Documentation Index
+# Predict-A-Trade XAUUSD — Documentation Index
+## v1.16.0 — 26 August 2026
 
-## Root Control Files
-- `README.md` — System overview, architecture, strategies, PTB, advanced features, backtesting, testing
-- `AGENTS.md` — Codex repository instructions (canonical behavioral contract)
-- `AGENT.md` — Compatibility pointer to AGENTS.md
-- `MANIFEST.md` — Project manifest (key numbers, repository structure, service inventory)
-- `SKILLS.md` — Skills index (human-readable)
-- `Makefile` — Canonical build/lint/test commands for all four planes
-- `run.sh` — Startup orchestration script
-- `docker-compose.yml` — Local Docker infrastructure (Postgres, Valkey, Prometheus, Grafana)
-- `.gitleaks.toml` — Gitleaks secret-scanning configuration with dev-test allowlists
-- `.mcp.json` — MCP portability representation (Codex-native truth is `.codex/config.toml`)
+### Root-Level Documents (authoritative single source of truth)
 
-## Forensic Audit
-- `docs/FEATURE_CAPABILITY_FORENSIC_AUDIT.md` — Full forensic capability audit of 26 feature groups with runtime call-path verification
+| File | Purpose |
+|------|---------|
+| `/SCOPE_OF_WORK.md` | Full project scope, strategy engines, risk gates, P2 features |
+| `/API_REFERENCE.md` | REST + WebSocket API reference |
+| `/DEPLOYMENT_GUIDE.md` | Docker Compose setup, env vars, build commands |
+| `/DOCKER_COMPOSE_REFERENCE.md` | 11 services, networks, volumes, health checks |
+| `/CHANGELOG.md` | Condensed version history v1.0-v1.16.0 |
+| `/PRODUCTION_READINESS_AUDIT.md` | Consolidated audit: CONDITIONAL GO, 70/100 |
+| `/README.md` | System overview + quick start |
 
-## Architecture & Boundaries
-- `docs/Predict-A-Trade_FINAL_SCOPE_OF_WORK.md` — Canonical SOW v1.0.0 (implementation contract)
-- `docs/ADVANCED_RISK_ADAPTATION_INTELLIGENCE.md` — Loss recovery, adaptation, hedging, ML/RL, sentiment, daily maintenance, metrics, pipeline wiring
-- `docs/ADVANCED_XAUUSD_INTELLIGENCE.md` — PTB module status table and synthesis output
-- `docs/AI_AGENT_VS_DETERMINISTIC_MATRIX.md` — Component classification (all deterministic, no AI)
-- `docs/LIVE_MARKET_DATA_PROVENANCE.md` — Data flow, authenticity guard, no-fake-data policy
-- `docs/FINAL_TRACEABILITY_MATRIX.md` — SOW requirement to implementation traceability
-- `docs/IMPLEMENTATION_STATUS.md` — Current implementation status per plane
+### Architecture
+- [Architecture & Boundaries](architecture/ARCHITECTURE.md) — Plane boundaries, service diagrams, data flow
 
-## Strategy & Mathematics
-- `docs/strategy/STRATEGY_PLAYBOOKS.md` — Four strategy configurations, candidate thresholds, TP/SL ATR multipliers, and playbooks
-- `docs/strategy/INDICATORS_AND_FEATURES.md` — Indicator inventory and feature engines (42 features)
-- `docs/SIGNAL_TYPES_AND_PROBABILITY.md` — Signal direction types, candidate thresholds, calibrated probability, TP/SL geometry, MQL strategy selection, and signal delivery chain
-- `docs/TRADING_MATHEMATICS_SPECIFICATION.md` — All formulas: indicators, scoring, calibration, PTB synthesis, correlation
-- `docs/BACKTESTING.md` — Backtesting framework guide: architecture, data, execution, PTB parity, walk-forward, Monte Carlo, CLI, reports
-- `docs/XAUUSD_ACCURACY_ENHANCEMENT_REPORT.md` — Accuracy enhancement methodology and results
+### Strategy & Trading
+- [Strategy Playbooks](strategy/STRATEGY_PLAYBOOKS.md) — 5 engine configurations, thresholds, SL/TP
+- [Indicators & Features](strategy/INDICATORS_AND_FEATURES.md) — 42 indicators, 13 evidence pillars
 
-## MT4/MT5 & Windows Agent
-- `docs/MT4_MT5_TRADE_MANAGEMENT_PARITY.md` — MT4/MT5 trade management parity matrix
-- `docs/TRADE_MANAGEMENT_FORENSIC_REPORT.md` — Trade management forensic audit report
-- `docs/LIVE_MT4_MT5_RUNTIME_VALIDATION.md` — Operator runbook for live terminal validation (13 read-only steps)
+### API Reference
+- [API Reference](api/API_REFERENCE.md) — REST endpoints + WebSocket events
 
-## News, Breakout, OCO & Notifications (v1.10.0)
-- `docs/guides/SELF_HOSTED_NOTIFICATIONS_SETUP.md` — Self-hosted notification adapter setup guide (email, Telegram, WhatsApp, push)
-- `realtime/pkg/news/` — Economic calendar provider interface, FMP adapter, risk engine (fail-safe)
-- `realtime/internal/breakout/` — News breakout pending-order planning engine (disabled by default)
-- `realtime/internal/oco/` — OCO durable state machine with race handling and restart reconciliation
-- `realtime/pkg/notifications/` — External notification adapters (email, Telegram, WhatsApp, push)
+### Database
+- [Database Architecture](database/DATABASE_ARCHITECTURE.md) — Schema design, migrations, hypertables
 
-## API Reference
-- `docs/api/API_REFERENCE.md` — REST API and WebSocket event schema reference
+### Frontend
+- [Frontend Overview](frontend/FRONTEND_OVERVIEW.md) — Pages, components, theme system
 
-## Database
-- `docs/database/DATABASE_ARCHITECTURE.md` — Schema design, hypertables, indexes, constraints
-- `docs/database/DATABASE_MIGRATION_REPORT.md` — Migration history and status
-- `docs/database/DATABASE_BACKUP_AND_RECOVERY_REPORT.md` — Backup and recovery procedures
-- `docs/database/DATABASE_DISASTER_RECOVERY.md` — DR plan and RTO/RPO targets
-- `docs/database/DATABASE_PERFORMANCE_REPORT.md` — Performance benchmarks and optimization
-- `docs/database/DATABASE_TRACEABILITY_MATRIX.md` — Database requirement traceability
-- `docs/database/FINAL_DATABASE_STATUS.md` — Final database status summary
+### Operations
+- [Deployment Guide](operations/DEPLOYMENT_GUIDE.md) — Full deployment instructions
+- [Troubleshooting](operations/TROUBLESHOOTING.md) — Common issues and solutions
 
-## Frontend
-- `docs/frontend/README.md` — Frontend architecture overview
-- `docs/frontend/admin-api-route-matrix.md` — Admin API route coverage matrix
-- `docs/frontend/admin-dashboard.md` — Admin dashboard features and pages
-- `docs/frontend/admin-requirements-traceability.md` — Admin requirements traceability
-- `docs/frontend/backend-api-inventory.md` — Backend API inventory for frontend consumption
-- `docs/frontend/cookie-consent.md` — Cookie consent implementation
-- `docs/frontend/frontend-route-api-matrix.md` — Frontend route to API mapping
-- `docs/frontend/legal-pages.md` — Legal pages (privacy policy, terms, etc.)
-- `docs/frontend/theme-system.md` — Theme system (light/dark tokens, CSS variables, Tailwind config)
+### Compliance
+- [Data Retention](compliance/DATA_RETENTION.md) — Data retention policies
+- [Audit Logging](compliance/AUDIT_LOGGING.md) — Audit trail implementation
 
-## Operations
-- `docs/operations/DEPLOYMENT_GUIDE.md` — Deployment guide for all services
-- `docs/operations/DOMAIN_ROUTING_MATRIX.md` — Domain routing and Nginx configuration
-- `docs/operations/TROUBLESHOOTING.md` — Common issues and solutions
-
-## Guides
-- `docs/guides/ADMIN_GUIDE.md` — Admin operations guide
-- `docs/guides/INSTALL.md` — Installation and setup guide
-- `docs/guides/USER_GUIDE.md` — End-user guide
-
-## Reports
-- `docs/reports/PRODUCTION_STATUS_REPORT.md` — Current production status (live, consolidated)
-- `docs/reports/GO_NOGO_REPORT.md` — Go/No-Go decision report
-- `docs/reports/FINAL_PRODUCTION_READINESS_REPORT.md` — Final production readiness assessment
-- `docs/reports/COMPREHENSIVE_PROJECT_REPORT.md` — Comprehensive project report
-- `docs/reports/PRODUCTION_FULL_AUDIT_REPORT.md` — Full production audit results
-- `docs/reports/REMAINING_EXTERNAL_DEPENDENCIES.md` — Remaining external dependencies
-
-## Changelog
-- `docs/CHANGELOG.md` — Version history and changes
-
-## Color & Brand
-- `asset_kit/` — Brand assets (logos, icons, previews, app icons)
-- `frontend/src/styles/globals.css` — CSS variables implementing the approved palette
-- `frontend/tailwind.config.ts` — Tailwind semantic color tokens (pat-success, pat-danger, etc.)
+### Reports
+- [Production Readiness Audit](reports/PRODUCTION_READINESS_AUDIT.md) — Consolidated audit v1.16.0
