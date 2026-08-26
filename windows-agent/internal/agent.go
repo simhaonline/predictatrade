@@ -708,25 +708,6 @@ func (a *Agent) connect() error {
 	// W3: send a signed handshake so the server can reject impersonated agents.
 	a.sendWSHandshake()
 
-	// Re-validate license on reconnect: if we have a stored license key from
-	// the EA, send a LICENSE_CHECK to the Go RT server so it can validate and
-	// send LICENSE_STATUS back. This ensures the license status is refreshed
-	// after a server restart or network reconnection.
-	if a.pipeManager != nil {
-		_, _ = a.pipeManager.GetLicense()
-		licKey := ""
-		if a.pipeManager.licKey != "" {
-			licKey = a.pipeManager.licKey
-		} else if a.config.LicenseKey != "" {
-			licKey = a.config.LicenseKey
-		}
-		if licKey != "" {
-			log.Printf("Re-validating license on reconnect: key=%s...", licKey[:min(12, len(licKey))])
-			wrapped := fmt.Sprintf(`{"type":"LICENSE_CHECK","license_key":%q,"account":"","broker":"","symbol":""}`, licKey)
-			a.sendToServer([]byte(wrapped))
-		}
-	}
-
 	// Read loop — receives signals and messages from Go RT server.
 	// This runs synchronously so connectLoop cannot open a second WebSocket while
 	// the current connection is still alive. Previously this was launched in a
