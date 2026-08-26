@@ -61,10 +61,12 @@ function mapWs(s: SignalEvent): EngineSignal {
     EntryPrice: String(s.entryPrice || 0),
     StopLoss: String(s.stopLoss || 0),
     TP1: String(s.takeProfit || 0),
-    TP2: "0",
-    TP3: "0",
+    TP2: String(s.tp2 || 0),
+    TP3: String(s.tp3 || 0),
     CreatedAt: s.timestamp,
     Symbol: "XAUUSD",
+    Regime: s.regime || "",
+    Session: s.session || "",
     ReasonCodes: [],
   };
 }

@@ -27,6 +27,11 @@ export interface SignalEvent {
   grossRRTP1?: number;
   grossRRTP2?: number;
   grossRRTP3?: number;
+  // Multi-TP + market context (forwarded from Go engine signal)
+  tp2?: number;
+  tp3?: number;
+  regime?: string;
+  session?: string;
 }
 
 export interface MarketDataEvent {
@@ -105,6 +110,10 @@ export function normalizeWsMessage(input: unknown): WsMessage | null {
         strategy: String(p.StrategyID || p.strategy || p.Strategy || ''),
         timestamp: String(ts),
         status: (p.Status || p.status || 'ACTIVE') as 'ACTIVE' | 'CLOSED' | 'EXPIRED',
+        tp2: Number(p.TP2 || p.tp2 || 0),
+        tp3: Number(p.TP3 || p.tp3 || 0),
+        regime: String(p.Regime || p.regime || ''),
+        session: String(p.Session || p.session || ''),
       },
     };
   }
@@ -262,6 +271,10 @@ export class WebSocketManager {
                         strategy: String(s.StrategyID || s.strategy || ""),
                         timestamp: String(s.CreatedAt || s.created_at || s.timestamp || new Date().toISOString()),
                         status: String(s.Status || s.status || "ACTIVE") as any,
+                        tp2: Number(s.TP2 || s.tp2 || 0),
+                        tp3: Number(s.TP3 || s.tp3 || 0),
+                        regime: String(s.Regime || s.regime || ""),
+                        session: String(s.Session || s.session || ""),
                       }
                     }));
                   }

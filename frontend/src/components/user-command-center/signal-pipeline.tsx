@@ -44,9 +44,9 @@ export function SignalPipeline() {
           ID: s.id, StrategyID: s.strategy, Direction: s.direction, Status: s.status,
           RawScore: "0", CalibratedProbability: String(s.probability),
           EntryPrice: String(s.entryPrice || 0), StopLoss: String(s.stopLoss || 0),
-          TP1: String(s.takeProfit || 0), TP2: "0", TP3: "0",
+          TP1: String(s.takeProfit || 0), TP2: String(s.tp2 || 0), TP3: String(s.tp3 || 0),
           GrossRRTP1: "0", GrossRRTP2: "0", GrossRRTP3: "0",
-          CreatedAt: s.timestamp, Regime: "", Session: "", Executable: false,
+          CreatedAt: s.timestamp, Regime: s.regime || "", Session: s.session || "", Executable: false,
         };
         wsBuffer.current = [signal, ...wsBuffer.current].slice(0, 10);
         setWsSignals([...wsBuffer.current]);
