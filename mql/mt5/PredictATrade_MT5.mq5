@@ -1560,6 +1560,10 @@ void HandleSignal(string json)
     if(IsTripleSwapDay()) { g_signalsFiltered++; return; }
     g_signalsDisplayed++;
 
+    Print("SIGNAL-EXEC-CHECK dir=", g_signalDirection, " class=", g_signalClass,
+          " AutoExecute=", AutoExecute, " ExecuteCandidates=", ExecuteCandidates,
+          " conn=", g_connection, " lic=", g_licenseStatus);
+
     if(AutoExecute && g_signalDirection == "BUY")
         ExecuteBuy();
     else if(AutoExecute && g_signalDirection == "SELL")
