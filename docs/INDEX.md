@@ -18,6 +18,7 @@
 ### Deployment & Operations
 - [Docker Deployment](operations/DOCKER_DEPLOYMENT.md) — Step-by-step Docker Compose guide (14 steps)
 - [Host Deployment](operations/HOST_DEPLOYMENT.md) — Step-by-step bare-metal/VPS guide (14 steps)
+- [Disaster Recovery Plan](operations/DR_PLAN.md) — RTO/RPO, asset inventory, risk assessment, backup strategy, recovery procedures, testing schedule
 
 ### Guides
 - [Admin Guide](guides/ADMIN_GUIDE.md) — System administration: users, billing, signals, security
