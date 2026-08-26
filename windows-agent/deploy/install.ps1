@@ -38,7 +38,7 @@ if (-not $isAdmin) {
 # ─── NOW RUNNING AS ADMIN ───
 Write-Host ""
 Write-Host "=========================================="
-Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.21"
+Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.32"
 Write-Host "=========================================="
 Write-Host ""
 
@@ -205,7 +205,14 @@ if ($svcCheck -and $svcCheck.Status -eq "Running") {
 
 # Step 9: Save version + verify health endpoint
 Write-Host "[9/9] Finalizing..."
-$serverVersion = "1.2.26"
+# Fetch the actual version from the server's version.txt (single source of truth)
+try {
+    $serverVersion = (Invoke-WebRequest -Uri "$BaseUrl/version.txt" -UseBasicParsing -TimeoutSec 10).Content.Trim()
+    Write-Host "  Server version: v$serverVersion"
+} catch {
+    $serverVersion = "1.2.31"
+    Write-Host "  WARN: Could not fetch server version — using default v$serverVersion"
+}
 Set-Content -Path (Join-Path $InstallDir "version.txt") -Value $serverVersion -NoNewline
 
 # Try to verify health endpoint

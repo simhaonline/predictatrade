@@ -98,6 +98,16 @@ log "SHA256: $CHECKSUM"
 echo -n "$NEW_VERSION" > "$VERSION_FILE"
 log "Updated version.txt → v$NEW_VERSION"
 
+# ─── Step 6b: Update install.ps1 version strings ───
+INSTALL_PS1="$DEPLOY_DIR/install.ps1"
+if [[ -f "$INSTALL_PS1" ]]; then
+    # Update the installer banner version (e.g., "Installer v1.2.21" → "Installer v1.2.32")
+    sed -i "s/Installer v[0-9]\+\.[0-9]\+\.[0-9]\+/Installer v$NEW_VERSION/" "$INSTALL_PS1"
+    # Update the fallback $serverVersion default (e.g., "1.2.26" → "1.2.32")
+    sed -i "s/\$serverVersion = "[0-9]\+\.[0-9]\+\.[0-9]\+"/\$serverVersion = "$NEW_VERSION"/" "$INSTALL_PS1"
+    log "Updated install.ps1 version strings → v$NEW_VERSION"
+fi
+
 # ─── Step 7: Update update-manifest.json ───
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 cat > "$MANIFEST_FILE" << EOF
