@@ -293,10 +293,15 @@ services:
 
 volumes:
   pat-pgdata:
+    external: true
   pat-valkey:
+    external: true
   pat-prometheus:
+    external: true
   pat-grafana:
+    external: true
   pat-ntfy:
+    external: true
   live-dashboard:
     driver: local
     driver_opts:
