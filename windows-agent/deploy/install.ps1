@@ -38,7 +38,7 @@ if (-not $isAdmin) {
 # ─── NOW RUNNING AS ADMIN ───
 Write-Host ""
 Write-Host "=========================================="
-Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.32"
+Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.34"
 Write-Host "=========================================="
 Write-Host ""
 

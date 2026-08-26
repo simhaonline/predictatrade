@@ -582,10 +582,30 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		if p.licenseValidateFn != nil {
 			var initMsg struct {
 				LicenseKey string `json:"license_key"`
+				NoLicense  bool   `json:"no_license"`
 			}
 			_ = json.Unmarshal(data, &initMsg)
-			if initMsg.LicenseKey != "" {
+			if initMsg.LicenseKey != "" && !initMsg.NoLicense {
 				p.licenseValidateFn(agentID, initMsg.LicenseKey)
+			}
+		}
+
+	case "LICENSE_CHECK":
+		// Signal EA's license check — forwarded by the Windows Agent pipe manager.
+		// This is the PRIMARY license validation path because the Master Node EA
+		// sends "no_license":true and no license_key in its MASTER_INIT message.
+		// The signal EA's INIT/LICENSE_CHECK carries the real license_key.
+		if p.agentConnectFn != nil {
+			p.agentConnectFn(agentID, "LICENSE_CHECK")
+		}
+		if p.licenseValidateFn != nil {
+			var licMsg struct {
+				LicenseKey string `json:"license_key"`
+			}
+			_ = json.Unmarshal(data, &licMsg)
+			if licMsg.LicenseKey != "" {
+				log.Printf("[LICENSE_CHECK] agent=%s license_key=%s... — validating", agentID, licMsg.LicenseKey[:min(12, len(licMsg.LicenseKey))])
+				p.licenseValidateFn(agentID, licMsg.LicenseKey)
 			}
 		}
 	case "MASTER_DEINIT":
@@ -659,4 +679,11 @@ func (p *AgentProvider) GetSnapshotCount() uint64 {
 	p.snapshotMu.RLock()
 	defer p.snapshotMu.RUnlock()
 	return p.snapshotCount
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
