@@ -338,7 +338,7 @@ func TestSeedCapitalProtectionGateStates(t *testing.T) {
 		LicenseActive:      true,
 		ExecutionPermitted: true,
 	}
-	allPass, evals, firstVeto := reg.EvaluateAll(input)
+	allPass, evals, _ := reg.EvaluateAll(input)
 
 	if allPass {
 		t.Error("must NOT pass while positions are unknown and P&L anchors missing")
@@ -353,10 +353,63 @@ func TestSeedCapitalProtectionGateStates(t *testing.T) {
 	if results[types.GateWrongSideSL] != types.GatePass {
 		t.Errorf("wrong_side_sl = %s, want PASS for valid geometry", results[types.GateWrongSideSL])
 	}
-	// daily_loss has Value=nil until P&L anchors hydrate — it hard-vetoes
-	// with pnl_state_unknown and short-circuits evaluation (fail-closed).
-	if firstVeto == nil || firstVeto.GateID != types.GateDailyLoss ||
-		firstVeto.ReasonCodes[0] != ReasonPnLStateUnknown {
-		t.Errorf("firstVeto = %+v, want daily_loss/pnl_state_unknown", firstVeto)
+	// Daily loss no longer hard-vetoes on unknown PnL — it defers to the EA's
+	// own MaxDailyLossPct (server-side PnL tracking is a secondary check). The
+	// fail-closed posture for missing broker data is carried by position_caps
+	// (DEGRADED), which keeps AllGatesPass=false.
+	if results[types.GateDailyLoss] != types.GatePass {
+		t.Errorf("daily_loss = %s, want PASS when PnL anchor unknown (EA enforces locally)", results[types.GateDailyLoss])
+	}
+}
+
+// ─── Operator arming / authorization (live auto-trading enablement) ─────────
+
+// TestEdgeValidationGateArmed verifies that an operator-armed strategy passes
+// the edge gate without requiring live closed-trade history (breaks the
+// bootstrap deadlock), while unarmed strategies still force ADVISORY.
+func TestEdgeValidationGateArmed(t *testing.T) {
+	g := &EdgeValidationGate{MinProfitFactor: 1.2, MinExpectancyR: 0.2, MinSampleSize: 50}
+	g.SetArmed([]string{"STANDARD_SCALPING"})
+
+	// Armed strategy — no stats available → still PASS (armed).
+	eval := g.Evaluate(GateInput{StrategyID: types.StrategyID("STANDARD_SCALPING")}, GateState{State: types.GateDegraded})
+	if eval.Result != types.GatePass || eval.ReasonCodes[0] != ReasonEdgeArmed {
+		t.Errorf("armed strategy: result=%s reason=%v, want PASS/edge_armed", eval.Result, eval.ReasonCodes)
+	}
+
+	// Unarmed strategy — no stats → DEGRADED (advisory-only).
+	eval2 := g.Evaluate(GateInput{StrategyID: types.StrategyID("ULTRA_SCALPING")}, GateState{State: types.GateDegraded})
+	if eval2.Result != types.GateDegraded || eval2.ReasonCodes[0] != ReasonEdgeUnproven {
+		t.Errorf("unarmed strategy: result=%s reason=%v, want DEGRADED/edge_unproven", eval2.Result, eval2.ReasonCodes)
+	}
+}
+
+// TestPositionCapsAuthorized verifies that when the operator has authorized live
+// trading and the strategy is armed, a missing broker position snapshot does NOT
+// block the signal (EA enforces caps locally). Without authorization it still
+// degrades (fail-closed).
+func TestPositionCapsAuthorized(t *testing.T) {
+	g := &PositionCapsGate{MaxSameDirection: 1, MaxTotal: 2, MaxPerStrategy: 1}
+	g.SetAuthorized(true)
+	g.SetArmed([]string{"STANDARD_SCALPING"})
+
+	// Authorized + armed, positions unknown → PASS (EA enforces locally).
+	eval := g.Evaluate(GateInput{Direction: types.DirectionBuy, StrategyID: types.StrategyID("STANDARD_SCALPING"), PositionsKnown: false}, GateState{})
+	if eval.Result != types.GatePass || eval.ReasonCodes[0] != ReasonPositionCapsAuthorized {
+		t.Errorf("authorized+armed: result=%s reason=%v, want PASS/position_caps_authorized", eval.Result, eval.ReasonCodes)
+	}
+
+	// Authorized but NOT armed → still DEGRADED (positions_unknown).
+	eval2 := g.Evaluate(GateInput{Direction: types.DirectionBuy, StrategyID: types.StrategyID("ULTRA_SCALPING"), PositionsKnown: false}, GateState{})
+	if eval2.Result != types.GateDegraded {
+		t.Errorf("authorized but unarmed: result=%s, want DEGRADED", eval2.Result)
+	}
+
+	// Not authorized at all → DEGRADED regardless of arming.
+	g2 := &PositionCapsGate{MaxSameDirection: 1, MaxTotal: 2, MaxPerStrategy: 1}
+	g2.SetArmed([]string{"STANDARD_SCALPING"})
+	eval3 := g2.Evaluate(GateInput{Direction: types.DirectionBuy, StrategyID: types.StrategyID("STANDARD_SCALPING"), PositionsKnown: false}, GateState{})
+	if eval3.Result != types.GateDegraded {
+		t.Errorf("not authorized: result=%s, want DEGRADED", eval3.Result)
 	}
 }

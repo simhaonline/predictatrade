@@ -54,6 +54,16 @@ type Config struct {
 	EdgeMinExpectancyR        float64            // EDGE_MIN_EXPECTANCY_R
 	EdgeMinSampleSize         int                // EDGE_MIN_SAMPLE_SIZE
 	EdgeLookbackTrades        int                // EDGE_LOOKBACK_TRADES
+	// Operator authorization for live auto-trading.
+	// LIVE_TRADING_AUTHORIZED must be explicitly set true by an operator. It is
+	// the master kill-switch for server-side EXECUTABLE signal emission. Without
+	// it, edge_validation/position_caps remain fail-closed regardless of arming.
+	LiveTradingAuthorized bool
+	// EDGE_ARMED_STRATEGIES is the explicit operator list of strategies that are
+	// qualified (backtest/walk-forward calibration on file) to emit EXECUTABLE
+	// signals. Empty by default — nothing is armed unless the operator lists it.
+	// Arming only takes effect when LiveTradingAuthorized is also true.
+	EdgeArmedStrategies []string
 	MaxMarginUsagePct         float64            // MAX_MARGIN_USAGE_PCT of free margin
 	DefaultLeverage           int                // DEFAULT_LEVERAGE when broker snapshot lacks leverage
 	CostToTP1MaxPct           float64            // COST_TO_TP1_MAX_PCT for scalping strategies
@@ -195,6 +205,8 @@ func Default() *Config {
 		EdgeMinExpectancyR:   getEnvFloat("EDGE_MIN_EXPECTANCY_R", 0.2),
 		EdgeMinSampleSize:    getEnvInt("EDGE_MIN_SAMPLE_SIZE", 50),
 		EdgeLookbackTrades:   getEnvInt("EDGE_LOOKBACK_TRADES", 50),
+		LiveTradingAuthorized: getEnvBool("LIVE_TRADING_AUTHORIZED", false),
+		EdgeArmedStrategies:   splitComma(getEnv("EDGE_ARMED_STRATEGIES", "")),
 		MaxMarginUsagePct:    getEnvFloat("MAX_MARGIN_USAGE_PCT", 30.0),
 		DefaultLeverage:      getEnvInt("DEFAULT_LEVERAGE", 500),
 		CostToTP1MaxPct:      getEnvFloat("COST_TO_TP1_MAX_PCT", 0.30),
@@ -582,4 +594,16 @@ func getEnvBoolDefaultTrue(key string) bool {
 		return true
 	}
 	return !(v == "false" || v == "0" || v == "FALSE")
+}
+
+// splitComma parses a comma-separated env value into a trimmed, non-empty slice.
+func splitComma(s string) []string {
+	out := []string{}
+	for _, p := range strings.Split(s, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

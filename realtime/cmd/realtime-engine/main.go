@@ -3039,11 +3039,30 @@ func registerGates(reg *gates.Registry, cfg *config.Config) *gates.PositionCapsG
 		MaxLotRatio: cfg.MartingaleMaxLotRatio,
 		BaseLots:    baseLots,
 	}, types.GateProfitTarget)
-	reg.RegisterOrdered(&gates.EdgeValidationGate{
+	edgeGate := &gates.EdgeValidationGate{
 		MinProfitFactor: cfg.EdgeMinProfitFactor,
 		MinExpectancyR:  cfg.EdgeMinExpectancyR,
 		MinSampleSize:   cfg.EdgeMinSampleSize,
-	}, types.GateExecutionPermit)
+	}
+	reg.RegisterOrdered(edgeGate, types.GateExecutionPermit)
+
+	// ─── Operator authorization for live auto-trading ───
+	// Edge arming + position-cap authorization are ONLY applied when the operator
+	// has explicitly set LIVE_TRADING_AUTHORIZED=true (fail-closed otherwise).
+	// Armed strategies must be individually listed in EDGE_ARMED_STRATEGIES
+	// (qualified via backtest/walk-forward calibration). This is the deliberate,
+	// audited switch that lets signals become EXECUTABLE end-to-end.
+	if cfg.LiveTradingAuthorized {
+		edgeGate.SetArmed(cfg.EdgeArmedStrategies)
+		posCaps.SetAuthorized(true)
+		posCaps.SetArmed(cfg.EdgeArmedStrategies)
+		observability.Log.Warn().
+			Strs("armed_strategies", cfg.EdgeArmedStrategies).
+			Msg("[AUTH] LIVE_TRADING_AUTHORIZED=true — edge_validation + position_caps armed for listed strategies; signals may become EXECUTABLE")
+	} else {
+		observability.Log.Info().
+			Msg("[AUTH] LIVE_TRADING_AUTHORIZED=false — edge_validation stays fail-closed (advisory-only); no EXECUTABLE signals")
+	}
 
 	return posCaps
 }

@@ -9,6 +9,7 @@
 package gates
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -26,6 +27,11 @@ const (
 	ReasonPnLStateUnknown = "pnl_state_unknown"
 	ReasonMartingaleLot   = "martingale_lot"
 	ReasonEdgeUnproven    = "edge_unproven"
+	ReasonEdgeArmed       = "edge_armed"
+	// ReasonPositionCapsAuthorized: operator has authorized the strategy for live
+	// trading and the EA enforces position caps locally, so the absent broker
+	// position snapshot does not block the EXECUTABLE signal.
+	ReasonPositionCapsAuthorized = "position_caps_authorized"
 )
 
 // ─── R2: GateWrongSideSL ────────────────────────────────────────────────
@@ -124,17 +130,61 @@ type PositionCapsGate struct {
 	MaxTotal         int
 	MaxPerStrategy   int
 
-	mu     sync.Mutex
-	issued map[string][]time.Time // strategyID → issuance timestamps
+	// Operator authorization: when LiveTradingAuthorized is true and the strategy
+	// is in the armed set, a missing broker position snapshot does NOT block the
+	// signal. The EA enforces position caps locally (per AGENTS.md / code
+	// comments), so the server-side gate trusts the operator's qualification
+	// rather than failing closed on absent broker data. This is set only by
+	// main.go after verifying LiveTradingAuthorized.
+	authorized bool
+	mu         sync.RWMutex
+	armed      map[types.StrategyID]bool
+
+	muIssued sync.Mutex
+	issued   map[string][]time.Time // strategyID → issuance timestamps
 }
 
 func (g *PositionCapsGate) ID() types.GateID { return types.GatePositionCaps }
 
+// SetAuthorized enables operator authorization for this gate. Caller (main.go)
+// must have already verified LiveTradingAuthorized before invoking.
+func (g *PositionCapsGate) SetAuthorized(authorized bool) {
+	g.mu.Lock()
+	g.authorized = authorized
+	g.mu.Unlock()
+}
+
+// SetArmed replaces the operator-armed strategy set (qualified via calibration).
+func (g *PositionCapsGate) SetArmed(strategies []string) {
+	m := make(map[types.StrategyID]bool, len(strategies))
+	for _, s := range strategies {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			m[types.StrategyID(s)] = true
+		}
+	}
+	g.mu.Lock()
+	g.armed = m
+	g.mu.Unlock()
+}
+
+func (g *PositionCapsGate) isArmed(id types.StrategyID) bool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.armed[id]
+}
+
+func (g *PositionCapsGate) isAuthorized() bool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.authorized
+}
+
 // RecordIssued records that an EXECUTABLE signal was published for a
 // strategy; it counts toward the per-strategy cap until ttl elapses.
 func (g *PositionCapsGate) RecordIssued(strategyID types.StrategyID, ttl time.Duration) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
+	g.muIssued.Lock()
+	defer g.muIssued.Unlock()
 	if g.issued == nil {
 		g.issued = make(map[string][]time.Time)
 	}
@@ -142,8 +192,8 @@ func (g *PositionCapsGate) RecordIssued(strategyID types.StrategyID, ttl time.Du
 }
 
 func (g *PositionCapsGate) countIssued(strategyID types.StrategyID) int {
-	g.mu.Lock()
-	defer g.mu.Unlock()
+	g.muIssued.Lock()
+	defer g.muIssued.Unlock()
 	now := time.Now().UTC()
 	live := 0
 	for _, expiry := range g.issued[string(strategyID)] {
@@ -157,6 +207,15 @@ func (g *PositionCapsGate) countIssued(strategyID types.StrategyID) int {
 func (g *PositionCapsGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := g.base(state)
 	if !input.PositionsKnown {
+		// Operator-authorized + armed strategy: broker position snapshot is
+		// absent, but the EA enforces position caps locally. Do not block the
+		// EXECUTABLE signal on missing broker data when the operator has
+		// explicitly qualified the strategy for live trading.
+		if g.isAuthorized() && g.isArmed(input.StrategyID) {
+			eval.Result = types.GatePass
+			eval.ReasonCodes = []string{ReasonPositionCapsAuthorized}
+			return eval
+		}
 		eval.Result = types.GateDegraded
 		eval.ReasonCodes = []string{"positions_unknown"}
 		return eval
@@ -313,12 +372,51 @@ type EdgeValidationGate struct {
 	MinProfitFactor float64
 	MinExpectancyR  float64
 	MinSampleSize   int
+
+	// Operator arming: an explicit, audited list of strategies the operator has
+	// qualified (backtest/walk-forward calibration on file) to emit EXECUTABLE
+	// signals. Arming only takes effect when LiveTradingAuthorized is also true
+	// (enforced by main.go before calling SetArmed). When armed, the gate PASSES
+	// for that strategy without requiring live closed-trade history, breaking the
+	// bootstrap deadlock where nothing can ever prove an edge because nothing has
+	// yet executed.
+	mu     sync.RWMutex
+	armed  map[types.StrategyID]bool
 }
 
 func (g *EdgeValidationGate) ID() types.GateID { return types.GateEdgeValidation }
 
+// SetArmed replaces the operator-armed strategy set. Call only after
+// LiveTradingAuthorized has been verified by the caller.
+func (g *EdgeValidationGate) SetArmed(strategies []string) {
+	m := make(map[types.StrategyID]bool, len(strategies))
+	for _, s := range strategies {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			m[types.StrategyID(s)] = true
+		}
+	}
+	g.mu.Lock()
+	g.armed = m
+	g.mu.Unlock()
+}
+
+func (g *EdgeValidationGate) IsArmed(id types.StrategyID) bool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.armed[id]
+}
+
 func (g *EdgeValidationGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := g.base(state)
+
+	// Operator-armed strategy: qualify without requiring live trade history.
+	if g.IsArmed(input.StrategyID) {
+		eval.Result = types.GatePass
+		eval.ReasonCodes = []string{ReasonEdgeArmed}
+		return eval
+	}
+
 	statsByStrategy, ok := state.Value.(map[types.StrategyID]risk.EdgeStats)
 	if !ok {
 		eval.Result = types.GateDegraded
