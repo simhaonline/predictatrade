@@ -31,6 +31,17 @@ export function PerformanceMatrix({ performance }: PerformanceMatrixProps) {
             <SortButton active={sortBy === "signalFrequency"} onClick={() => setSortBy("signalFrequency")}>Frequency</SortButton>
           </div>
         </div>
+        {/* Show only indicator×strategy pairs that actually have contributions (tradeCount > 0).
+            164 rows of mostly no-data is unreadable noise. */}
+        {sorted.filter(m => m.tradeCount > 0).length === 0 && (
+          <div className="rounded border border-pat-warning/20 bg-pat-warning/5 p-4 mb-3">
+            <div className="text-sm text-pat-warning mb-1">No performance data available</div>
+            <div className="text-xs text-pat-text-muted">
+              Performance metrics require closed trade data or evidence-matched signals.
+              This will populate automatically as trades are closed and recorded by the engine.
+            </div>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -47,7 +58,7 @@ export function PerformanceMatrix({ performance }: PerformanceMatrixProps) {
               </tr>
             </thead>
             <tbody>
-              {sorted.map((m, i) => (
+              {sorted.filter(m => m.tradeCount > 0).map((m, i) => (
                 <tr key={`${m.indicatorKey}-${m.strategy}-${i}`} className="border-b border-pat-border/50 hover:bg-pat-bg-surface-secondary/30">
                   <td className="py-2 px-3 text-pat-text-primary">{m.indicatorKey}</td>
                   <td className="py-2 px-3 text-xs text-pat-text-secondary">{m.strategy.replace(/_/g, " ")}</td>
@@ -69,20 +80,20 @@ export function PerformanceMatrix({ performance }: PerformanceMatrixProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-lg border border-pat-border bg-pat-bg-surface p-4">
           <h3 className="text-sm font-semibold text-pat-text-primary mb-3">Top Performers</h3>
-          <RankingList metrics={sorted.filter((m) => m.hitRate !== null).slice(0, 5)} />
+          <RankingList metrics={sorted.filter((m) => m.tradeCount > 0 && m.hitRate !== null).slice(0, 5)} />
         </div>
         <div className="rounded-lg border border-pat-border bg-pat-bg-surface p-4">
           <h3 className="text-sm font-semibold text-pat-text-primary mb-3">Needs Attention</h3>
-          <RankingList metrics={sorted.filter((m) => m.hitRate !== null).slice(-5).reverse()} />
+          <NeedsAttention performance={performance} />
         </div>
       </div>
 
-      {performance.every((p) => p.performanceLevel === "no-data") && (
+      {performance.every((p) => p.tradeCount === 0) && (
         <div className="rounded-lg border border-pat-warning/20 bg-pat-warning/10 p-4">
-          <div className="text-sm text-pat-warning">No performance data available</div>
+          <div className="text-sm text-pat-warning">No closed-trade performance data yet</div>
           <div className="text-xs text-pat-text-muted mt-1">
-            Performance metrics require closed trade data with per-indicator evidence tracking.
-            This will populate automatically as trades are closed and recorded by the engine.
+            Performance metrics populate as signals resolve with realized P&amp;L.
+            The engine is generating signals across all active strategies — check the Signals page for live activity.
           </div>
         </div>
       )}
@@ -109,10 +120,68 @@ function RankingList({ metrics }: { metrics: PerformanceMetric[] }) {
     <div className="space-y-2">
       {metrics.map((m, i) => (
         <div key={i} className="flex items-center justify-between text-xs">
-          <span className="text-pat-text-secondary">{m.indicatorKey}</span>
+          <span className="text-pat-text-secondary">{m.indicatorKey} · {m.strategy.replace(/_/g, " ")}</span>
           <span className={`font-mono ${getPerformanceColor(m.performanceLevel)}`}>
             {(m.hitRate ?? 0).toFixed(0)}% / {(m.avgRMultiple ?? 0).toFixed(2)}R
           </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Needs Attention panel — shows actionable items beyond raw performance numbers:
+ * 1. Strategies with zero directional signals (TREND_SWING gap, etc.)
+ * 2. Indicators contributing to signals but performing poorly
+ * 3. Indicators flagged as stale/disabled by liveness
+ */
+function NeedsAttention({ performance }: { performance: PerformanceMetric[] }) {
+  const items: string[] = [];
+
+  // 1. Strategies with zero directional signals
+  const strategies = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"];
+  const stratSignalCounts = new Map<string, number>();
+  for (const m of performance) {
+    stratSignalCounts.set(m.strategy, (stratSignalCounts.get(m.strategy) ?? 0) + m.tradeCount);
+  }
+  for (const st of strategies) {
+    const count = stratSignalCounts.get(st) ?? 0;
+    if (count === 0) {
+      items.push(`No directional signals from ${st.replace(/_/g, " ")} — engine may need calibration or market conditions are unfavorable`);
+    }
+  }
+
+  // 2. Indicators with poor performance (low hit rate where we have data)
+  for (const m of performance) {
+    if (m.tradeCount > 0 && m.hitRate !== null && m.hitRate < 40) {
+      items.push(`${m.indicatorKey} on ${m.strategy.replace(/_/g, " ")}: ${m.hitRate.toFixed(0)}% hit rate over ${m.tradeCount} trades`);
+    }
+    if (m.tradeCount > 0 && m.avgRMultiple !== null && m.avgRMultiple < 0) {
+      items.push(`${m.indicatorKey} on ${m.strategy.replace(/_/g, " ")}: negative avg R (${m.avgRMultiple.toFixed(2)}) over ${m.tradeCount} trades`);
+    }
+  }
+
+  // 3. Show evidence-matched indicators and their projected R:R
+  const withProjectedRR = performance
+    .filter(m => m.tradeCount > 0 && m.avgRMultiple !== null)
+    .sort((a, b) => (a.avgRMultiple ?? 0) - (b.avgRMultiple ?? 0));
+  for (const m of withProjectedRR.slice(0, 3)) {
+    if (m.avgRMultiple !== null && m.avgRMultiple < 0.5 && m.avgRMultiple > 0) {
+      items.push(`${m.indicatorKey} on ${m.strategy.replace(/_/g, " ")}: projected R:R only ${m.avgRMultiple.toFixed(2)}`);
+    }
+  }
+
+  if (items.length === 0) {
+    return <div className="text-xs text-pat-text-muted">All active indicators are performing within expected parameters.</div>;
+  }
+
+  return (
+    <div className="space-y-2 max-h-60 overflow-y-auto">
+      {items.slice(0, 8).map((item, i) => (
+        <div key={i} className="flex items-start gap-2 text-xs">
+          <span className="text-pat-warning mt-0.5 shrink-0">⚠</span>
+          <span className="text-pat-text-secondary">{item}</span>
         </div>
       ))}
     </div>
