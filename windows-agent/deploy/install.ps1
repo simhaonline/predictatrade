@@ -43,36 +43,16 @@ Write-Host "=========================================="
 Write-Host ""
 
 # Step 1: Add Defender exclusions BEFORE downloading (prevents quarantine)
+# NOTE: Do NOT disable real-time protection or exclude .exe extension globally
+# — that breaks UAC elevation and Windows security. Only exclude our specific
+# directory and process names.
 Write-Host "[1/9] Adding Windows Defender exclusions..."
 try {
-    # Directory exclusion — covers the install dir and all files within
     Add-MpPreference -ExclusionPath "C:\PredictATrade" -ErrorAction SilentlyContinue
     Add-MpPreference -ExclusionPath "C:\PredictATrade\XAUUSD" -ErrorAction SilentlyContinue
-    # Process exclusion — covers the agent binary by name
     Add-MpPreference -ExclusionProcess $AgentExe -ErrorAction SilentlyContinue
     Add-MpPreference -ExclusionProcess "nssm.exe" -ErrorAction SilentlyContinue
-    # Extension exclusion for the binary
-    Add-MpPreference -ExclusionExtension ".exe" -ErrorAction SilentlyContinue
-
-    # Temporarily disable real-time protection during install to prevent
-    # Defender from quarantining the downloaded binary before it can be
-    # excluded. This is re-enabled at the end of the install.
-    $rtWasEnabled = $true
-    try {
-        $rtStatus = Get-MpComputerStatus -ErrorAction SilentlyContinue
-        if ($rtStatus -and $rtStatus.RealTimeProtectionEnabled) {
-            Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
-            Write-Host "  OK: Defender real-time protection temporarily disabled for install"
-            Write-Host "  (will be re-enabled after install completes)"
-        } else {
-            $rtWasEnabled = $false
-            Write-Host "  OK: Defender real-time already off"
-        }
-    } catch {
-        Write-Host "  WARN: Could not check/disable real-time protection: $_"
-    }
-
-    Write-Host "  OK: Exclusions added"
+    Write-Host "  OK: Exclusions added (path + process only)"
 } catch {
     Write-Host "  WARN: Could not add Defender exclusion (non-fatal): $_"
 }
@@ -268,16 +248,6 @@ try {
     Write-Host "  OK: Health endpoint responding (HTTP $($healthResp.StatusCode))"
 } catch {
     Write-Host "  WARN: Health endpoint not responding yet (service may still be starting)"
-}
-
-# Step 10: Re-enable Defender real-time protection
-Write-Host "[10/9] Re-enabling Windows Defender real-time protection..."
-try {
-    Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction SilentlyContinue
-    Write-Host "  OK: Real-time protection re-enabled"
-} catch {
-    Write-Host "  WARN: Could not re-enable real-time protection: $_"
-    Write-Host "  Please manually re-enable: Windows Security > Virus & threat protection"
 }
 
 # ─── Summary ───
