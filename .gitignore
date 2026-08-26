@@ -85,3 +85,7 @@ PROJECT_MEMORY.txt
 opencode.json
 .cleanup_backup/
 windows-agent/agent
+
+# Code signing private key — never commit
+windows-agent/certs/pat-code-sign.key
+windows-agent/certs/pat-code-sign.pfx

