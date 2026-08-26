@@ -30,8 +30,8 @@ Predict-A-Trade generates XAUUSD trading signals using 5 strategy engines, 42 te
 ### Live Dashboard (`/dashboard/live`)
 Real-time trading view showing:
 - **Current Price:** XAUUSD bid/ask spread
-- **Active Signals:** Live signals from all enabled strategies
-- **Signal Cards:** Direction (BUY/SELL), entry price, SL, TP1/TP2/TP3, grade (A/B/C), score
+- **Active Signals:** Live signals from all enabled strategies — displayed in the Signal Pipeline card
+- **Signal Cards:** Direction (BUY/SELL), entry price, SL, TP1/TP2/TP3, grade (A+/A/B), score, R:R per TP level
 - **Engine Status:** Which strategies are generating signals
 - **Market Regime:** Current market condition (TRENDING_BULLISH, TRENDING_BEARISH, RANGE)
 - **Session:** Active trading session (TOKYO/LONDON/NY/OVERLAP)
@@ -42,19 +42,22 @@ Real-time trading view showing:
 │ STANDARD SCALPING          Grade: A     │
 │ BUY XAUUSD                 Score: 72.5  │
 │ Entry: 2430.50                          │
-│ SL:    2425.00  TP1: 2442.00            │
-│                TP2: 2453.75             │
-│                TP3: 2465.50             │
+│ SL:    2425.00  TP1: 2442.00  R:R 2.0x  │
+│                TP2: 2453.75  R:R 3.1x  │
+│                TP3: 2465.50  R:R 4.7x  │
 │ Regime: TRENDING_BULLISH                │
 │ Expires: 10:10 UTC                      │
 └─────────────────────────────────────────┘
 ```
 
-### Signals History (`/dashboard/signals`)
-- All past signals with outcomes (WIN/LOSS/EXPIRED)
-- Filter: strategy, direction, date range, outcome
-- Export to CSV
-- Signal detail: full evidence chain showing why the signal fired
+### Signals Page (`/dashboard/signals`)
+Complete signal table with per-strategy filtering and evidence chain expansion:
+- **Table columns:** Direction, Strategy, Score, Calibrated Probability, Entry, SL, TP1, TP2, TP3, Quality Grade, Status, Regime, Date
+- **Client-side pagination:** 15 signals per page with Prev/Next navigation (prevents browser lockup with large signal volumes)
+- **Expand rows:** Click any signal to view full evidence chain, lot sizing, risk metrics
+- **Filters:** Strategy, Direction, Regime
+- **Color coding:** BUY (green), SELL (red), BUY_CANDIDATE/SELL_CANDIDATE (amber), NO-TRADE (grey)
+- **Export to CSV:** Download filtered signal history
 
 ### Signal Status Lifecycle
 1. **DETECTED** — Strategy identified a setup

@@ -118,9 +118,11 @@ Active plans: FREE, STANDARD ($99/mo), PRO ($299/mo), ELITE ($699/mo)
 ## 6. Signal & Trading Oversight
 
 ### Signal Monitoring (Admin → Signals)
-- Real-time signal feed from all 5 strategy engines
-- Filters: strategy, direction, grade, time range
-- Signal detail: full evidence chain, gate results, scores
+- Real-time signal feed from all 5 strategy engines with **20-signal-per-page pagination** (prevents browser lockup)
+- Multi-tab strategy filtering: ALL, STANDARD_SCALPING, ULTRA_SCALPING, STANDARD_SWING, TREND_SWING, MARNIE_FIB
+- Direction filters: BUY, BUY_CANDIDATE, SELL, SELL_CANDIDATE, NO-TRADE
+- Full table columns: Time, Direction, Strategy, Symbol, Probability, Score, Entry, SL, TP1, TP2, TP3, Regime, Session, Quality Grade (A+/A/B), Expectancy (EV_R), Rejection Reason, Status
+- Expand rows: Click any signal to reveal full evidence chain, lot sizing (SuggestedLot), risk metrics (RiskDollars, RiskPctOfEquity, SLDistancePoints), pillar contributions, gate results
 - Export signals to CSV
 
 ### NO-TRADE Analysis

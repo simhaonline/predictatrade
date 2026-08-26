@@ -82,6 +82,16 @@ ExecutionPermission → BrokerSymbolValidation (P0) → SeedCapitalProtection �
 - P2-004: Trade Group ID — multi-position signal tracking
 - P2-005: SLO targets — availability, latency, error budgets
 
+### v1.16.0 Frontend Features
+- **Signal Panel pagination:** 20/page admin, 15/page user — prevents browser lockup with large signal volumes
+- **TP2/TP3 columns:** Displayed alongside TP1 in both admin and user signal tables with per-level R:R ratios
+- **Quality Grade:** A+, A, B, REJECTED badges on signal rows
+- **Expectancy metrics:** EV_R (expected value per unit risk) and ExpectancyScore (0-100)
+- **Capital-protection sizing:** SuggestedLot, RiskDollars, RiskPctOfEquity, SLDistancePoints displayed in expandable rows
+- **Calibrated probability:** Shows "Pending" until calibration model is validated (§16, §36)
+- **Signal Class:** ADVISORY vs EXECUTABLE classification with color coding
+- **Multi-tab strategy filtering:** All 5 strategy engines (including MARNIE_FIB) with directional sub-filters
+
 ## Plane Boundaries (mandatory)
 
 | Plane | Location | Authority | Must NOT become |

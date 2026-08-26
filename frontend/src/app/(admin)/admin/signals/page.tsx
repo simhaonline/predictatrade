@@ -6,8 +6,10 @@ import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
 import { useState, useEffect } from "react";
 import { getGlobalWs, type WsMessage } from "@/lib/websocket";
-import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
+import { IconChevronDown, IconChevronUp, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import SignalEvidencePanel from "@/components/signal/signal-evidence";
+
+const PAGE_SIZE = 20;
 
 interface GoSignal {
   ID: string;
@@ -60,6 +62,7 @@ export default function AdminSignalsPage() {
   const [activeTab, setActiveTab] = useState<typeof STRATEGY_TABS[number]>("ALL");
   const [directionFilter, setDirectionFilter] = useState<typeof DIRECTION_FILTERS[number]>("ALL");
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
   const ws = getGlobalWs();
 
   const { data: signalsData, isLoading, error, refetch } = useQuery<{ signals: GoSignal[] }>({
@@ -94,6 +97,12 @@ export default function AdminSignalsPage() {
     if (directionFilter !== "ALL" && s.Direction !== directionFilter) return false;
     return true;
   });
+
+  // Reset page when filters change
+  useEffect(() => { setPage(0); }, [activeTab, directionFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredSignals.length / PAGE_SIZE));
+  const pagedSignals = filteredSignals.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   const fmtScore = (val: string) => {
     const n = parseFloat(val);
@@ -215,7 +224,7 @@ export default function AdminSignalsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-800">
-              {filteredSignals.map((row) => {
+              {pagedSignals.map((row) => {
                 const isOpen = expandedRow === row.ID;
                 return (
                   <React.Fragment key={row.ID}>
@@ -281,6 +290,28 @@ export default function AdminSignalsPage() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+      {/* Pagination controls */}
+      {filteredSignals.length > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 text-xs">
+          <button
+            onClick={() => setPage(p => Math.max(0, p - 1))}
+            disabled={page === 0}
+            className="px-2 py-1 rounded border border-pat-border bg-pat-bg-surface hover:bg-pat-bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed text-pat-text-secondary"
+          >
+            <IconChevronLeft size={14} className="inline" /> Prev
+          </button>
+          <span className="text-pat-text-muted">
+            Page {page + 1} of {totalPages} ({filteredSignals.length} signals)
+          </span>
+          <button
+            onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+            disabled={page >= totalPages - 1}
+            className="px-2 py-1 rounded border border-pat-border bg-pat-bg-surface hover:bg-pat-bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed text-pat-text-secondary"
+          >
+            Next <IconChevronRight size={14} className="inline" />
+          </button>
         </div>
       )}
     </div>
