@@ -950,6 +950,43 @@ func main() {
 		go agentHub.Run()
 	}
 
+	// ─── Proactive License Validation ───
+	// Server-side: validates licenses for connected agents using agent_user_bindings
+	// table and sends LICENSE_STATUS via WebSocket. No Windows Agent changes needed.
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		validated := make(map[string]bool)
+
+		for range ticker.C {
+			if persister == nil || agentHub == nil {
+				continue
+			}
+			for _, agentID := range agentHub.GetAgentIDs() {
+				if validated[agentID] {
+					continue
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				var licKey string
+				err := persister.GetDB().QueryRowContext(ctx,
+					`SELECT license_key FROM trading.agent_user_bindings WHERE agent_id = $1 ORDER BY last_seen_at DESC LIMIT 1`,
+					agentID).Scan(&licKey)
+				cancel()
+				if err != nil || licKey == "" {
+					continue
+				}
+				if fn := agentProvider.GetLicenseValidateFn(); fn != nil {
+					log.Printf("[PROACTIVE] agent=%s validating license from bindings", agentID)
+					result := fn(agentID, licKey)
+					if result.Valid {
+						validated[agentID] = true
+						log.Printf("[PROACTIVE] agent=%s LICENSE_STATUS sent (ACTIVE plan=%s)", agentID, result.Plan)
+					}
+				}
+			}
+		}
+	}()
+
 	// Exit reconciliation (prompt.md Bug 5 / mql-fix.md): EA sends TRADE_RESULT
 	// with signal_id, strategy_id, magic, exit_reason, realized_pnl — persist
 	// into trading.trade_results so edge-validation and expected-vs-actual
@@ -3702,3 +3739,5 @@ func boolToFloat(b bool) float64 {
 	}
 	return 0.0
 }
+
+func min(a, b int) int { if a < b { return a }; return b }

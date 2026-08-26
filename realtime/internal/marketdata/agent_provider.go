@@ -319,6 +319,10 @@ func (p *AgentProvider) SetLicenseValidateFn(fn func(agentID, licenseKey string)
 	p.licenseValidateFn = fn
 }
 
+func (p *AgentProvider) GetLicenseValidateFn() func(agentID, licenseKey string) LicenseValidationResult {
+	return p.licenseValidateFn
+}
+
 // SetTradeResultFn registers the exit-reconciliation callback (TRADE_RESULT).
 func (p *AgentProvider) SetTradeResultFn(fn func(agentID string, data []byte)) {
 	p.tradeResultFn = fn

@@ -157,6 +157,16 @@ func (h *AgentHub) AgentCount() int {
 	return len(h.agents)
 }
 
+func (h *AgentHub) GetAgentIDs() []string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	ids := make([]string, 0, len(h.agents))
+	for id := range h.agents {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // DisconnectAgent forcibly removes an agent connection (e.g. failed license
 // validation). Safe to call for unknown IDs.
 func (h *AgentHub) DisconnectAgent(agentID, reason string) {
