@@ -71,11 +71,11 @@ input bool    ExecuteCandidates  = false;      // Execute candidates as real tra
 #define TP1ClosePct 33.33
 #define TP2ClosePct 33.33
 #define TP3TrailATRMult 1.5
-#define AvoidSwapCharges true
-#define SwapCutoffHour 22
-#define SwapCutoffBuffer 15
-#define AvoidTripleSwapDay true
-#define TripleSwapDay "Wednesday"
+input bool   AvoidSwapCharges   = true;        // Skip signals inside the swap-time window (broker server time)
+input int    SwapCutoffHour     = 22;          // Swap cutoff hour (broker server time, 0-23)
+input int    SwapCutoffBuffer   = 15;          // Minutes before cutoff to start avoiding
+input bool   AvoidTripleSwapDay = true;        // NO-TRADE on the triple-swap weekday (operator-toggleable)
+input string TripleSwapDay      = "Wednesday"; // Weekday treated as triple-swap: Monday..Sunday
 #define MaxSlippagePoints 3
 #define RejectOnHighSlippage true
 #define MaxDailyLossPct 6.0
@@ -1544,10 +1544,16 @@ void HandleSignal(string json)
     }
 
     if(g_connection != "CONNECTED")
+    {
+        Print("SIGNAL BLOCKED: agent connection not CONNECTED (g_connection=", g_connection, ")");
         return;
+    }
 
     if(g_licenseStatus != "ACTIVE")
+    {
+        Print("SIGNAL BLOCKED: license not ACTIVE (g_licenseStatus=", g_licenseStatus, ")");
         return;
+    }
 
     if(g_tradingStatus == "HALTED" || g_tradingStatus == "KILL_SWITCH" || g_tradingStatus == "EMERGENCY_HALT")
     {
@@ -1555,9 +1561,9 @@ void HandleSignal(string json)
         return;
     }
 
-    if(g_tradingBlocked) { g_signalsFiltered++; return; }
-    if(AvoidSwapCharges && IsNearSwapTime()) { g_signalsFiltered++; return; }
-    if(IsTripleSwapDay()) { g_signalsFiltered++; return; }
+    if(g_tradingBlocked) { Print("SIGNAL BLOCKED: g_tradingBlocked (daily loss limit reached) — NO-TRADE"); g_signalsFiltered++; return; }
+    if(AvoidSwapCharges && IsNearSwapTime()) { Print("SIGNAL BLOCKED: AvoidSwapCharges + near swap-time (broker ", TimeToString(TimeCurrent(), TIME_MINUTES), ") — NO-TRADE"); g_signalsFiltered++; return; }
+    if(IsTripleSwapDay()) { Print("SIGNAL BLOCKED: AvoidTripleSwapDay=true and today is ", TripleSwapDay, " (triple-swap) — ALL signals vetoed, NO-TRADE. Set EA input AvoidTripleSwapDay=false to trade today."); g_signalsFiltered++; return; }
     g_signalsDisplayed++;
 
     Print("SIGNAL-EXEC-CHECK dir=", g_signalDirection, " class=", g_signalClass,
