@@ -88,24 +88,27 @@ func SeedConservativeGateStates(reg *Registry) {
 			ValidUntil: now.Add(10 * time.Second), SourceVersion: "seed",
 		},
 		types.GateNews: {
-			State: types.GatePass, EvaluatedAt: now,
-			ValidUntil: now.Add(10 * time.Second), SourceVersion: "seed",
+			// Self-evaluating from live GateInput.NewsRisk — does not use cached
+			// state, so no ValidUntil (refreshGateStates does not refresh it; an
+			// expiring seed would otherwise go GATE_STATE_STALE → DEGRADED →
+			// fail the whole chain forever).
+			State: types.GatePass, EvaluatedAt: now, SourceVersion: "seed",
 		},
 		types.GateSpread: {
 			State: types.GatePass, EvaluatedAt: now,
 			ValidUntil: now.Add(5 * time.Second), SourceVersion: "seed",
 		},
 		types.GateSlippage: {
-			State: types.GatePass, Value: float64(0), EvaluatedAt: now,
-			ValidUntil: now.Add(5 * time.Second), SourceVersion: "seed",
+			// Self-evaluating from live GateInput — no ValidUntil (see GateNews).
+			State: types.GatePass, Value: float64(0), EvaluatedAt: now, SourceVersion: "seed",
 		},
 		types.GateTotalCost: {
-			State: types.GatePass, EvaluatedAt: now,
-			ValidUntil: now.Add(5 * time.Second), SourceVersion: "seed",
+			// Self-evaluating from live GateInput — no ValidUntil (see GateNews).
+			State: types.GatePass, EvaluatedAt: now, SourceVersion: "seed",
 		},
 		types.GateRRNetExpectancy: {
-			State: types.GatePass, EvaluatedAt: now,
-			ValidUntil: now.Add(5 * time.Second), SourceVersion: "seed",
+			// Self-evaluating from live GateInput — no ValidUntil (see GateNews).
+			State: types.GatePass, EvaluatedAt: now, SourceVersion: "seed",
 		},
 		// ── Safety-critical gates: FAIL CLOSED until authoritative data arrives ──
 		types.GateExposure: {
