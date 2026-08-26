@@ -30,7 +30,7 @@ interface EngineTrade {
   stop_loss?: string;
   take_profit?: string;
   pnl: string;
-  pnl_points: string;
+  pnl_points?: number | string;
   pnl_percent: string;
   lot_size?: string;
   is_win: boolean;
@@ -40,6 +40,14 @@ interface EngineTrade {
   opened_at?: string;
   closed_at: string;
   trading_day?: string;
+  time_in_trade_seconds?: number | string;
+}
+
+function fmtHold(v?: number | string): string {
+  const s = Number(v || 0);
+  if (!s || s <= 0) return "—";
+  if (s >= 60) return `${(s / 60).toFixed(1)}m`;
+  return `${Math.round(s)}s`;
 }
 
 interface TerminalActivation {
@@ -446,6 +454,7 @@ export default function UserTradingReportsPage() {
                   <th className="text-right py-2 px-2">Exit</th>
                   <th className="text-right py-2 px-2">P&L</th>
                   <th className="text-center py-2 px-2">Result</th>
+                  <th className="text-center py-2 px-2">Hold</th>
                   <th className="text-left py-2 px-2">Closed</th>
                 </tr>
               </thead>
@@ -463,6 +472,7 @@ export default function UserTradingReportsPage() {
                       <td className="py-1.5 px-2 text-right font-mono text-pat-text-primary tabular-nums">{parseFloat(t.exit_price || "0") > 0 ? parseFloat(t.exit_price).toFixed(2) : "—"}</td>
                       <td className={`py-1.5 px-2 text-right font-mono font-medium tabular-nums ${pnl >= 0 ? "text-pat-success" : "text-pat-danger"}`}>${pnl.toFixed(2)}</td>
                       <td className={`py-1.5 px-2 text-center font-bold ${resultColor}`}>{result}</td>
+                      <td className="py-1.5 px-2 text-center text-pat-text-muted">{fmtHold(t.time_in_trade_seconds)}</td>
                       <td className="py-1.5 px-2 text-pat-text-muted">{t.closed_at ? format(new Date(t.closed_at), "MMM d, HH:mm") : "—"}</td>
                     </tr>
                   );

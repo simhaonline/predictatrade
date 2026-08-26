@@ -297,6 +297,10 @@ type TradeResult struct {
 	ClosedAt      time.Time `json:"closed_at"`
 	TradingDay    string    `json:"trading_day,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
+	// Derived/enriched metrics (server-enriched when the EA omits them).
+	TimeInTradeSeconds int64  `json:"time_in_trade_seconds"`
+	MAE                string `json:"mae,omitempty"`
+	MFE                string `json:"mfe,omitempty"`
 }
 
 // GetRecentTrades returns real executed trades from trading.trade_results.
@@ -308,7 +312,8 @@ func (p *Persister) GetRecentTrades(ctx context.Context, limit int, strategy str
 			broker_ticket, entry_price, exit_price, stop_loss, take_profit,
 			pnl, pnl_points, pnl_percent, lot_size,
 			is_win, is_loss, is_breakeven, close_reason,
-			opened_at, closed_at, trading_day, created_at
+			opened_at, closed_at, trading_day, created_at,
+			time_in_trade_seconds, mae, mfe
 		FROM trading.trade_results
 	`
 	args := []interface{}{}
@@ -337,15 +342,27 @@ func (p *Persister) GetRecentTrades(ctx context.Context, limit int, strategy str
 		var signalID, brokerTicket, sl, tp, lot, closeReason sql.NullString
 		var openedAt, closedAt, createdAt sql.NullTime
 		var tradingDay sql.NullTime
+		var timeInTrade sql.NullInt64
+		var maeN, fmeN sql.NullString
 		err := rows.Scan(
 			&t.ID, &signalID, &t.AccountID, &t.StrategyID, &t.Symbol, &t.Direction,
 			&brokerTicket, &t.EntryPrice, &t.ExitPrice, &sl, &tp,
 			&t.PnL, &t.PnLPoints, &t.PnLPercent, &lot,
 			&t.IsWin, &t.IsLoss, &t.IsBreakeven, &closeReason,
 			&openedAt, &closedAt, &tradingDay, &createdAt,
+			&timeInTrade, &maeN, &fmeN,
 		)
 		if err != nil {
 			continue
+		}
+		if timeInTrade.Valid {
+			t.TimeInTradeSeconds = timeInTrade.Int64
+		}
+		if maeN.Valid {
+			t.MAE = maeN.String
+		}
+		if fmeN.Valid {
+			t.MFE = fmeN.String
 		}
 		if signalID.Valid {
 			t.SignalID = signalID.String

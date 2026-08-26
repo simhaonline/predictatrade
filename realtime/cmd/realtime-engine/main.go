@@ -1009,6 +1009,16 @@ func main() {
 			Lot         float64 `json:"lot"`
 			RealizedPnL float64 `json:"realized_pnl"`
 			SLCorrect   bool    `json:"sl_correct"`
+			// Optional richer fields (sent by newer EAs). When absent they are
+			// enriched server-side so dashboards never show empty/zero placeholders.
+			Direction      string  `json:"direction"`
+			OpenedAt       string  `json:"opened_at"`
+			StopLoss       float64 `json:"stop_loss"`
+			TakeProfit     float64 `json:"take_profit"`
+			PnlPoints      float64 `json:"pnl_points"`
+			TimeInTradeSec int64   `json:"time_in_trade_seconds"`
+			MAE            float64 `json:"mae"`
+			MFE            float64 `json:"mfe"`
 		}
 		// FIX: The agent sends {"type":"TRADE_RESULT","payload":{...}}.
 		// Extract the inner payload before unmarshalling into our struct.
@@ -1043,20 +1053,79 @@ func main() {
 			log.Warn().Str("agent_id", agentID).Int64("ticket", tr.Ticket).
 				Msg("TRADE_RESULT had empty signal_id — generated fallback UUID")
 		}
+
+		// Enrich missing fields from the originating signal. This guarantees real
+		// direction and opening context for both historical trades and minimal
+		// payloads from older EAs (no empty/zero placeholder in the dashboard).
+		direction := tr.Direction
+		var openedAt *time.Time
+		if direction == "" || tr.OpenedAt == "" {
+			var sigDir string
+			var sigCreated time.Time
+			if err := persister.GetDB().QueryRowContext(ctxTR,
+				`SELECT direction, created_at FROM trading.signals WHERE id=$1`, signalID,
+			).Scan(&sigDir, &sigCreated); err == nil {
+				if direction == "" && sigDir != "" {
+					direction = sigDir
+				}
+				if tr.OpenedAt == "" && !sigCreated.IsZero() {
+					t := sigCreated
+					openedAt = &t
+				}
+			}
+		}
+		if tr.OpenedAt != "" {
+			if t, perr := time.Parse(time.RFC3339, tr.OpenedAt); perr == nil {
+				openedAt = &t
+			}
+		}
+
+		// trade_results.direction is VARCHAR(10) and must reflect the actual
+		// position side (BUY/SELL), not a candidate label like BUY_CANDIDATE.
+		if strings.Contains(direction, "BUY") {
+			direction = "BUY"
+		} else if strings.Contains(direction, "SELL") {
+			direction = "SELL"
+		}
+		if direction == "" {
+			direction = "UNKNOWN"
+		}
+
+		// pnl_points: prefer EA-supplied; else derive from currency P&L using the
+		// XAUUSD contract convention (1 lot = 100 oz, 1 point = 0.01).
+		pnlPoints := tr.PnlPoints
+		if pnlPoints == 0 && tr.Lot > 0 {
+			pnlPoints = tr.RealizedPnL / tr.Lot
+		}
+
+		// time_in_trade_seconds: prefer EA-supplied; else derive from openedAt.
+		timeInTrade := tr.TimeInTradeSec
+		if timeInTrade == 0 && openedAt != nil {
+			timeInTrade = int64(time.Since(*openedAt).Seconds())
+			if timeInTrade < 0 {
+				timeInTrade = 0
+			}
+		}
+
 		_, err := persister.GetDB().ExecContext(ctxTR, `
 			INSERT INTO trading.trade_results
 				(signal_id, account_id, strategy_id, symbol, direction,
-				 broker_ticket, entry_price, exit_price, lot_size, pnl, close_reason, is_win, is_loss, trading_day)
-			VALUES ($1,$2,$3,'XAUUSD','',
-				 $4,$5,$6,$7,$8,$9,$10,$11,CURRENT_DATE)`,
+				 broker_ticket, entry_price, exit_price, stop_loss, take_profit, lot_size,
+				 pnl, pnl_points, close_reason, is_win, is_loss, opened_at, time_in_trade_seconds,
+				 mae, mfe, trading_day)
+			VALUES ($1,$2,$3,'XAUUSD',$4,
+				 $5,$6,$7,$8,$9,$10,
+				 $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,CURRENT_DATE)`,
 			signalID, "agent:"+agentID, tr.StrategyID,
-			fmt.Sprintf("%d", tr.Ticket), tr.Entry, tr.Exit, tr.Lot,
-			tr.RealizedPnL, reason, isWin, isLoss)
+			direction,
+			fmt.Sprintf("%d", tr.Ticket), tr.Entry, tr.Exit, tr.StopLoss, tr.TakeProfit, tr.Lot,
+			tr.RealizedPnL, pnlPoints, reason, isWin, isLoss, openedAt, timeInTrade,
+			tr.MAE, tr.MFE)
 		if err != nil {
 			log.Warn().Err(err).Str("signal_id", tr.SignalID).Msg("TRADE_RESULT persist failed")
 		} else {
 			log.Info().Str("signal_id", tr.SignalID).Str("strategy_id", tr.StrategyID).
-				Str("exit", reason).Float64("pnl", tr.RealizedPnL).
+				Str("exit", reason).Float64("pnl", tr.RealizedPnL).Str("dir", direction).
 				Bool("sl_correct", tr.SLCorrect).Msg("Trade outcome reconciled")
 		}
 	})
