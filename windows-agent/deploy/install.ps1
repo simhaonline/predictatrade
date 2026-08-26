@@ -169,64 +169,135 @@ if (-not (Test-Path $settingsPath)) {
     Write-Host "  OK: Preserving existing settings.json"
 }
 
-# Step 7: Remove old service and create fresh with NSSM
-Write-Host "[7/9] Creating Windows service with NSSM..."
+# Step 7: Remove old service and create fresh
+Write-Host "[7/9] Creating Windows service..."
+
+# Remove old service if it exists
 if ($svc) {
-    if ($nssmDownloaded) { & $nssmDest remove $ServiceName confirm 2>&1 | Out-Null }
-    else { sc.exe delete $ServiceName 2>&1 | Out-Null }
+    Write-Host "  Removing old service..."
+    if ($nssmDownloaded -and (Test-Path $nssmDest)) {
+        & $nssmDest stop $ServiceName 2>&1 | Out-Null
+        & $nssmDest remove $ServiceName confirm 2>&1 | Out-Null
+    }
+    sc.exe stop $ServiceName 2>&1 | Out-Null
+    Start-Sleep -Seconds 1
+    sc.exe delete $ServiceName 2>&1 | Out-Null
     Start-Sleep -Seconds 2
+    Write-Host "  OK: Old service removed"
 }
 
-if ($nssmDownloaded -and (Test-Path $nssmDest)) {
-    & $nssmDest install $ServiceName $agentPath 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppDirectory $InstallDir 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppStdout (Join-Path $logsDir "stdout.log") 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppStderr (Join-Path $logsDir "stderr.log") 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppRotateFiles 1 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppRotateOnline 1 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppNoConsole 1 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppExit Default Restart 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppExit 0 Exit 2>&1 | Out-Null
-    & $nssmDest set $ServiceName AppRestartDelay 5000 2>&1 | Out-Null
-    & $nssmDest set $ServiceName DisplayName "Predict-A-Trade XAUUSD Agent" 2>&1 | Out-Null
-    & $nssmDest set $ServiceName Description "Predict-A-Trade XAUUSD Windows Agent" 2>&1 | Out-Null
-    & $nssmDest set $ServiceName Start SERVICE_AUTO_START 2>&1 | Out-Null
-    Write-Host "  OK: Service created with NSSM (auto-restart on crash)"
-} else {
-    Write-Host "  Fallback: Using sc.exe..."
-    sc.exe create $ServiceName binPath= $agentPath start= auto 2>&1 | Out-Null
-    sc.exe description $ServiceName "Predict-A-Trade XAUUSD Windows Agent" 2>&1 | Out-Null
+$serviceCreated = $false
+$stdoutLog = Join-Path $logsDir "stdout.log"
+$stderrLog = Join-Path $logsDir "stderr.log"
+
+# Method 1: Try NSSM (best — handles crashes, logs, auto-restart)
+if (-not $serviceCreated -and $nssmDownloaded -and (Test-Path $nssmDest)) {
+    Write-Host "  Trying NSSM service..."
+    $installResult = & $nssmDest install $ServiceName $agentPath 2>&1
+    if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq $null) {
+        & $nssmDest set $ServiceName AppDirectory $InstallDir 2>&1 | Out-Null
+        & $nssmDest set $ServiceName AppStdout $stdoutLog 2>&1 | Out-Null
+        & $nssmDest set $ServiceName AppStderr $stderrLog 2>&1 | Out-Null
+        & $nssmDest set $ServiceName AppRotateFiles 1 2>&1 | Out-Null
+        & $nssmDest set $ServiceName AppRotateOnline 1 2>&1 | Out-Null
+        & $nssmDest set $ServiceName AppExit Default Restart 2>&1 | Out-Null
+        & $nssmDest set $ServiceName AppExit 0 Exit 2>&1 | Out-Null
+        & $nssmDest set $ServiceName AppRestartDelay 5000 2>&1 | Out-Null
+        & $nssmDest set $ServiceName DisplayName "Predict-A-Trade XAUUSD Agent" 2>&1 | Out-Null
+        & $nssmDest set $ServiceName Description "Predict-A-Trade XAUUSD Windows Agent" 2>&1 | Out-Null
+        & $nssmDest set $ServiceName Start SERVICE_AUTO_START 2>&1 | Out-Null
+        $serviceCreated = $true
+        Write-Host "  OK: NSSM service created"
+    } else {
+        Write-Host "  WARN: NSSM install failed: $installResult"
+    }
+}
+
+# Method 2: Try sc.exe (basic Windows service)
+if (-not $serviceCreated) {
+    Write-Host "  Trying sc.exe service..."
+    $scResult = sc.exe create $ServiceName binPath= "`"$agentPath`"" start= auto 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        sc.exe description $ServiceName "Predict-A-Trade XAUUSD Windows Agent" 2>&1 | Out-Null
+        sc.exe failure $ServiceName reset= 60 actions= restart/5000 2>&1 | Out-Null
+        $serviceCreated = $true
+        Write-Host "  OK: sc.exe service created"
+    } else {
+        Write-Host "  WARN: sc.exe failed: $scResult"
+    }
 }
 
 # Step 8: Start the service
 Write-Host "[8/9] Starting service..."
-if ($nssmDownloaded) {
-    & $nssmDest start $ServiceName 2>&1 | Out-Null
-} else {
-    try { Start-Service -Name $ServiceName -ErrorAction SilentlyContinue } catch {}
-}
-Start-Sleep -Seconds 3
+$serviceRunning = $false
 
-# Check if service is actually running
-$svcCheck = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-if ($svcCheck -and $svcCheck.Status -eq "Running") {
-    Write-Host "  OK: Service is RUNNING"
-} else {
-    Write-Host "  WARN: Service not running — checking logs..."
-    $stderrLog = Join-Path $logsDir "stderr.log"
-    $stdoutLog = Join-Path $logsDir "stdout.log"
-    if (Test-Path $stderrLog) {
-        Write-Host "  --- stderr.log (last 10 lines) ---"
-        Get-Content $stderrLog -Tail 10 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" }
+if ($serviceCreated) {
+    if ($nssmDownloaded -and (Test-Path $nssmDest)) {
+        & $nssmDest start $ServiceName 2>&1 | Out-Null
+    } else {
+        try { Start-Service -Name $ServiceName -ErrorAction SilentlyContinue } catch {}
     }
-    if (Test-Path $stdoutLog) {
-        Write-Host "  --- stdout.log (last 10 lines) ---"
-        Get-Content $stdoutLog -Tail 10 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" }
+    Start-Sleep -Seconds 3
+
+    $svcCheck = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if ($svcCheck -and $svcCheck.Status -eq "Running") {
+        $serviceRunning = $true
+        Write-Host "  OK: Service is RUNNING"
     }
-    if (-not (Test-Path $stderrLog) -and -not (Test-Path $stdoutLog)) {
-        Write-Host "  No log files found — agent may have been blocked by antivirus"
-        Write-Host "  Try manually: Open $InstallDir and double-click pat-agent.exe"
+}
+
+# Method 3: If service failed, try Scheduled Task (runs on startup + every 5 min)
+if (-not $serviceRunning) {
+    Write-Host "  WARN: Service not running — trying Scheduled Task fallback..."
+
+    # Kill any existing agent process
+    Get-Process -Name "pat-agent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+
+    # Create a VBS launcher that runs the agent silently (no console window)
+    $vbsPath = Join-Path $InstallDir "start-agent.vbs"
+    $vbsContent = @"
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run ""$agentPath"", 0, False
+"@
+    Set-Content -Path $vbsPath -Value $vbsContent -Encoding ASCII
+
+    # Create scheduled task that runs on startup + every 5 minutes
+    $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbsPath`""
+    $trigger1 = New-ScheduledTaskTrigger -AtStartup
+    $trigger2 = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+
+    Register-ScheduledTask -TaskName $ServiceName -Action $action -Trigger $trigger1,$trigger2 -Settings $settings -Principal $principal -Force 2>&1 | Out-Null
+
+    # Start it now
+    Start-ScheduledTask -TaskName $ServiceName 2>&1 | Out-Null
+    Start-Sleep -Seconds 3
+
+    # Verify the process is running
+    $proc = Get-Process -Name "pat-agent" -ErrorAction SilentlyContinue
+    if ($proc) {
+        $serviceRunning = $true
+        Write-Host "  OK: Agent running via Scheduled Task (PID: $($proc.Id))"
+    } else {
+        Write-Host "  WARN: Scheduled Task also failed — trying direct launch..."
+
+        # Method 4: Last resort — just launch it directly
+        Start-Process -FilePath $agentPath -WorkingDirectory $InstallDir -WindowStyle Hidden
+        Start-Sleep -Seconds 3
+        $proc = Get-Process -Name "pat-agent" -ErrorAction SilentlyContinue
+        if ($proc) {
+            $serviceRunning = $true
+            Write-Host "  OK: Agent running via direct launch (PID: $($proc.Id))"
+        }
     }
+}
+
+if (-not $serviceRunning) {
+    Write-Host "  ERROR: All methods failed. Agent may be blocked by antivirus."
+    Write-Host "  Check: Windows Security > Protection history > Allow on device"
+    Write-Host "  Then run manually: $agentPath"
 }
 
 # Step 9: Save version + verify health endpoint
