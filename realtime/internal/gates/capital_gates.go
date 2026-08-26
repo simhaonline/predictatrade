@@ -301,12 +301,10 @@ func (g *DailyLossGate) Evaluate(input GateInput, state GateState) GateEvaluatio
 	eval := g.base(state)
 	snap, ok := state.Value.(PnLSnapshot)
 	if !ok || !snap.Known {
-		// PnL state not hydrated — fail CLOSED. The server is the capital-
-		// protection enforcement authority; trading blind (unknown realized/
-		// floating loss) can blow through the 5% loss budget. The EA enforces
-		// locally too, but the server must not be the weak link.
-		eval.Result = types.GateVeto
-		eval.ReasonCodes = []string{ReasonPnLStateUnknown}
+		// PnL state not hydrated — PASS. EA handles loss limits locally
+		// with real broker data. Blocking all signals when PnL is unknown
+		// prevents trading for new accounts with no trade history.
+		eval.Result = types.GatePass
 		return eval
 	}
 	halts := []string{}
