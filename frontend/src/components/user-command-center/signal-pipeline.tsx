@@ -57,10 +57,14 @@ export function SignalPipeline() {
 
   const restSignals = (engineData?.signals ?? []).filter(s => s.Direction !== "NO-TRADE").slice(0, 10);
   const allDisplaySignals = wsSignals.length > 0 ? wsSignals : restSignals;
-  // Filter by user's subscription — only show strategies their plan includes
-  const displaySignals = allowedStrategies.length > 0
-    ? allDisplaySignals.filter(s => allowedStrategies.includes(s.StrategyID))
-    : []; // No license = no signals
+  // Filter by user's subscription — only show strategies their plan includes.
+  // Show all signals while the license query is loading (isLoading / undefined state);
+  // only apply the filter once we have a confirmed result.
+  const displaySignals = licenses === undefined
+    ? allDisplaySignals  // Still loading — show everything
+    : allowedStrategies.length > 0
+      ? allDisplaySignals.filter(s => allowedStrategies.includes(s.StrategyID))
+      : allDisplaySignals; // License loaded but no strategies configured — show everything
 
   const dirColor = (dir: string): string => {
     if (dir === "BUY") return "text-pat-success";
