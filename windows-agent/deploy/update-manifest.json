@@ -1,8 +1,8 @@
 {
-    "version": "1.2.39",
+    "version": "1.2.30",
     "download_url": "https://downloads.predictatrade.com/windows-agent/pat-agent.exe",
-    "checksum": "4d73c343fb60648c08346128b33d0f4065892bbf8cf8acf4ac85bd27195b1d1d",
+    "checksum": "0cf6110c3e39e64e9ed4f46d4c2d95d6ee611465f1d7da6398b59865fa8d0bb0",
     "min_version": "1.0.0",
-    "release_notes": "v1.2.39 — FIX: MT client connection. The agent now discovers and uses the user's real MetaQuotes Common\Files folder so it meets the EA (which uses MQL FILE_COMMON and never needed to change). Agent auto-removes orphaned IPC files from older versions, so subscribers only need to update the agent — no EA recompile required.",
-    "timestamp": "2026-08-26T11:30:52Z"
+    "release_notes": "v1.2.30 — REVERTED to last known working version. All signal delivery fixes moved to server side only.",
+    "timestamp": "2026-08-26T11:33:38Z"
 }

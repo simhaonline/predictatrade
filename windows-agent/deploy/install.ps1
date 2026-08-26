@@ -38,7 +38,7 @@ if (-not $isAdmin) {
 # ─── NOW RUNNING AS ADMIN ───
 Write-Host ""
 Write-Host "=========================================="
-Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.39"
+Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.30"
 Write-Host "=========================================="
 Write-Host ""
 
@@ -236,7 +236,7 @@ try {
     $serverVersion = (Invoke-WebRequest -Uri "$BaseUrl/version.txt" -UseBasicParsing -TimeoutSec 10).Content.Trim()
     Write-Host "  Server version: v$serverVersion"
 } catch {
-    $serverVersion = "1.2.31"
+    $serverVersion = "1.2.30"
     Write-Host "  WARN: Could not fetch server version — using default v$serverVersion"
 }
 Set-Content -Path (Join-Path $InstallDir "version.txt") -Value $serverVersion -NoNewline

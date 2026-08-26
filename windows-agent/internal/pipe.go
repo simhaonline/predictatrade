@@ -546,14 +546,6 @@ func (pm *PipeManager) processMessage(line string) {
 		if pm.onLicense != nil {
 			go pm.onLicense(lic)
 		}
-		// Also forward to Go RT server via WebSocket so it can validate
-		// against the DB and send LICENSE_STATUS back (which the agent
-		// handles and writes to PAT_license.txt for the EA to read).
-		if pm.wsSender != nil {
-			wrapped := fmt.Sprintf(`{"type":"LICENSE_CHECK","license_key":%q,"account":%q,"broker":%q,"symbol":%q}`,
-				lic.LicenseKey, lic.Account, lic.Broker, lic.Symbol)
-			pm.wsSender([]byte(wrapped))
-		}
 
 		// Detect terminal type from the message (MT4 vs MT5)
 		clientType := "MT5" // default
