@@ -762,6 +762,8 @@ int OnInit()
     Print("Symbol: ", g_symbol);
     Print("Account: ", g_accountID);
     Print("License Key: ", (g_licenseKey == "" ? "NOT SET — SIGNALS WILL BE IGNORED" : g_licenseKey));
+    Print("TRADE-CONFIG: AutoExecute=", AutoExecute, " ExecuteCandidates=", ExecuteCandidates,
+          " AlgoTradingAllowed=", MQLInfoInteger(MQL_TRADE_ALLOWED), " Symbol=", g_symbol);
 
     // Restore equity-floor halt latch (persists across reloads)
     if(GlobalVariableCheck("PAT_EQUITY_HALT"))
