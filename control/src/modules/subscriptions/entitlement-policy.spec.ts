@@ -1,6 +1,7 @@
 import { planPolicyFromRow, validateStrategySelection } from './entitlement-policy';
 
-const ALL = ['STANDARD_SCALPING', 'ULTRA_SCALPING', 'STANDARD_SWING', 'TREND_SWING'];
+const FOUR = ['STANDARD_SCALPING', 'ULTRA_SCALPING', 'STANDARD_SWING', 'TREND_SWING'];
+const ALL = [...FOUR, 'MARNIE_FIB'];
 
 const policy = (code: any, allowed: string[], max: number) =>
   planPolicyFromRow({ code, allowed_strategies: allowed, max_active_strategy_slots: max });
@@ -14,15 +15,15 @@ describe('commercial strategy entitlement policy', () => {
   });
 
   it('rejects a Standard user selecting 2 strategies (plan_strategy_limit)', () => {
-    const p = policy('STANDARD', ALL, 1);
+    const p = policy('STANDARD', FOUR, 1);
     expect(validateStrategySelection(p, ['TREND_SWING']).allowed).toBe(true);
     expect(validateStrategySelection(p, ['STANDARD_SCALPING', 'STANDARD_SWING']).reason).toBe('plan_strategy_limit');
   });
 
-  it('allows at most two Pro strategies and all four Elite strategies', () => {
-    expect(validateStrategySelection(policy('PRO', ALL, 2), ALL.slice(0, 2)).allowed).toBe(true);
-    expect(validateStrategySelection(policy('PRO', ALL, 2), ALL.slice(0, 3)).reason).toBe('plan_strategy_limit');
-    expect(validateStrategySelection(policy('ELITE', ALL, 4), ALL).allowed).toBe(true);
+  it('allows at most two Pro strategies and all five Elite strategies', () => {
+    expect(validateStrategySelection(policy('PRO', FOUR, 2), FOUR.slice(0, 2)).allowed).toBe(true);
+    expect(validateStrategySelection(policy('PRO', FOUR, 2), FOUR.slice(0, 3)).reason).toBe('plan_strategy_limit');
+    expect(validateStrategySelection(policy('ELITE', ALL, 5), ALL).allowed).toBe(true);
   });
 
   it('deduplicates selections but rejects empty and unknown input', () => {

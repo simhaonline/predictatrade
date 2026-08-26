@@ -27,7 +27,7 @@ const planCopy: Record<Plan["code"], string> = {
   FREE: "Explore Predict-A-Trade with one scalping strategy.",
   STANDARD: "Focused XAUUSD trading with Standard Scalping + Standard Swing.",
   PRO: "Advanced intelligence with all four strategies, up to 3 devices.",
-  ELITE: "Complete Predict-A-Trade intelligence across all four strategies, 5 devices, full auto.",
+  ELITE: "Complete Predict-A-Trade intelligence across all five strategies including MarnieFib, 5 devices, full auto.",
 };
 
 // Tier hierarchy for upgrade/downgrade logic
@@ -45,7 +45,7 @@ export default function UserBillingPage() {
 
   const requestSubscription = useMutation({
     mutationFn: async (plan: Plan) => {
-      const count = plan.code === "ELITE" ? 4 : plan.code === "PRO" ? 2 : 1;
+      const count = plan.code === "ELITE" ? 5 : plan.code === "PRO" ? 2 : 1;
       await customInstance.post("/subscriptions", { planId: plan.id, billingInterval: plan.code === "FREE" ? "MONTHLY" : interval, selectedStrategies: plan.allowed_strategies.slice(0, count) });
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["subscription-entitlements"] }); toast.success("Plan upgrade request recorded; activation awaits validated payment."); },

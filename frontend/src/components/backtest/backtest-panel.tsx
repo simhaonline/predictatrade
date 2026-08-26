@@ -15,6 +15,7 @@ const STRATEGIES = [
   { id: "ULTRA_SCALPING", label: "Ultra Scalping", desc: "M1 ultra-fast, very tight" },
   { id: "STANDARD_SWING", label: "Standard Swing", desc: "M15/H1 swing trading" },
   { id: "TREND_SWING", label: "Trend Swing", desc: "H1/H4 trend following" },
+  { id: "MARNIE_FIB", label: "Marnie Fib", desc: "H1 Fibonacci confluence (SHADOW)" },
 ];
 
 const TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"];

@@ -26,8 +26,8 @@ VALUES
   ('PRO', 'Pro', 'Any 2 of the 4 strategies, structure/SMC + cross-market view', 0, 299, 2990,
    'USD', 'MONTHLY', 2, '["STANDARD_SCALPING","ULTRA_SCALPING","STANDARD_SWING","TREND_SWING"]'::jsonb, 'ACTIVE',
    TRUE, FALSE, TRUE, 20, NULL, 'smc', 1.5),
-  ('ELITE', 'Elite', 'All 4 strategies, full confluence + MarnieFib evidence audit', 0, 699, 6990,
-   'USD', 'MONTHLY', 4, '["STANDARD_SCALPING","ULTRA_SCALPING","STANDARD_SWING","TREND_SWING"]'::jsonb, 'ACTIVE',
+  ('ELITE', 'Elite', 'All 5 strategies + full confluence + MarnieFib evidence audit', 0, 699, 6990,
+   'USD', 'MONTHLY', 5, '["STANDARD_SCALPING","ULTRA_SCALPING","STANDARD_SWING","TREND_SWING","MARNIE_FIB"]'::jsonb, 'ACTIVE',
    TRUE, FALSE, TRUE, 30, NULL, 'full', 1.5)
 ON CONFLICT (code) DO UPDATE SET
   name = EXCLUDED.name,

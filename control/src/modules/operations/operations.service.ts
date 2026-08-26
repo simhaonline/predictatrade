@@ -150,7 +150,7 @@ export class OperationsService {
     // Compute active_strategies: all canonical strategies minus explicitly disabled ones.
     // The frontend dashboard and operations page read `active_strategies` to show
     // per-strategy Active/Inactive badges and the aggregate active count.
-    const canonicalStrategies = ['STANDARD_SCALPING', 'ULTRA_SCALPING', 'STANDARD_SWING', 'TREND_SWING'];
+    const canonicalStrategies = ['STANDARD_SCALPING', 'ULTRA_SCALPING', 'STANDARD_SWING', 'TREND_SWING', 'MARNIE_FIB'];
     const disabledSet = new Set(disabledStrategies.rows.map((r: any) => r.target_id));
     const activeStrategies = canonicalStrategies.filter((s) => !disabledSet.has(s));
 

@@ -485,9 +485,9 @@ INSERT INTO control.plans (code, name, setup_fee, monthly_price, currency, billi
     ('PRO', 'Pro', 29, 499, 'USD', 'MONTHLY', 2,
      '["STANDARD_SCALPING","ULTRA_SCALPING","STANDARD_SWING","TREND_SWING"]'::jsonb,
      'Any 2 active strategies from all four'),
-    ('ELITE', 'Elite', 39, 999, 'USD', 'MONTHLY', 4,
-     '["STANDARD_SCALPING","ULTRA_SCALPING","STANDARD_SWING","TREND_SWING"]'::jsonb,
-     'All 4 strategies active')
+    ('ELITE', 'Elite', 39, 999, 'USD', 'MONTHLY', 5,
+     '["STANDARD_SCALPING","ULTRA_SCALPING","STANDARD_SWING","TREND_SWING","MARNIE_FIB"]'::jsonb,
+     'All 5 strategies active')
 ON CONFLICT (code) DO NOTHING;
 
 -- Backward-compatible alias for BASIC -> STANDARD (SOW 69.1)

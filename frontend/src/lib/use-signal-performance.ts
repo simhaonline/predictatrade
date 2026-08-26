@@ -110,7 +110,7 @@ const IMPLICIT_INDICATORS = new Set([
   "Ichimoku Senkou B",
 ]);
 
-const STRATEGIES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING"];
+const STRATEGIES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"];
 
 export function useSignalPerformance(liveness: IndicatorLiveness[]) {
   const { data: signalData } = useQuery<SignalResponse>({

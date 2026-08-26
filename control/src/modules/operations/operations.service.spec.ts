@@ -42,13 +42,14 @@ describe('OperationsService', () => {
       expect(Array.isArray(state.active_strategies)).toBe(true);
     });
 
-    it('should return all 4 canonical strategies when none are disabled', async () => {
+    it('should return all 5 canonical strategies when none are disabled', async () => {
       if (!DB_URL) return; // skip if no DB
       const state = await service.getTradingState();
       expect(state.active_strategies).toContain('STANDARD_SCALPING');
       expect(state.active_strategies).toContain('ULTRA_SCALPING');
       expect(state.active_strategies).toContain('STANDARD_SWING');
       expect(state.active_strategies).toContain('TREND_SWING');
+      expect(state.active_strategies).toContain('MARNIE_FIB');
     });
 
     it('should return last_updated field (not undefined)', async () => {

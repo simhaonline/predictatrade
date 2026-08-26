@@ -131,7 +131,7 @@ export default function UserTradingReportsPage() {
     return [...perStrat, ...rest];
   })();
 
-  const strategies = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING"];
+  const strategies = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"];
   const strategyStats = strategies.map(strat => {
     const ss = signals.filter(s => s.StrategyID === strat);
     const sd = ss.filter(s => s.Direction !== "NO-TRADE");

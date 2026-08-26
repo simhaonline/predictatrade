@@ -5,7 +5,7 @@ import { customInstance } from "@/lib/axios-instance";
 import { IconBolt, IconLock, IconDeviceFloppy } from "@tabler/icons-react";
 import { DegradedNote } from "@/components/ui/tabs";
 
-const STRATEGIES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING"];
+const STRATEGIES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"];
 interface Entitlements { code: string; selected_strategies?: string[]; allowed_strategies?: string[]; }
 
 export default function UserStrategiesPage() {

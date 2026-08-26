@@ -64,7 +64,7 @@ export default function AdminScoringBoardPage() {
     return acc;
   }, {} as Record<string, GoSignal>);
 
-  const strategies = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING"];
+  const strategies = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"];
 
   return (
     <div className="space-y-6">

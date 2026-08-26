@@ -2,7 +2,7 @@ import { IsString, IsNumber, IsDateString, IsOptional, IsIn } from 'class-valida
 
 export class RunBacktestDto {
   @IsString()
-  @IsIn(['STANDARD_SCALPING', 'ULTRA_SCALPING', 'STANDARD_SWING', 'TREND_SWING'])
+  @IsIn(['STANDARD_SCALPING', 'ULTRA_SCALPING', 'STANDARD_SWING', 'TREND_SWING', 'MARNIE_FIB'])
   strategy: string;
 
   @IsString()

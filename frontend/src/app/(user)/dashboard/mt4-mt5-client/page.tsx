@@ -143,7 +143,7 @@ export default function UserMtClientPage() {
         "  FREE: Standard Scalping only",
         "  STANDARD: Standard Scalping + Standard Swing",
         "  PRO: All scalping + swing strategies",
-        "  ELITE: All strategies including Ultra Scalping and Trend Swing",
+        "  ELITE: All 5 strategies including MarnieFib and Ultra Scalping",
         "Your license is tied to your account — strategy selection is automatic.",
       ],
     },

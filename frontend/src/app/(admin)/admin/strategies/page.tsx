@@ -12,7 +12,7 @@ interface TradingState {
   last_updated: string;
 }
 
-const STRATEGY_NAMES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING"];
+const STRATEGY_NAMES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"];
 
 export default function AdminStrategiesPage() {
   const queryClient = useQueryClient();
@@ -55,7 +55,7 @@ export default function AdminStrategiesPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-bold text-pat-text-primary">Strategy Panel</h1>
-        <p className="text-sm text-pat-text-secondary mt-1">Manage the four independent trading strategy engines.</p>
+        <p className="text-sm text-pat-text-secondary mt-1">Manage the five trading strategy engines (MARNIE_FIB runs SHADOW).</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -75,6 +75,7 @@ export default function AdminStrategiesPage() {
                 {name === "ULTRA_SCALPING" && "M1 + M5 · Threshold 85 · Min RR 1.0 · Cooldown 15m"}
                 {name === "STANDARD_SWING" && "M15/M30/H1 + H4/D1 · Threshold 55 · Min RR 1.8 · Cooldown 120m"}
                 {name === "TREND_SWING" && "H1/H4 + D1/W1 · Threshold 50 · Min RR 2.5 · Cooldown 360m"}
+                {name === "MARNIE_FIB" && "H1 · Threshold 70 · Min RR 2.5 · Cooldown 60m · SHADOW"}
               </p>
               <button
                 onClick={() => isActive ? disableMutation.mutate(name) : enableMutation.mutate(name)}
