@@ -1,18 +1,38 @@
 package features
 
 import (
+	"os"
 	"strings"
 	"time"
 )
 
+// BrokerLocation returns the broker's operational timezone. The XAUUSD broker
+// server time is GMT+3 (standard for most FX brokers). All time-of-day logic
+// (session classification, ORB ranges, candle/signal timestamps that represent
+// broker wall-clock time) MUST use this location, NOT UTC, otherwise every
+// session boundary and displayed time is shifted by 3 hours. Absolute instants
+// are still stored as TIMESTAMPTZ (UTC) in Postgres; only hour-of-day logic
+// converts to this location.
+func BrokerLocation() *time.Location {
+	if tz := os.Getenv("BROKER_TIMEZONE"); tz != "" {
+		if l, err := time.LoadLocation(tz); err == nil {
+			return l
+		}
+	}
+	// Default: GMT+3 (typical XAUUSD FX broker server time, no DST for the
+	// fixed-offset broker session model).
+	return time.FixedZone("GMT+3", 3*3600)
+}
+
 // SessionEngine determines the current trading session and news state.
 // SOW Section 12D: Session/calendar/news state
-// Sessions are UTC-based with proper session boundaries.
-// Tokyo: 00:00-09:00 UTC (no DST)
-// London: 08:00-17:00 UTC (DST shifts by ~1hr, handled by market calendar)
-// New York: 13:00-22:00 UTC (DST shifts by ~1hr)
-// Overlap: 13:00-17:00 UTC (London+NY)
-// Sydney: 22:00-07:00 UTC
+// Sessions are classified in BROKER time (GMT+3), since the broker server time
+// is GMT+3. The wall-clock boundaries below are expressed in broker-local time.
+// Tokyo: 00:00-09:00 (no DST)
+// London: 08:00-17:00 (DST shifts by ~1hr, handled by market calendar)
+// New York: 13:00-22:00 (DST shifts by ~1hr)
+// Overlap: 13:00-17:00 (London+NY)
+// Sydney: 22:00-07:00
 // NewsRiskProvider abstracts the economic-calendar risk engine so the features
 // package does not depend on pkg/news directly. When nil (or when the provider
 // reports the news provider as disabled), the session engine falls back to
@@ -30,8 +50,7 @@ type SessionEngine struct {
 }
 
 func NewSessionEngine() *SessionEngine {
-	loc, _ := time.LoadLocation("UTC")
-	return &SessionEngine{location: loc}
+	return &SessionEngine{location: BrokerLocation()}
 }
 
 // SetNewsRiskProvider injects an economic-calendar risk provider.
@@ -42,19 +61,19 @@ func (e *SessionEngine) SetNewsRiskProvider(p NewsRiskProvider) {
 
 func (e *SessionEngine) Process(now time.Time) SessionFeatures {
 	feat := SessionFeatures{}
-	utc := now.UTC()
-
-	// Weekend check (Saturday/Sunday UTC)
-	weekday := utc.Weekday()
+	// Classify in BROKER time (GMT+3), not UTC — the broker server clock is GMT+3,
+	// so session boundaries and weekend rollover must use broker-local time.
+	brokerNow := now.In(e.location)
+	weekday := brokerNow.Weekday()
 	feat.IsWeekend = weekday == time.Saturday || weekday == time.Sunday
 
-	// Session detection (UTC hours) — production-grade session model
-	// TOKYO: 00:00-09:00 UTC (no DST — Tokyo does not observe DST)
-	// LONDON: 08:00-17:00 UTC (07:00-16:00 during UK DST, handled by calendar)
-	// NEW_YORK: 13:00-22:00 UTC (12:00-21:00 during US DST)
+	// Session detection (BROKER-local hours, GMT+3)
+	// TOKYO: 00:00-09:00 (no DST — Tokyo does not observe DST)
+	// LONDON: 08:00-17:00 (07:00-16:00 during UK DST, handled by calendar)
+	// NEW_YORK: 13:00-22:00 (12:00-21:00 during US DST)
 	// OVERLAP: max(London start, NY start) to min(London end, NY end)
-	// SYDNEY: 22:00-07:00 UTC
-	hour := utc.Hour()
+	// SYDNEY: 22:00-07:00
+	hour := brokerNow.Hour()
 
 	switch {
 	case hour >= 0 && hour < 8:
@@ -78,7 +97,7 @@ func (e *SessionEngine) Process(now time.Time) SessionFeatures {
 	// news provider. Once a provider is configured, the RiskEngine returns
 	// the real computed level (including DATA_UNAVAILABLE when it fails).
 	if e.newsRiskProvider != nil {
-		feat.NewsRisk = e.newsRiskProvider.ComputeNewsRisk(utc)
+		feat.NewsRisk = e.newsRiskProvider.ComputeNewsRisk(brokerNow)
 	} else {
 		feat.NewsRisk = "NONE"
 	}

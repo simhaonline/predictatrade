@@ -37,11 +37,12 @@ func NewSessionORBEngine() *SessionORBEngine {
 
 // Process evaluates a candle for session ORB features.
 // It accumulates high/low for each session and resets on new day.
+// Session boundaries are evaluated in BROKER time (GMT+3) — see BrokerLocation.
 func (e *SessionORBEngine) Process(candleTime time.Time, price decimal.Decimal) SessionORBFeatures {
-	utc := candleTime.UTC()
-	dayOfYear := utc.YearDay()
+	brokerNow := candleTime.In(BrokerLocation())
+	dayOfYear := brokerNow.YearDay()
 
-	// Reset on new day
+	// Reset on new day (broker-local day)
 	if dayOfYear != e.lastDay {
 		e.asian = sessionRange{}
 		e.london = sessionRange{}
@@ -49,7 +50,7 @@ func (e *SessionORBEngine) Process(candleTime time.Time, price decimal.Decimal) 
 		e.lastDay = dayOfYear
 	}
 
-	hour := utc.Hour()
+	hour := brokerNow.Hour()
 
 	// Determine session and update range
 	e.updateSessionRange(hour, price)
@@ -94,11 +95,11 @@ func (e *SessionORBEngine) Process(candleTime time.Time, price decimal.Decimal) 
 
 func (e *SessionORBEngine) updateSessionRange(hour int, price decimal.Decimal) {
 	switch {
-	case hour >= 0 && hour < 8: // Asian/Tokyo 00:00-08:00 UTC
+	case hour >= 0 && hour < 8: // Asian/Tokyo 00:00-08:00 (broker GMT+3)
 		e.updateRange(&e.asian, price)
-	case hour >= 8 && hour < 17: // London 08:00-17:00 UTC
+	case hour >= 8 && hour < 17: // London 08:00-17:00 (broker GMT+3)
 		e.updateRange(&e.london, price)
-	case hour >= 13 && hour < 22: // NY 13:00-22:00 UTC
+	case hour >= 13 && hour < 22: // NY 13:00-22:00 (broker GMT+3)
 		e.updateRange(&e.ny, price)
 	}
 }
