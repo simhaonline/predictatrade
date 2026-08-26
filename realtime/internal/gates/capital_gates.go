@@ -28,6 +28,12 @@ const (
 	ReasonMartingaleLot   = "martingale_lot"
 	ReasonEdgeUnproven    = "edge_unproven"
 	ReasonEdgeArmed       = "edge_armed"
+	// ReasonEdgeNegativeLive: an operator-armed strategy whose OWN live closed-
+	// trade record already proves a losing edge (PF<1 with sufficient samples).
+	// Trading client capital on a demonstrably losing strategy is never allowed,
+	// so this is a HARD VETO (fail closed) even when armed. Distinct from
+	// edge_unproven (bootstrap lack of history, which stays advisory-only).
+	ReasonEdgeNegativeLive = "edge_negative_live"
 	// ReasonPositionCapsAuthorized: operator has authorized the strategy for live
 	// trading and the EA enforces position caps locally, so the absent broker
 	// position snapshot does not block the EXECUTABLE signal.
@@ -373,6 +379,12 @@ type EdgeValidationGate struct {
 	MinExpectancyR  float64
 	MinSampleSize   int
 
+	// MinNegativeSampleSize is the minimum number of live closed trades before a
+	// PROVEN-NEGATIVE live edge (profit factor < 1.0) hard-vetoes an armed
+	// strategy. Small enough to stop bleeding client capital quickly, large
+	// enough to avoid overreacting to a handful of trades.
+	MinNegativeSampleSize int
+
 	// Operator arming: an explicit, audited list of strategies the operator has
 	// qualified (backtest/walk-forward calibration on file) to emit EXECUTABLE
 	// signals. Arming only takes effect when LiveTradingAuthorized is also true
@@ -407,8 +419,42 @@ func (g *EdgeValidationGate) IsArmed(id types.StrategyID) bool {
 	return g.armed[id]
 }
 
+// LiveEdgeNegative reports whether the given strategy has a proven-negative live
+// edge (real closed trades with profit factor < 1.0 over at least minSample trades).
+// It is the fail-closed capital-protection predicate shared by both the executable
+// (engine.Decide) and candidate (main.go) signal paths so that a losing strategy
+// cannot emit ANY executable signal — including advisory candidates.
+func LiveEdgeNegative(strategyID types.StrategyID, st GateState, minSample int) bool {
+	statsMap, ok := st.Value.(map[types.StrategyID]risk.EdgeStats)
+	if !ok {
+		return false
+	}
+	s, ok := statsMap[strategyID]
+	if !ok {
+		return false
+	}
+	return minSample > 0 && s.SampleSize >= minSample && s.ProfitFactor < 1.0
+}
+
 func (g *EdgeValidationGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := g.base(state)
+
+	// Fail-closed capital protection: a PROVEN-NEGATIVE live edge (real closed
+	// trades showing profit factor < 1.0 over a sufficient sample) is a HARD
+	// VETO regardless of operator arming. Arming only bypasses the bootstrap
+	// lack-of-history deadlock — it must never override money already proven to
+	// be losing (SOW: hard gates fail closed, financial integrity first).
+	if statsByStrategy, ok := state.Value.(map[types.StrategyID]risk.EdgeStats); ok {
+		if s, ok := statsByStrategy[input.StrategyID]; ok {
+			if g.MinNegativeSampleSize > 0 &&
+				s.SampleSize >= g.MinNegativeSampleSize &&
+				s.ProfitFactor < 1.0 {
+				eval.Result = types.GateVeto
+				eval.ReasonCodes = []string{ReasonEdgeNegativeLive}
+				return eval
+			}
+		}
+	}
 
 	// Operator-armed strategy: qualify without requiring live trade history.
 	if g.IsArmed(input.StrategyID) {

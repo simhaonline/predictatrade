@@ -777,6 +777,9 @@ func main() {
 	// ─── Session P&L anchors → daily_loss/profit_target gates (R4/PT) ───
 	go runPnLAnchorLoop(gateRegistry, valkeyCache, broker)
 	// ─── Rolling forward-test edge stats → edge_validation gate (EV1-EV3) ───
+	// Synchronous initial hydration so capital-protection is active immediately
+	// (fail closed: no restart window where proven-losing strategies can trade).
+	hydrateEdgeStateOnce(gateRegistry, persister, cfg)
 	go hydrateEdgeValidationGate(gateRegistry, persister, cfg)
 	// B-04: Initialize MinATR and StopHuntFilter gates with PASS state at startup.
 	// These gates are self-evaluating from GateInput (ATR, StructuralLow/High),
@@ -2237,9 +2240,25 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 					// while maintaining capital protection (1% risk, 5% daily loss limit)
 					geo := strategy.BuildCandidateTradeGeometry(mergedState, candidateDir, strat.ID())
 
-					// Create candidate signal with microprofit geometry
-					advDir := strategy.CandidateDirection(candidateDir)
-					now := time.Now().UTC()
+				// Create candidate signal with microprofit geometry
+				advDir := strategy.CandidateDirection(candidateDir)
+				now := time.Now().UTC()
+
+				// ─── Fail-closed capital protection for advisory candidates ───
+				// A BUY_CANDIDATE/SELL_CANDIDATE is still executable by the EA when
+				// ExecuteCandidates is enabled. A strategy with a proven-negative live
+				// edge (PF<1.0 over a sufficient sample) MUST NOT emit any executable
+				// candidate. Downgrade to NO_TRADE so broadcastSignalToAll never
+				// delivers it for execution (SOW: hard gates fail closed; financial
+				// integrity first). This runs on the actual candidate-emission path
+				// (the dominant advisory path), not only the executable path.
+				if edgeSt, edgeOK := gateRegistry.GetState(types.GateEdgeValidation); edgeOK {
+					if gates.LiveEdgeNegative(strat.ID(), edgeSt, cfg.EdgeNegativeMinSampleSize) {
+						observability.Log.Warn().Str("strategy", string(strat.ID())).
+							Msg("Capital protection: proven-negative live edge — downgrading candidate to NO_TRADE (fail closed)")
+						advDir = types.DirectionNoTrade
+					}
+				}
 					// Research-trained calibrated probability (safe fallback: 0,false).
 					calProb, calProbOK := calibConsumer.ProbabilityFor(strat.ID(), stratResult.RawScore)
 					sig := &types.Signal{
@@ -2435,6 +2454,26 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 		}
 
 		if stratResult.Direction != types.DirectionBuy && stratResult.Direction != types.DirectionSell {
+			// ─── Fail-closed capital protection for advisory candidates ───
+			// A candidate (BUY_CANDIDATE/SELL_CANDIDATE) is still executable by the
+			// EA when ExecuteCandidates is enabled. A strategy with a proven-negative
+			// live edge (PF<1.0 over sufficient sample) MUST NOT emit any executable
+			// candidate. Downgrade to NO_TRADE so broadcastSignalToAll never delivers
+			// it for execution (SOW: hard gates fail closed; financial integrity first).
+			if stratResult.Direction == types.Direction("BUY_CANDIDATE") || stratResult.Direction == types.Direction("SELL_CANDIDATE") {
+				// ─── Fail-closed capital protection (defence-in-depth for the
+				// secondary candidate path): a proven-negative live edge must not
+				// emit an executable candidate. ───
+				if edgeSt, edgeOK := gateRegistry.GetState(types.GateEdgeValidation); edgeOK {
+					if gates.LiveEdgeNegative(strat.ID(), edgeSt, cfg.EdgeNegativeMinSampleSize) {
+						observability.Log.Warn().Str("strategy", string(strat.ID())).
+							Msg("Capital protection: proven-negative live edge — downgrading candidate to NO_TRADE (fail closed)")
+						stratResult.Direction = types.DirectionNoTrade
+						stratResult.ReasonCodes = append(stratResult.ReasonCodes, types.NoTradeReason("edge_negative_live"))
+					}
+				}
+			}
+
 			sig := createNoTradeSignal(stratResult, calibratedProb, mergedState, calibConsumer)
 			sig.CandidateThreshold = candidateThresh
 			sig.TradeThreshold = tradeThresh
@@ -3040,9 +3079,10 @@ func registerGates(reg *gates.Registry, cfg *config.Config) *gates.PositionCapsG
 		BaseLots:    baseLots,
 	}, types.GateProfitTarget)
 	edgeGate := &gates.EdgeValidationGate{
-		MinProfitFactor: cfg.EdgeMinProfitFactor,
-		MinExpectancyR:  cfg.EdgeMinExpectancyR,
-		MinSampleSize:   cfg.EdgeMinSampleSize,
+		MinProfitFactor:       cfg.EdgeMinProfitFactor,
+		MinExpectancyR:        cfg.EdgeMinExpectancyR,
+		MinSampleSize:         cfg.EdgeMinSampleSize,
+		MinNegativeSampleSize: cfg.EdgeNegativeMinSampleSize,
 	}
 	reg.RegisterOrdered(edgeGate, types.GateExecutionPermit)
 
@@ -3306,22 +3346,34 @@ func hydrateEdgeValidationGate(gateRegistry *gates.Registry, persister *marketda
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 	for range ticker.C {
-		if persister == nil {
-			continue
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		hydrateEdgeStateOnce(gateRegistry, persister, cfg)
+	}
+}
+
+// hydrateEdgeStateOnce refreshes the edge-validation gate state from live closed-trade
+// results. It is also invoked synchronously at startup so the negative-live-edge
+// capital-protection veto is active immediately — there is no 60s window after a
+// restart where a proven-losing armed strategy could still emit executable candidates.
+func hydrateEdgeStateOnce(gateRegistry *gates.Registry, persister *marketdata.Persister, cfg *config.Config) {
+	if persister == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		rows, err := persister.GetDB().QueryContext(ctx, `
 			SELECT strategy_id, direction, pnl::float8,
 			       COALESCE(entry_price,0)::float8, COALESCE(stop_loss,0)::float8,
 			       COALESCE(lot_size,0)::float8
-			FROM trading.trade_results
-			ORDER BY closed_at DESC
-			LIMIT $1
+			FROM (
+				SELECT strategy_id, direction, pnl, entry_price, stop_loss, lot_size,
+				       ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY closed_at DESC) AS rn
+				FROM trading.trade_results
+			) ranked
+			WHERE rn <= $1
 		`, cfg.EdgeLookbackTrades)
 		if err != nil {
 			cancel()
 			observability.Log.Warn().Err(err).Msg("[EDGE] trade_results query failed — edge gate unchanged")
-			continue
+			return
 		}
 		var all []risk.TradeRecord
 		for rows.Next() {
@@ -3369,7 +3421,6 @@ func hydrateEdgeValidationGate(gateRegistry *gates.Registry, persister *marketda
 			EvaluatedAt:   now,
 			SourceVersion: "edge_refresher",
 		})
-	}
 }
 
 // refreshGateStates periodically refreshes gate state from live market/broker data.

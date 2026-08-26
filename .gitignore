@@ -89,3 +89,6 @@ windows-agent/agent
 # Code signing private key — never commit
 windows-agent/certs/pat-code-sign.key
 windows-agent/certs/pat-code-sign.pfx
+
+# Go realtime build artifact (built inside Docker, never commit)
+realtime/realtime-engine

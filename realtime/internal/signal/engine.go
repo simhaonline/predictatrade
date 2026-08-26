@@ -117,8 +117,13 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 	// Step 1: Use the strategy's pre-computed direction
 	// The strategy has already evaluated all evidence, conflicts, MTF, regime, session
 	direction := input.Direction
-	if direction != types.DirectionBuy && direction != types.DirectionSell {
-		// NO_TRADE, WAIT, ERROR, BLOCKED — skip gates, persist as-is
+	// Candidates (BUY_CANDIDATE/SELL_CANDIDATE) are directional and MUST pass the
+	// hard gates too — capital protection applies to advisory signals as well. A
+	// proven-losing strategy must not emit ANY executable candidate (SOW: NO-TRADE
+	// is a valid result; hard gates fail closed regardless of candidate vs trade).
+	isCandidate := direction == types.Direction("BUY_CANDIDATE") || direction == types.Direction("SELL_CANDIDATE")
+	if direction != types.DirectionBuy && direction != types.DirectionSell && !isCandidate {
+		// Genuinely non-directional (NO_TRADE, WAIT, ERROR, BLOCKED) — skip gates, persist as-is
 		// Preserve strategy-level reason codes for traceability (audit GAP-5).
 		// Only append NTInsufficientScore if the strategy provided no reasons.
 		result.NoTradeReasons = input.DecisionReasons
@@ -175,10 +180,23 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 		atr, _ = input.ATR.Float64()
 	}
 
+	// Capital-protection gates (wrong-side-SL, margin, position caps) switch on
+	// Direction and hard-veto anything that isn't exactly BUY/SELL. Map a candidate
+	// to its base direction for gate evaluation so those gates score it correctly,
+	// while the emitted signal keeps the original candidate direction.
+	gateDir := input.Direction
+	if isCandidate {
+		if direction == types.Direction("BUY_CANDIDATE") {
+			gateDir = types.DirectionBuy
+		} else {
+			gateDir = types.DirectionSell
+		}
+	}
+
 	gateInput := gates.GateInput{
 		Tick:               input.Tick,
 		StrategyID:         input.StrategyID,
-		Direction:          input.Direction,
+		Direction:          gateDir,
 		Regime:             input.Regime,
 		Spread:             spread,
 		ATR:                atr,
@@ -219,47 +237,83 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 
 	// Step 4: Final decision
 	if !allPass {
-		// Hard gate veto → NO-TRADE
-		// prompt.md Section 17: Preserve market direction (BUY/SELL), set status to BLOCKED
-		// Do NOT set Direction=BLOCKED — that loses the market thesis
 		if firstVeto != nil {
+			// Hard gate veto → NO-TRADE (fail closed, SOW Section 17/131).
+			// A vetoed signal MUST NOT be executable: set Direction to NO-TRADE so
+			// broadcastSignalToAll never delivers it to the EA for execution. This
+			// applies to candidates too — a proven-losing (negative live edge)
+			// strategy must not emit any executable candidate.
 			for _, rc := range firstVeto.ReasonCodes {
 				result.NoTradeReasons = append(result.NoTradeReasons, types.NoTradeReason(rc))
 			}
-		} else {
-			// No specific veto found — generic gate failure
+			result.Signal = &types.Signal{
+				ID:          uuid.New().String(),
+				Symbol:      types.SymbolXAUUSD,
+				StrategyID:  input.StrategyID,
+				Direction:   types.DirectionNoTrade, // fail closed: never executable
+				Grade:       types.GradeBlocked,
+				Status:      types.SignalDetected,
+				RawScore:    input.RawScore,
+				LongScore:   input.LongScore,
+				ShortScore:  input.ShortScore,
+				EntryPrice:  input.EntryPrice,
+				StopLoss:    input.StopLoss,
+				TP1:         input.TP1,
+				TP2:         input.TP2,
+				TP3:         input.TP3,
+				Regime:      input.Regime,
+				Session:     input.Session,
+				NewsRisk:    input.NewsRisk,
+				ReasonCodes: result.NoTradeReasons,
+				Evidence:    input.Evidence,
+				GateResults: convertGateEvals(gateEvals),
+				MicroTP:          input.MicroTP,
+				PartialClosePct:  input.PartialClosePct,
+				EdgeScore:        input.EdgeScore,
+				ExpectedValue:    input.ExpectedValue,
+				IsLossCandidate:  input.IsLossCandidate,
+				CreatedAt:   time.Now().UTC(),
+				ExpiresAt:   time.Now().UTC().Add(time.Minute * 15),
+			}
+			return result
+		}
+		// No hard veto, but some gate returned DEGRADED (advisory, non-critical).
+		if !isCandidate {
+			// Executable BUY/SELL: preserve prior fail-closed NO-TRADE behavior.
 			result.NoTradeReasons = append(result.NoTradeReasons, types.NTGateDegraded)
+			result.Signal = &types.Signal{
+				ID:          uuid.New().String(),
+				Symbol:      types.SymbolXAUUSD,
+				StrategyID:  input.StrategyID,
+				Direction:   types.DirectionNoTrade, // fail closed: never executable
+				Grade:       types.GradeBlocked,
+				Status:      types.SignalDetected,
+				RawScore:    input.RawScore,
+				LongScore:   input.LongScore,
+				ShortScore:  input.ShortScore,
+				EntryPrice:  input.EntryPrice,
+				StopLoss:    input.StopLoss,
+				TP1:         input.TP1,
+				TP2:         input.TP2,
+				TP3:         input.TP3,
+				Regime:      input.Regime,
+				Session:     input.Session,
+				NewsRisk:    input.NewsRisk,
+				ReasonCodes: result.NoTradeReasons,
+				Evidence:    input.Evidence,
+				GateResults: convertGateEvals(gateEvals),
+				MicroTP:          input.MicroTP,
+				PartialClosePct:  input.PartialClosePct,
+				EdgeScore:        input.EdgeScore,
+				ExpectedValue:    input.ExpectedValue,
+				IsLossCandidate:  input.IsLossCandidate,
+				CreatedAt:   time.Now().UTC(),
+				ExpiresAt:   time.Now().UTC().Add(time.Minute * 15),
+			}
+			return result
 		}
-		result.Signal = &types.Signal{
-			ID:          uuid.New().String(),
-			Symbol:      types.SymbolXAUUSD,
-			StrategyID:  input.StrategyID,
-			Direction:   direction, // Keep BUY/SELL — do NOT set BLOCKED
-			Grade:       types.GradeBlocked,
-			Status:      types.SignalDetected,
-			RawScore:    input.RawScore,
-			LongScore:   input.LongScore,
-			ShortScore:  input.ShortScore,
-			EntryPrice:  input.EntryPrice,
-			StopLoss:    input.StopLoss,
-			TP1:         input.TP1,
-			TP2:         input.TP2,
-			TP3:         input.TP3,
-			Regime:      input.Regime,
-			Session:     input.Session,
-			NewsRisk:    input.NewsRisk,
-			ReasonCodes: result.NoTradeReasons,
-			Evidence:    input.Evidence,
-			GateResults: convertGateEvals(gateEvals),
-			MicroTP:          input.MicroTP,
-			PartialClosePct:  input.PartialClosePct,
-			EdgeScore:        input.EdgeScore,
-			ExpectedValue:    input.ExpectedValue,
-			IsLossCandidate:  input.IsLossCandidate,
-			CreatedAt:   time.Now().UTC(),
-			ExpiresAt:   time.Now().UTC().Add(time.Minute * 15),
-		}
-		return result
+		// Candidate + degraded-only: advisory — do NOT hard-block; emit the
+		// candidate so the dashboard/agent can show it, but it is not forced to trade.
 	}
 
 	// All gates pass → produce BUY/SELL signal

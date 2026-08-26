@@ -53,6 +53,7 @@ type Config struct {
 	EdgeMinProfitFactor       float64            // EDGE_MIN_PROFIT_FACTOR
 	EdgeMinExpectancyR        float64            // EDGE_MIN_EXPECTANCY_R
 	EdgeMinSampleSize         int                // EDGE_MIN_SAMPLE_SIZE
+	EdgeNegativeMinSampleSize int                // EDGE_NEGATIVE_MIN_SAMPLE_SIZE
 	EdgeLookbackTrades        int                // EDGE_LOOKBACK_TRADES
 	// Operator authorization for live auto-trading.
 	// LIVE_TRADING_AUTHORIZED must be explicitly set true by an operator. It is
@@ -204,6 +205,7 @@ func Default() *Config {
 		EdgeMinProfitFactor:  getEnvFloat("EDGE_MIN_PROFIT_FACTOR", 1.2),
 		EdgeMinExpectancyR:   getEnvFloat("EDGE_MIN_EXPECTANCY_R", 0.2),
 		EdgeMinSampleSize:    getEnvInt("EDGE_MIN_SAMPLE_SIZE", 50),
+		EdgeNegativeMinSampleSize: getEnvInt("EDGE_NEGATIVE_MIN_SAMPLE_SIZE", 10),
 		EdgeLookbackTrades:   getEnvInt("EDGE_LOOKBACK_TRADES", 50),
 		LiveTradingAuthorized: getEnvBool("LIVE_TRADING_AUTHORIZED", false),
 		EdgeArmedStrategies:   splitComma(getEnv("EDGE_ARMED_STRATEGIES", "")),
