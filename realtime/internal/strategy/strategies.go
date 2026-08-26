@@ -86,6 +86,9 @@ type StrategyResult struct {
 	MLContribution       float64 `json:"ml_contribution,omitempty"`
 	SentimentContribution float64 `json:"sentiment_contribution,omitempty"`
 	Confidence           float64 `json:"confidence,omitempty"`
+
+	// P2-004: Trade group ID for multi-position signal tracking
+	TradeGroupID string `json:"trade_group_id,omitempty"`
 }
 
 // StrategyConfig defines strategy-specific configuration.
@@ -581,22 +584,67 @@ func checkRegimeSession(state *features.MarketState, cfg StrategyConfig) []types
 }
 
 // checkMTF evaluates multi-timeframe alignment as a SOFT advisory signal.
-// Previously this was a HARD block (returning CONFLICTING_TIMEFRAMES which killed signals),
-// but MTF misalignment is already penalized by checkConflict() as a score penalty.
-// Hard-blocking on MTF alone prevents high-quality signals (score 60-78) from ever
-// reaching gates. Now checkMTF only returns a reason code for audit visibility
-// but does NOT change the direction — the conflict penalty in checkConflict
-// already reduces the score proportionally.
 func checkMTF(state *features.MarketState, direction types.Direction, minAlignment float64) []types.NoTradeReason {
 	if direction == types.DirectionNoTrade {
 		return nil
 	}
-	// MTF conflict is now advisory — no hard block.
-	// The checkConflict() function already applies a score penalty (15 per conflicting TF)
-	// which reduces the raw score. That is sufficient — we do NOT kill the signal here.
-	// This allows high-conviction signals to pass through even when a higher timeframe
-	// is temporarily misaligned, while the penalty ensures lower-quality signals don't qualify.
 	return nil
+}
+
+// addPullbackEvidence adds P2-003 pullback features as STRUCTURE evidence.
+func addPullbackEvidence(evidence *[]types.EvidenceContribution, state *features.MarketState, q types.QualityState) {
+	p := state.Pullback
+	if !p.PullbackActive {
+		return
+	}
+	quality, _ := p.PullbackQuality.Float64()
+	if quality < 0.3 {
+		return
+	}
+	contribution := quality * 0.06 // moderate weight, capped by STRUCTURE family cap
+	if p.PullbackContConfirm {
+		contribution = quality * 0.10 // confirmed continuation = higher weight
+	}
+	if !p.PullbackDepthPct.IsZero() {
+		// Pullback in uptrend = BUY opportunity (buy the dip)
+		// Pullback in downtrend = SELL opportunity (sell the rally)
+		if p.PullbackAnchor.GreaterThan(state.CurrentPrice) {
+			// currentPrice < anchor: price retraced below anchor in uptrend = BUY
+			addEvidence(evidence, "STRUCTURE", "PULLBACK_BUY", types.DirectionBuy, 8, contribution, q, "")
+		} else {
+			addEvidence(evidence, "STRUCTURE", "PULLBACK_SELL", types.DirectionSell, 8, contribution, q, "")
+		}
+	}
+}
+
+// addORBEvidence adds P2-001 session ORB features as SESSION_ORB evidence.
+func addORBEvidence(evidence *[]types.EvidenceContribution, state *features.MarketState, q types.QualityState) {
+	orb := state.SessionORB
+	if orb.BreakoutDir == "BUY" {
+		addEvidence(evidence, "SESSION_ORB", "BREAKOUT_BUY", types.DirectionBuy, 10, 0.08, q, "")
+	} else if orb.BreakoutDir == "SELL" {
+		addEvidence(evidence, "SESSION_ORB", "BREAKOUT_SELL", types.DirectionSell, 10, 0.08, q, "")
+	}
+	// Compression evidence: tight range before breakout = strong setup
+	if !orb.Compression.IsZero() && orb.Compression.LessThan(decimal.NewFromFloat(0.5)) {
+		if !orb.AsianRange.IsZero() {
+			addEvidence(evidence, "SESSION_ORB", "ASIAN_COMPRESSION", types.DirectionWait, 5, 0.03, q, "")
+		}
+	}
+}
+
+// addPinBarEvidence adds P2-002 pin bar geometry evidence (reusable across strategies).
+func addPinBarEvidence(evidence *[]types.EvidenceContribution, state *features.MarketState, q types.QualityState) {
+	ci := state.Candle
+	if ci.PinBarQuality.IsZero() || ci.PinBarQuality.LessThan(decimal.NewFromFloat(0.5)) {
+		return
+	}
+	pbq, _ := ci.PinBarQuality.Float64()
+	if ci.PinBarRejDirection == "BUY" {
+		addEvidence(evidence, "CANDLE", "PINBAR_BULLISH", types.DirectionBuy, 10, pbq*0.10, q, "")
+	} else if ci.PinBarRejDirection == "SELL" {
+		addEvidence(evidence, "CANDLE", "PINBAR_BEARISH", types.DirectionSell, 10, pbq*0.10, q, "")
+	}
 }
 
 // ─── STANDARD_SCALPING ───
@@ -745,6 +793,11 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 	if isRegimeInRange(state.Regime.Current) {
 		computeRangeEvidence(&evidence, state, DefaultRangeEvidenceConfig())
 	}
+
+	// P2 evidence (ACTIVE): pullback + ORB + pin bar
+	addPullbackEvidence(&evidence, state, q)
+	addORBEvidence(&evidence, state, q)
+	addPinBarEvidence(&evidence, state, q)
 
 	result.Evidence = applyFamilyCaps(evidence)
 
@@ -950,6 +1003,11 @@ func (s *UltraScalping) Evaluate(state *features.MarketState) StrategyResult {
 	if isRegimeInRange(state.Regime.Current) {
 		computeUltraRangeEvidence(&evidence, state, DefaultUltraRangeConfig())
 	}
+
+	// P2 evidence (ACTIVE): pullback + ORB + pin bar
+	addPullbackEvidence(&evidence, state, q)
+	addORBEvidence(&evidence, state, q)
+	addPinBarEvidence(&evidence, state, q)
 
 	result.Evidence = applyFamilyCaps(evidence)
 
@@ -1185,6 +1243,11 @@ func (s *StandardSwing) Evaluate(state *features.MarketState) StrategyResult {
 	if isRegimeInRange(state.Regime.Current) {
 		computeRangeEvidence(&evidence, state, DefaultRangeEvidenceConfig())
 	}
+
+	// P2 evidence (ACTIVE): pullback + ORB + pin bar
+	addPullbackEvidence(&evidence, state, q)
+	addORBEvidence(&evidence, state, q)
+	addPinBarEvidence(&evidence, state, q)
 
 	result.Evidence = applyFamilyCaps(evidence)
 
@@ -1479,6 +1542,11 @@ func (s *TrendSwing) Evaluate(state *features.MarketState) StrategyResult {
 			addEvidence(&evidence, "TREND", "SAR_BEARISH", types.DirectionSell, 10, 0.05, q, "")
 		}
 	}
+
+	// P2 evidence (ACTIVE): pullback + ORB + pin bar (TrendSwing benefits most from pullback)
+	addPullbackEvidence(&evidence, state, q)
+	addORBEvidence(&evidence, state, q)
+	addPinBarEvidence(&evidence, state, q)
 
 	result.Evidence = applyFamilyCaps(evidence)
 

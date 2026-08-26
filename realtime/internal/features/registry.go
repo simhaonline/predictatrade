@@ -29,7 +29,8 @@ type Registry struct {
 	fibonacciEngine  *FibonacciEngine
 	candleEngine     *CandleEngine
 	pivotEngine      *PivotEngine
-	pullbackEngine   *PullbackEngine // P2-003
+	pullbackEngine   *PullbackEngine   // P2-003
+	orbEngine        *SessionORBEngine // P2-001
 
 	// Rolling statistics (SOW Sections 8-11)
 	obvZScore        *RollingStats
@@ -61,7 +62,8 @@ func NewRegistry() *Registry {
 		fibonacciEngine: NewFibonacciEngine(nil),
 		pivotEngine:     NewPivotEngine(),
 		candleEngine:     NewCandleEngine(),
-		pullbackEngine:   NewPullbackEngine(), // P2-003
+		pullbackEngine:   NewPullbackEngine(),   // P2-003
+		orbEngine:        NewSessionORBEngine(), // P2-001
 
 		// Rolling statistics — 50-bar window, min 20 samples
 		obvZScore:       NewRollingStats(50, 20),
@@ -193,6 +195,12 @@ func (r *Registry) Evaluate(candle *types.Candle, allCandles map[types.Timeframe
 	// Build feature readiness map (SOW Section 27)
 	readiness := r.buildFeatureReadiness(structure, indicators, sar, ichimoku, stochRSI, fib, pivots, candle)
 
+	// P2-003: Pullback features (ACTIVE)
+	pullbackFeatures := r.pullbackEngine.ProcessEvaluated(structure, candle.Close, indicators.ATR)
+
+	// P2-001: Session ORB features (ACTIVE)
+	orb := r.orbEngine.Process(candle.Time, candle.Close)
+
 	state := &MarketState{
 		Symbol:     candle.Symbol,
 		Timestamp:  candle.Time,
@@ -216,6 +224,8 @@ func (r *Registry) Evaluate(candle *types.Candle, allCandles map[types.Timeframe
 		Pivots:     pivots,
 		FeatureReadiness: readiness,
 		Quality:     types.QualityAuthoritative,
+		SessionORB: orb, // P2-001
+		Pullback:  pullbackFeatures, // P2-003
 	}
 
 	if lastTick != nil {

@@ -220,6 +220,11 @@ func (s *MarnieFibStrategy) Evaluate(state *features.MarketState) StrategyResult
 		}
 	}
 
+	// P2 evidence (ACTIVE): pullback + ORB + pin bar
+	addPullbackEvidence(&evidence, state, q)
+	addORBEvidence(&evidence, state, q)
+	addPinBarEvidence(&evidence, state, q)
+
 	// Apply family caps
 	evidence = applyFamilyCaps(evidence)
 	result.Evidence = evidence
