@@ -138,6 +138,9 @@ func SeedConservativeGateStates(reg *Registry) {
 		// GATE_NOT_INITIALIZED on the first signal before refresh ticks fire.
 		types.GateMinATR:         {State: types.GatePass, EvaluatedAt: now, SourceVersion: "seed"},
 		types.GateStopHuntFilter: {State: types.GatePass, EvaluatedAt: now, SourceVersion: "seed"},
+		// Broker symbol validation: seeded PASS — degrades when broker
+		// metadata is unavailable, but must not block signals.
+		types.GateBrokerSymbolValidation: {State: types.GatePass, EvaluatedAt: now, SourceVersion: "seed"},
 	} {
 		reg.UpdateState(gateID, state)
 	}

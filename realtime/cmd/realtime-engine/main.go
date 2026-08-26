@@ -2967,7 +2967,7 @@ func registerGates(reg *gates.Registry, cfg *config.Config) *gates.PositionCapsG
 	reg.Register(&gates.DataQualityGate{})
 	reg.Register(&gates.SessionGate{})
 	reg.Register(&gates.NewsGate{})
-	reg.Register(&gates.SpreadGate{MaxSpreadAbsolute: 0.35, MaxSpreadToATR: 0.20})
+	reg.Register(&gates.SpreadGate{MaxSpreadAbsolute: 0.80, MaxSpreadToATR: 0.50})
 	// Phase 3: New precision gates
 	reg.Register(&gates.StopHuntFilterGate{MinDistanceATR: 1.5})
 	reg.Register(&gates.MinAbsoluteATRGate{MinATR: 2.0}) // Global minimum; per-strategy overrides via engine

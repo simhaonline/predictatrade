@@ -168,7 +168,7 @@ func Default() *Config {
 		TickRateMs:      getEnvInt("TICK_RATE_MS", 500),
 		FeatureWorkers:  getEnvInt("FEATURE_WORKERS", 4),
 		MaxSpreadPips:   getEnvFloat("MAX_SPREAD_PIPS", 3.0),
-		MinRR:           getEnvFloat("MIN_RR", 1.5),
+		MinRR:           getEnvFloat("MIN_RR", 1.0),
 		MaxCostToTarget: getEnvFloat("MAX_COST_TO_TARGET", 0.35),
 		MaxExposure:     getEnvFloat("MAX_EXPOSURE", 5.0),
 

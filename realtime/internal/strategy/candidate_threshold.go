@@ -34,32 +34,32 @@ func DefaultCandidateThresholds() map[types.StrategyID]CandidateThresholdConfig 
 	return map[types.StrategyID]CandidateThresholdConfig{
 		types.StrategyStandardScalping: {
 			StrategyID:        types.StrategyStandardScalping,
-			CandidateThreshold: 35,  // raised from 30
-			TradeThreshold:    60,   // raised from 50 — only high-confidence signals execute
+			CandidateThreshold: 10,
+			TradeThreshold:    25,
 			Version:           "1.2.0",
 		},
 		types.StrategyUltraScalping: {
 			StrategyID:        types.StrategyUltraScalping,
-			CandidateThreshold: 35,  // raised from 30
-			TradeThreshold:    60,   // raised from 50 — only high-confidence signals execute
+			CandidateThreshold: 10,
+			TradeThreshold:    25,
 			Version:           "1.2.0",
 		},
 		types.StrategyStandardSwing: {
 			StrategyID:        types.StrategyStandardSwing,
-			CandidateThreshold: 30,  // raised from 25
-			TradeThreshold:    50,   // raised from 40 — only high-confidence signals execute
+			CandidateThreshold: 10,
+			TradeThreshold:    25,
 			Version:           "1.2.0",
 		},
 		types.StrategyTrendSwing: {
 			StrategyID:        types.StrategyTrendSwing,
-			CandidateThreshold: 25,  // raised from 20
-			TradeThreshold:    45,   // raised from 35 — only high-confidence signals execute
+			CandidateThreshold: 10,
+			TradeThreshold:    25,
 			Version:           "1.2.0",
 		},
 		types.StrategyMarnieFib: {
 			StrategyID:        types.StrategyMarnieFib,
-			CandidateThreshold: 20,  // raised from 15
-			TradeThreshold:    40,   // raised from 30 — only high-confidence signals execute
+			CandidateThreshold: 10,
+			TradeThreshold:    25,
 			Version:           "1.2.0",
 		},
 	}
