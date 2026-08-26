@@ -229,54 +229,22 @@ if ($serviceCreated) {
     }
 }
 
-# Method 3: If service failed, try Scheduled Task (runs on startup + every 5 min)
 if (-not $serviceRunning) {
-    Write-Host "  WARN: Service not running — trying Scheduled Task fallback..."
-
-    # Create a VBS launcher that runs the agent silently (no console window)
-    $vbsPath = Join-Path $InstallDir "start-agent.vbs"
-    $vbsContent = @"
-Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run ""$agentPath"", 0, False
-"@
-    Set-Content -Path $vbsPath -Value $vbsContent -Encoding ASCII
-
-    # Create scheduled task that runs on startup + every 5 minutes
-    $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbsPath`""
-    $trigger1 = New-ScheduledTaskTrigger -AtStartup
-    $trigger2 = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-
-    Register-ScheduledTask -TaskName $ServiceName -Action $action -Trigger $trigger1,$trigger2 -Settings $settings -Principal $principal -Force 2>&1 | Out-Null
-
-    # Start it now
-    Start-ScheduledTask -TaskName $ServiceName 2>&1 | Out-Null
-    Start-Sleep -Seconds 3
-
-    # Verify the process is running
-    $proc = Get-Process -Name "pat-agent" -ErrorAction SilentlyContinue
-    if ($proc) {
-        $serviceRunning = $true
-        Write-Host "  OK: Agent running via Scheduled Task (PID: $($proc.Id))"
-    } else {
-        Write-Host "  WARN: Scheduled Task also failed — trying direct launch..."
-
-        # Method 4: Last resort — just launch it directly
-        Start-Process -FilePath $agentPath -WorkingDirectory $InstallDir -WindowStyle Hidden
-        Start-Sleep -Seconds 3
-        $proc = Get-Process -Name "pat-agent" -ErrorAction SilentlyContinue
-        if ($proc) {
-            $serviceRunning = $true
-            Write-Host "  OK: Agent running via direct launch (PID: $($proc.Id))"
-        }
+    Write-Host "  WARN: Service not running — checking logs..."
+    $stderrLog = Join-Path $logsDir "stderr.log"
+    $stdoutLog = Join-Path $logsDir "stdout.log"
+    if (Test-Path $stderrLog) {
+        Write-Host "  --- stderr.log ---"
+        Get-Content $stderrLog -Tail 10 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" }
     }
-}
-
-if (-not $serviceRunning) {
-    Write-Host "  ERROR: All methods failed. Agent may be blocked by antivirus."
-    Write-Host "  Check: Windows Security > Protection history > Allow on device"
-    Write-Host "  Then run manually: $agentPath"
+    if (Test-Path $stdoutLog) {
+        Write-Host "  --- stdout.log ---"
+        Get-Content $stdoutLog -Tail 10 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" }
+    }
+    if (-not (Test-Path $stderrLog) -and -not (Test-Path $stdoutLog)) {
+        Write-Host "  No logs — agent may be blocked by antivirus"
+        Write-Host "  Manual fix: Windows Security > Virus & threat protection > Exclusions > Add > C:\PredictATrade"
+    }
 }
 
 # Step 9: Save version + verify health endpoint
