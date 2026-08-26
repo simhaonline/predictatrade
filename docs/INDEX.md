@@ -24,4 +24,5 @@
 - [User Guide](guides/USER_GUIDE.md) — Dashboard, strategies, MT4/MT5 setup, troubleshooting
 
 ### Reports
-- [PhD Thesis](reports/PHD_THESIS.md) — Multi-plane architecture for deterministic XAUUSD trading signal generation
+- [Whitepaper](reports/WHITEPAPER.md) — Technical whitepaper: architecture, risk, AI governance, commercial model
+- [PhD Thesis](reports/PHD_THESIS.md) — Academic thesis: 9 chapters, literature review, formal contributions
