@@ -72,6 +72,16 @@ type DecisionInput struct {
 
 	// P1-001: Broker precision — digits for price rounding (e.g., 2 for XAUUSD)
 	BrokerDigits int32
+
+	// ─── Refinement (prompt.md): micro profit-taking + profitability ───
+	// Propagated from the strategy evaluation so the delivery layer can
+	// eliminate loss-making candidates and surface micro profit-taking.
+	MicroTP          decimal.Decimal
+	PartialClosePct  float64
+	EdgeScore        float64
+	ExpectedValue    float64
+	IsLossCandidate  bool
+	EntryGatePassed  bool
 }
 
 // DecisionResult is the final output of the master decision hierarchy.
@@ -143,6 +153,11 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 			NewsRisk:    input.NewsRisk,
 			ReasonCodes: result.NoTradeReasons,
 			Evidence:    input.Evidence,
+			MicroTP:          input.MicroTP,
+			PartialClosePct:  input.PartialClosePct,
+			EdgeScore:        input.EdgeScore,
+			ExpectedValue:    input.ExpectedValue,
+			IsLossCandidate:  input.IsLossCandidate,
 			CreatedAt:   time.Now().UTC(),
 			ExpiresAt:   time.Now().UTC().Add(time.Minute * 15),
 		}
@@ -194,6 +209,9 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 		StrategyOpenPositions: input.StrategyOpenPositions,
 	}
 
+	gateInput.IsLossCandidate = input.IsLossCandidate
+	gateInput.EntryGatePassed = input.EntryGatePassed
+	gateInput.RefinementProvided = true
 	allPass, gateEvals, firstVeto := e.gateRegistry.EvaluateAll(gateInput)
 	result.AllGatesPass = allPass
 	result.GateResults = gateEvals
@@ -233,6 +251,11 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 			ReasonCodes: result.NoTradeReasons,
 			Evidence:    input.Evidence,
 			GateResults: convertGateEvals(gateEvals),
+			MicroTP:          input.MicroTP,
+			PartialClosePct:  input.PartialClosePct,
+			EdgeScore:        input.EdgeScore,
+			ExpectedValue:    input.ExpectedValue,
+			IsLossCandidate:  input.IsLossCandidate,
 			CreatedAt:   time.Now().UTC(),
 			ExpiresAt:   time.Now().UTC().Add(time.Minute * 15),
 		}

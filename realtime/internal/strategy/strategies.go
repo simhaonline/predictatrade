@@ -89,6 +89,22 @@ type StrategyResult struct {
 
 	// P2-004: Trade group ID for multi-position signal tracking
 	TradeGroupID string `json:"trade_group_id,omitempty"`
+
+	// ─── Refinement (prompt.md): micro profit-taking + profitability ───
+	// MicroTP is the first (smallest) profit-taking level for micro profit-taking.
+	MicroTP decimal.Decimal `json:"micro_tp"`
+	// PartialClosePct is the fraction of the position to close at MicroTP.
+	PartialClosePct float64 `json:"partial_close_pct"`
+	// EdgeScore is the model-based directional edge estimate [0..1].
+	EdgeScore float64 `json:"edge_score"`
+	// ExpectedValue is the model-based net expected value per unit risk.
+	ExpectedValue float64 `json:"expected_value"`
+	// IsLossCandidate is true when the candidate fails the profitability filter.
+	IsLossCandidate bool `json:"is_loss_candidate"`
+	// EntryGatePassed records whether the strategy's unique entry gate passed.
+	EntryGatePassed bool `json:"entry_gate_passed"`
+	// EntryGateMetrics carries observability metrics from the entry gate.
+	EntryGateMetrics map[string]float64 `json:"entry_gate_metrics,omitempty"`
 }
 
 // StrategyConfig defines strategy-specific configuration.
@@ -847,6 +863,9 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 		}
 	}
 
+	// ─── Refinement: micro profit-taking + unique entry gate + profitability ───
+	applyRefinement(&result, state, result.Direction, s.cfg, result.RawScore)
+
 	return result
 }
 
@@ -1056,6 +1075,9 @@ func (s *UltraScalping) Evaluate(state *features.MarketState) StrategyResult {
 			result.ReasonCodes = append(result.ReasonCodes, types.NoTradeReason(geo.ReasonCode))
 		}
 	}
+
+	// ─── Refinement: micro profit-taking + unique entry gate + profitability ───
+	applyRefinement(&result, state, result.Direction, s.cfg, result.RawScore)
 
 	return result
 }
@@ -1295,6 +1317,9 @@ func (s *StandardSwing) Evaluate(state *features.MarketState) StrategyResult {
 		}
 	}
 
+	// ─── Refinement: micro profit-taking + unique entry gate + profitability ───
+	applyRefinement(&result, state, result.Direction, s.cfg, result.RawScore)
+
 	return result
 }
 
@@ -1388,6 +1413,8 @@ func (s *TrendSwing) Evaluate(state *features.MarketState) StrategyResult {
 			result.HumanReason = fmt.Sprintf("NO-TRADE — regime %s, no trend transition evidence (long=%.1f short=%.1f)",
 				state.Regime.Current, longF, shortF)
 		}
+		// Refinement for transition candidates (geometry already computed above).
+		applyRefinement(&result, state, result.Direction, s.cfg, result.RawScore)
 		return result
 	}
 
@@ -1593,6 +1620,9 @@ func (s *TrendSwing) Evaluate(state *features.MarketState) StrategyResult {
 			result.ReasonCodes = append(result.ReasonCodes, types.NoTradeReason(geo.ReasonCode))
 		}
 	}
+
+	// ─── Refinement: micro profit-taking + unique entry gate + profitability ───
+	applyRefinement(&result, state, result.Direction, s.cfg, result.RawScore)
 
 	return result
 }

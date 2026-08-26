@@ -72,6 +72,17 @@ type GateInput struct {
 	OpenBuyPositions      int
 	OpenSellPositions     int
 	StrategyOpenPositions int // per-strategy open-position estimate (engine-issued signals)
+
+	// Refinement (prompt.md): strategy-computed profitability flags.
+	// These are set by the signal engine from the strategy evaluation so the
+	// delivery layer can eliminate loss-making candidates.
+	EntryGatePassed  bool // strategy's unique entry gate passed
+	IsLossCandidate  bool // strategy flagged this candidate as negative-EV
+	// RefinementProvided is true only when the signal engine actually populated
+	// the refinement flags. When false (e.g. direct GateInput construction in
+	// tests or legacy paths), the gate falls back to its own EV computation and
+	// must not veto solely on zero-valued default flags.
+	RefinementProvided bool
 }
 
 // GateEvaluation records the result of a single gate check.
@@ -109,6 +120,7 @@ func NewRegistry() *Registry {
 			types.GateExposure,
 			types.GateMargin,
 			types.GateRRNetExpectancy,
+			types.GateProfitability,
 			types.GateEntitlement,
 			types.GateLicense,
 			types.GateExecutionPermit,

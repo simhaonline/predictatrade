@@ -296,7 +296,8 @@ func (s *MarnieFibStrategy) Evaluate(state *features.MarketState) StrategyResult
 		}
 	}
 
-	// Suppress unused import warning
+	// ─── Refinement: micro profit-taking + unique entry gate + profitability ───
+	applyRefinement(&result, state, result.Direction, s.cfg, result.RawScore)
 
 	return result
 }

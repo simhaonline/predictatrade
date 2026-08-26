@@ -17,6 +17,7 @@ func registerAllGates(r *Registry) {
 	r.Register(&ExposureGate{MaxExposure: 5})
 	r.Register(&MarginGate{})
 	r.Register(&RRNetExpectancyGate{MinGrossRR: 1.20})
+	r.Register(&ProfitabilityGate{})
 	r.Register(&EntitlementGate{})
 	r.Register(&LicenseGate{})
 	r.Register(&ExecutionPermissionGate{})

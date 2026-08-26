@@ -253,6 +253,7 @@ const (
 
 	// GitHub Reference P0-001: Broker symbol metadata validation
 	GateBrokerSymbolValidation GateID = "broker_symbol_validation"
+	GateProfitability          GateID = "profitability"
 )
 
 // NoTradeReason represents a standardized NO-TRADE reason (SOW Section 18).
@@ -308,6 +309,12 @@ const (
 	NTDirectionBlocked      NoTradeReason = "NT_DIRECTION_BLOCKED"
 	NTHTFBearishVeto        NoTradeReason = "HTF_BEARISH_VETO"
 	NTHTFBullishVeto        NoTradeReason = "HTF_BULLISH_VETO"
+
+	// Profitability / entry-gate rejection reasons (prompt.md refinement).
+	// Used to eliminate loss-making candidates before signal delivery.
+	NTEntryGateRejected   NoTradeReason = "ENTRY_GATE_REJECTED"
+	NTNegativeExpectancy  NoTradeReason = "NEGATIVE_EXPECTANCY"
+	NTMicroTPUnprofitable  NoTradeReason = "MICRO_TP_UNPROFITABLE"
 )
 
 // EvidenceContribution represents a single pillar's contribution to a signal score (SOW Section 12C.3).
@@ -388,6 +395,20 @@ type Signal struct {
 	ShadowOnly             bool
 	Executable             bool
 	FailedProductionReason string
+
+	// ─── Refinement: micro profit-taking & profitability (prompt.md) ───
+	// MicroTP is the first (smallest) profit-taking level used for micro
+	// profit-taking / partial position close. It is distinct per strategy.
+	MicroTP decimal.Decimal `json:"micro_tp"`
+	// PartialClosePct is the fraction (0..1) of the position to close at MicroTP.
+	PartialClosePct float64 `json:"partial_close_pct"`
+	// EdgeScore is the model-based directional edge estimate [0..1].
+	EdgeScore float64 `json:"edge_score"`
+	// ExpectedValue is the model-based net expected value per unit risk (>0 = edge).
+	ExpectedValue float64 `json:"expected_value"`
+	// IsLossCandidate is true when the signal fails the profitability filter
+	// (negative EV, unprofitable micro-TP, or sub-minimum R:R after cost).
+	IsLossCandidate bool `json:"is_loss_candidate"`
 
 	// Phase 2: Detailed timestamp model (SOW Sections 26-30)
 	// Each timestamp captures a distinct lifecycle stage.

@@ -2689,6 +2689,12 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			EntryPrice: stratResult.EntryPrice, StopLoss: stratResult.StopLoss,
 			TP1: stratResult.TP1, TP2: stratResult.TP2, TP3: stratResult.TP3,
 			DecisionReasons: stratResult.ReasonCodes,
+			MicroTP:         stratResult.MicroTP,
+			PartialClosePct: stratResult.PartialClosePct,
+			EdgeScore:       stratResult.EdgeScore,
+			ExpectedValue:   stratResult.ExpectedValue,
+			IsLossCandidate: stratResult.IsLossCandidate,
+			EntryGatePassed: stratResult.EntryGatePassed,
 			RoundTripCost: roundTripCost, CurrentExposure: func() float64 {
 				es, _ := gateRegistry.GetState(types.GateExposure)
 				if v, ok := es.Value.(float64); ok {
@@ -2987,6 +2993,8 @@ func registerGates(reg *gates.Registry, cfg *config.Config) *gates.PositionCapsG
 	reg.Register(&gates.ExposureGate{MaxExposure: cfg.MaxExposure})
 	reg.Register(&gates.MarginGate{})
 	reg.Register(&gates.RRNetExpectancyGate{MinGrossRR: cfg.MinRR})
+	// prompt.md refinement: eliminate loss-making candidates at delivery.
+	reg.Register(&gates.ProfitabilityGate{})
 	reg.Register(&gates.EntitlementGate{})
 	reg.Register(&gates.LicenseGate{})
 	reg.Register(&gates.ExecutionPermissionGate{})
