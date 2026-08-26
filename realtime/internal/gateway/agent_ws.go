@@ -396,17 +396,22 @@ func (h *AgentHub) SendToAgent(agentID string, msgType string, payload interface
 		"payload":   payload,
 	})
 	if err != nil {
+		log.Printf("[SendToAgent] marshal error: agent=%s type=%s err=%v", agentID, msgType, err)
 		return
 	}
 	h.mu.RLock()
 	agent, ok := h.agents[agentID]
+	count := len(h.agents)
 	h.mu.RUnlock()
 	if !ok {
+		log.Printf("[SendToAgent] agent NOT FOUND: agent=%s type=%s (total agents=%d)", agentID, msgType, count)
 		return
 	}
 	select {
 	case agent.send <- data:
+		log.Printf("[SendToAgent] SENT: agent=%s type=%s", agentID, msgType)
 	default:
+		log.Printf("[SendToAgent] DROPPED (buffer full): agent=%s type=%s", agentID, msgType)
 	}
 }
 
