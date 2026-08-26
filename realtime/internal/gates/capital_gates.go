@@ -107,12 +107,15 @@ func (g *RiskOversizeGate) Evaluate(input GateInput, state GateState) GateEvalua
 		return eval
 	}
 	if input.AccountEquity <= 0 {
-		// Broker account not hydrated — PASS (not veto). The EA enforces
-		// sizing and risk locally with real broker data. The server gate
-		// is a secondary barrier, not the primary one. Blocking all signals
-		// when account data is temporarily unavailable prevents any trading
-		// for 10K+ clients whose agents may not send MARKET_SNAPSHOT with
-		// account_info on every cycle.
+		// Broker account not hydrated — PASS. EA handles risk locally.
+		eval.Result = types.GatePass
+		return eval
+	}
+	if input.AccountEquity < 100 {
+		// Small account (< $100) — PASS and let EA handle sizing.
+		// The server's risk budget is too tight for small accounts
+		// (1.5% of $37 = $0.56 — less than minimum lot risk).
+		// The EA has real broker data and can make better decisions.
 		eval.Result = types.GatePass
 		return eval
 	}
