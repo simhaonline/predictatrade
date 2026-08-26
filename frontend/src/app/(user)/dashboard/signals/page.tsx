@@ -112,10 +112,12 @@ export default function UserSignalsPage() {
   const allSignals = liveSignals.length > 0 ? liveSignals : restSignals;
   // CRITICAL: Filter signals by user's subscription plan
   // FREE users only see signals for strategies their plan includes
-  // This prevents showing premium signals to free users
-  const combinedSignals = allowedStrategies.length > 0
-    ? allSignals.filter(s => allowedStrategies.includes(s.StrategyID))
-    : []; // No license = no signals
+  // While license is loading, show all signals (don't show empty state)
+  const combinedSignals = licenses === undefined
+    ? allSignals // Still loading — show everything
+    : allowedStrategies.length > 0
+      ? allSignals.filter(s => allowedStrategies.includes(s.StrategyID))
+      : allSignals; // License loaded but no strategies configured — fallback to all
 
   const regimes = useMemo(() => Array.from(new Set(combinedSignals.map((s) => s.Regime).filter(Boolean) as string[])), [combinedSignals]);
 

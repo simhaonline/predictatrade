@@ -113,6 +113,24 @@ export default function UserTradingReportsPage() {
 
 
 
+  // Strategy-diverse ordering for Recent Signal Setups table:
+  // one latest signal per strategy first, then remaining chronologically.
+  // This prevents M1 ULTRA_SCALPING from hiding other strategies' signals.
+  const directionalDiverse = (() => {
+    const seen = new Set<string>();
+    const perStrat: EngineSignal[] = [];
+    const rest: EngineSignal[] = [];
+    for (const s of directional) {
+      if (!seen.has(s.StrategyID)) {
+        seen.add(s.StrategyID);
+        perStrat.push(s);
+      } else {
+        rest.push(s);
+      }
+    }
+    return [...perStrat, ...rest];
+  })();
+
   const strategies = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING"];
   const strategyStats = strategies.map(strat => {
     const ss = signals.filter(s => s.StrategyID === strat);
@@ -347,7 +365,7 @@ export default function UserTradingReportsPage() {
                 </tr>
               </thead>
               <tbody>
-                {directional.slice(0, 15).map((s) => {
+                {directionalDiverse.slice(0, 15).map((s) => {
                   const entry = parseFloat(s.EntryPrice || "0");
                   const sl = parseFloat(s.StopLoss || "0");
                   const tp1 = parseFloat(s.TP1 || "0");
