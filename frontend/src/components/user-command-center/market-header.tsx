@@ -48,6 +48,23 @@ export function MarketHeader() {
     refetchInterval: 3000,
   });
 
+  // Server-authoritative active (selected) strategy for this subscriber.
+  // The engine is single-tenant for market state, so a user's "active strategy"
+  // is their subscription's selected strategy(s), sourced from entitlements.
+  const { data: entitlements } = useQuery<{ selected_strategies?: string[]; allowed_strategies?: string[] }>({
+    queryKey: ["user-active-strategy-header"],
+    queryFn: async () => (await customInstance.get("/subscriptions/entitlements")).data,
+    refetchInterval: 15000,
+  });
+  const activeStrategies = (
+    entitlements?.selected_strategies && entitlements.selected_strategies.length
+      ? entitlements.selected_strategies
+      : entitlements?.allowed_strategies ?? []
+  ) as string[];
+  const activeStrategyLabel = activeStrategies.length
+    ? activeStrategies.map((s) => s.replace(/_/g, " ")).join(", ")
+    : "—";
+
   useEffect(() => {
     ws.connect();
     const unsub = ws.subscribe((msg: WsMessage) => {
@@ -97,6 +114,7 @@ export function MarketHeader() {
     { label: "Regime", value: regime, color: regime.includes("BULLISH") ? "text-pat-success" : regime.includes("BEARISH") ? "text-pat-danger" : "text-pat-text-secondary" },
     { label: "Session", value: session, color: "text-pat-text-secondary" },
     { label: "Trend", value: trendDir, color: trendDir === "BULLISH" ? "text-pat-success" : trendDir === "BEARISH" ? "text-pat-danger" : "text-pat-text-muted" },
+    { label: "Active Strategy", value: activeStrategyLabel, color: activeStrategies.length ? "text-pat-success" : "text-pat-text-muted" },
     { label: "ATR", value: atr > 0 ? atr.toFixed(2) : "—", color: "text-pat-text-secondary" },
     { label: "ADX", value: adx > 0 ? adx.toFixed(1) : "—", color: adx > 25 ? "text-pat-success" : "text-pat-text-muted" },
     { label: "RSI", value: rsi > 0 ? rsi.toFixed(1) : "—", color: rsi > 70 ? "text-pat-danger" : rsi < 30 ? "text-pat-success" : "text-pat-text-secondary" },

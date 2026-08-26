@@ -49,6 +49,11 @@ type PipeManager struct {
 	terminals   map[string]*TerminalInfo // keyed by "MT4:<account>" or "MT5:<account>"
 	onTerminalConnect func(TerminalInfo) // callback when a new terminal connects
 	onLicense   func(LicenseCheckMsg)    // callback to validate a license against the server
+	// deviceID is the control-plane device id (licensing.devices.id) assigned at
+	// activation. Injected into MASTER_INIT/LICENSE_CHECK forwarded to the engine
+	// so the engine can correlate this live agent to a dashboard-visible device.
+	deviceID    string
+	deviceIDFn  func() string
 }
 
 type LicenseCheckMsg struct {
@@ -96,6 +101,18 @@ func (pm *PipeManager) GetTerminals() []*TerminalInfo {
 		result = append(result, t)
 	}
 	return result
+}
+
+// SetDeviceIDFn registers a getter for the control-plane device id so it can be
+// injected into engine-bound messages (MASTER_INIT). Called lazily at forward time.
+func (pm *PipeManager) SetDeviceIDFn(fn func() string) { pm.deviceIDFn = fn }
+
+// currentDeviceID returns the control-plane device id, if known.
+func (pm *PipeManager) currentDeviceID() string {
+	if pm.deviceIDFn != nil {
+		return pm.deviceIDFn()
+	}
+	return pm.deviceID
 }
 
 func (pm *PipeManager) SetCallbacks(onTick func(MT5Tick), onLicense func(LicenseCheckMsg)) {
@@ -764,9 +781,21 @@ func (pm *PipeManager) processMasterMessage(line string) {
 
 	case "MASTER_INIT":
 		log.Printf("Master Node init: %s", payload)
+		// Inject the control-plane device id so the engine can correlate this
+		// live agent to a dashboard-visible device row (licensing.devices.id).
+		forward := []byte(payload)
+		if devID := pm.currentDeviceID(); devID != "" {
+			var obj map[string]interface{}
+			if err := json.Unmarshal([]byte(payload), &obj); err == nil {
+				obj["device_id"] = devID
+				if injected, err := json.Marshal(obj); err == nil {
+					forward = injected
+				}
+			}
+		}
 		// Forward init message to Go RT server
 		if pm.wsSender != nil {
-			pm.wsSender([]byte(payload))
+			pm.wsSender(forward)
 		}
 
 	case "MASTER_DEINIT":

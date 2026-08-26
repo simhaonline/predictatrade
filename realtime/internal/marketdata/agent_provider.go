@@ -256,7 +256,10 @@ type AgentProvider struct {
 
 	// LicenseValidateFn — validates a license key against the DB and sends
 	// a LICENSE_STATUS response back to the agent. Set by main.go.
-	licenseValidateFn func(agentID, licenseKey string) LicenseValidationResult
+	// deviceID (when provided by the agent) is the control-plane device id
+	// (licensing.devices.id) so the engine can correlate its live agent
+	// connection to a dashboard-visible device row.
+	licenseValidateFn func(agentID, licenseKey, deviceID string) LicenseValidationResult
 
 	// TradeResultFn — receives EA exit-reconciliation records (TRADE_RESULT)
 	// for persistence into the expected-vs-actual outcome table. Set by main.go.
@@ -315,11 +318,11 @@ func (p *AgentProvider) SetAgentConnectFn(fn func(agentID string, msgType string
 }
 
 // SetLicenseValidateFn sets the license validation callback.
-func (p *AgentProvider) SetLicenseValidateFn(fn func(agentID, licenseKey string) LicenseValidationResult) {
+func (p *AgentProvider) SetLicenseValidateFn(fn func(agentID, licenseKey, deviceID string) LicenseValidationResult) {
 	p.licenseValidateFn = fn
 }
 
-func (p *AgentProvider) GetLicenseValidateFn() func(agentID, licenseKey string) LicenseValidationResult {
+func (p *AgentProvider) GetLicenseValidateFn() func(agentID, licenseKey, deviceID string) LicenseValidationResult {
 	return p.licenseValidateFn
 }
 
@@ -586,11 +589,12 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		if p.licenseValidateFn != nil {
 			var initMsg struct {
 				LicenseKey string `json:"license_key"`
+				DeviceID   string `json:"device_id"`
 				NoLicense  bool   `json:"no_license"`
 			}
 			_ = json.Unmarshal(data, &initMsg)
 			if initMsg.LicenseKey != "" && !initMsg.NoLicense {
-				p.licenseValidateFn(agentID, initMsg.LicenseKey)
+				p.licenseValidateFn(agentID, initMsg.LicenseKey, initMsg.DeviceID)
 			}
 		}
 
@@ -605,11 +609,12 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		if p.licenseValidateFn != nil {
 			var licMsg struct {
 				LicenseKey string `json:"license_key"`
+				DeviceID   string `json:"device_id"`
 			}
 			_ = json.Unmarshal(data, &licMsg)
 			if licMsg.LicenseKey != "" {
 				log.Printf("[LICENSE_CHECK] agent=%s license_key=%s... — validating", agentID, licMsg.LicenseKey[:min(12, len(licMsg.LicenseKey))])
-				p.licenseValidateFn(agentID, licMsg.LicenseKey)
+				p.licenseValidateFn(agentID, licMsg.LicenseKey, licMsg.DeviceID)
 			}
 		}
 	case "MASTER_DEINIT":

@@ -76,6 +76,10 @@ type SignalEvent struct {
 
 type HeartbeatData struct {
 	DeviceID        string     `json:"agent_id"`
+	// DeviceIDCP is the control-plane device id (licensing.devices.id) assigned
+	// at activation. The engine uses it to correlate this live agent connection
+	// to a dashboard-visible device row. Empty when activation has not completed.
+	DeviceIDCP      string     `json:"device_id,omitempty"`
 	Version         string     `json:"version"`
 	Hostname        string     `json:"hostname"`
 	WindowsVersion  string     `json:"windows_version"`
@@ -226,6 +230,7 @@ func (a *Agent) Start() error {
 	// Initialize named pipe manager for MT4/MT5 EA communication
 	commonDirs := findCommonFolders()
 	a.pipeManager = NewPipeManager(commonDirs, a.sendToServer, a.config.APIURL)
+	a.pipeManager.SetDeviceIDFn(func() string { return a.config.DeviceID })
 	a.pipeManager.SetCallbacks(a.onTickFromEA, a.onLicenseCheck)
 	a.pipeManager.SetTerminalCallback(func(term TerminalInfo) {
 		// Register each new terminal with the NestJS control plane
@@ -1086,6 +1091,7 @@ func (a *Agent) heartbeatLoop() {
 			localNow := time.Now().UTC()
 			hb := HeartbeatData{
 				DeviceID:        a.deviceID,
+				DeviceIDCP:      a.config.DeviceID,
 				Version:         AgentVersion,
 				Hostname:        hostname(),
 				WindowsVersion:  "windows",

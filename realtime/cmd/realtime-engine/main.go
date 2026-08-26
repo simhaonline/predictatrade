@@ -47,6 +47,16 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// Live gate-instance references so the license-validation callback can apply
+// per-plan capital-protection caps when a license validates. The engine is
+// single-tenant for broker account state, so the last ACTIVE license to validate
+// wins (see AGENTS note on multi-tenant isolation).
+var (
+	dailyLossGateRef    *gates.DailyLossGate
+	profitTargetGateRef *gates.ProfitTargetGate
+	riskOversizeGateRef *gates.RiskOversizeGate
+)
+
 // newsRiskAdapter bridges pkg/news.RiskEngine to features.NewsRiskProvider.
 // When NEWS_MODE=OFF or the provider is disabled, it returns "NONE" so the
 // pre-v1.10 behaviour is preserved (no news protection, trading proceeds).
@@ -102,6 +112,67 @@ var (
 	agentStrategiesMu sync.RWMutex
 	agentStrategies   = make(map[string][]string) // agentID → ["STANDARD_SCALPING", ...]
 )
+
+// agentDevice maps the engine's in-memory agentID (WebSocket connection id) to the
+// control-plane device id (licensing.devices.id) reported by the Windows Agent.
+// Populated at license validation so the engine can publish authoritative live
+// connection state into the DB the Admin + User dashboards read.
+var (
+	agentDeviceMu sync.RWMutex
+	agentDevice   = make(map[string]string) // agentID → deviceID
+)
+
+// deviceIDForAgent returns the control-plane device id for an agent, falling back
+// to a deterministic engine-scoped UUID when the agent has not reported one. The
+// fallback must be a valid UUID because licensing.devices.id is a uuid column, so
+// we derive it from the agent id via SHA-1 (stable across restarts). This keeps a
+// dashboard-visible device row even if the agent's control-plane device_id was not
+// transmitted (older agent builds).
+func deviceIDForAgent(agentID, provided string) string {
+	if provided != "" {
+		return provided
+	}
+	return uuid.NewSHA1(uuid.Nil, []byte("pat-rt:"+agentID)).String()
+}
+
+// publishConnectionState pushes the engine's authoritative live connection state
+// for an agent into the control-plane DB that the dashboards read. It is a no-op
+// until the agent has been license-validated (device id known), so it never
+// creates spurious device rows for unvalidated connections.
+func publishConnectionState(agentID string, online bool, mt4, mt5 bool) {
+	if globalPersister == nil {
+		return
+	}
+	agentDeviceMu.RLock()
+	deviceID, ok := agentDevice[agentID]
+	agentDeviceMu.RUnlock()
+	if !ok || deviceID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	status := "ONLINE"
+	if !online {
+		status = "OFFLINE"
+	}
+	if _, err := globalPersister.GetDB().ExecContext(ctx,
+		`UPDATE licensing.devices SET connection_status=$1, last_seen_at=now(), updated_at=now() WHERE id=$2`,
+		status, deviceID); err != nil {
+		observability.Log.Warn().Err(err).Str("device_id", deviceID).Msg("failed to publish device connection status")
+		return
+	}
+	if online {
+		// Reflect the per-terminal MT4/MT5 link state on the device's activations.
+		_, _ = globalPersister.GetDB().ExecContext(ctx,
+			`UPDATE licensing.device_activations SET terminal_connected=$1 WHERE device_id=$2 AND client_type='MT4'`,
+			mt4, deviceID)
+		_, _ = globalPersister.GetDB().ExecContext(ctx,
+			`UPDATE licensing.device_activations SET terminal_connected=$1 WHERE device_id=$2 AND client_type='MT5'`,
+			mt5, deviceID)
+		observability.Log.Info().Str("device_id", deviceID).Bool("mt4", mt4).Bool("mt5", mt5).
+			Msg("Published live agent connection state to control plane")
+	}
+}
 
 func setAgentStrategies(agentID string, strategies []string) {
 	agentStrategiesMu.Lock()
@@ -882,6 +953,9 @@ func main() {
 			})
 			if msgType == "MASTER_INIT" {
 				observability.Log.Info().Str("agent_id", agentID).Msg("Agent connected — execution permit gate hydrated to PASS")
+				// Publish the agent's live connection to the control plane so the
+				// Admin + User dashboards reflect an ONLINE device immediately.
+				publishConnectionState(agentID, true, false, false)
 			}
 		} else {
 			// Just refresh validity on heartbeat
@@ -948,6 +1022,15 @@ func main() {
 			}
 			return allowed
 		})
+		// Publish live terminal-link state (MT4/MT5) reported by the agent's
+		// heartbeat into the control-plane device_activations rows.
+		agentHub.SetOnTerminals(func(agentID string, mt4, mt5 bool) {
+			publishConnectionState(agentID, true, mt4, mt5)
+		})
+		// On disconnect, mark the device OFFLINE so the dashboard shows truth.
+		agentHub.SetOnDisconnect(func(agentID string) {
+			publishConnectionState(agentID, false, false, false)
+		})
 		go agentHub.Run()
 	} else {
 		agentHub = gateway.NewAgentHub(nil) // nil provider — agent WS still accepts connections
@@ -981,7 +1064,11 @@ func main() {
 				}
 				if fn := agentProvider.GetLicenseValidateFn(); fn != nil {
 					log.Printf("[PROACTIVE] agent=%s validating license from bindings", agentID)
-					result := fn(agentID, licKey)
+					var devID string
+					agentDeviceMu.RLock()
+					devID = agentDevice[agentID]
+					agentDeviceMu.RUnlock()
+					result := fn(agentID, licKey, devID)
 					if result.Valid {
 						validated[agentID] = true
 						log.Printf("[PROACTIVE] agent=%s LICENSE_STATUS sent (ACTIVE plan=%s)", agentID, result.Plan)
@@ -1240,7 +1327,7 @@ func main() {
 
 	// License validation: when MASTER_INIT arrives, validate the license key
 	// against the control plane DB and send a LICENSE_STATUS response to the EA.
-	agentProvider.SetLicenseValidateFn(func(agentID, licenseKey string) marketdata.LicenseValidationResult {
+	agentProvider.SetLicenseValidateFn(func(agentID, licenseKey, deviceID string) marketdata.LicenseValidationResult {
 		result := marketdata.LicenseValidationResult{
 			Valid:  false,
 			Status: "NOT_FOUND",
@@ -1254,17 +1341,22 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		row := persister.GetDB().QueryRowContext(ctx, `
-			SELECT l.status, p.code, l.max_devices, l.max_mt_accounts, l.allowed_strategies::text, l.user_id
+			SELECT l.id, l.status, p.code, l.max_devices, l.max_mt_accounts, l.allowed_strategies::text, l.user_id,
+			       p.daily_loss_cap_pct, p.weekly_loss_cap_pct, p.monthly_loss_cap_pct, p.per_trade_risk_pct,
+			       p.monthly_profit_target_pct, p.allowed_strategies::text
 			FROM licensing.licenses l
 			LEFT JOIN control.plans p ON l.plan_id = p.id
 			WHERE l.license_key = $1 AND l.revoked_at IS NULL
 			LIMIT 1
 		`, licenseKey)
-		var status, planCode string
+		var licenseID, status, planCode string
 		var maxDev, maxMT int
 		var strategiesStr string
 		var ownerUserID string
-		if err := row.Scan(&status, &planCode, &maxDev, &maxMT, &strategiesStr, &ownerUserID); err != nil {
+		var dailyLossCap, weeklyLossCap, monthlyLossCap, perTradeRisk, monthlyProfitTarget sql.NullFloat64
+		var planStratStr sql.NullString
+		if err := row.Scan(&licenseID, &status, &planCode, &maxDev, &maxMT, &strategiesStr, &ownerUserID,
+			&dailyLossCap, &weeklyLossCap, &monthlyLossCap, &perTradeRisk, &monthlyProfitTarget, &planStratStr); err != nil {
 			observability.Log.Warn().Str("license_key", licenseKey).Msg("License key not found in DB")
 			result.Error = "license key not found"
 			agentHub.SendToAgent(agentID, "LICENSE_STATUS", result)
@@ -1290,6 +1382,23 @@ func main() {
 				}
 			}
 		}
+		// Fallback: if the license row has no allowed strategies, inherit the
+		// plan's allowed_strategies so a freshly created license still receives
+		// signals for its plan (avoids a fail-closed "no signals" deadlock).
+		if len(result.Strategies) == 0 && planStratStr.Valid && planStratStr.String != "" && planStratStr.String != "null" {
+			var parsed []string
+			if err := json.Unmarshal([]byte(planStratStr.String), &parsed); err == nil {
+				result.Strategies = parsed
+			}
+		}
+		// Apply plan-level capital-protection caps to the live gate instances when
+		// the license is ACTIVE. The engine is single-tenant for broker account
+		// state, so the validated license's plan caps become the effective caps
+		// for this engine session. Loss caps are stored negative in the DB.
+		if status == "ACTIVE" {
+			applyPlanCaps(dailyLossGateRef, profitTargetGateRef, riskOversizeGateRef,
+				dailyLossCap, weeklyLossCap, monthlyLossCap, perTradeRisk)
+		}
 		// CRITICAL: Set the agent's allowed strategies for signal filtering.
 		// This is what SendFilteredSignalToAgents uses to enforce plan entitlements.
 		setAgentStrategies(agentID, result.Strategies)
@@ -1298,14 +1407,39 @@ func main() {
 			// Bind agent WS id -> owning user so trade_results (account_id =
 			// 'agent:'+agentID) can be attributed per-subscriber for reports.
 			if ownerUserID != "" {
+				// Resolve the device id this agent reports (control-plane
+				// licensing.devices.id) so the engine can publish live connection
+				// state the dashboards read.
+				devID := deviceIDForAgent(agentID, deviceID)
+				agentDeviceMu.Lock()
+				agentDevice[agentID] = devID
+				agentDeviceMu.Unlock()
+
 				if _, err := persister.GetDB().ExecContext(ctx, `
-					INSERT INTO trading.agent_user_bindings (agent_id, license_key, user_id)
-					VALUES ($1, $2, $3)
+					INSERT INTO trading.agent_user_bindings (agent_id, license_key, user_id, device_id)
+					VALUES ($1, $2, $3, $4)
 					ON CONFLICT (agent_id) DO UPDATE
-					SET last_seen_at = now(), license_key = EXCLUDED.license_key, user_id = EXCLUDED.user_id
-				`, agentID, licenseKey, ownerUserID); err != nil {
+					SET last_seen_at = now(), license_key = EXCLUDED.license_key,
+					    user_id = EXCLUDED.user_id, device_id = EXCLUDED.device_id
+				`, agentID, licenseKey, ownerUserID, devID); err != nil {
 					observability.Log.Warn().Err(err).Str("agent_id", agentID).Msg("agent_user_bindings upsert failed")
 				}
+
+				// Ensure a dashboard-visible device row exists for this validated
+				// agent and mark it ONLINE. Uses the SAME id the control plane
+				// assigned at activation (when reported), so it never duplicates.
+				if _, err := persister.GetDB().ExecContext(ctx, `
+					INSERT INTO licensing.devices
+						(id, user_id, bound_license_id, device_name, connection_status, last_seen_at, created_at, updated_at)
+					VALUES ($1, $2, $3, 'Windows Agent', 'ONLINE', now(), now(), now())
+					ON CONFLICT (id) DO UPDATE
+						SET connection_status = 'ONLINE', last_seen_at = now(), updated_at = now()
+				`, devID, ownerUserID, licenseID); err != nil {
+					observability.Log.Warn().Err(err).Str("device_id", devID).Msg("device row upsert failed")
+				}
+
+				// Publish initial live connection state (terminals pending heartbeat).
+				publishConnectionState(agentID, true, false, false)
 			}
 			observability.Log.Info().Str("license_key", licenseKey).Str("plan", planCode).Msg("License validated — ACTIVE")
 		} else {
@@ -1323,7 +1457,7 @@ func main() {
 		return result
 	})
 
-	// HTTP server
+// HTTP server
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -3153,17 +3287,20 @@ func registerGates(reg *gates.Registry, cfg *config.Config) *gates.PositionCapsG
 		MaxTotal:         cfg.MaxTotalPositions,
 		MaxPerStrategy:   cfg.MaxPerStrategyPositions,
 	}
-	reg.RegisterOrdered(&gates.RiskOversizeGate{MaxRiskPerTradePct: cfg.MaxRiskPerTradePct}, types.GateMargin)
+	riskOversizeGateRef = &gates.RiskOversizeGate{MaxRiskPerTradePct: cfg.MaxRiskPerTradePct}
+	reg.RegisterOrdered(riskOversizeGateRef, types.GateMargin)
 	reg.RegisterOrdered(posCaps, types.GateRiskOversize)
-	reg.RegisterOrdered(&gates.DailyLossGate{
+	dailyLossGateRef = &gates.DailyLossGate{
 		MaxDailyLossPct:   cfg.MaxDailyLossPct,
 		MaxWeeklyLossPct:  cfg.MaxWeeklyLossPct,
 		MaxMonthlyLossPct: cfg.MaxMonthlyLossPct,
-	}, types.GatePositionCaps)
-	reg.RegisterOrdered(&gates.ProfitTargetGate{
+	}
+	reg.RegisterOrdered(dailyLossGateRef, types.GatePositionCaps)
+	profitTargetGateRef = &gates.ProfitTargetGate{
 		MaxDailyProfitPct:  cfg.MaxDailyProfitPct,
 		MaxWeeklyProfitPct: cfg.MaxWeeklyProfitPct,
-	}, types.GateDailyLoss)
+	}
+	reg.RegisterOrdered(profitTargetGateRef, types.GateDailyLoss)
 	baseLots := make(map[types.StrategyID]float64, len(cfg.BaseLots))
 	for id, lot := range cfg.BaseLots {
 		baseLots[types.StrategyID(id)] = lot
@@ -3964,3 +4101,34 @@ func boolToFloat(b bool) float64 {
 }
 
 func min(a, b int) int { if a < b { return a }; return b }
+
+// applyPlanCaps pushes a validated license's plan capital-protection caps onto the
+// live gate instances. Loss caps are stored as negative percentages in the DB
+// (e.g. -5.00 = 5% max loss), so we take the absolute value. Per-trade risk uses
+// the existing config default when the plan leaves it unset. Called only on ACTIVE
+// license validation. The engine is single-tenant for broker account state, so the
+// last ACTIVE license to validate wins (see AGENTS note on multi-tenant isolation).
+func applyPlanCaps(daily *gates.DailyLossGate, profit *gates.ProfitTargetGate, risk *gates.RiskOversizeGate,
+	dailyLoss, weeklyLoss, monthlyLoss, perTrade sql.NullFloat64) {
+	if daily == nil {
+		return
+	}
+	if dailyLoss.Valid && dailyLoss.Float64 != 0 {
+		daily.MaxDailyLossPct = math.Abs(dailyLoss.Float64)
+	}
+	if weeklyLoss.Valid && weeklyLoss.Float64 != 0 {
+		daily.MaxWeeklyLossPct = math.Abs(weeklyLoss.Float64)
+	}
+	if monthlyLoss.Valid && monthlyLoss.Float64 != 0 {
+		daily.MaxMonthlyLossPct = math.Abs(monthlyLoss.Float64)
+	}
+	if risk != nil && perTrade.Valid && perTrade.Float64 != 0 {
+		risk.MaxRiskPerTradePct = math.Abs(perTrade.Float64)
+	}
+	observability.Log.Info().
+		Float64("daily_loss_pct", daily.MaxDailyLossPct).
+		Float64("weekly_loss_pct", daily.MaxWeeklyLossPct).
+		Float64("monthly_loss_pct", daily.MaxMonthlyLossPct).
+		Bool("per_trade_cap_applied", risk != nil && perTrade.Valid && perTrade.Float64 != 0).
+		Msg("Applied plan capital-protection caps to live gates")
+}

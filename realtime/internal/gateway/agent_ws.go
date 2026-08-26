@@ -53,6 +53,14 @@ type AgentHub struct {
 	// strategy filtering based on license allowed_strategies.
 	// Returns true if the agent is allowed to receive signals for the given strategy.
 	strategyFilter func(agentID, strategyID string) bool
+
+	// Live connection-state callbacks — set by main.go so the engine can
+	// publish authoritative agent connect/disconnect/terminal-link state into
+	// the control-plane DB (licensing.devices / device_activations) that the
+	// Admin + User dashboards read.
+	onConnect    func(agentID string)
+	onDisconnect func(agentID string)
+	onTerminals  func(agentID string, mt4, mt5 bool)
 }
 
 func NewAgentHub(provider AgentDataProvider) *AgentHub {
@@ -75,9 +83,12 @@ func NewAgentHub(provider AgentDataProvider) *AgentHub {
 // agent heartbeat.
 func (h *AgentHub) updateAgentTerminals(agentID string, mt4, mt5 bool) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.mt4States[agentID] = mt4
 	h.mt5States[agentID] = mt5
+	h.mu.Unlock()
+	if h.onTerminals != nil {
+		h.onTerminals(agentID, mt4, mt5)
+	}
 }
 
 // MT4ConnectedCount returns the number of connected agents that currently
@@ -115,6 +126,15 @@ func (h *AgentHub) SetStrategyFilter(filter func(agentID, strategyID string) boo
 	h.strategyFilter = filter
 }
 
+// SetOnConnect registers a callback fired when an agent connection is registered.
+func (h *AgentHub) SetOnConnect(fn func(agentID string)) { h.onConnect = fn }
+
+// SetOnDisconnect registers a callback fired when an agent connection is unregistered.
+func (h *AgentHub) SetOnDisconnect(fn func(agentID string)) { h.onDisconnect = fn }
+
+// SetOnTerminals registers a callback fired when an agent reports its MT4/MT5 link state.
+func (h *AgentHub) SetOnTerminals(fn func(agentID string, mt4, mt5 bool)) { h.onTerminals = fn }
+
 func (h *AgentHub) Run() {
 	for {
 		select {
@@ -144,6 +164,9 @@ func (h *AgentHub) Run() {
 			delete(h.mt4States, agent.ID)
 			delete(h.mt5States, agent.ID)
 			h.mu.Unlock()
+			if h.onDisconnect != nil {
+				h.onDisconnect(agent.ID)
+			}
 			if h.provider != nil {
 				h.provider.UnregisterAgent(agent.ID)
 			}
