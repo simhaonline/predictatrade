@@ -42,20 +42,9 @@ Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.31"
 Write-Host "=========================================="
 Write-Host ""
 
-# Step 1: Add Defender exclusions BEFORE downloading (prevents quarantine)
-# NOTE: Do NOT disable real-time protection or exclude .exe extension globally
-# — that breaks UAC elevation and Windows security. Only exclude our specific
-# directory and process names.
-Write-Host "[1/9] Adding Windows Defender exclusions..."
-try {
-    Add-MpPreference -ExclusionPath "C:\PredictATrade" -ErrorAction SilentlyContinue
-    Add-MpPreference -ExclusionPath "C:\PredictATrade\XAUUSD" -ErrorAction SilentlyContinue
-    Add-MpPreference -ExclusionProcess $AgentExe -ErrorAction SilentlyContinue
-    Add-MpPreference -ExclusionProcess "nssm.exe" -ErrorAction SilentlyContinue
-    Write-Host "  OK: Exclusions added (path + process only)"
-} catch {
-    Write-Host "  WARN: Could not add Defender exclusion (non-fatal): $_"
-}
+# Step 1: Defender exclusions removed to avoid Killav.VDA false positive
+# Users can manually add C:\PredictATrade to exclusions if needed
+Write-Host "[1/9] Ready"
 
 # Step 2: Create directories
 Write-Host "[2/9] Creating installation directory..."
@@ -79,16 +68,10 @@ if ($svc) {
     Write-Host "  OK: No existing service"
 }
 
-# Step 4: Kill any running pat-agent processes
-Write-Host "[4/9] Killing any running pat-agent processes..."
-$procs = Get-Process -Name "pat-agent" -ErrorAction SilentlyContinue
-if ($procs) {
-    $procs | Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
-    Write-Host "  OK: Killed $($procs.Count) process(es)"
-} else {
-    Write-Host "  OK: No running processes"
-}
+# Step 4: Wait for service to stop (no force-kill to avoid AV triggers)
+Write-Host "[4/9] Waiting for processes..."
+Start-Sleep -Seconds 2
+Write-Host "  OK"
 
 # Step 5: Download pat-agent.exe
 Write-Host "[5/9] Downloading pat-agent.exe..."
@@ -249,10 +232,6 @@ if ($serviceCreated) {
 # Method 3: If service failed, try Scheduled Task (runs on startup + every 5 min)
 if (-not $serviceRunning) {
     Write-Host "  WARN: Service not running — trying Scheduled Task fallback..."
-
-    # Kill any existing agent process
-    Get-Process -Name "pat-agent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 1
 
     # Create a VBS launcher that runs the agent silently (no console window)
     $vbsPath = Join-Path $InstallDir "start-agent.vbs"
