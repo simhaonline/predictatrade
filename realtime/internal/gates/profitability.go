@@ -60,15 +60,15 @@ func (g *ProfitabilityGate) Evaluate(input GateInput, state GateState) GateEvalu
 	// Honor strategy-computed flags (authoritative, set by signal engine).
 	// Only when the engine actually populated them — otherwise we fall back to
 	// the independent EV computation below and must not veto on zero defaults.
+	// NOTE: we deliberately veto only on clearly negative-expectancy /
+	// loss-candidate signals here. The strategy's unique entry gate is a trading-
+	// quality signal recorded in result.ReasonCodes, but it is NOT a hard delivery
+	// veto at this layer — otherwise the (intentionally strict) entry filter would
+	// block every positive-EV setup and no signal could ever become EXECUTABLE.
 	if input.RefinementProvided {
 		if input.IsLossCandidate {
 			eval.Result = types.GateVeto
 			eval.ReasonCodes = append(eval.ReasonCodes, "NEGATIVE_EXPECTANCY")
-			return eval
-		}
-		if !input.EntryGatePassed {
-			eval.Result = types.GateVeto
-			eval.ReasonCodes = append(eval.ReasonCodes, "ENTRY_GATE_REJECTED")
 			return eval
 		}
 	}
