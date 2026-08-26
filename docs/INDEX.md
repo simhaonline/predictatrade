@@ -18,8 +18,10 @@
 ### Deployment & Operations
 - [Docker Deployment](operations/DOCKER_DEPLOYMENT.md) — Step-by-step Docker Compose guide (14 steps)
 - [Host Deployment](operations/HOST_DEPLOYMENT.md) — Step-by-step bare-metal/VPS guide (14 steps)
-- [SLO Targets](operations/SLO_TARGETS.md) — Service level objectives
 
 ### Guides
 - [Admin Guide](guides/ADMIN_GUIDE.md) — System administration: users, billing, signals, security
 - [User Guide](guides/USER_GUIDE.md) — Dashboard, strategies, MT4/MT5 setup, troubleshooting
+
+### Reports
+- [PhD Thesis](reports/PHD_THESIS.md) — Multi-plane architecture for deterministic XAUUSD trading signal generation
