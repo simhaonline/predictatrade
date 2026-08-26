@@ -87,35 +87,48 @@ export default function AdminDashboardPage() {
   // Auto-refresh the Live Signal Pipeline from the REST API.
   // WebSocket signals take priority when they arrive, but REST polling (every 10s)
   // ensures the pipeline stays fresh even when WebSocket is disconnected.
+  // Strategy-diverse ordering: one latest signal per strategy first, then fill
+  // remaining slots chronologically so every active strategy is visible.
   useEffect(() => {
     const signals = (engineSignals as { signals?: Record<string, unknown>[] })?.signals;
     if (!signals || !Array.isArray(signals) || signals.length === 0) return;
     const directional = signals.filter((s: Record<string, unknown>) => String(s.Direction || s.direction || "") !== "NO-TRADE");
-    const refreshed = directional
-      .slice(0, 8)
-      .map((s: Record<string, unknown>) => ({
+    if (directional.length === 0) {
+      // If no directional signals, show the latest signals including NO-TRADE
+      const allLatest = signals.slice(0, 8).map((s: Record<string, unknown>) => ({
         id: String(s.ID || s.id || ""),
         direction: String(s.Direction || s.direction || "NO_TRADE"),
         strategy: String(s.StrategyID || s.strategy || s.Strategy || ""),
         probability: Number(s.CalibratedProbability || s.calibratedProbability || s.Probability || 0),
         timestamp: String(s.CreatedAt || s.created_at || s.Timestamp || ""),
       }));
-    if (refreshed.length > 0) {
-      sigBuffer.current = refreshed;
-      // Use microtask to avoid cascading renders in effect
-      queueMicrotask(() => setLiveSignals(refreshed));
-    } else if (liveSignals.length === 0) {
-      // If no directional signals, show the latest signals including NO-TRADE
-      const allLatest = signals.slice(0, 8).map((s: Record<string, unknown>) => ({
-        id: String(s.ID || s.id || ''),
-        direction: String(s.Direction || s.direction || 'NO_TRADE'),
-        strategy: String(s.StrategyID || s.strategy || s.Strategy || ''),
-        probability: Number(s.CalibratedProbability || s.calibratedProbability || s.Probability || 0),
-        timestamp: String(s.CreatedAt || s.created_at || s.Timestamp || ''),
-      }));
       sigBuffer.current = allLatest;
       queueMicrotask(() => setLiveSignals(allLatest));
+      return;
     }
+    // Build strategy-diverse list: one latest per strategy first, then remaining chronologically
+    const seen = new Set<string>();
+    const perStrategy: Record<string, unknown>[] = [];
+    const rest: Record<string, unknown>[] = [];
+    for (const s of directional) {
+      const sid = String(s.StrategyID || s.strategy || "");
+      if (!seen.has(sid)) {
+        seen.add(sid);
+        perStrategy.push(s);
+      } else {
+        rest.push(s);
+      }
+    }
+    const combined = [...perStrategy, ...rest].slice(0, 8);
+    const refreshed = combined.map((s: Record<string, unknown>) => ({
+      id: String(s.ID || s.id || ""),
+      direction: String(s.Direction || s.direction || "NO_TRADE"),
+      strategy: String(s.StrategyID || s.strategy || s.Strategy || ""),
+      probability: Number(s.CalibratedProbability || s.calibratedProbability || s.Probability || 0),
+      timestamp: String(s.CreatedAt || s.created_at || s.Timestamp || ""),
+    }));
+    sigBuffer.current = refreshed;
+    queueMicrotask(() => setLiveSignals(refreshed));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engineSignals]);
 
@@ -361,9 +374,18 @@ export default function AdminDashboardPage() {
           <div className="space-y-2">
             {["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"].map((name) => {
               const isActive = opsState?.active_strategies?.includes(name);
+              const stratSignals = ((engineSignals?.signals ?? []) as Record<string, unknown>[]).filter(
+                (s: Record<string, unknown>) => String(s.StrategyID || s.strategy || "") === name
+              );
+              const directionalCount = stratSignals.filter(
+                (s: Record<string, unknown>) => String(s.Direction || s.direction || "") !== "NO-TRADE"
+              ).length;
               return (
                 <div key={name} className="flex items-center justify-between rounded-md bg-pat-bg-surface-secondary px-3 py-2">
-                  <span className="text-xs text-pat-text-primary">{name}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-pat-text-primary">{name.replace(/_/g, " ")}</span>
+                    <span className="text-[10px] text-pat-text-muted">({stratSignals.length} signals, {directionalCount} directional)</span>
+                  </div>
                   <StatusBadge status={isActive ? "active" : "inactive"} size="sm" />
                 </div>
               );
