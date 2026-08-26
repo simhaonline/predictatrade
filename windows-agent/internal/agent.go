@@ -801,6 +801,27 @@ func (a *Agent) connect() error {
 			a.halt()
 			return fmt.Errorf("kill switch activated by server")
 		
+		} else if event.Type == "LICENSE_STATUS" {
+			var lic struct {
+				Valid      bool     `json:"valid"`
+				Status     string   `json:"status"`
+				Plan       string   `json:"plan"`
+				Strategies []string `json:"allowed_strategies"`
+			}
+			if json.Unmarshal(event.Payload, &lic) != nil {
+				continue
+			}
+			status := lic.Status
+			if lic.Valid {
+				status = "ACTIVE"
+			}
+			log.Printf("LICENSE_STATUS received: status=%s plan=%s", status, lic.Plan)
+			if a.pipeManager != nil {
+				plan := lic.Plan
+				if plan == "" { plan = "ELITE" }
+				a.pipeManager.SetLicenseResult(status, plan, lic.Strategies)
+			}
+
 		} else if event.Type == "ERROR" || event.Type == "DENIAL" {
 			// P1-001: Distinguish distinct failure types — never conflate
 			// auth failures with signal halts, license issues, etc.
