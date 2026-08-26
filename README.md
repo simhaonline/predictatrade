@@ -134,7 +134,11 @@ Located in `realtime/`. Key packages:
 - [CHANGELOG.md](realtime/CHANGELOG.md) — Version history v1.0-v1.16.0
 - [DOCKER_COMPOSE_REFERENCE.md](realtime/DOCKER_COMPOSE_REFERENCE.md) — Docker architecture
 - [PRODUCTION_READINESS_AUDIT.md](realtime/PRODUCTION_READINESS_AUDIT.md) — Audit: 70/100
-- [docs/](docs/) — Architecture, strategy playbooks, indicators, gates, API, database, deployment
+- [docs/](docs/) — Architecture, strategy playbooks, indicators, gates, API, database
+- [Docker Deployment Guide](docs/operations/DOCKER_DEPLOYMENT.md) — Step-by-step Docker Compose (14 steps)
+- [Host Deployment Guide](docs/operations/HOST_DEPLOYMENT.md) — Step-by-step bare-metal/VPS (14 steps)
+- [Admin Guide](docs/guides/ADMIN_GUIDE.md) — System administration
+- [User Guide](docs/guides/USER_GUIDE.md) — Dashboard, strategies, MT4/MT5 setup
 
 ## Build & Test
 
