@@ -74,6 +74,7 @@ func (h *HTTPServer) registerRoutes() {
 	h.mux.HandleFunc("/ws/v1/agent", h.agentHub.HandleAgentWebSocket)
 	h.mux.HandleFunc("/ws/agent", h.agentHub.HandleAgentWebSocket)
 	h.mux.HandleFunc("/api/v1/signals", h.handleSignals)
+	h.mux.HandleFunc("/api/v1/trades", h.handleTrades)
 	h.mux.HandleFunc("/api/v1/market/state", h.handleMarketState)
 	h.mux.HandleFunc("/api/v1/candles", h.handleCandles)
 	h.mux.HandleFunc("/api/v1/strategies", h.handleStrategies)
@@ -171,21 +172,21 @@ func (h *HTTPServer) handleReady(w http.ResponseWriter, r *http.Request) {
 func (h *HTTPServer) handleSignals(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// B-01 / P0-RT3: Entitlement filtering — the JWT is now actually VERIFIED
-	// (HS256 signature + exp + alg), not merely checked for presence.
-	// Absent or invalid tokens are treated as anonymous and only receive
-	// advisory signals. EXECUTABLE signals require a verified token.
+	// B-01 / P0-RT3: Entitlement filtering — the JWT is VERIFIED (HS256
+	// signature + exp + alg) and we read the user's role so plan/strategy
+	// entitlements can be enforced server-side (no client-side loophole).
+	// Absent/invalid tokens are anonymous and get advisory-only signals.
 	authHeader := r.Header.Get("Authorization")
-	jwtToken := ""
+	userID := ""
+	role := ""
 	authenticated := false
 	if strings.HasPrefix(authHeader, "Bearer ") {
-		jwtToken = strings.TrimPrefix(authHeader, "Bearer ")
-		if userID, err := extractUserIDFromJWT(jwtToken); err == nil && userID != "" {
+		if uid, rl, err := validateJWTFull(strings.TrimPrefix(authHeader, "Bearer ")); err == nil && uid != "" {
+			userID, role = uid, rl
 			authenticated = true
 		}
 	}
 
-	// Parse query params for filtering
 	limit := 50
 	if l := r.URL.Query().Get("limit"); l != "" {
 		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 200 {
@@ -193,8 +194,14 @@ func (h *HTTPServer) handleSignals(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Try Valkey cache first (sub-ms, no DB load)
-	if h.valkeyCache != nil {
+	// Plan/entitlement enforcement. Admin sees everything. Authenticated
+	// non-admin is restricted to their entitled strategies. Unauthenticated
+	// is restricted to advisory-only (handled below).
+	needsPlanFilter := authenticated && role != "admin"
+
+	// Valkey cache is not strategy-scoped per user, so only use it when no
+	// per-user plan filtering is required.
+	if h.valkeyCache != nil && !needsPlanFilter {
 		if data, err := h.valkeyCache.GetLatestSignals(); err == nil && len(data) > 0 {
 			if authenticated {
 				w.Write(data)
@@ -239,7 +246,81 @@ func (h *HTTPServer) handleSignals(w http.ResponseWriter, r *http.Request) {
 		signals = filtered
 	}
 
+	// Authenticated non-admin: restrict to entitled strategies. Fail closed —
+	// on any lookup error or empty entitlements, expose nothing rather than
+	// leak strategies the user is not entitled to.
+	if needsPlanFilter {
+		allowed, derr := h.persister.GetUserAllowedStrategies(ctx, userID)
+		if derr != nil || len(allowed) == 0 {
+			signals = []*types.Signal{}
+		} else {
+			set := make(map[string]bool, len(allowed))
+			for _, a := range allowed {
+				set[a] = true
+			}
+			filtered := make([]*types.Signal, 0, len(signals))
+			for _, s := range signals {
+				if set[string(s.StrategyID)] {
+					filtered = append(filtered, s)
+				}
+			}
+			signals = filtered
+		}
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{"signals": signals})
+}
+
+// handleTrades returns REAL executed trades from trading.trade_results so the
+// dashboards (Trading Reports, performance) can show genuine P&L instead of
+// deriving everything from advisory signals. No estimated/derived values are
+// ever substituted for real fills.
+func (h *HTTPServer) handleTrades(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Entitlement check: only authenticated callers receive trade history.
+	if !isAuthenticatedRequest(r) {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "authentication required"})
+		return
+	}
+
+	limit := 200
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 2000 {
+			limit = v
+		}
+	}
+	strategy := r.URL.Query().Get("strategy")
+
+	if h.persister == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"trades": []interface{}{}, "note": "no_database"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	trades, err := h.persister.GetRecentTrades(ctx, limit, strategy)
+	if err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+		return
+	}
+	if trades == nil {
+		trades = []*marketdata.TradeResult{}
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"trades": trades})
+}
+
+// isAuthenticatedRequest reports whether the request carries a valid (verified)
+// bearer token. It mirrors the entitlement check used by handleSignals.
+func isAuthenticatedRequest(r *http.Request) bool {
+	authHeader := r.Header.Get("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		return false
+	}
+	jwtToken := strings.TrimPrefix(authHeader, "Bearer ")
+	userID, err := extractUserIDFromJWT(jwtToken)
+	return err == nil && userID != ""
 }
 
 // filterAdvisorySignalsJSON strips EXECUTABLE-class entries from the cached

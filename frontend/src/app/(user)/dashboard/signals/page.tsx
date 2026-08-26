@@ -2,11 +2,9 @@
 import { useQuery } from "@tanstack/react-query";
 import React from "react";
 import { customInstance } from "@/lib/axios-instance";
-import { visibleStrategies, type SubscriptionContext } from "@/lib/subscription-access";
-import { fetchLicenses } from "@/lib/user-licensing-api";
 import { format } from "date-fns";
-import { useState, useEffect, useRef, useMemo } from "react";
-import { getGlobalWs, type WsMessage, type SignalEvent } from "@/lib/websocket";
+import { useState, useEffect, useMemo } from "react";
+import { getGlobalWs, type WsMessage } from "@/lib/websocket";
 import { IconChevronRight, IconChevronDown, IconChevronLeft } from "@tabler/icons-react";
 import SignalEvidencePanel from "@/components/signal/signal-evidence";
 
@@ -51,30 +49,7 @@ const STRATEGIES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TR
 const DIRECTIONS = ["BUY", "SELL", "BUY_CANDIDATE", "SELL_CANDIDATE", "NO-TRADE"];
 const PAGE_SIZE = 15;
 
-function mapWs(s: SignalEvent): EngineSignal {
-  return {
-    ID: s.id,
-    Direction: s.direction,
-    StrategyID: s.strategy,
-    Status: s.status,
-    RawScore: "0",
-    CalibratedProbability: String(s.probability || 0),
-    EntryPrice: String(s.entryPrice || 0),
-    StopLoss: String(s.stopLoss || 0),
-    TP1: String(s.takeProfit || 0),
-    TP2: String(s.tp2 || 0),
-    TP3: String(s.tp3 || 0),
-    CreatedAt: s.timestamp,
-    Symbol: "XAUUSD",
-    Regime: s.regime || "",
-    Session: s.session || "",
-    ReasonCodes: [],
-  };
-}
-
 export default function UserSignalsPage() {
-  const [liveSignals, setLiveSignals] = useState<EngineSignal[]>([]);
-  const sigBuffer = useRef<EngineSignal[]>([]);
   const ws = getGlobalWs();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [filterStrategy, setFilterStrategy] = useState("ALL");
@@ -82,14 +57,14 @@ export default function UserSignalsPage() {
   const [filterRegime, setFilterRegime] = useState("ALL");
   const [page, setPage] = useState(0);
 
-  // Fetch user's license to determine allowed strategies
-  const { data: licenses } = useQuery({
-    queryKey: ["user-licenses-signals"],
-    queryFn: async () => fetchLicenses(),
+  // Server-authoritative allowed strategies (entitlements from control plane)
+  const { data: entitlements } = useQuery<{ selected_strategies?: string[] }>({
+    queryKey: ["user-entitlements-signals"],
+    queryFn: async () => (await customInstance.get("/subscriptions/entitlements")).data,
   });
-  const userLicense = licenses?.[0];
-  const allowedStrategies: string[] = (userLicense as any)?.allowed_strategies || [];
-  const userPlan: string = (userLicense as any)?.plan || "FREE";
+  const allowedStrategies: string[] = Array.isArray(entitlements?.selected_strategies)
+    ? entitlements!.selected_strategies!
+    : [];
 
   const { data: signalsData, isLoading, error, refetch } = useQuery<{ signals: EngineSignal[] }>({
     queryKey: ["engine-signals-user"],
@@ -100,28 +75,31 @@ export default function UserSignalsPage() {
     refetchInterval: 10000,
   });
 
+  // WS is used ONLY to prompt a refresh of the canonical REST list.
+  // Raw WS payloads are never rendered, so real signal fields (RawScore,
+  // probabilities, evidence) are never overwritten by placeholder values.
   useEffect(() => {
     ws.connect();
+    let pending: ReturnType<typeof setTimeout> | null = null;
     const unsub = ws.subscribe((msg: WsMessage) => {
       if (msg.type === "signal") {
-        const signal = mapWs(msg.payload);
-        sigBuffer.current = [signal, ...sigBuffer.current].slice(0, 200);
-        setLiveSignals(sigBuffer.current);
+        if (pending) clearTimeout(pending);
+        pending = setTimeout(() => { refetch(); }, 800);
       }
     });
-    return () => { unsub(); };
-  }, [ws]);
+    return () => { if (pending) clearTimeout(pending); unsub(); };
+  }, [ws, refetch]);
 
+  // REST is the single source of truth — always fresh, never frozen.
   const restSignals = signalsData?.signals ?? [];
-  const allSignals = liveSignals.length > 0 ? liveSignals : restSignals;
-  // CRITICAL: Filter signals by user's subscription plan
-  // FREE users only see signals for strategies their plan includes
-  // While license is loading, show all signals (don't show empty state)
-  const combinedSignals = licenses === undefined
-    ? allSignals // Still loading — show everything
+  // Fail-closed subscription gating: once entitlements are resolved, only the
+  // user's entitled strategies are shown. While still loading, show all to
+  // avoid flicker; once resolved with no entitlements, show none (no loophole).
+  const combinedSignals = entitlements === undefined
+    ? restSignals
     : allowedStrategies.length > 0
-      ? allSignals.filter(s => allowedStrategies.includes(s.StrategyID))
-      : allSignals; // License loaded but no strategies configured — fallback to all
+      ? restSignals.filter(s => allowedStrategies.includes(s.StrategyID))
+      : [];
 
   const regimes = useMemo(() => Array.from(new Set(combinedSignals.map((s) => s.Regime).filter(Boolean) as string[])), [combinedSignals]);
 
@@ -189,8 +167,8 @@ export default function UserSignalsPage() {
         <div className="text-center py-12 border border-pat-table-border rounded-lg bg-pat-bg-surface/50">
           {allowedStrategies.length === 0 ? (
             <>
-              <div className="text-pat-text-muted text-sm mb-2">No license found</div>
-              <div className="text-pat-text-muted text-xs">Subscribe to a plan to access trading signals.</div>
+              <div className="text-pat-text-muted text-sm mb-2">No entitled strategies</div>
+              <div className="text-pat-text-muted text-xs">Your current plan does not include any strategies. Upgrade your subscription to view signals.</div>
             </>
           ) : combinedSignals.length === 0 ? (
             <>

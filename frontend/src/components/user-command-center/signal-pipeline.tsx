@@ -1,8 +1,7 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
-import { fetchLicenses } from "@/lib/user-licensing-api";
 import { getGlobalWs, type WsMessage } from "@/lib/websocket";
 import { format } from "date-fns";
 
@@ -17,15 +16,14 @@ interface EngineSignal {
 }
 
 export function SignalPipeline() {
-  const [wsSignals, setWsSignals] = useState<EngineSignal[]>([]);
-
-  // Fetch user's license to filter signals by subscription plan
-  const { data: licenses } = useQuery({
-    queryKey: ["user-licenses-pipeline"],
-    queryFn: async () => fetchLicenses(),
+  // Server-authoritative allowed strategies (entitlements from control plane)
+  const { data: entitlements } = useQuery<{ selected_strategies?: string[] }>({
+    queryKey: ["user-entitlements-pipeline"],
+    queryFn: async () => (await customInstance.get("/subscriptions/entitlements")).data,
   });
-  const allowedStrategies: string[] = (licenses?.[0] as any)?.allowed_strategies || [];
-  const wsBuffer = useRef<EngineSignal[]>([]);
+  const allowedStrategies: string[] = Array.isArray(entitlements?.selected_strategies)
+    ? entitlements!.selected_strategies!
+    : [];
   const ws = getGlobalWs();
 
   const { data: engineData, refetch } = useQuery<{ signals: EngineSignal[] }>({
@@ -34,37 +32,31 @@ export function SignalPipeline() {
     refetchInterval: 10000,
   });
 
+  // WS is used ONLY to prompt a refresh of the canonical REST list.
+  // Raw WS payloads are never rendered, so real signal fields are never
+  // overwritten by placeholder values.
   useEffect(() => {
     ws.connect();
+    let pending: ReturnType<typeof setTimeout> | null = null;
     const unsub = ws.subscribe((msg: WsMessage) => {
       if (msg.type === "signal") {
-        const s = msg.payload;
-        // Convert WS signal to EngineSignal format
-        const signal: EngineSignal = {
-          ID: s.id, StrategyID: s.strategy, Direction: s.direction, Status: s.status,
-          RawScore: "0", CalibratedProbability: String(s.probability),
-          EntryPrice: String(s.entryPrice || 0), StopLoss: String(s.stopLoss || 0),
-          TP1: String(s.takeProfit || 0), TP2: String(s.tp2 || 0), TP3: String(s.tp3 || 0),
-          GrossRRTP1: "0", GrossRRTP2: "0", GrossRRTP3: "0",
-          CreatedAt: s.timestamp, Regime: s.regime || "", Session: s.session || "", Executable: false,
-        };
-        wsBuffer.current = [signal, ...wsBuffer.current].slice(0, 10);
-        setWsSignals([...wsBuffer.current]);
+        if (pending) clearTimeout(pending);
+        pending = setTimeout(() => { refetch(); }, 800);
       }
     });
-    return () => { unsub(); };
-  }, [ws]);
+    return () => { if (pending) clearTimeout(pending); unsub(); };
+  }, [ws, refetch]);
 
+  // REST is the single source of truth — always fresh, never frozen.
   const restSignals = (engineData?.signals ?? []).filter(s => s.Direction !== "NO-TRADE").slice(0, 10);
-  const allDisplaySignals = wsSignals.length > 0 ? wsSignals : restSignals;
-  // Filter by user's subscription — only show strategies their plan includes.
-  // Show all signals while the license query is loading (isLoading / undefined state);
-  // only apply the filter once we have a confirmed result.
-  const displaySignals = licenses === undefined
-    ? allDisplaySignals  // Still loading — show everything
+  // Fail-closed subscription gating: once entitlements are resolved, only the
+  // user's entitled strategies are shown. While still loading, show all to
+  // avoid flicker; once resolved with no entitlements, show none (no loophole).
+  const displaySignals = entitlements === undefined
+    ? restSignals
     : allowedStrategies.length > 0
-      ? allDisplaySignals.filter(s => allowedStrategies.includes(s.StrategyID))
-      : allDisplaySignals; // License loaded but no strategies configured — show everything
+      ? restSignals.filter(s => allowedStrategies.includes(s.StrategyID))
+      : [];
 
   const dirColor = (dir: string): string => {
     if (dir === "BUY") return "text-pat-success";

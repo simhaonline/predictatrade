@@ -17,6 +17,31 @@ interface EngineSignal {
   Executable: boolean; Symbol: string;
 }
 
+interface EngineTrade {
+  id: string;
+  signal_id?: string;
+  account_id: string;
+  strategy_id: string;
+  symbol: string;
+  direction: string;
+  broker_ticket?: string;
+  entry_price: string;
+  exit_price: string;
+  stop_loss?: string;
+  take_profit?: string;
+  pnl: string;
+  pnl_points: string;
+  pnl_percent: string;
+  lot_size?: string;
+  is_win: boolean;
+  is_loss: boolean;
+  is_breakeven: boolean;
+  close_reason?: string;
+  opened_at?: string;
+  closed_at: string;
+  trading_day?: string;
+}
+
 interface TerminalActivation {
   client_type: string;
   terminal_build?: string;
@@ -89,7 +114,38 @@ export default function UserTradingReportsPage() {
     refetchInterval: 15000,
   });
 
+  // REAL executed trades from the Go engine (trading.trade_results).
+  const { data: tradesData, isLoading: tradesLoading, error: tradesError } = useQuery<{ trades: EngineTrade[] }>({
+    queryKey: ["user-trading-trades"],
+    queryFn: async () => (await customInstance.get("/trades?limit=1000")).data,
+    refetchInterval: 20000,
+  });
+  const trades = tradesData?.trades ?? [];
+
   const signals = signalsData?.signals ?? [];
+
+  // Realized performance aggregated from genuine executed trades (not signals).
+  const realizedByStrategy = (() => {
+    const map = new Map<string, { count: number; wins: number; losses: number; be: number; pnl: number }>();
+    for (const t of trades) {
+      const s = t.strategy_id;
+      const cur = map.get(s) || { count: 0, wins: 0, losses: 0, be: 0, pnl: 0 };
+      cur.count += 1;
+      if (t.is_win) cur.wins += 1;
+      else if (t.is_loss) cur.losses += 1;
+      else cur.be += 1;
+      cur.pnl += parseFloat(t.pnl || "0");
+      map.set(s, cur);
+    }
+    return map;
+  })();
+
+  const totalTrades = trades.length;
+  const totalWins = trades.filter(t => t.is_win).length;
+  const totalLosses = trades.filter(t => t.is_loss).length;
+  const totalBe = trades.filter(t => t.is_breakeven).length;
+  const totalRealizedPnL = trades.reduce((s, t) => s + parseFloat(t.pnl || "0"), 0);
+  const realizedWinRate = totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0;
 
   // Filter out Master Node terminals — those are admin-only, not for client dashboard
   const allTerminals = (devices?.flatMap(d =>
@@ -311,9 +367,116 @@ export default function UserTradingReportsPage() {
         )}
       </div>
 
-      {/* Strategy performance */}
+      {/* Realized trading performance — derived from genuine executed trades */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: "Realized P&L", value: `$${totalRealizedPnL.toFixed(2)}`, sub: `${totalTrades} closed trades`, icon: IconCoin, color: totalRealizedPnL >= 0 ? "text-pat-success" : "text-pat-danger" },
+          { label: "Win Rate", value: `${realizedWinRate.toFixed(1)}%`, sub: `${totalWins}W / ${totalLosses}L / ${totalBe}BE`, icon: IconTrendingUp, color: "text-pat-info" },
+          { label: "Total Trades", value: totalTrades, sub: `${strategies.length} strategies active`, icon: IconActivity, color: "text-pat-text-primary" },
+          { label: "Avg P&L / Trade", value: totalTrades > 0 ? `$${(totalRealizedPnL / totalTrades).toFixed(2)}` : "$0.00", sub: "net per closed trade", icon: IconChartBar, color: "text-pat-text-primary" },
+        ].map((c) => (
+          <div key={c.label} className="rounded-xl border border-pat-border bg-pat-bg-surface p-4">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-pat-text-muted uppercase">{c.label}</span>
+              <c.icon size={16} className={c.color} />
+            </div>
+            <div className={`text-lg font-bold ${c.color} tabular-nums`}>{c.value}</div>
+            <div className="text-[10px] text-pat-text-muted mt-0.5">{c.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Realized performance by strategy */}
       <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-5">
-        <h2 className="text-sm font-semibold text-pat-text-primary mb-3">Strategy Performance</h2>
+        <h2 className="text-sm font-semibold text-pat-text-primary mb-3">Realized Performance by Strategy</h2>
+        {totalTrades === 0 ? (
+          <div className="text-xs text-pat-text-muted py-4 text-center">
+            {tradesError ? "Could not load trade history." : tradesLoading ? "Loading trade history…" : "No closed trades recorded yet. Trades from your connected terminals will appear here."}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[10px] text-pat-text-muted border-b border-pat-border">
+                  <th className="text-left py-2 px-3">Strategy</th>
+                  <th className="text-center py-2 px-3">Trades</th>
+                  <th className="text-center py-2 px-3">Wins</th>
+                  <th className="text-center py-2 px-3">Losses</th>
+                  <th className="text-center py-2 px-3">Win Rate</th>
+                  <th className="text-center py-2 px-3">Net P&L</th>
+                </tr>
+              </thead>
+              <tbody>
+                {strategies.map((strat) => {
+                  const r = realizedByStrategy.get(strat);
+                  if (!r) return null;
+                  const wr = r.count > 0 ? (r.wins / r.count) * 100 : 0;
+                  return (
+                    <tr key={strat} className="border-b border-pat-border/30 hover:bg-pat-bg-surface-secondary/20">
+                      <td className="py-2 px-3 text-pat-text-primary font-medium text-xs">{strat.replace(/_/g, " ")}</td>
+                      <td className="py-2 px-3 text-center text-pat-text-secondary tabular-nums">{r.count}</td>
+                      <td className="py-2 px-3 text-center text-pat-success tabular-nums">{r.wins}</td>
+                      <td className="py-2 px-3 text-center text-pat-danger tabular-nums">{r.losses}</td>
+                      <td className="py-2 px-3 text-center text-pat-text-secondary tabular-nums">{wr.toFixed(1)}%</td>
+                      <td className={`py-2 px-3 text-center font-medium tabular-nums ${r.pnl >= 0 ? "text-pat-success" : "text-pat-danger"}`}>${r.pnl.toFixed(2)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Realized trades table */}
+      <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-5">
+        <h2 className="text-sm font-semibold text-pat-text-primary mb-3">Realized Trades</h2>
+        {totalTrades === 0 ? (
+          <div className="text-xs text-pat-text-muted py-4 text-center">
+            {tradesError ? "Could not load trade history." : tradesLoading ? "Loading trade history…" : "No closed trades recorded yet."}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-[10px] text-pat-text-muted border-b border-pat-border">
+                  <th className="text-left py-2 px-2">Strategy</th>
+                  <th className="text-left py-2 px-2">Dir</th>
+                  <th className="text-right py-2 px-2">Entry</th>
+                  <th className="text-right py-2 px-2">Exit</th>
+                  <th className="text-right py-2 px-2">P&L</th>
+                  <th className="text-center py-2 px-2">Result</th>
+                  <th className="text-left py-2 px-2">Closed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trades.slice(0, 50).map((t) => {
+                  const pnl = parseFloat(t.pnl || "0");
+                  const dirColor = t.direction === "BUY" ? "text-pat-success" : t.direction === "SELL" ? "text-pat-danger" : "text-pat-text-muted";
+                  const result = t.is_win ? "WIN" : t.is_loss ? "LOSS" : "BE";
+                  const resultColor = t.is_win ? "text-pat-success" : t.is_loss ? "text-pat-danger" : "text-pat-text-muted";
+                  return (
+                    <tr key={t.id} className="border-b border-pat-border/30 hover:bg-pat-bg-surface-secondary/20">
+                      <td className="py-1.5 px-2 text-pat-text-secondary">{t.strategy_id?.replace(/_/g, " ")}</td>
+                      <td className={`py-1.5 px-2 font-bold ${dirColor}`}>{t.direction || "—"}</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-pat-text-primary tabular-nums">{parseFloat(t.entry_price || "0") > 0 ? parseFloat(t.entry_price).toFixed(2) : "—"}</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-pat-text-primary tabular-nums">{parseFloat(t.exit_price || "0") > 0 ? parseFloat(t.exit_price).toFixed(2) : "—"}</td>
+                      <td className={`py-1.5 px-2 text-right font-mono font-medium tabular-nums ${pnl >= 0 ? "text-pat-success" : "text-pat-danger"}`}>${pnl.toFixed(2)}</td>
+                      <td className={`py-1.5 px-2 text-center font-bold ${resultColor}`}>{result}</td>
+                      <td className="py-1.5 px-2 text-pat-text-muted">{t.closed_at ? format(new Date(t.closed_at), "MMM d, HH:mm") : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {totalTrades > 50 && <div className="text-[10px] text-pat-text-muted mt-2 text-center">Showing 50 of {totalTrades} trades. Use the report download for the full export.</div>}
+          </div>
+        )}
+      </div>
+
+      {/* Signal activity (live) */}
+      <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-5">
+        <h2 className="text-sm font-semibold text-pat-text-primary mb-3">Signal Activity (live)</h2>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>

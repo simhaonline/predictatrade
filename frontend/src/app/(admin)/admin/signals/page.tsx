@@ -4,7 +4,7 @@ import React from "react";
 import { customInstance } from "@/lib/axios-instance";
 import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { getGlobalWs, type WsMessage } from "@/lib/websocket";
 import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import SignalEvidencePanel from "@/components/signal/signal-evidence";
@@ -60,8 +60,6 @@ export default function AdminSignalsPage() {
   const [activeTab, setActiveTab] = useState<typeof STRATEGY_TABS[number]>("ALL");
   const [directionFilter, setDirectionFilter] = useState<typeof DIRECTION_FILTERS[number]>("ALL");
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
-  const [liveSignals, setLiveSignals] = useState<GoSignal[]>([]);
-  const sigBuffer = useRef<GoSignal[]>([]);
   const ws = getGlobalWs();
 
   const { data: signalsData, isLoading, error, refetch } = useQuery<{ signals: GoSignal[] }>({
@@ -73,35 +71,22 @@ export default function AdminSignalsPage() {
     refetchInterval: 30000,
   });
 
+  // WS is used ONLY to prompt a refresh of the canonical REST list. Raw WS
+  // payloads are never rendered, so real signal fields are never overwritten
+  // by placeholder values. Admin sees all strategies (no plan filtering).
   useEffect(() => {
     ws.connect();
+    let pending: ReturnType<typeof setTimeout> | null = null;
     const unsub = ws.subscribe((msg: WsMessage) => {
       if (msg.type === "signal") {
-        const s = msg.payload as unknown as Record<string, unknown>;
-        const entry: GoSignal = {
-          ID: s.id as string || s.ID as string || crypto.randomUUID(),
-          Symbol: (s.symbol as string) || (s.Symbol as string) || "XAUUSD",
-          StrategyID: (s.strategy as string) || (s.StrategyID as string) || "",
-          Direction: (s.direction as string) || (s.Direction as string) || "NO-TRADE",
-          Grade: "", RawScore: String(s.probability ? (Number(s.probability) * 100).toFixed(2) : "0"),
-          LongScore: "0", ShortScore: "0",
-          CalibratedProbability: String(s.probability ?? "0"),
-          EntryPrice: String(s.entryPrice ?? s.entry_price ?? "0"),
-          StopLoss: String(s.stopLoss ?? s.stop_loss ?? "0"),
-          TP1: String(s.takeProfit ?? s.take_profit ?? s.tp1 ?? "0"),
-          TP2: "0", TP3: "0", Regime: "", Session: "", Timeframe: "",
-          Status: (s.status as string) || "DETECTED", ReasonCodes: null,
-          Evidence: null, GateResults: null,
-          CreatedAt: (s.timestamp as string) || new Date().toISOString(), ExpiresAt: "",
-        };
-        sigBuffer.current = [entry, ...sigBuffer.current].slice(0, 100);
-        setLiveSignals(sigBuffer.current);
+        if (pending) clearTimeout(pending);
+        pending = setTimeout(() => { refetch(); }, 800);
       }
     });
-    return () => { unsub(); };
-  }, [ws]);
+    return () => { if (pending) clearTimeout(pending); unsub(); };
+  }, [ws, refetch]);
 
-  const allSignals = liveSignals.length > 0 ? liveSignals : (signalsData?.signals ?? []);
+  const allSignals = signalsData?.signals ?? [];
 
   // Apply filters
   const filteredSignals = allSignals.filter((s) => {

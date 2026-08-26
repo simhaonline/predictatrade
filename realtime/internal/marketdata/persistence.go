@@ -270,6 +270,149 @@ func (p *Persister) GetRecentSignals(ctx context.Context, limit int) ([]*types.S
 	return signals, nil
 }
 
+// TradeResult is the real executed-trade record surfaced to dashboards.
+// It is sourced directly from trading.trade_results — no derived or
+// estimated values are ever substituted.
+type TradeResult struct {
+	ID            string    `json:"id"`
+	SignalID      string    `json:"signal_id,omitempty"`
+	AccountID     string    `json:"account_id"`
+	StrategyID    string    `json:"strategy_id"`
+	Symbol        string    `json:"symbol"`
+	Direction     string    `json:"direction"`
+	BrokerTicket  string    `json:"broker_ticket,omitempty"`
+	EntryPrice    string    `json:"entry_price"`
+	ExitPrice     string    `json:"exit_price"`
+	StopLoss      string    `json:"stop_loss,omitempty"`
+	TakeProfit    string    `json:"take_profit,omitempty"`
+	PnL           string    `json:"pnl"`
+	PnLPoints     string    `json:"pnl_points"`
+	PnLPercent    string    `json:"pnl_percent"`
+	LotSize       string    `json:"lot_size,omitempty"`
+	IsWin         bool      `json:"is_win"`
+	IsLoss        bool      `json:"is_loss"`
+	IsBreakeven   bool      `json:"is_breakeven"`
+	CloseReason   string    `json:"close_reason,omitempty"`
+	OpenedAt      time.Time `json:"opened_at,omitempty"`
+	ClosedAt      time.Time `json:"closed_at"`
+	TradingDay    string    `json:"trading_day,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+// GetRecentTrades returns real executed trades from trading.trade_results.
+// When strategy is non-empty it filters by strategy_id. Results are ordered
+// by closed_at DESC so the newest closed trades appear first.
+func (p *Persister) GetRecentTrades(ctx context.Context, limit int, strategy string) ([]*TradeResult, error) {
+	query := `
+		SELECT id, signal_id, account_id, strategy_id, symbol, direction,
+			broker_ticket, entry_price, exit_price, stop_loss, take_profit,
+			pnl, pnl_points, pnl_percent, lot_size,
+			is_win, is_loss, is_breakeven, close_reason,
+			opened_at, closed_at, trading_day, created_at
+		FROM trading.trade_results
+	`
+	args := []interface{}{}
+	if strategy != "" {
+		query += ` WHERE strategy_id = $1`
+		args = append(args, strategy)
+	}
+	query += ` ORDER BY closed_at DESC LIMIT `
+	if strategy != "" {
+		query += `$2`
+		args = append(args, limit)
+	} else {
+		query += `$1`
+		args = append(args, limit)
+	}
+
+	rows, err := p.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var trades []*TradeResult
+	for rows.Next() {
+		t := &TradeResult{}
+		var signalID, brokerTicket, sl, tp, lot, closeReason sql.NullString
+		var openedAt, closedAt, createdAt sql.NullTime
+		var tradingDay sql.NullTime
+		err := rows.Scan(
+			&t.ID, &signalID, &t.AccountID, &t.StrategyID, &t.Symbol, &t.Direction,
+			&brokerTicket, &t.EntryPrice, &t.ExitPrice, &sl, &tp,
+			&t.PnL, &t.PnLPoints, &t.PnLPercent, &lot,
+			&t.IsWin, &t.IsLoss, &t.IsBreakeven, &closeReason,
+			&openedAt, &closedAt, &tradingDay, &createdAt,
+		)
+		if err != nil {
+			continue
+		}
+		if signalID.Valid {
+			t.SignalID = signalID.String
+		}
+		if brokerTicket.Valid {
+			t.BrokerTicket = brokerTicket.String
+		}
+		if sl.Valid {
+			t.StopLoss = sl.String
+		}
+		if tp.Valid {
+			t.TakeProfit = tp.String
+		}
+		if lot.Valid {
+			t.LotSize = lot.String
+		}
+		if closeReason.Valid {
+			t.CloseReason = closeReason.String
+		}
+		if openedAt.Valid {
+			t.OpenedAt = openedAt.Time
+		}
+		if closedAt.Valid {
+			t.ClosedAt = closedAt.Time
+		}
+		if tradingDay.Valid {
+			t.TradingDay = tradingDay.Time.Format("2006-01-02")
+		}
+		if createdAt.Valid {
+			t.CreatedAt = createdAt.Time
+		}
+		trades = append(trades, t)
+	}
+	return trades, nil
+}
+
+// GetUserAllowedStrategies returns the strategy IDs a user's active
+// subscription entitles them to see. It mirrors the control plane's
+// getEntitlements logic so signal visibility is server-authoritative and
+// cannot be bypassed client-side. When no active subscription exists, the
+// FREE default (STANDARD_SWING only) is returned.
+func (p *Persister) GetUserAllowedStrategies(ctx context.Context, userID string) ([]string, error) {
+	row := p.db.QueryRowContext(ctx, `
+		SELECT COALESCE(NULLIF(s.selected_strategies, '[]'::jsonb), p.allowed_strategies)::text
+		FROM billing.subscriptions s
+		JOIN control.plans p ON p.id = s.plan_id
+		WHERE s.user_id = $1 AND s.status IN ('ACTIVE','TRIAL','GRACE','CANCEL_AT_PERIOD_END')
+		ORDER BY s.created_at DESC LIMIT 1
+	`, userID)
+	var raw string
+	if err := row.Scan(&raw); err != nil {
+		if err == sql.ErrNoRows {
+			// No active subscription -> FREE default (server-authoritative).
+			return []string{"STANDARD_SWING"}, nil
+		}
+		return nil, err
+	}
+	var strategies []string
+	if err := json.Unmarshal([]byte(raw), &strategies); err != nil {
+		return nil, err
+	}
+	if len(strategies) == 0 {
+		return []string{"STANDARD_SWING"}, nil
+	}
+	return strategies, nil
+}
+
 // HealthCheck verifies database connectivity.
 func (p *Persister) HealthCheck(ctx context.Context) error {
 	ctx2, cancel := context.WithTimeout(ctx, 3*time.Second)
