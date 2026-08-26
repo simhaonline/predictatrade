@@ -82,23 +82,23 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
   -o "$BIN_PATH" ./cmd/agent/ || fatal "Build failed"
 log "Binary built: $BIN_PATH ($(du -h "$BIN_PATH" | cut -f1))"
 
-# ─── Step 3b: Code-sign the binary with Authenticode (osslsigncode) ───
-CERT_PFX="$AGENT_DIR/certs/pat-code-sign.pfx"
-CERT_PASS="pat-local-dev"
-if [[ -f "$CERT_PFX" ]] && which osslsigncode >/dev/null 2>&1; then
-    log "Code-signing binary with Authenticode..."
-    SIGNED_BIN="$BIN_PATH.signed"
-    if osslsigncode sign -pkcs12 "$CERT_PFX" -pass "$CERT_PASS"         -t http://timestamp.digicert.com         -in "$BIN_PATH" -out "$SIGNED_BIN" 2>&1 | grep -q "Succeeded"; then
-        mv "$SIGNED_BIN" "$BIN_PATH"
-        log "Binary code-signed with Authenticode ✓"
-    else
-        log "WARN: Code signing failed — binary will be unsigned"
-        rm -f "$SIGNED_BIN"
-    fi
-else
-    log "WARN: No code signing certificate or osslsigncode — binary will be unsigned"
-fi
-
+# DISABLED: # ─── Step 3b: Code-sign the binary with Authenticode (osslsigncode) ───
+# DISABLED: CERT_PFX="$AGENT_DIR/certs/pat-code-sign.pfx"
+# DISABLED: CERT_PASS="pat-local-dev"
+# DISABLED: if [[ -f "$CERT_PFX" ]] && which osslsigncode >/dev/null 2>&1; then
+# DISABLED:     log "Code-signing binary with Authenticode..."
+# DISABLED:     SIGNED_BIN="$BIN_PATH.signed"
+# DISABLED:     if osslsigncode sign -pkcs12 "$CERT_PFX" -pass "$CERT_PASS"         -t http://timestamp.digicert.com         -in "$BIN_PATH" -out "$SIGNED_BIN" 2>&1 | grep -q "Succeeded"; then
+# DISABLED:         mv "$SIGNED_BIN" "$BIN_PATH"
+# DISABLED:         log "Binary code-signed with Authenticode ✓"
+# DISABLED:     else
+# DISABLED:         log "WARN: Code signing failed — binary will be unsigned"
+# DISABLED:         rm -f "$SIGNED_BIN"
+# DISABLED:     fi
+# DISABLED: else
+# DISABLED:     log "WARN: No code signing certificate or osslsigncode — binary will be unsigned"
+# DISABLED: fi
+# DISABLED: 
 # ─── Step 4: Copy a standalone deployment binary ───
 # The Nginx container mounts deploy/ only. A symlink to ../bin is therefore
 # broken inside the container and produces a public 404 for pat-agent.exe.
@@ -161,3 +161,4 @@ echo "  Manifest:    $MANIFEST_FILE"
 echo "  Live URL:    https://downloads.predictatrade.com/windows-agent/pat-agent.exe"
 echo "  Install cmd: irm https://downloads.predictatrade.com/windows-agent/install.ps1 | iex"
 echo "═══════════════════════════════════════════════"
+# Binary will be UNSIGNED (self-signed causes Windows SmartScreen issues)
