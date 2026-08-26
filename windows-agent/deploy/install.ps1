@@ -220,17 +220,38 @@ if ($serviceCreated) {
     } else {
         try { Start-Service -Name $ServiceName -ErrorAction SilentlyContinue } catch {}
     }
-    Start-Sleep -Seconds 3
 
-    $svcCheck = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-    if ($svcCheck -and $svcCheck.Status -eq "Running") {
-        $serviceRunning = $true
-        Write-Host "  OK: Service is RUNNING"
+    # Wait up to 15 seconds for service to start
+    Write-Host "  Waiting for service to start..."
+    for ($i = 0; $i -lt 15; $i++) {
+        Start-Sleep -Seconds 1
+        $svcCheck = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+        if ($svcCheck -and $svcCheck.Status -eq "Running") {
+            $serviceRunning = $true
+            Write-Host "  OK: Service is RUNNING"
+            break
+        }
+    }
+
+    # If service status not Running yet, check health endpoint
+    if (-not $serviceRunning) {
+        Write-Host "  Service starting — verifying health endpoint..."
+        for ($i = 0; $i -lt 5; $i++) {
+            Start-Sleep -Seconds 2
+            try {
+                $healthResp = Invoke-WebRequest -Uri "http://127.0.0.1:9000/health" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+                if ($healthResp.StatusCode -eq 200) {
+                    $serviceRunning = $true
+                    Write-Host "  OK: Agent is RUNNING (health: HTTP 200)"
+                    break
+                }
+            } catch {}
+        }
     }
 }
 
 if (-not $serviceRunning) {
-    Write-Host "  WARN: Service not running — checking logs..."
+    Write-Host "  WARN: Agent not responding — checking logs..."
     $stderrLog = Join-Path $logsDir "stderr.log"
     $stdoutLog = Join-Path $logsDir "stdout.log"
     if (Test-Path $stderrLog) {
@@ -243,7 +264,7 @@ if (-not $serviceRunning) {
     }
     if (-not (Test-Path $stderrLog) -and -not (Test-Path $stdoutLog)) {
         Write-Host "  No logs — agent may be blocked by antivirus"
-        Write-Host "  Manual fix: Windows Security > Virus & threat protection > Exclusions > Add > C:\PredictATrade"
+        Write-Host "  Manual fix: Windows Security > Virus & threat protection > Exclusions > Add > C:\\PredictATrade"
     }
 }
 
@@ -274,7 +295,7 @@ Write-Host "=========================================="
 Write-Host "  Installation Complete! v$serverVersion"
 Write-Host "=========================================="
 Write-Host "  Service:     $ServiceName"
-Write-Host "  Status:      $(if ($svcCheck -and $svcCheck.Status -eq 'Running') { 'Running ✓' } else { 'Check logs above' })"
+Write-Host "  Status:      $(if ($serviceRunning) { 'Running ✓' } else { 'Check logs above' })"
 Write-Host "  Install Dir: $InstallDir"
 Write-Host "  Health:      http://127.0.0.1:9000"
 Write-Host "  Logs:        $logsDir"
