@@ -50,6 +50,15 @@ type MarketState struct {
 	// Uses interface{} to avoid import cycle (features ← ptb ← features).
 	// Actual type: *ptb.MarketIntelligenceSnapshot
 	PTB interface{}
+
+	// P2-001: Session ORB features — opening range metrics per session (shadow)
+	SessionORB SessionORBFeatures
+
+	// P2-003: Pullback detection features (shadow)
+	Pullback PullbackFeatures
+
+	// P2-004: Trade group ID — shared across multi-position signal splits (shadow)
+	TradeGroupID string `json:"trade_group_id,omitempty"`
 }
 
 // FeatureReadiness represents the readiness state of a single feature.
@@ -286,6 +295,34 @@ type CandleIntelligence struct {
 	PinBarRngATRRatio  decimal.Decimal `json:"pinbar_range_atr_ratio,omitempty"`
 	PinBarRejDirection string          `json:"pinbar_rejection_direction,omitempty"` // BUY/SELL
 	PinBarQuality      decimal.Decimal `json:"pinbar_quality,omitempty"`             // 0-1
+}
+
+// SessionORBFeatures holds P2-001 Opening Range Breakout metrics for each session.
+type SessionORBFeatures struct {
+	AsianHigh   decimal.Decimal `json:"asian_high,omitempty"`
+	AsianLow    decimal.Decimal `json:"asian_low,omitempty"`
+	AsianRange  decimal.Decimal `json:"asian_range,omitempty"`
+	LondonHigh  decimal.Decimal `json:"london_high,omitempty"`
+	LondonLow   decimal.Decimal `json:"london_low,omitempty"`
+	LondonRange decimal.Decimal `json:"london_range,omitempty"`
+	NYHigh      decimal.Decimal `json:"ny_high,omitempty"`
+	NYLow       decimal.Decimal `json:"ny_low,omitempty"`
+	NYRange     decimal.Decimal `json:"ny_range,omitempty"`
+	Compression decimal.Decimal `json:"compression_ratio,omitempty"` // current range / avg range
+	BreakoutDir string          `json:"breakout_direction,omitempty"` // BUY/SELL or empty
+	DistFromHi  decimal.Decimal `json:"dist_from_high,omitempty"`    // ATR-normalized
+	DistFromLo  decimal.Decimal `json:"dist_from_low,omitempty"`     // ATR-normalized
+}
+
+// PullbackFeatures holds P2-003 structured pullback detection results.
+type PullbackFeatures struct {
+	PullbackActive      bool            `json:"pullback_active,omitempty"`
+	PullbackDepthPct    decimal.Decimal `json:"pullback_depth_pct,omitempty"`     // % of trend move
+	PullbackATRNorm     decimal.Decimal `json:"pullback_atr_norm,omitempty"`      // ATR-normalized
+	PullbackContConfirm bool            `json:"pullback_cont_confirm,omitempty"`  // continuation confirmed
+	PullbackQuality     decimal.Decimal `json:"pullback_quality,omitempty"`       // 0-1
+	PullbackAnchor      decimal.Decimal `json:"pullback_anchor,omitempty"`        // swing point
+	PullbackExtreme     decimal.Decimal `json:"pullback_extreme,omitempty"`       // farthest price
 }
 
 type StateManager struct {

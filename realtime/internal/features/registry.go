@@ -29,6 +29,7 @@ type Registry struct {
 	fibonacciEngine  *FibonacciEngine
 	candleEngine     *CandleEngine
 	pivotEngine      *PivotEngine
+	pullbackEngine   *PullbackEngine // P2-003
 
 	// Rolling statistics (SOW Sections 8-11)
 	obvZScore        *RollingStats
@@ -60,6 +61,7 @@ func NewRegistry() *Registry {
 		fibonacciEngine: NewFibonacciEngine(nil),
 		pivotEngine:     NewPivotEngine(),
 		candleEngine:     NewCandleEngine(),
+		pullbackEngine:   NewPullbackEngine(), // P2-003
 
 		// Rolling statistics — 50-bar window, min 20 samples
 		obvZScore:       NewRollingStats(50, 20),
