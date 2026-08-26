@@ -2321,7 +2321,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				// delivers it for execution (SOW: hard gates fail closed; financial
 				// integrity first). This runs on the actual candidate-emission path
 				// (the dominant advisory path), not only the executable path.
-				if edgeSt, edgeOK := gateRegistry.GetState(types.GateEdgeValidation); edgeOK {
+				if edgeSt, edgeOK := gateRegistry.GetEdgeState(strat.ID(), candle.Timeframe); edgeOK {
 					if gates.LiveEdgeNegative(strat.ID(), edgeSt, cfg.EdgeNegativeMinSampleSize) {
 						observability.Log.Warn().Str("strategy", string(strat.ID())).
 							Msg("Capital protection: proven-negative live edge — downgrading candidate to NO_TRADE (fail closed)")
@@ -2533,7 +2533,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				// ─── Fail-closed capital protection (defence-in-depth for the
 				// secondary candidate path): a proven-negative live edge must not
 				// emit an executable candidate. ───
-				if edgeSt, edgeOK := gateRegistry.GetState(types.GateEdgeValidation); edgeOK {
+				if edgeSt, edgeOK := gateRegistry.GetEdgeState(strat.ID(), candle.Timeframe); edgeOK {
 					if gates.LiveEdgeNegative(strat.ID(), edgeSt, cfg.EdgeNegativeMinSampleSize) {
 						observability.Log.Warn().Str("strategy", string(strat.ID())).
 							Msg("Capital protection: proven-negative live edge — downgrading candidate to NO_TRADE (fail closed)")
@@ -2789,6 +2789,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 		}
 		decision := engine.Decide(sigengine.DecisionInput{
 			StrategyID: strat.ID(), Direction: stratResult.Direction,
+			Timeframe:  candle.Timeframe, // scope gates to the triggering timeframe
 			RawScore: stratResult.RawScore, LongScore: stratResult.LongScore, ShortScore: stratResult.ShortScore,
 			Tick: mergedState.LastTick, Regime: mergedState.Regime.Current,
 			ATR:     mergedState.Indicators.ATR,
@@ -3084,7 +3085,14 @@ func registerGates(reg *gates.Registry, cfg *config.Config) *gates.PositionCapsG
 	reg.Register(&gates.SpreadGate{MaxSpreadAbsolute: 0.80, MaxSpreadToATR: 0.50})
 	// Phase 3: New precision gates
 	reg.Register(&gates.StopHuntFilterGate{MinDistanceATR: 1.5})
-	reg.Register(&gates.MinAbsoluteATRGate{MinATR: 2.0}) // Global minimum; per-strategy overrides via engine
+	// MinATR gate: global floor plus operator-configured per-timeframe floors
+	// (MIN_ATR_BY_TIMEFRAME JSON). Per-timeframe scoping prevents a single ATR
+	// threshold (meaningless across M1 vs H4) from vetoing unrelated strategies.
+	minATRByTF := map[types.Timeframe]float64{}
+	for tf, v := range cfg.MinATRByTimeframe {
+		minATRByTF[types.Timeframe(tf)] = v
+	}
+	reg.Register(&gates.MinAbsoluteATRGate{MinATR: 2.0, MinATRByTF: minATRByTF})
 	reg.Register(&gates.SlippageGate{MaxSlippage: 0.10})
 	logCopy := observability.Log
 	// Bug 6: scalping strategies get strict cost-to-TP1 enforcement using the
@@ -3476,20 +3484,76 @@ func hydrateEdgeStateOnce(gateRegistry *gates.Registry, persister *marketdata.Pe
 		}
 
 		now := time.Now().UTC()
-		reasonCode := gates.ReasonEdgeUnproven
-		stateResult := types.GateDegraded
-		if len(statsByStrategy) > 0 {
-			// Gate result is computed per-signal from the map; the cached
-			// marker reflects overall availability for observability only.
-			stateResult = types.GatePass
-			reasonCode = "edge_stats_available"
+
+		// Write an INDEPENDENT, isolated edge-state scope for every
+		// (strategy, decision-timeframe) pair. This is the capital-protection
+		// isolation fix: previously a single shared map[StrategyID]EdgeStats was
+		// used for ALL strategies at once, so a hydration failure or stale read
+		// silently degraded or blocked every strategy. Now each strategy/timeframe
+		// carries its own fresh state and can fail independently without
+		// cross-contaminating others.
+		strats := strategy.AllStrategies()
+		for id, stats := range statsByStrategy {
+			var tfs []types.Timeframe
+			for _, s := range strats {
+				if s.ID() == id {
+					if p, ok := s.(strategy.DecisionTFProvider); ok {
+						tfs = p.DecisionTimeframes()
+					}
+					break
+				}
+			}
+			if len(tfs) == 0 {
+				tfs = []types.Timeframe{""} // legacy strategies: single catch-all scope
+			}
+			for _, tf := range tfs {
+				single := map[types.StrategyID]risk.EdgeStats{id: stats}
+				proven := stats.IsProven(cfg.EdgeMinProfitFactor, cfg.EdgeMinExpectancyR, cfg.EdgeMinSampleSize)
+				stateResult := types.GateDegraded
+				reasonCode := gates.ReasonEdgeUnproven
+				if proven {
+					stateResult = types.GatePass
+					reasonCode = "edge_stats_available"
+				}
+				gateRegistry.UpdateStateScoped(gates.GateScope{
+					GateID:     types.GateEdgeValidation,
+					StrategyID: id,
+					Timeframe:  tf,
+				}, gates.GateState{
+					GateID:      types.GateEdgeValidation,
+					State:       stateResult,
+					Value:       single,
+					ReasonCode:  reasonCode,
+					EvaluatedAt: now,
+					SourceVersion: "edge_refresher",
+				})
+			}
 		}
-		gateRegistry.UpdateState(types.GateEdgeValidation, gates.GateState{
-			GateID: types.GateEdgeValidation, State: stateResult,
-			Value: statsByStrategy, ReasonCode: reasonCode,
-			EvaluatedAt:   now,
-			SourceVersion: "edge_refresher",
-		})
+		// If no trades exist yet for any strategy, seed a neutral per-strategy
+		// advisory scope so evaluation stays fail-soft (not a global hard veto).
+		if len(statsByStrategy) == 0 {
+			for _, s := range strats {
+				tfs := []types.Timeframe{""}
+				if p, ok := s.(strategy.DecisionTFProvider); ok {
+					if d := p.DecisionTimeframes(); len(d) > 0 {
+						tfs = d
+					}
+				}
+				for _, tf := range tfs {
+					gateRegistry.UpdateStateScoped(gates.GateScope{
+						GateID:     types.GateEdgeValidation,
+						StrategyID: s.ID(),
+						Timeframe:  tf,
+					}, gates.GateState{
+						GateID:      types.GateEdgeValidation,
+						State:       types.GateDegraded,
+						ReasonCode:  gates.ReasonEdgeUnproven,
+						EvaluatedAt: now,
+						SourceVersion: "edge_refresher_empty",
+					})
+				}
+			}
+		}
 }
 
 // refreshGateStates periodically refreshes gate state from live market/broker data.

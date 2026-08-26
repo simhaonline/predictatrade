@@ -80,11 +80,28 @@ func (g *StopHuntFilterGate) Evaluate(input GateInput, state GateState) GateEval
 // Low ATR means the TP distance is too small relative to spread/slippage cost.
 //
 // This addresses Reason 1 from the summary: "Spread + Slippage Eats the Profit".
+//
+// ATR magnitude differs by orders of magnitude across timeframes (M1 vs H4), so a
+// single global minimum is meaningless. The gate therefore supports per-timeframe
+// thresholds (MinATRByTF), falling back to the global MinATR default when a
+// timeframe is not explicitly configured.
 type MinAbsoluteATRGate struct {
-	MinATR float64 // Minimum ATR value (e.g., 12.0 for Ultra Scalping)
+	MinATR float64 // Default minimum ATR (used when no per-timeframe override exists)
+	// MinATRByTF overrides MinATR for a specific decision timeframe.
+	MinATRByTF map[types.Timeframe]float64
 }
 
 func (g *MinAbsoluteATRGate) ID() types.GateID { return types.GateMinATR }
+
+// threshold returns the effective ATR minimum for the input's timeframe.
+func (g *MinAbsoluteATRGate) threshold(tf types.Timeframe) float64 {
+	if tf != "" {
+		if v, ok := g.MinATRByTF[tf]; ok && v > 0 {
+			return v
+		}
+	}
+	return g.MinATR
+}
 
 func (g *MinAbsoluteATRGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := GateEvaluation{
@@ -94,7 +111,7 @@ func (g *MinAbsoluteATRGate) Evaluate(input GateInput, state GateState) GateEval
 		StateVersion: state.SourceVersion,
 	}
 
-	if g.MinATR > 0 && input.ATR < g.MinATR {
+	if min := g.threshold(input.Timeframe); min > 0 && input.ATR < min {
 		eval.Result = types.GateVeto
 		eval.ReasonCodes = []string{string(types.NTLowATR)}
 		return eval

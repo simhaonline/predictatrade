@@ -2,6 +2,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -70,6 +71,12 @@ type Config struct {
 	CostToTP1MaxPct           float64            // COST_TO_TP1_MAX_PCT for scalping strategies
 	SlippageCostPoints        float64            // SLIPPAGE_COST_POINTS (price units) added to round-trip cost
 	CommissionCostPoints      float64            // COMMISSION_COST_POINTS (price units) added to round-trip cost
+	// MinATRByTimeframe lets operators set a different minimum ATR per decision
+	// timeframe (e.g. M1 needs a far smaller floor than H4). Loaded as JSON from
+	// MIN_ATR_BY_TIMEFRAME, e.g. {"M1":8,"M5":15,"H1":60,"H4":200}. The gate
+	// falls back to the global MinATR when a timeframe is absent. No magic numbers
+	// are hard-coded — if unset, the single global floor applies to all TFs.
+	MinATRByTimeframe map[string]float64
 
 	// P0-001: Broker symbol metadata validation gate config
 	BrokerMinStopPoints   float64 // BROKER_MIN_STOP_POINTS — symbol STOPS_LEVEL (0 = no constraint)
@@ -214,6 +221,7 @@ func Default() *Config {
 		CostToTP1MaxPct:      getEnvFloat("COST_TO_TP1_MAX_PCT", 0.30),
 		SlippageCostPoints:   getEnvFloat("SLIPPAGE_COST_POINTS", 0.10),
 		CommissionCostPoints: getEnvFloat("COMMISSION_COST_POINTS", 0.06),
+		MinATRByTimeframe:    getEnvFloatMapJSON("MIN_ATR_BY_TIMEFRAME"),
 		// P0-001: Broker symbol validation — zero means "no constraint" (gate degrades, not vetoes)
 		BrokerMinStopPoints:   getEnvFloat("BROKER_MIN_STOP_POINTS", 0),
 		BrokerMinFreezePoints: getEnvFloat("BROKER_MIN_FREEZE_POINTS", 0),
@@ -415,6 +423,20 @@ func getEnvFloat(key string, fallback float64) float64 {
 		}
 	}
 	return fallback
+}
+
+// getEnvFloatMapJSON parses a JSON object env var (e.g. {"M1":8,"H4":200}) into
+// map[string]float64. Returns nil when unset or invalid so callers fall back to defaults.
+func getEnvFloatMapJSON(key string) map[string]float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return nil
+	}
+	m := map[string]float64{}
+	if err := json.Unmarshal([]byte(v), &m); err != nil {
+		return nil
+	}
+	return m
 }
 
 // ─── Advanced configuration sections ───

@@ -82,6 +82,11 @@ type DecisionInput struct {
 	ExpectedValue    float64
 	IsLossCandidate  bool
 	EntryGatePassed  bool
+
+	// Timeframe is the decision timeframe of the triggering candle. It scopes
+	// all strategy/timeframe-sensitive gates (ATR, structural, edge) so they are
+	// never evaluated against a conflated, cross-timeframe snapshot.
+	Timeframe types.Timeframe
 }
 
 // DecisionResult is the final output of the master decision hierarchy.
@@ -196,6 +201,7 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 	gateInput := gates.GateInput{
 		Tick:               input.Tick,
 		StrategyID:         input.StrategyID,
+		Timeframe:          input.Timeframe,
 		Direction:          gateDir,
 		Regime:             input.Regime,
 		Spread:             spread,

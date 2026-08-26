@@ -9,6 +9,18 @@ import (
 	"github.com/predictatrade/realtime/internal/types"
 )
 
+// GateScope keys a gate's cached state. Market-wide (global) gates use the
+// zero-value scope (empty StrategyID/Timeframe). Strategy- and timeframe-scoped
+// gates use {GateID, StrategyID, Timeframe} so that each strategy on each
+// timeframe carries its OWN isolated, independently-fresh state. This prevents a
+// single shared/central snapshot from going stale or erroring and silently
+// blocking or degrading unrelated strategies (SOW Section 131, capital safety).
+type GateScope struct {
+	GateID     types.GateID
+	StrategyID types.StrategyID
+	Timeframe  types.Timeframe
+}
+
 // GateState is the cached, generation-stamped state for a gate (SOW Section 131.2).
 type GateState struct {
 	GateID        types.GateID
@@ -37,6 +49,10 @@ type Gate interface {
 type GateInput struct {
 	Tick               *types.Tick
 	StrategyID         types.StrategyID
+	// Timeframe is the decision timeframe of the triggering candle. Gate state is
+	// resolved per (StrategyID, Timeframe) so timeframe-specific metrics (ATR,
+	// structural levels, edge stats) are never conflated across timeframes.
+	Timeframe          types.Timeframe
 	Regime             types.Regime
 	Spread             float64
 	ATR                float64
@@ -99,7 +115,11 @@ type GateEvaluation struct {
 type Registry struct {
 	mu     sync.RWMutex
 	gates  map[types.GateID]Gate
-	states map[types.GateID]GateState
+	states map[GateScope]GateState
+	// globalGates are market-wide gates evaluated against a single shared scope
+	// (empty StrategyID/Timeframe). All other gates are resolved per
+	// (StrategyID, Timeframe) so strategy/timeframe state stays isolated.
+	globalGates map[types.GateID]bool
 	order  []types.GateID // short-circuit order (SOW Section 131.4)
 }
 
@@ -107,7 +127,20 @@ type Registry struct {
 func NewRegistry() *Registry {
 	r := &Registry{
 		gates:  make(map[types.GateID]Gate),
-		states: make(map[types.GateID]GateState),
+		states: make(map[GateScope]GateState),
+		globalGates: map[types.GateID]bool{
+			types.GateDataQuality:     true,
+			types.GateSession:         true,
+			types.GateNews:            true,
+			types.GateSpread:          true,
+			types.GateSlippage:        true,
+			types.GateTotalCost:       true,
+			types.GateExposure:        true,
+			types.GateMargin:          true,
+			types.GateEntitlement:     true,
+			types.GateLicense:         true,
+			types.GateExecutionPermit: true,
+		},
 		order: []types.GateID{
 			types.GateDataQuality,
 			types.GateSession,
@@ -159,19 +192,48 @@ func (r *Registry) RegisterOrdered(g Gate, after types.GateID) {
 	r.order = append(r.order[:idx+1], next...)
 }
 
-// UpdateState updates the cached state for a gate (called by background goroutines).
+// UpdateState updates the cached state for a gate at the GLOBAL scope (market-wide
+// gates). Strategy/timeframe-scoped gates should use UpdateStateScoped.
 func (r *Registry) UpdateState(gateID types.GateID, state GateState) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.states[gateID] = state
+	r.UpdateStateScoped(GateScope{GateID: gateID}, state)
 }
 
-// GetState returns the current cached state for a gate.
+// UpdateStateScoped writes cached state for an explicit (gate, strategy, timeframe) scope.
+func (r *Registry) UpdateStateScoped(scope GateScope, state GateState) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state.GateID = scope.GateID
+	r.states[scope] = state
+}
+
+// GetState returns the current cached state for a gate at the GLOBAL scope.
 func (r *Registry) GetState(gateID types.GateID) (GateState, bool) {
+	return r.GetStateScoped(GateScope{GateID: gateID})
+}
+
+// GetStateScoped returns cached state for an explicit scope.
+func (r *Registry) GetStateScoped(scope GateScope) (GateState, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	s, ok := r.states[gateID]
+	s, ok := r.states[scope]
 	return s, ok
+}
+
+// GetEdgeState resolves the edge-validation state for a specific (strategy,
+// timeframe) using the same fallback chain as EvaluateAll: (strategy, tf) →
+// (strategy, "") → global. Returns (zero, false) if no state is cached anywhere.
+// Used by capital-protection paths that must read the isolated per-strategy edge
+// stats directly (the global scope no longer carries the shared stats map).
+func (r *Registry) GetEdgeState(strategyID types.StrategyID, tf types.Timeframe) (GateState, bool) {
+	if s, ok := r.GetStateScoped(GateScope{GateID: types.GateEdgeValidation, StrategyID: strategyID, Timeframe: tf}); ok {
+		return s, true
+	}
+	if tf != "" {
+		if s, ok := r.GetStateScoped(GateScope{GateID: types.GateEdgeValidation, StrategyID: strategyID}); ok {
+			return s, true
+		}
+	}
+	return r.GetStateScoped(GateScope{GateID: types.GateEdgeValidation})
 }
 
 // EvaluateAll runs all gates in short-circuit order.
@@ -202,24 +264,43 @@ func (r *Registry) EvaluateAll(input GateInput) (allPass bool, evaluations []Gat
 			continue
 		}
 
-		state, stateExists := r.states[gateID]
-		if !stateExists {
-			// No cached state — fail closed (SOW Section 131.1)
-			// Distinguish NOT_INITIALIZED from missing
-			eval := GateEvaluation{
-				GateID:      gateID,
-				Result:      types.GateUnknown,
-				ReasonCodes: []string{"GATE_NOT_INITIALIZED"},
-				EvaluatedAt: time.Now(),
-			}
-			evaluations = append(evaluations, eval)
-			allPass = false
-			if firstVeto == nil {
-				v := eval
-				firstVeto = &v
-			}
-			continue
+		// Resolve this gate's cached state. Strategy/timeframe-scoped gates use
+		// their own isolated scope; market-wide gates use the global scope. The
+		// fallback chain keeps each (strategy, timeframe) independent so a stale or
+		// errored scope can NEVER veto or degrade unrelated strategies.
+		scope := GateScope{GateID: gateID, StrategyID: input.StrategyID, Timeframe: input.Timeframe}
+		state, stateExists := r.GetStateScoped(scope)
+		if !stateExists && input.Timeframe != "" {
+			// Fall back to the strategy-wide scope (legacy strategies that do not
+			// declare a specific timeframe).
+			state, stateExists = r.GetStateScoped(GateScope{GateID: gateID, StrategyID: input.StrategyID})
 		}
+		if !stateExists {
+			// Final fallback: the global scope (covers market-wide gates and any
+			// globally-seeded strategy-gate states).
+			state, stateExists = r.GetStateScoped(GateScope{GateID: gateID})
+		}
+
+	if !stateExists {
+		// No cached state for this scope after the full fallback chain. Fail
+		// CLOSED for this (gate, strategy, timeframe) scope. Because state is now
+		// scoped per (strategy, timeframe), this veto isolates a single strategy's
+		// missing data and cannot cascade to unrelated strategies or timeframes —
+		// which is the core fix for the old central-gate "block everything" risk.
+		eval := GateEvaluation{
+			GateID:      gateID,
+			Result:      types.GateUnknown,
+			ReasonCodes: []string{"GATE_NOT_INITIALIZED"},
+			EvaluatedAt: time.Now(),
+		}
+		evaluations = append(evaluations, eval)
+		allPass = false
+		if firstVeto == nil {
+			v := eval
+			firstVeto = &v
+		}
+		continue
+	}
 
 		// Check freshness (SOW Section 131.7)
 		// Stale gate state: fail closed for risk-critical gates,
