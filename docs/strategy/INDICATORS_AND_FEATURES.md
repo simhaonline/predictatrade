@@ -19,19 +19,12 @@
 | SENTIMENT | 0.25 | Ollama sentiment analysis |
 | SESSION_ORB | 0.15 | Asian/London/NY opening ranges |
 
-### Indicator Status (42 total)
+### Indicator Status: 35/42 LIVE, 7 warming up
 
-| Status | Count | Examples |
-|--------|:-----:|----------|
-| LIVE | 35 | EMA, MACD, ADX, RSI, ATR, VWAP, SAR, Ichimoku, Bollinger |
-| WARMING UP | 7 | Needs more candles for period parameters |
-| DISABLED | 0 | — |
+Live indicators include: EMA, MACD, ADX, RSI, ATR, VWAP, SAR, Ichimoku, Bollinger, Stoch, CCI, OBV, pivots (D/W/M), Fibonacci
 
 ### P2 Features (ACTIVE, v1.16.0)
-
-| Feature | Pillar | Description |
-|---------|--------|-------------|
-| Session ORB | SESSION_ORB | Asian/London/NY opening ranges, breakout detection |
-| Pin Bar | CANDLE | Body/wick ratios, rejection direction, quality score |
-| Pullback | STRUCTURE | Depth %, ATR retracement, continuation confirmation |
-| Trade Group ID | — | Multi-position signal split tracking |
+- **Session ORB:** Asian/London/NY opening ranges, breakout direction, compression
+- **Pin Bar:** Body/wick ratios, rejection direction, quality score (0-1)
+- **Pullback:** Depth %, ATR-normalized retracement, continuation confirmation
+- **Trade Group ID:** Multi-position signal split tracking

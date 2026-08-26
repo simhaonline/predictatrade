@@ -1,34 +1,71 @@
 # Deployment Guide
 ## v1.16.0 — 26 August 2026
 
-### Quick Start
+### Quick Start (Docker Compose)
 
 ```bash
 git clone https://github.com/simhaonline/predictatrade.git
 cd predictatrade/xauusd
 cp realtime/.env.example realtime/.env
-# Edit: TWELVEDATA_API_KEY, FMP_API_KEY, PROVIDER_MODE
+# Edit realtime/.env with required API keys
 docker compose up -d
 curl http://localhost:13081/health
 ```
 
 ### Required Environment Variables
+
 | Variable | Required | Description |
 |----------|:--------:|-------------|
-| DATABASE_URL | YES | PostgreSQL connection |
-| VALKEY_ADDR | YES | Valkey address |
-| TWELVEDATA_API_KEY | YES | XAUUSD candles |
-| FMP_API_KEY | YES | COT/DXY data |
-| JWT_SECRET | YES | Auth signing (32+ chars) |
+| DATABASE_URL | YES | PostgreSQL connection string |
+| VALKEY_ADDR | YES | Valkey address (default: 127.0.0.1:6379) |
+| TWELVEDATA_API_KEY | YES | XAUUSD candles + DXY |
+| FMP_API_KEY | YES | COT + macro data |
+| JWT_SECRET | YES | Signing key (min 32 chars) |
 | PROVIDER_MODE | YES | agent=MT5, simulated=dev |
 
-### Service Ports
-pat-postgres(5432), pat-valkey(6379), pat-realtime(13081), pat-control(13080), pat-frontend(13082), pat-nginx(80/443), pat-status(13083), pat-live-terminal(13090), pat-prometheus(9090), pat-grafana(3001), pat-ntfy(8091)
+### Optional Features
 
-### Build
+| Variable | Default | Controls |
+|----------|:-------:|----------|
+| PTB_ENABLED | true | PTB intelligence layer |
+| COT_ENABLED | false | COT data provider |
+| DXY_ENABLED | false | DXY provider |
+| SENTIMENT_ENABLED | false | Ollama sentiment analysis |
+| RL_MODE | disabled | RL strategy optimizer |
+
+### Service Ports
+
+| Service | Port |
+|---------|:----:|
+| Realtime Engine | 13081 |
+| Control Plane | 13080 |
+| Frontend | 13082 |
+| Status Page | 13083 |
+| Live Terminal | 13090 |
+| PostgreSQL | 5432 |
+| Valkey | 6379 |
+| Prometheus | 9090 |
+| Grafana | 3001 |
+| ntfy Alerts | 8091 |
+| Nginx | 80/443 |
+
+### Build Commands
+
+```bash
+make go-build       # Go realtime engine
+make control-build  # NestJS control plane
+make frontend-build # Next.js frontend
+make test           # All 3 test suites
+make lint           # All linters
 ```
-make go-build       # Realtime engine
-make control-build  # NestJS
-make frontend-build # Next.js
-make test           # All 3 suites
-```
+
+### Production Checklist
+- [ ] Supply production API keys (TwelveData, FMP, Stripe, NOWPayments)
+- [ ] Set strong JWT_SECRET (32+ characters)
+- [ ] Configure CORS_ORIGINS to production domains
+- [ ] Set up SSL certificates
+- [ ] Enable firewall (ports 80/443 only public)
+- [ ] Configure database backups
+- [ ] Set up Prometheus/Grafana alerts
+- [ ] Compile MQL4/MT5 EAs on Windows
+- [ ] Test broker connectivity in dry-run mode

@@ -1,334 +1,170 @@
 # Predict-A-Trade XAUUSD
 
-Predict-A-Trade is a multi-plane XAUUSD trading and subscription platform. The repository contains the Go real-time trading plane, NestJS control plane, Next.js presentation plane, Python research plane, Windows/MetaTrader edge components, PostgreSQL/TimescaleDB persistence, Valkey cache, and Docker deployment configuration.
+Multi-plane XAUUSD trading signal generation and analytics platform.
 
-This README reflects the repository state as of **25 August 2026** (v1.15.0). It records what is present and wired in this checkout; it does not claim production readiness where provider, broker, security, or acceptance evidence is missing.
+**Version:** v1.16.0 | **Date:** 26 August 2026 | **Verdict:** CONDITIONAL GO (70/100)
 
-## Current status
+## Quick Start
 
-Overall status: **PARTIAL / CONDITIONAL — improving toward production readiness**.
-
-Verified in the current workspace (25 August 2026):
-
-- Go realtime tests pass with `go test -race ./...` (30/30 packages, 0 failures).
-- Frontend tests pass, TypeScript check passes, production build passes.
-- Frontend ESLint: 0 errors, 47 warnings.
-- **CI/CD: All 6 GitHub Actions jobs passing** (Go, NestJS, Frontend, Python, Windows Agent, Security).
-- Docker services healthy: `pat-postgres`, `pat-valkey`, `pat-realtime`, `pat-control`, `pat-frontend`, `pat-nginx`, `pat-grafana`, `pat-prometheus`, `pat-ntfy`, `pat-status`.
-- **5 strategy engines verified LIVE**: STANDARD_SCALPING, ULTRA_SCALPING, STANDARD_SWING, TREND_SWING, MARNIE_FIB.
-- **13 indicator evidence pillars working**: EMA, ADX, VWAP, MACD, OsMA, RSI, Stoch, CCI, MTF, SMC/FVG, cross-market confluence.
-- **ML inference + Ollama sentiment analysis ENABLED** (DXY→macroHealth wiring fixed).
-- **Server-side SL enforcement active**: EXECUTION_ACK verification, position SL monitoring, CLOSE_POSITION/EMERGENCY_STOP/KILL_SWITCH commands, agent suspension.
-- **Legal compliance**: Terms of Service, Privacy Policy, Data Processing & Security Agreement published. Signup form with 6 consent checkboxes. Backend consent tracking with audit logging.
-- Migrations 001-072 applied (including marketing consent columns and calibration tables).
-- No production payment, subscription, commission, payout, or live-trading mutation was performed.
-
-## Architecture and runtime wiring
-
-```text
-MT4/MT5 terminal
-        │
-        ▼
-Windows Agent / Master Node ── WebSocket ──► Go Real-Time Engine :13081
-                                                   │
-                         ┌─────────────────────────┼──────────────────────┐
-                         ▼                         ▼                      ▼
-                 Market ingestion            Features/PTB             Strategies
-                 candles/ticks               indicators/structure      four engines
-                         │                         │                      │
-                         └─────────────────────────┴──────────┬───────────┘
-                                                               ▼
-                                                   deterministic signal engine
-                                                   + hard risk gates
-                                                   + SL enforcement (server-side)
-                                                               │
-                                              TimescaleDB + Valkey + WebSocket
-                                                               │
-                 ┌─────────────────────────────────────────────┴──────────┐
-                 ▼                                                        ▼
-       Next.js presentation :13082                              Windows/MT delivery
-       user/admin dashboards
-
-       NestJS control plane :13080 ── IAM, billing, plans, entitlements,
-                                     licensing, devices, referrals,
-                                     commissions, payouts, audit, backtests
-
-       Python research plane ── datasets, backtests, calibration, ML/RL research
+```bash
+git clone https://github.com/simhaonline/predictatrade.git
+cd predictatrade/xauusd
+cp realtime/.env.example realtime/.env
+# Edit realtime/.env: set TWELVEDATA_API_KEY, FMP_API_KEY
+docker compose up -d
+curl http://localhost:13081/health
 ```
 
-### Plane boundaries
+## Architecture
 
-| Plane | Location | Responsibility | Must not become |
-|---|---|---|---|
-| Real-time trading | `realtime/` | Market data, features, strategies, signals, hard gates, delivery and reconciliation | A synchronous billing/referral dependency |
-| SaaS/control | `control/` | IAM, MFA, RBAC, subscriptions, billing, entitlements, licensing, devices, referrals, commissions, payouts, admin | The tick-to-signal hot path |
-| Presentation | `frontend/` | Public site, user dashboard, admin console, charts and commercial UI | The authority for risk, entitlement, finance or probability |
-| Research | `research/` and `scripts/` | Historical data, backtesting, validation, calibration, ML/RL research | A mandatory dependency for every live tick |
-| Windows/MT edge | `windows-agent/`, `mql/` | Broker/terminal adapter, heartbeat, signed signal handling and execution guards | Primary intelligence or private server credentials |
+```
+MT4/MT5 → Windows Agent → WebSocket → Go Realtime Engine :13081
+                                          │
+                    ┌─────────────────────┼──────────────────┐
+                    ▼                     ▼                  ▼
+            Market Ingestion        Feature Registry    Strategy Engines
+            (candles/ticks)        (42 indicators)     (5 engines)
+                    │                     │                  │
+                    └─────────────────────┴────────┬─────────┘
+                                                    ▼
+                                          Signal Engine + 16 Risk Gates
+                                          (deterministic, fail-closed)
+                                                    │
+                                    TimescaleDB + Valkey + WebSocket
+                                                    │
+                          ┌─────────────────────────┴──────────┐
+                          ▼                                    ▼
+                  Next.js Frontend :13082              Windows/MT Delivery
+                  NestJS Control :13080
+```
 
-## Docker services
-
-All application services are defined in [docker-compose.yml](docker-compose.yml). The repository’s intended runtime is Docker Compose; systemd files under `infra/systemd/` are compatibility/deployment artifacts and are not the active compose runtime.
+## Services
 
 | Service | Container | Port | Role |
-|---|---|---:|---|
-| `postgres` | `pat-postgres` | 5432 | PostgreSQL 17 / TimescaleDB |
-| `valkey` | `pat-valkey` | 6379 | Cache, counters and hot state |
-| `realtime` | `pat-realtime` | 13081 | Go HTTP/WebSocket realtime engine |
-| `control` | `pat-control` | 13080 | NestJS API/control plane |
-| `frontend` | `pat-frontend` | 13082 | Next.js presentation plane |
-| `status` | `pat-status` | 13083 | Status page service |
-| `nginx` | `pat-nginx` | 80/443 | Reverse proxy, TLS and WebSocket routing |
-| `prometheus` | `pat-prometheus` | 9090 internal | Metrics collection |
-| `grafana` | `pat-grafana` | 3001→3000 | Dashboards |
-| `ntfy` | `pat-ntfy` | 8091→80 | Optional self-hosted notifications |
+|---------|-----------|:----:|------|
+| Realtime Engine | pat-realtime | 13081 | Go HTTP/WebSocket signal engine |
+| Control Plane | pat-control | 13080 | NestJS IAM, billing, licensing |
+| Frontend | pat-frontend | 13082 | Next.js user/admin dashboards |
+| Status Page | pat-status | 13083 | System health status |
+| Live Terminal | pat-live-terminal | 13090 | Bloomberg-style terminal |
+| PostgreSQL | pat-postgres | 5432 | TimescaleDB hypertables |
+| Valkey | pat-valkey | 6379 | Cache and hot state |
+| Nginx | pat-nginx | 80/443 | Reverse proxy, TLS, WS routing |
+| Prometheus | pat-prometheus | 9090 | Metrics collection |
+| Grafana | pat-grafana | 3001 | Dashboards |
+| ntfy | pat-ntfy | 8091 | Notifications |
 
-Useful commands:
+## Strategy Engines
+
+| Engine | ID | TFs | Min Score | Expiry | Status |
+|--------|----|-----|:---------:|:------:|:------:|
+| Standard Scalping | STANDARD_SCALPING | M1/M5 | 65 | 10m | LIVE |
+| Ultra Scalping | ULTRA_SCALPING | M1 | 60 | 5m | LIVE |
+| Standard Swing | STANDARD_SWING | M15/H1 | 68 | 30m | LIVE |
+| Trend Swing | TREND_SWING | H1/H4 | 70 | 60m | LIVE |
+| MARNIE_FIB | MARNIE_FIB | H1 | 70 | 60m | SHADOW |
+
+## Evidence Scoring
+
+13 pillars with family caps: TREND(0.35), MOMENTUM(0.30), STRUCTURE(0.25), LIQUIDITY(0.20), SMC(0.20), MTF(0.20), CANDLE(0.20), REGIME(0.15), VWAP(0.15), VOLATILITY(0.15), ML(0.25), SENTIMENT(0.25), SESSION_ORB(0.15)
+
+42 indicators, 35 live, 7 warming up.
+
+## Risk Gates (16 gates, ordered)
+
+ExecutionPermission → BrokerSymbolValidation (P0) → SeedCapitalProtection → DailyLossLimit → MaxSpread → NewsRisk → Slippage → MaxPositions → MaxExposure → Cooldown → StopHuntFilter → MarginCheck → OvertradeProtection → MaxDailyTrades → RegimeFilter → ProfitTarget
+
+## v1.16.0 Features (P2 — ACTIVE)
+
+- P2-001: Session ORB — Asian/London/NY opening ranges, breakout detection
+- P2-002: Pin Bar geometry — body/wick ratios, rejection scoring
+- P2-003: Pullback detection — depth %, ATR retracement, continuation
+- P2-004: Trade Group ID — multi-position signal tracking
+- P2-005: SLO targets — availability, latency, error budgets
+
+## Plane Boundaries (mandatory)
+
+| Plane | Location | Authority | Must NOT become |
+|-------|----------|-----------|-----------------|
+| Go Realtime | realtime/ | Market data, features, signals, gates | Synchronous billing |
+| NestJS Control | control/ | IAM, subscriptions, billing, licensing | Tick-to-signal hot path |
+| Next.js Frontend | frontend/ | UI rendering | Risk/entitlement authority |
+| Python Research | research/ | Backtesting, calibration, ML | Live tick dependency |
+| Windows/MQL Edge | windows-agent/, mql/ | Order execution | Primary intelligence |
+
+## Current Status (26 August 2026)
+
+| Check | Status |
+|-------|:------:|
+| Go tests (28/28 packages) | PASS |
+| Frontend tests (70) | PASS |
+| Python tests (127) | PASS |
+| TypeScript check | PASS |
+| All services running | PASS |
+| 16 risk gates active | PASS |
+| SL enforcement server-side | ACTIVE |
+| Broker symbol validation (P0-001) | ACTIVE |
+| Price precision rounding (P1-001) | ACTIVE |
+| Math parity (MAPE < 0.0001) | PASS |
+| 49/49 geometry validations | PASS |
+| 5 production blockers | ALL CLOSED |
+| MQL EAs compiled | Operator action |
+| Production API keys | Operator action |
+| Backup/restore tested | Operator action |
+
+## Go Realtime Plane
+
+Located in `realtime/`. Key packages:
+
+- `internal/marketdata` — agent provider, tick/candle aggregation, COT, DXY providers
+- `internal/features` — 42 indicators, structure, regime, VWAP, Fibonacci, FVG, pivot points
+- `internal/strategy` — 5 strategy engines, evidence scoring, confluence, geometry
+- `internal/gates` — 16 hard risk gates (ordered, fail-closed)
+- `internal/signal` — master decision engine, cooldown, duplicate prevention
+- `internal/gateway` — HTTP, dashboard WS, Windows Agent WS handlers
+- `internal/crossmarket` — DXY, BTC, Oil macro module
+- `internal/ml` — ONNX model inference (advisory)
+- `internal/sentiment` — Ollama sentiment analysis (advisory)
+- `internal/ptb` — Professional Trader Brain intelligence layer
+- `pkg/health`, `pkg/news`, `pkg/macro`, `pkg/mt5` — public utilities
+
+## Documentation
+
+- [SCOPE_OF_WORK.md](realtime/SCOPE_OF_WORK.md) — Full project scope and specifications
+- [CHANGELOG.md](realtime/CHANGELOG.md) — Version history v1.0-v1.16.0
+- [DOCKER_COMPOSE_REFERENCE.md](realtime/DOCKER_COMPOSE_REFERENCE.md) — Docker architecture
+- [PRODUCTION_READINESS_AUDIT.md](realtime/PRODUCTION_READINESS_AUDIT.md) — Audit: 70/100
+- [docs/](docs/) — Architecture, strategy playbooks, indicators, gates, API, database, deployment
+
+## Build & Test
 
 ```bash
-docker compose up -d
+# All services
+make build && make test && make lint
+
+# Individual planes
+make go-build          # Go realtime engine
+make go-test           # Go tests (28 packages)
+make control-build     # NestJS control plane
+make frontend-build    # Next.js frontend
+make research-test     # Python tests (127 tests)
+
+# Docker
 docker compose up -d --build
 docker compose ps
-docker compose logs -f realtime
-docker compose restart frontend
-docker compose build control && docker compose up -d control
 ```
 
-The compose healthchecks currently use PostgreSQL readiness, Valkey ping, realtime `/health`, control `/api/v1/health`, and frontend `/` checks.
+## Production Safety
 
-## Go realtime plane
+Without explicit operator authorization, do NOT:
+- Enable live automated trading
+- Place or close live broker orders/positions
+- Mutate real subscriptions, commissions, wallets or payouts
+- Run destructive production migrations
+- Export secrets or rotate signing keys
 
-The realtime binary is built from `realtime/cmd/realtime-engine`. Important packages include:
+NO-TRADE is a valid first-class result. ML/AI components are advisory only and cannot override deterministic gates.
 
-- `internal/marketdata`: agent provider, tick/candle aggregation, historical bootstrap, persistence, COT and DXY providers.
-- `internal/features`: indicators, rolling values, VWAP, Fibonacci, FVG, liquidity, structure, regime, session and multi-timeframe state.
-- `internal/strategy`: four independent products, scoring, geometry, confluence, thresholds, capability checks and no-trade behavior.
-- `internal/gates`: data quality, session/news, spread/slippage/cost, exposure, margin, R:R, entitlement, license, execution permission and capital protection.
-- `internal/signal`: signal lifecycle, cooldown, duplicate prevention and delivery helpers.
-- `internal/gateway`: HTTP, dashboard WebSocket and Windows Agent WebSocket handlers.
-- `internal/cache`: Valkey candle and hot-state access.
-- `internal/ptb`: Professional Trader Brain shared analysis; PTB modules are not allowed to bypass hard gates.
-- `internal/reconciliation`, `internal/recovery`, `internal/oco`, `internal/hedging`: operational and trade-management support.
-- `pkg/health`, `pkg/news`, `pkg/macro`, `pkg/mlengine`, `pkg/ollama`, and `pkg/notifications`: health, provider and optional intelligence integrations.
+## License
 
-The four strategy identifiers are:
-
-```text
-STANDARD_SCALPING
-ULTRA_SCALPING
-STANDARD_SWING
-TREND_SWING
-```
-
-`NO-TRADE`, `BLOCKED`, `WAIT`, and degraded/unknown states are valid outcomes. A score, UI request, or frequency target must not force a trade.
-
-### Data truth
-
-- Production signal generation is intended to require a live Master Node/MT5 Agent source.
-- Broker tick volume is a proxy, not centralized XAUUSD exchange volume.
-- DOM, CVD, aggressor-side, footprint, iceberg and global resting-liquidity claims require an explicitly available provider capability.
-- Missing required data must degrade quality or produce `NO-TRADE`; synthetic/replay data must remain visibly non-production.
-- ML/RL/LLM components are optional/research or asynchronous presentation capabilities and cannot override deterministic gates.
-
-### Realtime endpoints and events
-
-The Go gateway exposes HTTP health/snapshot routes and WebSocket paths including `/ws`, `/ws/v1`, `/ws/v1/agent`, and `/ws/agent`. Event envelopes contain event ID, stream ID, sequence, schema version, timestamp, type, priority, payload, and optional correlation ID.
-
-The current repository has strategy filtering code in the WebSocket broadcaster, but authenticated browser identity binding and complete user entitlement hydration/refresh remain pending. Do not treat the current WebSocket as complete user-level authorization.
-
-## NestJS control plane
-
-The NestJS application is under `control/src/` and is assembled by `control/src/app.module.ts`. Current modules include `auth`, `users`, `admin`, `health`, `plans`, `subscriptions`, `billing`, `licensing`, `device-auth`, `referrals`, `commissions`, `payouts`, `audit`, `operations`, `backtest`, and `guest-preview`.
-
-Representative API groups are:
-
-```text
-/api/v1/auth/*
-/api/v1/users/*
-/api/v1/plans
-/api/v1/subscriptions
-/api/v1/subscriptions/entitlements
-/api/v1/billing/invoices
-/api/v1/billing/webhook
-/api/v1/referrals/*
-/api/v1/commissions/*
-/api/v1/payouts/*
-/api/v1/licensing/*
-/api/v1/devices/*
-/api/v1/admin/*
-/api/v1/backtest/*
-/api/v1/health
-```
-
-JWT authentication and admin guards exist. The subscription policy validates known strategy IDs, plan strategy limits, Free restrictions, and Standard restrictions. The entitlement endpoint currently returns the effective subscription row and plan entitlement map; a complete dashboard capability manifest and per-resource authorization layer are still pending.
-
-The billing webhook service currently acknowledges/logs received events but does not constitute a verified provider adapter. Paid activation, signature verification, refunds, chargebacks, and lifecycle propagation therefore remain unverified.
-
-## Next.js presentation plane
-
-The Next.js app is under `frontend/src/app`.
-
-User routes include:
-
-```text
-/dashboard/live
-/dashboard/signals
-/dashboard/strategies
-/dashboard/backtest
-/dashboard/trading-reports
-/dashboard/billing
-/dashboard/referrals
-/dashboard/mt4-mt5-client
-/dashboard/settings
-```
-
-Admin routes include dashboard, users, subscriptions, billing, referrals, commissions, payouts, licenses, devices, activations, operations, signals, indicator monitoring, strategies, backtesting, reports, health, logs, and settings pages.
-
-Shared layout and design tokens are in `frontend/src/components/layout` and `frontend/src/styles/globals.css`. The current dashboard palette follows `predictatrade-live-patched.html`; API and backend code are not responsible for visual token changes.
-
-The frontend is a presentation layer. It must render server-authoritative plan, entitlement, signal, risk, execution, commission and payout state. Full capability-driven navigation, Free-only signal allocation UI, response-field redaction, and all direct-URL/API security tests remain pending; see [pending-work.md](pending-work.md).
-
-## Subscription, referral and financial model
-
-The active commercial packages are:
-
-| Code | Monthly | Annual | New sales |
-|---|---:|---:|---|
-| FREE | $0 | not configured | Enabled |
-| STANDARD | $99 | $990 | Enabled |
-| PRO | $299 | $2,990 | Enabled |
-| ELITE | $699 | $6,990 | Enabled |
-| BASIC | historical | historical | Hidden/legacy |
-
-The current v3 referral configuration is effective-dated:
-
-- Standard: 10% / 3% / 1% at levels 1 / 2 / 3.
-- Pro: 15% / 4% / 2% at levels 1 / 2 / 3.
-- Elite: 18% / 5% / 2% at levels 1 / 2 / 3.
-- First purchase: 100% multiplier through level 3.
-- Second purchase: 75% multiplier at level 1.
-- Recurring purchase: 50% multiplier through level 3.
-
-Money is represented with PostgreSQL `DECIMAL(18,8)` and commission records are ledger-oriented. Existing historical rows are preserved. Calculation policy exists and is unit-tested, but provider-backed event activation and complete production reconciliation remain pending.
-
-## Database structure
-
-Database files are in `database/migrations/`. There are 25 migration files in this checkout, with historical duplicate numeric prefixes retained for compatibility. `scripts/migrate.sh` is the canonical forward runner and records status in `audit.migration_history`; rollback is explicitly not implemented by the runner and requires PITR or a forward correction.
-
-### Schemas
-
-| Schema | Main responsibility |
-|---|---|
-| `iam` | Organizations, users, roles, memberships, sessions and authentication state |
-| `control` | Plans, plan entitlements, strategy configuration, feature/config state |
-| `billing` | Subscriptions, invoices, invoice items, payments, payment events, refunds and credits |
-| `licensing` | Licenses, devices, MT accounts and activation state |
-| `referral` | Affiliate profiles, codes, attribution, five-level relationships, rules, immutable commission ledger, wallets, payout methods and payouts |
-| `trading` | Signals, candidates, rejections, delivery, market state, positions, risk, PTB, strategy and audit history |
-| `market` | Market data, candles, provider/provenance and capability state |
-| `research` | Research/backtest and model-related durable data |
-| `audit` | Audit events, migration history and operational traceability |
-| `support` | Support/complaint-related records where enabled by migrations |
-
-### Important migrations
-
-| Migration | Purpose |
-|---|---|
-| 001–008 | Schemas/roles, IAM, plans/billing/licensing, referral/commission/payout, trading tables, session/token, device activation |
-| 009–011 | Signal delivery/replay, completion audit, COT/capability WAL |
-| 012–014 | PTB intelligence, synthesis/performance, advanced risk/adaptation/hedging/sentiment |
-| 015–023 | Backtesting, stale-operation fixes, reconciliation, regime/slippage/SLTP/trade-management, news/OCO/notifications, guest preview |
-| 024 | v3 plan metadata, effective entitlement versions, strategy preferences, commercial events, signal-delivery ledger, commission snapshots, v3 rules and feature flags |
-| 025 | Subscription billing interval persistence and index |
-
-Migration 024 creates the durable `trading.signal_delivery_ledger`, but a complete production distribution writer and concurrent Free-quota consumption path are not yet proven. Valkey is cache/optimization state, not the durable financial or quota authority.
-
-## Research plane
-
-The Python package under `research/src/patresearch` provides datasets, reference math, vectorized indicators, calibration, backtesting, ML training and RL training. Tests are under `research/tests`. Python research artifacts must not silently become mandatory for the live Go decision path.
-
-Typical research commands:
-
-```bash
-cd research
-python -m pytest tests/ -v --tb=short
-python -m patresearch.backtesting.cli run --strategy STANDARD_SCALPING --seed 42
-```
-
-## Windows Agent and MetaTrader edge
-
-The Go Windows Agent is under `windows-agent/`; MQL adapters are under `mql/mt4` and `mql/mt5`. The edge responsibilities include installation/update support, device identity, heartbeats, IPC/pipe support, broker/terminal state, signed signal handling, and execution guards. Server-side prediction, private signing keys, and primary entitlement authority do not belong in EAs.
-
-Build/validation entry points:
-
-```bash
-./scripts/build-windows-agent.sh --bump
-cd windows-agent && go test -race -count=1 ./...
-```
-
-Live broker/terminal qualification still requires controlled Windows/MT4/MT5 runtime evidence and must not be inferred from compilation alone.
-
-## Observability and operations
-
-Prometheus and Grafana configuration is under `infra/prometheus` and `infra/grafana`. Go metrics include realtime health, WebSocket connections/messages, PTB analysis, gate state, signal flow and provider state. Structured logging is used by the Go engine; NestJS exposes health and metrics support through its modules.
-
-Operational and validation documentation is under:
-
-- `docs/reports/` — audit, production, GO/NO-GO and traceability reports.
-- `docs/database/` — schema, migration, traceability and performance documentation.
-- `docs/operations/` — operational procedures.
-- `docs/guides/` — user/admin/MT setup guides.
-- `docs/strategy/` — strategy and capability documentation.
-- `docs/SUBSCRIPTION_*` — current subscription/referral design and evidence.
-- [pending-work.md](pending-work.md) — open work required for complete `prompt.md` acceptance.
-
-## Canonical development commands
-
-```bash
-# Infrastructure
-make infra-up
-make infra-down
-docker compose ps
-
-# Database
-make db-migrate
-make db-seed
-make db-test
-
-# Go
-make go-build
-make go-test
-make go-lint
-
-# Control plane
-make control-build
-make control-test
-make control-lint
-
-# Frontend
-make frontend-build
-make frontend-test
-make frontend-lint
-
-# Research and edge
-make research-test
-make agent-build
-make agent-test
-```
-
-Use `npm run lint` from `frontend/` for the frontend lint check because the production frontend image intentionally contains the compiled runtime rather than the source/configuration tree.
-
-## Security and production boundary
-
-Do not enable live automated trading, mutate real subscriptions/commissions/wallets/payouts, run destructive production migrations, export secrets, rotate signing keys, or publish unsupported performance claims without explicit operator authorization and the applicable release evidence.
-
-Local compose defaults include development credentials and must not be used as production secrets. Production requires injected secrets, TLS, provider credentials, broker/agent qualification, backup/restore evidence, financial reconciliation, entitlement/security tests, and rollback readiness.
-
-## Primary project controls
-
-- [AGENTS.md](AGENTS.md) — repository operating contract.
-- [prompt.md](prompt.md) — user-dashboard v3 entitlement/subscription/access-control requirements.
-- [docs/Predict-A-Trade_FINAL_SCOPE_OF_WORK.md](docs/Predict-A-Trade_FINAL_SCOPE_OF_WORK.md) — canonical SOW.
-- [pending-work.md](pending-work.md) — current verified gaps and acceptance work.
-- [plans-summary.md](plans-summary.md) — current plan and referral summary.
-- [MANIFEST.md](MANIFEST.md) — repository manifest.
+MIT License — see [LICENSE](LICENSE)

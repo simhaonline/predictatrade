@@ -1,7 +1,7 @@
 # Risk Gates
 ## v1.16.0 — 26 August 2026
 
-### Gate Pipeline (16 gates, ordered)
+### Gate Pipeline (16 gates, ordered execution)
 
 | # | Gate | Type | Behaviour |
 |---|------|------|-----------|
@@ -23,7 +23,10 @@
 | 16 | ProfitTarget | Capital | Fail-closed |
 
 ### P0-001: BrokerSymbolValidationGate (v1.16.0)
-Validates SL/TP/lot against broker symbol metadata. Degrades (doesn't veto) when metadata unavailable. Rounding applied in signal engine.
+Validates SL/TP/lot against broker symbol metadata (min stop, min freeze, max spread). Degrades (doesn't veto) when broker metadata unavailable. Price rounding to broker digits applied in signal engine (P1-001).
 
 ### Safety Principles
-All gates registered via RegisterOrdered(). NO-TRADE is valid first-class result. Gate failures produce distinct status from NO-TRADE.
+- All gates registered via `RegisterOrdered()` — order is enforced
+- NO-TRADE is a valid first-class result
+- Gate failures produce distinct status (never masked as NO-TRADE)
+- Engine liveness tracking distinguishes DEGRADED from NO-TRADE

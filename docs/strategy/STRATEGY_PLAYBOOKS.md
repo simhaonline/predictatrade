@@ -12,47 +12,32 @@
 | 5 | MARNIE_FIB | MARNIE_FIB | H1 | 70 | 60m | SHADOW |
 
 ### Standard Scalping (M1/M5)
-**Personality:** Quick scalping, high-frequency, low-exposure
+- Personality: Quick scalping, high-frequency, low-exposure
 - Decision TF: M1, HTF confirmation: M5
-- Min ATR: 5 pips
-- Max spread: 2.5 pips
-- SL buffer: 1.5× ATR
-- TP1: 1.0× ATR, TP2: 2.0× ATR, TP3: 3.0× ATR
+- Min ATR: 5 pips, Max spread: 2.5 pips
+- SL buffer: 1.5x ATR, TP1: 1.0x, TP2: 2.0x, TP3: 3.0x
 - Regime: TRENDING_BULLISH, TRENDING_BEARISH, RANGE
-- News risk: LOW only
 
 ### Ultra Scalping (M1)
-**Personality:** Ultra-fast, lower thresholds, quick exits
+- Personality: Ultra-fast, lower thresholds, quick exits
 - Decision TF: M1
-- Min ATR: 3 pips
-- Max spread: 2.0 pips
-- SL buffer: 1.0× ATR
-- TP1: 0.75× ATR, TP2: 1.5× ATR
-- Regime: all (fast adaptation)
-- News risk: NONE only
+- Min ATR: 3 pips, Max spread: 2.0 pips
+- SL buffer: 1.0x ATR, TP1: 0.75x, TP2: 1.5x
 
 ### Standard Swing (M15/H1)
-**Personality:** Medium-term swings, structure-focused
+- Personality: Medium-term swings, structure-focused
 - Decision TF: M15, HTF: H1
-- Min ATR: 8 pips
-- Max spread: 3.0 pips
-- SL buffer: 2.0× ATR (wider)
-- TP1: 1.5× ATR, TP2: 3.0× ATR
-- Requires HTF trend alignment
+- Min ATR: 8 pips, Max spread: 3.0 pips
+- SL buffer: 2.0x ATR, TP1: 1.5x, TP2: 3.0x
 
 ### Trend Swing (H1/H4)
-**Personality:** Long-term trend following, high conviction
+- Personality: Long-term trend following, high conviction
 - Decision TF: H1, HTF: H4
-- Min ATR: 12 pips
-- Max spread: 3.5 pips
-- SL buffer: 2.5× ATR (widest)
-- TP1: 2.0× ATR, TP2: 4.0× ATR
-- Min score: 70
-- Requires H4 trend alignment
+- Min ATR: 12 pips, Max spread: 3.5 pips
+- SL buffer: 2.5x ATR, TP1: 2.0x, TP2: 4.0x
 
 ### MARNIE_FIB (H1) — SHADOW
-**Personality:** Fibonacci confluence trader
-- Decision TF: H1
+- Personality: Fibonacci confluence trader
 - Fibonacci levels: 38.2%, 50%, 61.8%, 78.6%
-- Requires: BOS/CHoCH + at least 2 fib confluences
-- Status: SHADOW — accumulating outcomes before activation
+- Requires BOS/CHoCH + 2+ fib confluences
+- Accumulating outcomes before activation

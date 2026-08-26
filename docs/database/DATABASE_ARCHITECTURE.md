@@ -7,18 +7,27 @@
 - pgcrypto (encryption)
 
 ### Schemas
-| Schema | Purpose |
-|--------|---------|
-| iam | Users, roles, sessions, devices |
-| billing | Subscriptions, plans, licenses |
-| finance | Commissions, payouts, ledger |
-| trading | Signals, orders, positions |
-| market | Candles (hypertable), COT, ticks |
-| calibration | Model versions, predictions, outcomes |
-| ptb | PTB intelligence tables |
-| compliance | Audit events, client events |
-| backtest | Backtesting results |
+| Schema | Purpose | Key Tables |
+|--------|---------|------------|
+| iam | Users, roles, sessions, devices | users, roles, sessions, devices |
+| billing | Subscriptions, plans, licenses | subscriptions, plans, licenses |
+| finance | Commissions, payouts, ledger | ledger_entries, payouts |
+| trading | Signals, orders, positions | signals, orders, positions |
+| market | Candles (hypertable), COT, ticks | candles, cot_data, ticks |
+| calibration | Model versions, predictions | model_versions, predictions |
+| ptb | PTB intelligence | synthesis, performance |
+| compliance | Audit events, client telemetry | client_event_log, audit_events |
+| backtest | Backtesting results | backtest_runs, backtest_results |
 
-### Migrations: 30 applied (001-030)
-### Hypertables: market.candles (1h chunks)
-### Money Types: NUMERIC(18,8) — no float/double
+### Migrations
+- 30 migrations applied (001-030)
+- Located in `database/migrations/`
+- Run via `./scripts/migrate.sh up`
+
+### Hypertables
+- market.candles: 1-hour chunks, TimescaleDB compression
+- Pending: retention policy (operator approval required)
+
+### Money Types
+- All financial columns use `NUMERIC(18,8)` — no float/double anywhere
+- Ledger entries: double-entry with RESERVED → SETTLED state machine
