@@ -16,7 +16,6 @@ const (
 	DefaultLotStep      = 0.01
 	MinLot              = 0.01
 
-	DefaultLeverage          = 500.0
 	DefaultMaxMarginUsagePct = 30.0 // % of free margin usable by one candidate
 )
 
@@ -27,6 +26,10 @@ type SymbolEconomics struct {
 	TickSize     float64
 	LotStep      float64
 	ContractSize float64
+	// LotMin is the broker's minimum tradable lot for the symbol. When > 0 it
+	// overrides the fallback MinLot constant so capital-protection sizing uses
+	// the real floor (some XAUUSD symbols require 0.10+ lots).
+	LotMin float64
 }
 
 // NormalizeEconomics fills zero fields with XAUUSD defaults.
@@ -42,6 +45,9 @@ func NormalizeEconomics(e SymbolEconomics) SymbolEconomics {
 	}
 	if e.ContractSize <= 0 {
 		e.ContractSize = DefaultContractSize
+	}
+	if e.LotMin <= 0 {
+		e.LotMin = MinLot
 	}
 	return e
 }
@@ -75,7 +81,7 @@ func SuggestedLot(equity, riskPctOfEquity, stopDistance float64, e SymbolEconomi
 	}
 	maxRiskDollars := equity * riskPctOfEquity / 100.0
 	lots := FloorToStep(maxRiskDollars/rpl, e.LotStep)
-	if lots < MinLot {
+	if lots < e.LotMin {
 		return 0
 	}
 	return lots
@@ -107,8 +113,15 @@ func MarginAwareLotCap(equity, freeMargin, lot, price, leverage float64) MarginC
 func MarginAwareLotCapWith(equity, freeMargin, lot, price, leverage, maxMarginUsagePct float64, e SymbolEconomics) MarginCheck {
 	e = NormalizeEconomics(e)
 	result := MarginCheck{Equity: equity}
+	// Leverage MUST come from the client's broker account snapshot — every broker
+	// exposes a different ratio, so the server must never assume one. If it is
+	// unknown we fail CLOSED (no trade) rather than silently computing margin
+	// with a wrong (e.g. 500x) ratio, which would understate required margin and
+	// permit over-leverage.
 	if leverage <= 0 {
-		leverage = DefaultLeverage
+		result.Allowed = false
+		result.Reason = "leverage_unknown"
+		return result
 	}
 	if maxMarginUsagePct <= 0 {
 		maxMarginUsagePct = DefaultMaxMarginUsagePct
@@ -149,6 +162,7 @@ type SizingResult struct {
 
 // ComputeSizing performs the full R1/R7 sizing computation for a candidate.
 func ComputeSizing(equity, riskPctOfEquity, entry, sl, requestedLot float64, e SymbolEconomics) SizingResult {
+	e = NormalizeEconomics(e)
 	res := SizingResult{RequestedLot: requestedLot}
 	if entry <= 0 || sl <= 0 {
 		res.VetoOversize = true
@@ -166,7 +180,7 @@ func ComputeSizing(equity, riskPctOfEquity, entry, sl, requestedLot float64, e S
 	res.Oversize = res.RiskDollars > equity*riskPctOfEquity/100.0
 	// Veto only when over cap AND the account cannot trade any viable lot
 	// for this stop distance (R1: account too small).
-	res.VetoOversize = res.Oversize && res.SuggestedLot < MinLot
+	res.VetoOversize = res.Oversize && res.SuggestedLot < e.LotMin
 	return res
 }
 

@@ -76,10 +76,11 @@ type GateInput struct {
 	Direction         types.Direction // BUY or SELL (zero for non-directional evaluation)
 	AccountEquity     float64         // broker snapshot equity (0 = unavailable → fail-closed)
 	AccountFreeMargin float64         // broker snapshot free margin
-	AccountLeverage   float64         // broker leverage (0 → risk.DefaultLeverage)
+	AccountLeverage   float64         // client broker leverage (0 = unknown → fail closed)
 	SymbolTickValue   float64         // broker symbol tick value (0 → XAUUSD default)
 	SymbolTickSize    float64         // broker symbol tick size (0 → XAUUSD default)
 	LotStep           float64         // broker lot step (0 → 0.01)
+	LotMin            float64         // broker minimum lot (0 → 0.01). If even this lot breaches the per-trade risk budget, the candidate is vetoed (protects tiny accounts).
 	RequestedLot      float64         // candidate base lot for this strategy
 	// Position census from the broker snapshot. PositionsKnown=false means
 	// no broker positions data has arrived — the caps gate must DEGRADE,

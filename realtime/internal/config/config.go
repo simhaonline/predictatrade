@@ -67,7 +67,6 @@ type Config struct {
 	// Arming only takes effect when LiveTradingAuthorized is also true.
 	EdgeArmedStrategies []string
 	MaxMarginUsagePct         float64            // MAX_MARGIN_USAGE_PCT of free margin
-	DefaultLeverage           int                // DEFAULT_LEVERAGE when broker snapshot lacks leverage
 	CostToTP1MaxPct           float64            // COST_TO_TP1_MAX_PCT for scalping strategies
 	SlippageCostPoints        float64            // SLIPPAGE_COST_POINTS (price units) added to round-trip cost
 	CommissionCostPoints      float64            // COMMISSION_COST_POINTS (price units) added to round-trip cost
@@ -196,9 +195,9 @@ func Default() *Config {
 		MaxSameDirectionPositions: getEnvInt("MAX_SAME_DIRECTION_POSITIONS", 1),
 		MaxTotalPositions:         getEnvInt("MAX_TOTAL_POSITIONS", 2),
 		MaxPerStrategyPositions:   getEnvInt("MAX_PER_STRATEGY_POSITIONS", 1),
-		MaxDailyLossPct:           getEnvFloat("MAX_DAILY_LOSS_PCT", 2.0),
-		MaxWeeklyLossPct:          getEnvFloat("MAX_WEEKLY_LOSS_PCT", 4.0),
-		MaxMonthlyLossPct:         getEnvFloat("MAX_MONTHLY_LOSS_PCT", 5.0),
+		MaxDailyLossPct:           getEnvFloat("MAX_DAILY_LOSS_PCT", 5.0),
+		MaxWeeklyLossPct:          getEnvFloat("MAX_WEEKLY_LOSS_PCT", 8.0),
+		MaxMonthlyLossPct:         getEnvFloat("MAX_MONTHLY_LOSS_PCT", 12.0),
 		MaxDailyProfitPct:         getEnvFloat("MAX_DAILY_PROFIT_PCT", 5.0),
 		MaxWeeklyProfitPct:        getEnvFloat("MAX_WEEKLY_PROFIT_PCT", 12.0),
 		MartingaleMaxLotRatio:     getEnvFloat("MARTINGALE_MAX_LOT_RATIO", 1.0),
@@ -217,7 +216,6 @@ func Default() *Config {
 		LiveTradingAuthorized: getEnvBool("LIVE_TRADING_AUTHORIZED", false),
 		EdgeArmedStrategies:   splitComma(getEnv("EDGE_ARMED_STRATEGIES", "")),
 		MaxMarginUsagePct:    getEnvFloat("MAX_MARGIN_USAGE_PCT", 30.0),
-		DefaultLeverage:      getEnvInt("DEFAULT_LEVERAGE", 500),
 		CostToTP1MaxPct:      getEnvFloat("COST_TO_TP1_MAX_PCT", 0.30),
 		SlippageCostPoints:   getEnvFloat("SLIPPAGE_COST_POINTS", 0.10),
 		CommissionCostPoints: getEnvFloat("COMMISSION_COST_POINTS", 0.06),

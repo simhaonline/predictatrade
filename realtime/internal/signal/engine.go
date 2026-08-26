@@ -60,6 +60,7 @@ type DecisionInput struct {
 	SymbolTickValue       float64
 	SymbolTickSize        float64
 	LotStep               float64
+	LotMin                float64
 	RequestedLot          float64
 	PositionsKnown        bool
 	OpenBuyPositions      int
@@ -226,6 +227,7 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 		SymbolTickValue:       input.SymbolTickValue,
 		SymbolTickSize:        input.SymbolTickSize,
 		LotStep:               input.LotStep,
+		LotMin:                input.LotMin,
 		RequestedLot:          input.RequestedLot,
 		PositionsKnown:        input.PositionsKnown,
 		OpenBuyPositions:      input.OpenBuyPositions,

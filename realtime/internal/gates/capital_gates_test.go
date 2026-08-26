@@ -353,12 +353,11 @@ func TestSeedCapitalProtectionGateStates(t *testing.T) {
 	if results[types.GateWrongSideSL] != types.GatePass {
 		t.Errorf("wrong_side_sl = %s, want PASS for valid geometry", results[types.GateWrongSideSL])
 	}
-	// Daily loss no longer hard-vetoes on unknown PnL — it defers to the EA's
-	// own MaxDailyLossPct (server-side PnL tracking is a secondary check). The
-	// fail-closed posture for missing broker data is carried by position_caps
-	// (DEGRADED), which keeps AllGatesPass=false.
-	if results[types.GateDailyLoss] != types.GatePass {
-		t.Errorf("daily_loss = %s, want PASS when PnL anchor unknown (EA enforces locally)", results[types.GateDailyLoss])
+	// Daily loss hard-vetoes on unknown PnL (fail closed). The server is the
+	// capital-protection enforcement authority; trading blind on realized/floating
+	// loss can blow through the 5% loss budget. The EA also enforces locally.
+	if results[types.GateDailyLoss] != types.GateVeto {
+		t.Errorf("daily_loss = %s, want VETO when PnL anchor unknown (fail closed)", results[types.GateDailyLoss])
 	}
 }
 

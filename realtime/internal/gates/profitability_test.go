@@ -22,12 +22,15 @@ func TestProfitabilityGate_VetoesLossCandidates(t *testing.T) {
 		t.Errorf("expected VETO for negative-EV candidate, got %s", ev.Result)
 	}
 
-	// 2) Strategy entry gate rejected → veto.
+	// 2) Strategy entry gate rejected → NOT a hard delivery veto. By design the
+	// delivery layer must not re-apply the (intentionally strict) entry filter,
+	// otherwise no positive-EV setup could become EXECUTABLE; rejection is
+	// recorded by the engine, not vetoed here.
 	in2 := in
 	in2.IsLossCandidate = false
 	in2.EntryGatePassed = false
-	if ev := g.Evaluate(in2, GateState{}); ev.Result != types.GateVeto {
-		t.Errorf("expected VETO for rejected entry gate, got %s", ev.Result)
+	if ev := g.Evaluate(in2, GateState{}); ev.Result != types.GatePass {
+		t.Errorf("expected PASS (entry-gate rejection is not a delivery veto), got %s (%v)", ev.Result, ev.ReasonCodes)
 	}
 
 	// 3) Sound candidate → PASS.

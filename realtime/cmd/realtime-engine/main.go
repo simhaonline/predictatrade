@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -1013,6 +1014,7 @@ func main() {
 			// enriched server-side so dashboards never show empty/zero placeholders.
 			Direction      string  `json:"direction"`
 			OpenedAt       string  `json:"opened_at"`
+			Timeframe      string  `json:"timeframe"`
 			StopLoss       float64 `json:"stop_loss"`
 			TakeProfit     float64 `json:"take_profit"`
 			PnlPoints      float64 `json:"pnl_points"`
@@ -1107,20 +1109,42 @@ func main() {
 			}
 		}
 
+		// MAE/MFE: prefer EA-supplied excursion; if the EA omits it (sends 0),
+		// derive a conservative estimate from the planned SL/TP so dashboards
+		// never show deceptive zeros.
+		mae := tr.MAE
+		if mae == 0 {
+			switch direction {
+			case "BUY":
+				mae = tr.Entry - tr.StopLoss
+			case "SELL":
+				mae = tr.StopLoss - tr.Entry
+			}
+		}
+		mfe := tr.MFE
+		if mfe == 0 {
+			switch direction {
+			case "BUY":
+				mfe = tr.TakeProfit - tr.Entry
+			case "SELL":
+				mfe = tr.Entry - tr.TakeProfit
+			}
+		}
+
 		_, err := persister.GetDB().ExecContext(ctxTR, `
 			INSERT INTO trading.trade_results
 				(signal_id, account_id, strategy_id, symbol, direction,
 				 broker_ticket, entry_price, exit_price, stop_loss, take_profit, lot_size,
 				 pnl, pnl_points, close_reason, is_win, is_loss, opened_at, time_in_trade_seconds,
-				 mae, mfe, trading_day)
+				 mae, mfe, trading_day, timeframe)
 			VALUES ($1,$2,$3,'XAUUSD',$4,
 				 $5,$6,$7,$8,$9,$10,
-				 $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,CURRENT_DATE)`,
+				 $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,CURRENT_DATE,$21)`,
 			signalID, "agent:"+agentID, tr.StrategyID,
 			direction,
 			fmt.Sprintf("%d", tr.Ticket), tr.Entry, tr.Exit, tr.StopLoss, tr.TakeProfit, tr.Lot,
 			tr.RealizedPnL, pnlPoints, reason, isWin, isLoss, openedAt, timeInTrade,
-			tr.MAE, tr.MFE)
+			mae, mfe, tr.Timeframe)
 		if err != nil {
 			log.Warn().Err(err).Str("signal_id", tr.SignalID).Msg("TRADE_RESULT persist failed")
 		} else {
@@ -2817,15 +2841,11 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			// Capital protection (R1-R7): broker snapshot + sizing inputs.
 			AccountEquity:     bs.Equity,
 			AccountFreeMargin: bs.FreeMargin,
-			AccountLeverage: func() float64 {
-				if bs.Leverage > 0 {
-					return bs.Leverage
-				}
-				return float64(cfg.DefaultLeverage)
-			}(),
+			AccountLeverage: bs.Leverage, // client broker leverage; 0 → gates fail closed
 			SymbolTickValue:   bs.TickValue,
 			SymbolTickSize:    bs.TickSize,
 			LotStep:           bs.LotStep,
+			LotMin:            bs.LotMin,
 			RequestedLot:      cfg.BaseLots[string(strat.ID())],
 			PositionsKnown:    bs.PositionsKnown,
 			OpenBuyPositions:  bs.BuyCount,
@@ -2886,11 +2906,8 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				slF, _ := decision.Signal.StopLoss.Float64()
 				econ := risk.SymbolEconomics{TickValue: bs.TickValue, TickSize: bs.TickSize, LotStep: bs.LotStep}
 				baseLot := cfg.BaseLots[string(strat.ID())]
-				leverage := bs.Leverage
-				if leverage <= 0 {
-					leverage = float64(cfg.DefaultLeverage)
-				}
-				sizing := risk.ComputeSizing(bs.Equity, cfg.MaxRiskPerTradePct, entryF, slF, baseLot, econ)
+		leverage := bs.Leverage // client broker leverage; 0 → margin cap fails closed
+			sizing := risk.ComputeSizing(bs.Equity, cfg.MaxRiskPerTradePct, entryF, slF, baseLot, econ)
 				decision.Signal.SuggestedLot = decimal.NewFromFloat(sizing.SuggestedLot)
 				decision.Signal.RiskDollars = decimal.NewFromFloat(sizing.RiskDollars)
 				decision.Signal.RiskPctOfEquity = decimal.NewFromFloat(sizing.RiskPctOfEquity)
@@ -3195,6 +3212,7 @@ type brokerAccountState struct {
 	tickValue      float64
 	tickSize       float64
 	lotStep        float64
+	lotMin         float64
 	buyCount       int
 	sellCount      int
 	totalCount     int
@@ -3235,6 +3253,7 @@ func (b *brokerAccountState) Get() brokerAccountSnapshotData {
 		TickValue:      b.tickValue,
 		TickSize:       b.tickSize,
 		LotStep:        b.lotStep,
+		LotMin:         b.lotMin,
 		BuyCount:       b.buyCount,
 		SellCount:      b.sellCount,
 		TotalCount:     b.totalCount,
@@ -3257,6 +3276,9 @@ func (b *brokerAccountState) UpdateSymbol(sym marketdata.SnapshotSymbol) {
 	if sym.LotStep > 0 {
 		b.lotStep = sym.LotStep
 	}
+	if sym.MinLot > 0 {
+		b.lotMin = sym.MinLot
+	}
 }
 
 type brokerAccountSnapshotData struct {
@@ -3267,6 +3289,7 @@ type brokerAccountSnapshotData struct {
 	TickValue      float64
 	TickSize       float64
 	LotStep        float64
+	LotMin         float64
 	BuyCount       int
 	SellCount      int
 	TotalCount     int
@@ -3437,12 +3460,12 @@ func hydrateEdgeStateOnce(gateRegistry *gates.Registry, persister *marketdata.Pe
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		rows, err := persister.GetDB().QueryContext(ctx, `
-			SELECT strategy_id, direction, pnl::float8,
+			SELECT strategy_id, COALESCE(timeframe,'') AS timeframe, direction, pnl::float8,
 			       COALESCE(entry_price,0)::float8, COALESCE(stop_loss,0)::float8,
 			       COALESCE(lot_size,0)::float8
 			FROM (
-				SELECT strategy_id, direction, pnl, entry_price, stop_loss, lot_size,
-				       ROW_NUMBER() OVER (PARTITION BY strategy_id ORDER BY closed_at DESC) AS rn
+				SELECT strategy_id, timeframe, direction, pnl, entry_price, stop_loss, lot_size,
+				       ROW_NUMBER() OVER (PARTITION BY strategy_id, timeframe ORDER BY closed_at DESC) AS rn
 				FROM trading.trade_results
 			) ranked
 			WHERE rn <= $1
@@ -3452,33 +3475,37 @@ func hydrateEdgeStateOnce(gateRegistry *gates.Registry, persister *marketdata.Pe
 			observability.Log.Warn().Err(err).Msg("[EDGE] trade_results query failed — edge gate unchanged")
 			return
 		}
-		var all []risk.TradeRecord
+		// Group trades by (strategy, timeframe) so edge stats are computed per
+		// timeframe — an M1 edge is NOT the same as an H4 edge.
+		type scopeKey struct{ strat, tf string }
+		grouped := make(map[scopeKey][]risk.TradeRecord)
 		for rows.Next() {
 			var t risk.TradeRecord
-			if scanErr := rows.Scan(&t.StrategyID, &t.Direction, &t.PnL,
+			var tf sql.NullString
+			if scanErr := rows.Scan(&t.StrategyID, &tf, &t.Direction, &t.PnL,
 				&t.EntryPrice, &t.StopLoss, &t.LotSize); scanErr == nil {
-				all = append(all, t)
+				tfv := ""
+				if tf.Valid {
+					tfv = tf.String
+				}
+				k := scopeKey{t.StrategyID, tfv}
+				grouped[k] = append(grouped[k], t)
 			}
 		}
 		rows.Close()
 		cancel()
 
-		statsByStrategy := make(map[types.StrategyID]risk.EdgeStats)
-		// Compute per strategy over that strategy's last N trades.
-		grouped := make(map[string][]risk.TradeRecord)
-		for _, t := range all {
-			grouped[t.StrategyID] = append(grouped[t.StrategyID], t)
-		}
-		for id, trades := range grouped {
+		statsByKey := make(map[scopeKey]risk.EdgeStats)
+		for k, trades := range grouped {
 			stats := risk.ComputeEdgeStats(trades)
-			statsByStrategy[types.StrategyID(id)] = stats
+			statsByKey[k] = stats
 			proven := stats.IsProven(cfg.EdgeMinProfitFactor, cfg.EdgeMinExpectancyR, cfg.EdgeMinSampleSize)
 			observability.Log.Info().
-				Str("strategy", id).
+				Str("strategy", k.strat).
+				Str("timeframe", k.tf).
 				Int("sample_size", stats.SampleSize).
 				Float64("profit_factor", stats.ProfitFactor).
 				Float64("expectancy_r", stats.ExpectancyR).
-				Float64("short_expectancy_r", stats.ShortExpectancyR).
 				Bool("proven", proven).
 				Msg("[EDGE] rolling forward-test stats refreshed")
 		}
@@ -3486,72 +3513,57 @@ func hydrateEdgeStateOnce(gateRegistry *gates.Registry, persister *marketdata.Pe
 		now := time.Now().UTC()
 
 		// Write an INDEPENDENT, isolated edge-state scope for every
-		// (strategy, decision-timeframe) pair. This is the capital-protection
-		// isolation fix: previously a single shared map[StrategyID]EdgeStats was
-		// used for ALL strategies at once, so a hydration failure or stale read
-		// silently degraded or blocked every strategy. Now each strategy/timeframe
-		// carries its own fresh state and can fail independently without
-		// cross-contaminating others.
-		strats := strategy.AllStrategies()
-		for id, stats := range statsByStrategy {
-			var tfs []types.Timeframe
-			for _, s := range strats {
-				if s.ID() == id {
-					if p, ok := s.(strategy.DecisionTFProvider); ok {
-						tfs = p.DecisionTimeframes()
-					}
-					break
-				}
+		// (strategy, timeframe) pair actually present in trade history. Each scope
+		// holds ONLY that (strategy, timeframe)'s stats, so a stale/errored or
+		// missing scope for one strategy/timeframe can never veto or degrade any
+		// other (capital-protection isolation fix).
+		for k, stats := range statsByKey {
+			single := map[types.StrategyID]risk.EdgeStats{types.StrategyID(k.strat): stats}
+			proven := stats.IsProven(cfg.EdgeMinProfitFactor, cfg.EdgeMinExpectancyR, cfg.EdgeMinSampleSize)
+			stateResult := types.GateDegraded
+			reasonCode := gates.ReasonEdgeUnproven
+			if proven {
+				stateResult = types.GatePass
+				reasonCode = "edge_stats_available"
 			}
-			if len(tfs) == 0 {
-				tfs = []types.Timeframe{""} // legacy strategies: single catch-all scope
+			gateRegistry.UpdateStateScoped(gates.GateScope{
+				GateID:     types.GateEdgeValidation,
+				StrategyID: types.StrategyID(k.strat),
+				Timeframe:  types.Timeframe(k.tf),
+			}, gates.GateState{
+				GateID:       types.GateEdgeValidation,
+				State:        stateResult,
+				Value:        single,
+				ReasonCode:   reasonCode,
+				EvaluatedAt:  now,
+				SourceVersion: "edge_refresher",
+			})
+		}
+
+		// Ensure every strategy/timeframe the engine can evaluate has SOME scope so
+		// evaluation never silently hits "missing state". For (strategy, tf) pairs
+		// with no trade history yet, seed a neutral advisory (DEGRADED) scope; real
+		// per-tf stats replace it as soon as trades arrive.
+		strats := strategy.AllStrategies()
+		for _, s := range strats {
+			tfs := []types.Timeframe{""}
+			if p, ok := s.(strategy.DecisionTFProvider); ok {
+				if d := p.DecisionTimeframes(); len(d) > 0 {
+					tfs = d
+				}
 			}
 			for _, tf := range tfs {
-				single := map[types.StrategyID]risk.EdgeStats{id: stats}
-				proven := stats.IsProven(cfg.EdgeMinProfitFactor, cfg.EdgeMinExpectancyR, cfg.EdgeMinSampleSize)
-				stateResult := types.GateDegraded
-				reasonCode := gates.ReasonEdgeUnproven
-				if proven {
-					stateResult = types.GatePass
-					reasonCode = "edge_stats_available"
+				scope := gates.GateScope{GateID: types.GateEdgeValidation, StrategyID: s.ID(), Timeframe: tf}
+				if _, ok := gateRegistry.GetStateScoped(scope); ok {
+					continue
 				}
-				gateRegistry.UpdateStateScoped(gates.GateScope{
-					GateID:     types.GateEdgeValidation,
-					StrategyID: id,
-					Timeframe:  tf,
-				}, gates.GateState{
-					GateID:      types.GateEdgeValidation,
-					State:       stateResult,
-					Value:       single,
-					ReasonCode:  reasonCode,
+				gateRegistry.UpdateStateScoped(scope, gates.GateState{
+					GateID:       types.GateEdgeValidation,
+					State:        types.GateDegraded,
+					ReasonCode:   gates.ReasonEdgeUnproven,
 					EvaluatedAt: now,
-					SourceVersion: "edge_refresher",
+					SourceVersion: "edge_refresher_empty",
 				})
-			}
-		}
-		// If no trades exist yet for any strategy, seed a neutral per-strategy
-		// advisory scope so evaluation stays fail-soft (not a global hard veto).
-		if len(statsByStrategy) == 0 {
-			for _, s := range strats {
-				tfs := []types.Timeframe{""}
-				if p, ok := s.(strategy.DecisionTFProvider); ok {
-					if d := p.DecisionTimeframes(); len(d) > 0 {
-						tfs = d
-					}
-				}
-				for _, tf := range tfs {
-					gateRegistry.UpdateStateScoped(gates.GateScope{
-						GateID:     types.GateEdgeValidation,
-						StrategyID: s.ID(),
-						Timeframe:  tf,
-					}, gates.GateState{
-						GateID:      types.GateEdgeValidation,
-						State:       types.GateDegraded,
-						ReasonCode:  gates.ReasonEdgeUnproven,
-						EvaluatedAt: now,
-						SourceVersion: "edge_refresher_empty",
-					})
-				}
 			}
 		}
 }

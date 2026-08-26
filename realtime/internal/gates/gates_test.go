@@ -34,7 +34,7 @@ func setAllGateStatesPass(r *Registry) {
 		types.GateDataQuality, types.GateSession, types.GateNews,
 		types.GateSpread, types.GateSlippage, types.GateTotalCost,
 		types.GateExposure, types.GateMargin, types.GateRRNetExpectancy,
-		types.GateEntitlement, types.GateLicense, types.GateExecutionPermit,
+		types.GateProfitability, types.GateEntitlement, types.GateLicense, types.GateExecutionPermit,
 		types.GateMinATR, types.GateStopHuntFilter,
 	} {
 		val := any(true)

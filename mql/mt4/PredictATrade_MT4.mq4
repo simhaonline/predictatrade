@@ -36,6 +36,7 @@
 // ─── Signal/Execution inputs ───
 input bool    AutoExecute    = true;
 input string  LicenseKey     = "";
+input string  ChartTimeframe = "M1";    // Chart/timeframe this EA instance trades (M1/M5/H1/...)
 
 // ─── Strategy/Direction filters ───
 // Strategy selection is SERVER-CONTROLLED based on your license plan.
@@ -517,10 +518,12 @@ int PAT_LoadStage(int magic)
 //+------------------------------------------------------------------+
 //| Trade result reporting (TRADE_RESULT + CLOSE_ACK via IPC file)    |
 //+------------------------------------------------------------------+
-void PAT_ReportResult(int magic, int ticket, string signalID, string strategyID, string exitReason,
-                      double entry, double exitPx, double lots, double realizedPnl,
-                      bool slCorrect)
-{
+ void PAT_ReportResult(int magic, int ticket, string signalID, string strategyID, string exitReason,
+                       double entry, double exitPx, double lots, double realizedPnl,
+                       bool slCorrect,
+                       string p_timeframe, string p_direction, string p_openedAt,
+                       double p_sl, double p_tp, double p_pnlPoints, int p_timeInTradeSec)
+ {
     if(signalID == "" && strategyID == "")
     {
         int idx = PAT_RegFind(magic);
@@ -532,11 +535,20 @@ void PAT_ReportResult(int magic, int ticket, string signalID, string strategyID,
     msg += ",\"strategy_id\":\"" + strategyID + "\"";
     msg += ",\"magic\":" + IntegerToString(magic);
     msg += ",\"ticket\":" + IntegerToString(ticket);
+    msg += ",\"timeframe\":\"" + p_timeframe + "\"";
+    msg += ",\"direction\":\"" + p_direction + "\"";
+    msg += ",\"opened_at\":\"" + p_openedAt + "\"";
     msg += ",\"exit_reason\":\"" + exitReason + "\"";
     msg += ",\"entry\":" + DoubleToString(entry, _Digits);
     msg += ",\"exit\":" + DoubleToString(exitPx, _Digits);
+    msg += ",\"stop_loss\":" + DoubleToString(p_sl, _Digits);
+    msg += ",\"take_profit\":" + DoubleToString(p_tp, _Digits);
     msg += ",\"lot\":" + DoubleToString(lots, 2);
     msg += ",\"realized_pnl\":" + DoubleToString(realizedPnl, 2);
+    msg += ",\"pnl_points\":" + DoubleToString(p_pnlPoints, 2);
+    msg += ",\"time_in_trade_seconds\":" + IntegerToString(p_timeInTradeSec);
+    msg += ",\"mae\":0.0";
+    msg += ",\"mfe\":0.0";
     msg += ",\"sl_correct\":" + (slCorrect ? "true" : "false");
     msg += "}";
     PAT_Append(PAT_TICK_FILE, msg + "\n");
@@ -665,8 +677,14 @@ void PAT_HistoryPoll()
             sig = PAT_SignalIDFromComment(OrderComment());
             strat = PAT_StrategyFromMagic(magic);
         }
+        double point = MarketInfo(g_symbol, MODE_POINT);
+        double pnlPoints = (point > 0) ? (OrderClosePrice() - entry) / point * (isBuy ? 1 : -1) : 0;
+        string dir = isBuy ? "BUY" : "SELL";
+        string openedAt = FormatISO8601UTC(OrderOpenTime());
+        int timeInTrade = (int)(OrderCloseTime() - OrderOpenTime());
         PAT_ReportResult(magic, ticket, sig, strat, reason, entry, OrderClosePrice(),
-                         OrderLots(), pnl, true);
+                         OrderLots(), pnl, true, ChartTimeframe, dir, openedAt,
+                         sl0, tp1, pnlPoints, timeInTrade);
         GlobalVariableSet(rptName, 1);
     }
 }

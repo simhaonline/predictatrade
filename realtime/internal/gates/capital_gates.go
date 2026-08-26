@@ -9,6 +9,7 @@
 package gates
 
 import (
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +35,11 @@ const (
 	// so this is a HARD VETO (fail closed) even when armed. Distinct from
 	// edge_unproven (bootstrap lack of history, which stays advisory-only).
 	ReasonEdgeNegativeLive = "edge_negative_live"
+	// ReasonRiskUndersize: the broker's minimum lot already risks more than the
+	// per-trade budget for this account (account too small for this stop
+	// distance). Trading at min lot would breach capital protection, so the
+	// candidate is vetoed (NO-TRADE) rather than forced into over-risk.
+	ReasonRiskUndersize = "risk_undersize"
 	// ReasonPositionCapsAuthorized: operator has authorized the strategy for live
 	// trading and the EA enforces position caps locally, so the absent broker
 	// position snapshot does not block the EXECUTABLE signal.
@@ -101,16 +107,19 @@ func (g *RiskOversizeGate) Evaluate(input GateInput, state GateState) GateEvalua
 		return eval
 	}
 	if input.AccountEquity <= 0 {
-		// Broker account not hydrated — PASS and let the EA handle sizing.
-		// The EA has the real account balance and calculates lot size locally.
-		// Server-side risk sizing is a secondary check, not the only one.
-		eval.Result = types.GatePass
+		// Broker account not hydrated — fail CLOSED. Trading blind (unknown
+		// balance/equity) can blow through the per-trade and daily-loss budgets,
+		// especially on small accounts. The EA also enforces sizing locally, but
+		// the server must not be the weak link.
+		eval.Result = types.GateVeto
+		eval.ReasonCodes = []string{ReasonRiskOversize}
 		return eval
 	}
 	econ := risk.SymbolEconomics{
 		TickValue: input.SymbolTickValue,
 		TickSize:  input.SymbolTickSize,
 		LotStep:   input.LotStep,
+		LotMin:    input.LotMin,
 	}
 	sizing := risk.ComputeSizing(input.AccountEquity, g.MaxRiskPerTradePct,
 		input.EntryPrice, input.StopLoss, input.RequestedLot, econ)
@@ -118,6 +127,20 @@ func (g *RiskOversizeGate) Evaluate(input GateInput, state GateState) GateEvalua
 		eval.Result = types.GateVeto
 		eval.ReasonCodes = []string{ReasonRiskOversize}
 		return eval
+	}
+	// Hard protection for small accounts: if even the broker's MINIMUM lot
+	// would risk more than the per-trade budget, trading it would breach
+	// capital protection — veto instead of forcing over-risk. This is the
+	// $50-account case where the stop distance is too large for the balance.
+	if input.LotMin > 0 {
+		slDist := math.Abs(input.EntryPrice - input.StopLoss)
+		minLotRisk := risk.RiskDollars(input.LotMin, slDist, econ)
+		maxRisk := input.AccountEquity * g.MaxRiskPerTradePct / 100.0
+		if minLotRisk > maxRisk {
+			eval.Result = types.GateVeto
+			eval.ReasonCodes = []string{ReasonRiskUndersize}
+			return eval
+		}
 	}
 	eval.Result = types.GatePass
 	return eval
@@ -274,10 +297,12 @@ func (g *DailyLossGate) Evaluate(input GateInput, state GateState) GateEvaluatio
 	eval := g.base(state)
 	snap, ok := state.Value.(PnLSnapshot)
 	if !ok || !snap.Known {
-		// PnL state not hydrated — PASS instead of vetoing.
-		// The EA has its own daily loss protection (MaxDailyLossPct input).
-		// Server-side PnL tracking is a secondary check.
-		eval.Result = types.GatePass
+		// PnL state not hydrated — fail CLOSED. The server is the capital-
+		// protection enforcement authority; trading blind (unknown realized/
+		// floating loss) can blow through the 5% loss budget. The EA enforces
+		// locally too, but the server must not be the weak link.
+		eval.Result = types.GateVeto
+		eval.ReasonCodes = []string{ReasonPnLStateUnknown}
 		return eval
 	}
 	halts := []string{}
@@ -314,8 +339,10 @@ func (g *ProfitTargetGate) Evaluate(input GateInput, state GateState) GateEvalua
 	eval := g.base(state)
 	snap, ok := state.Value.(PnLSnapshot)
 	if !ok || !snap.Known {
-		// PnL state not hydrated — PASS instead of vetoing.
-		eval.Result = types.GatePass
+		// PnL state not hydrated — fail CLOSED (consistent with DailyLossGate).
+		// Do not open new entries when profit-lock status is unknown.
+		eval.Result = types.GateVeto
+		eval.ReasonCodes = []string{ReasonPnLStateUnknown}
 		return eval
 	}
 	hits := []string{}

@@ -301,6 +301,7 @@ type TradeResult struct {
 	TimeInTradeSeconds int64  `json:"time_in_trade_seconds"`
 	MAE                string `json:"mae,omitempty"`
 	MFE                string `json:"mfe,omitempty"`
+	Timeframe          string `json:"timeframe,omitempty"`
 }
 
 // GetRecentTrades returns real executed trades from trading.trade_results.
@@ -313,7 +314,7 @@ func (p *Persister) GetRecentTrades(ctx context.Context, limit int, strategy str
 			pnl, pnl_points, pnl_percent, lot_size,
 			is_win, is_loss, is_breakeven, close_reason,
 			opened_at, closed_at, trading_day, created_at,
-			time_in_trade_seconds, mae, mfe
+			time_in_trade_seconds, mae, mfe, timeframe
 		FROM trading.trade_results
 	`
 	args := []interface{}{}
@@ -343,14 +344,14 @@ func (p *Persister) GetRecentTrades(ctx context.Context, limit int, strategy str
 		var openedAt, closedAt, createdAt sql.NullTime
 		var tradingDay sql.NullTime
 		var timeInTrade sql.NullInt64
-		var maeN, fmeN sql.NullString
+		var maeN, fmeN, tfN sql.NullString
 		err := rows.Scan(
 			&t.ID, &signalID, &t.AccountID, &t.StrategyID, &t.Symbol, &t.Direction,
 			&brokerTicket, &t.EntryPrice, &t.ExitPrice, &sl, &tp,
 			&t.PnL, &t.PnLPoints, &t.PnLPercent, &lot,
 			&t.IsWin, &t.IsLoss, &t.IsBreakeven, &closeReason,
 			&openedAt, &closedAt, &tradingDay, &createdAt,
-			&timeInTrade, &maeN, &fmeN,
+			&timeInTrade, &maeN, &fmeN, &tfN,
 		)
 		if err != nil {
 			continue
@@ -363,6 +364,9 @@ func (p *Persister) GetRecentTrades(ctx context.Context, limit int, strategy str
 		}
 		if fmeN.Valid {
 			t.MFE = fmeN.String
+		}
+		if tfN.Valid {
+			t.Timeframe = tfN.String
 		}
 		if signalID.Valid {
 			t.SignalID = signalID.String
