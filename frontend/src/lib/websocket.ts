@@ -16,6 +16,17 @@ export interface SignalEvent {
   strategy: string;
   timestamp: string;
   status: 'ACTIVE' | 'CLOSED' | 'EXPIRED';
+  // prompt.md Sections 12-14: Quality grade + Expectancy
+  qualityGrade?: string;
+  expectancyR?: number;
+  expectancyScore?: number;
+  // prompt.md Section 18: Rejection diagnostics
+  primaryRejectionReason?: string;
+  rejectionReasons?: string[];
+  // RR fields
+  grossRRTP1?: number;
+  grossRRTP2?: number;
+  grossRRTP3?: number;
 }
 
 export interface MarketDataEvent {

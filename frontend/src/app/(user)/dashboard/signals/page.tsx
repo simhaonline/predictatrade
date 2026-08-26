@@ -39,9 +39,15 @@ interface EngineSignal {
   RiskDollars?: string | number;
   RiskPctOfEquity?: string | number;
   SLDistancePoints?: string | number;
+  // prompt.md Sections 12-14: Quality grade + Expectancy
+  QualityGrade?: string;
+  ExpectancyR?: string;
+  ExpectancyScore?: number;
+  // prompt.md Section 18: Rejection
+  PrimaryRejectionReason?: string;
 }
 
-const STRATEGIES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING"];
+const STRATEGIES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"];
 const DIRECTIONS = ["BUY", "SELL", "BUY_CANDIDATE", "SELL_CANDIDATE", "NO-TRADE"];
 
 function mapWs(s: SignalEvent): EngineSignal {
@@ -199,6 +205,7 @@ export default function UserSignalsPage() {
                 <th className="px-3 py-3 font-medium">Entry</th>
                 <th className="px-3 py-3 font-medium">SL</th>
                 <th className="px-3 py-3 font-medium">TP1</th>
+                <th className="px-3 py-3 font-medium">Quality</th>
                 <th className="px-3 py-3 font-medium">Status</th>
                 <th className="px-3 py-3 font-medium">Regime</th>
                 <th className="px-3 py-3 font-medium">Date</th>
@@ -234,7 +241,17 @@ export default function UserSignalsPage() {
                       <td className="px-3 py-3 text-xs text-pat-text-primary tabular-nums">{num(row.EntryPrice) > 0 ? num(row.EntryPrice).toFixed(2) : "—"}</td>
                       <td className="px-3 py-3 text-xs text-pat-danger tabular-nums">{num(row.StopLoss) > 0 ? num(row.StopLoss).toFixed(2) : "—"}</td>
                       <td className="px-3 py-3 text-xs text-pat-success tabular-nums">{num(row.TP1) > 0 ? num(row.TP1).toFixed(2) : "—"}</td>
-                      <td className="px-3 py-3"><StatusText status={row.Status} /></td>
+                      <td className="px-3 py-3">
+                      {row.QualityGrade ? (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${
+                          row.QualityGrade === "A+" ? "bg-pat-success/15 text-pat-success" :
+                          row.QualityGrade === "A" ? "bg-pat-info/15 text-pat-info" :
+                          row.QualityGrade === "B" ? "bg-pat-warning/15 text-pat-warning" :
+                          "bg-pat-danger/15 text-pat-danger"
+                        }`}>{row.QualityGrade}</span>
+                      ) : <span className="text-xs text-pat-text-muted">—</span>}
+                    </td>
+                    <td className="px-3 py-3"><StatusText status={row.Status} /></td>
                       <td className="px-3 py-3 text-[10px] text-pat-text-muted">{row.Regime || "—"}</td>
                       <td className="px-3 py-3 text-xs text-pat-text-muted">
                         {row.CreatedAt && row.CreatedAt !== "0001-01-01T00:00:00Z" ? format(new Date(row.CreatedAt), "MMM d, HH:mm:ss") : "—"}
@@ -242,7 +259,7 @@ export default function UserSignalsPage() {
                     </tr>
                     {isOpen && (
                       <tr className="bg-pat-bg-surface-secondary/30">
-                        <td colSpan={12} className="px-4 py-4 space-y-3">
+                        <td colSpan={13} className="px-4 py-4 space-y-3">
                           <div className="flex flex-wrap gap-4 text-xs text-pat-text-secondary">
                             <span title="Engine-recommended lot (risk-capped, margin-aware)">
                               Lot: <b className="text-pat-text-primary">{num(row.SuggestedLot) > 0 ? Number(row.SuggestedLot).toFixed(2) : "—"}</b>

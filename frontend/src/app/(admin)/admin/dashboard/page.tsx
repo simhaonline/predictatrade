@@ -340,9 +340,10 @@ export default function AdminDashboardPage() {
                 <div key={s.id} className="flex items-center justify-between rounded-md bg-pat-bg-surface-secondary px-3 py-2">
                   <div className="flex items-center gap-2">
                     <span className={`text-xs font-bold ${s.direction === "BUY" ? "text-pat-success" : s.direction === "SELL" ? "text-pat-danger" : "text-pat-text-muted"}`}>{s.direction}</span>
-                    <span className="text-xs text-pat-text-muted">{s.strategy}</span>
+                    <span className="text-xs text-pat-text-muted">{s.strategy.replace(/_/g, ' ')}</span>
                   </div>
                   <div className="flex items-center gap-3">
+                    {(s as any).qualityGrade && <span className="text-[9px] px-1 py-0.5 rounded-full border bg-pat-info/15 text-pat-info">{(s as any).qualityGrade}</span>}
                     <span className="text-xs text-pat-text-secondary">{(Number(s.probability) * 100).toFixed(1)}%</span>
                     <span className="text-xs text-pat-text-muted">{s.timestamp ? format(new Date(s.timestamp), "HH:mm:ss") : "—"}</span>
                   </div>
@@ -358,7 +359,7 @@ export default function AdminDashboardPage() {
             <IconBolt size={16} /> Active Strategies
           </h2>
           <div className="space-y-2">
-            {["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING"].map((name) => {
+            {["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"].map((name) => {
               const isActive = opsState?.active_strategies?.includes(name);
               return (
                 <div key={name} className="flex items-center justify-between rounded-md bg-pat-bg-surface-secondary px-3 py-2">

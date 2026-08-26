@@ -24,6 +24,19 @@ export interface EngineSnapshot {
   signal_count: number;
   no_trade_count: number;
   error_count: number;
+
+  // prompt.md Sections 17-18: Rejection diagnostics
+  rejection_counts?: Record<string, number>;
+  last_rejection_reason?: string;
+  candidates_today?: number;
+  qualified_today?: number;
+  rejection_rate?: number;
+
+  // prompt.md Section 14: Expectancy
+  expectancy_score?: number;
+
+  // prompt.md Section 32: Config version
+  config_version?: string;
 }
 
 export interface EnginesStatusResponse {

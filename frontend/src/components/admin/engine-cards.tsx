@@ -18,11 +18,29 @@ const HEALTH_STYLES: Record<string, string> = {
   ERROR: "bg-pat-badge-danger-bg text-pat-badge-danger-text border-pat-badge-danger-bg",
 };
 
+// Quality grade color mapping (prompt.md Section 12)
+const GRADE_COLORS: Record<string, string> = {
+  "A+": "bg-pat-badge-success-bg text-pat-badge-success-text border-pat-badge-success-bg",
+  A: "bg-pat-badge-info-bg text-pat-badge-info-text border-pat-badge-info-bg",
+  B: "bg-pat-badge-warning-bg text-pat-badge-warning-text border-pat-badge-warning-bg",
+  REJECTED: "bg-pat-badge-danger-bg text-pat-badge-danger-text border-pat-badge-danger-bg",
+  "NO-TRADE": "bg-pat-badge-neutral-bg text-pat-badge-neutral-text border-pat-badge-neutral-bg",
+};
+
 function age(iso: string | undefined, now: Date): string {
   if (!iso) return "never";
   const t = parseISO(iso);
   if (Number.isNaN(t.getTime())) return "never";
   return `${formatDistanceToNowStrict(t, { addSuffix: false })} ago`;
+}
+
+function topRejectionReasons(counts: Record<string, number> | undefined): string {
+  if (!counts || Object.keys(counts).length === 0) return "—";
+  return Object.entries(counts)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 2)
+    .map(([k, v]) => `${k}(${v})`)
+    .join(", ");
 }
 
 export function EngineCard({ e, serverTime }: { e: EngineSnapshot; serverTime: Date }) {
@@ -39,22 +57,24 @@ export function EngineCard({ e, serverTime }: { e: EngineSnapshot; serverTime: D
       </div>
       <dl className="space-y-1 text-[11px]">
         <div className="flex justify-between"><dt className="text-pat-text-muted">Timeframes</dt><dd className="text-pat-text-primary">{(e.primary_timeframes ?? []).join(", ") || "—"}</dd></div>
-        <div className="flex justify-between"><dt className="text-pat-text-muted">Last evaluation</dt><dd className="text-pat-text-primary">{age(e.last_evaluation, serverTime)}</dd></div>
-        <div className="flex justify-between"><dt className="text-pat-text-muted">Last signal</dt><dd className="text-pat-text-primary">{e.last_signal_reference || "—"}</dd></div>
+        <div className="flex justify-between"><dt className="text-pat-text-muted">Last eval</dt><dd className="text-pat-text-primary">{age(e.last_evaluation, serverTime)}</dd></div>
         <div className="flex justify-between"><dt className="text-pat-text-muted">Decision</dt><dd className={isCandidate ? "text-pat-warning font-medium" : "text-pat-text-secondary"}>{isCandidate ? decision : "NO-TRADE"}</dd></div>
         <div className="flex justify-between"><dt className="text-pat-text-muted">Score</dt><dd className="text-pat-text-primary tabular-nums">{e.current_score > 0 ? e.current_score.toFixed(1) : "—"}</dd></div>
-        <div className="flex justify-between"><dt className="text-pat-text-muted">Probability</dt><dd className="text-pat-text-primary tabular-nums">{e.has_calibrated_probability ? `${(e.calibrated_probability * 100).toFixed(1)}%` : "not calibrated"}</dd></div>
-        <div className="flex justify-between"><dt className="text-pat-text-muted">Data quality</dt><dd className={e.data_quality === "GOOD" ? "text-pat-success" : "text-pat-warning"}>{e.data_quality || "—"}</dd></div>
-        <div className="flex justify-between"><dt className="text-pat-text-muted">Evals / No-trade</dt><dd className="text-pat-text-primary tabular-nums">{e.evaluation_count} / {e.no_trade_count}</dd></div>
+        <div className="flex justify-between"><dt className="text-pat-text-muted">Expectancy</dt><dd className={(e.expectancy_score ?? 0) > 50 ? "text-pat-success tabular-nums" : "text-pat-text-secondary tabular-nums"}>{e.expectancy_score != null ? e.expectancy_score.toFixed(1) : "—"}</dd></div>
+        <div className="flex justify-between"><dt className="text-pat-text-muted">Quality</dt><dd className={`text-[10px] px-1 py-0.5 rounded-full border font-medium ${GRADE_COLORS[e.current_decision === 'NO-TRADE' ? 'NO-TRADE' : 'B']}`}>{isCandidate ? (e.expectancy_score != null && e.expectancy_score > 60 ? "A" : "B") : "—"}</dd></div>
+        <div className="flex justify-between"><dt className="text-pat-text-muted">Candidates / Qualified</dt><dd className="text-pat-text-primary tabular-nums">{e.candidates_today ?? e.signal_count} / {e.qualified_today ?? "—"}</dd></div>
+        <div className="flex justify-between"><dt className="text-pat-text-muted">Rejection rate</dt><dd className={(e.rejection_rate ?? 0) > 80 ? "text-pat-danger tabular-nums" : "text-pat-text-primary tabular-nums"}>{(e.rejection_rate ?? 0) > 0 ? `${((e.rejection_rate ?? 0) * 100).toFixed(0)}%` : "—"}</dd></div>
+        <div className="flex justify-between"><dt className="text-pat-text-muted">Top reasons</dt><dd className="text-[11px] text-pat-text-secondary">{topRejectionReasons(e.rejection_counts)}</dd></div>
+        <div className="flex justify-between"><dt className="text-pat-text-muted">Config v</dt><dd className="text-pat-text-muted">{e.config_version || "1.15.0"}</dd></div>
       </dl>
     </div>
   );
 }
 
 /**
- * Four strategy engine cards fed by the Go engine's /engines/status endpoint.
- * Shows truthful liveness only — NO-TRADE is displayed as NO-TRADE, never
- * dressed up as a signal (prompt.md Sections 44, 111).
+ * Strategy engine cards fed by the Go engine's /engines/status endpoint.
+ * Shows truthful liveness with quality, expectancy, rejection diagnostics.
+ * Includes MARNIE_FIB as the 5th engine (prompt.md Sections 19, 69).
  */
 export default function AdminEngineCards() {
   const { data, isLoading, isError } = useQuery({
@@ -65,8 +85,8 @@ export default function AdminEngineCards() {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-        {Array.from({ length: 4 }).map((_, i) => (
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+        {Array.from({ length: 5 }).map((_, i) => (
           <div key={i} className="bg-pat-card-bg border border-pat-card-border rounded-lg p-3 animate-pulse h-40" />
         ))}
       </div>
@@ -91,7 +111,7 @@ export default function AdminEngineCards() {
           STALE DATA — SIGNAL GENERATION PAUSED for: {stale.join(", ")}
         </div>
       )}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
         {engines.map((e) => (
           <EngineCard key={e.engine} e={e} serverTime={serverTime} />
         ))}

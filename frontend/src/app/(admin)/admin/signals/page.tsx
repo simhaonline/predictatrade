@@ -38,11 +38,22 @@ interface GoSignal {
   RiskDollars?: string | number;
   RiskPctOfEquity?: string | number;
   SLDistancePoints?: string | number;
+  // prompt.md Sections 12-14: Quality grade + Expectancy
+  QualityGrade?: string;
+  ExpectancyR?: string;
+  ExpectancyScore?: number;
+  // prompt.md Section 18: Rejection diagnostics
+  PrimaryRejectionReason?: string;
+  RejectionReasons?: string[] | null;
+  // RR fields
+  GrossRRTP1?: string;
+  GrossRRTP2?: string;
+  GrossRRTP3?: string;
 }
 
 type DiagnosticRecord = Record<string, string | number | string[] | null | undefined>;
 
-const STRATEGY_TABS = ["ALL", "STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING"] as const;
+const STRATEGY_TABS = ["ALL", "STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"] as const;
 const DIRECTION_FILTERS = ["ALL", "BUY", "BUY_CANDIDATE", "SELL", "SELL_CANDIDATE", "NO-TRADE"] as const;
 
 export default function AdminSignalsPage() {
@@ -115,6 +126,20 @@ export default function AdminSignalsPage() {
     const n = parseFloat(val);
     if (isNaN(n) || n === 0) return "Pending";
     return `${(n * 100).toFixed(1)}%`;
+  };
+
+  const gradeStyle = (g: string) => {
+    if (g === "A+") return "bg-pat-success/15 text-pat-success";
+    if (g === "A") return "bg-pat-info/15 text-pat-info";
+    if (g === "B") return "bg-pat-warning/15 text-pat-warning";
+    if (g === "C" || g === "REJECTED" || g === "NO-TRADE") return "bg-pat-danger/15 text-pat-danger";
+    return "bg-pat-bg-surface-secondary text-pat-text-muted";
+  };
+
+  const fmtExpectancy = (val: string) => {
+    const n = parseFloat(val);
+    if (isNaN(n)) return "—";
+    return n.toFixed(3);
   };
 
   const dirClass = (dir: string) => (
@@ -198,7 +223,10 @@ export default function AdminSignalsPage() {
                 <th className="px-3 py-3 font-medium">TP3</th>
                 <th className="px-3 py-3 font-medium">Regime</th>
                 <th className="px-3 py-3 font-medium">Session</th>
-                <th className="px-3 py-3 font-medium">Status</th>
+                <th className="px-3 py-3 font-medium">Quality</th>
+              <th className="px-3 py-3 font-medium">Expect.</th>
+              <th className="px-3 py-3 font-medium">Rejection</th>
+              <th className="px-3 py-3 font-medium">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-800">
@@ -228,11 +256,23 @@ export default function AdminSignalsPage() {
                       <td className="px-3 py-3 text-xs text-pat-success">{fmtPrice(row.TP3)}</td>
                       <td className="px-3 py-3 text-xs text-pat-text-muted">{row.Regime || "—"}</td>
                       <td className="px-3 py-3 text-xs text-pat-text-muted">{row.Session || "—"}</td>
-                      <td className="px-3 py-3"><StatusBadge status={row.Status} size="sm" /></td>
+                      <td className="px-3 py-3">
+                      {row.QualityGrade ? (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${gradeStyle(row.QualityGrade)}`}>{row.QualityGrade}</span>
+                      ) : <span className="text-xs text-pat-text-muted">—</span>}
+                    </td>
+                    <td className="px-3 py-3 text-xs tabular-nums">
+                      <span className={parseFloat(row.ExpectancyR || "0") > 0 ? "text-pat-success" : "text-pat-text-secondary"}>{fmtExpectancy(row.ExpectancyR || "")}</span>
+                      {row.ExpectancyScore != null && <span className="text-[9px] text-pat-text-muted ml-1">({row.ExpectancyScore})</span>}
+                    </td>
+                    <td className="px-3 py-3 text-[10px] text-pat-text-muted max-w-[120px] truncate" title={row.PrimaryRejectionReason || ""}>
+                      {row.PrimaryRejectionReason || "—"}
+                    </td>
+                    <td className="px-3 py-3"><StatusBadge status={row.Status} size="sm" /></td>
                     </tr>
                     {isOpen && (
                       <tr className="bg-pat-bg-surface-secondary/30">
-                        <td colSpan={15} className="px-4 py-4 space-y-3">
+                        <td colSpan={18} className="px-4 py-4 space-y-3">
                           <div className="flex flex-wrap gap-4 text-xs text-pat-text-secondary">
                             <span title="Engine-recommended lot (risk-capped, margin-aware)">
                               Lot: <b className="text-pat-text-primary">{Number(row.SuggestedLot || 0) > 0 ? Number(row.SuggestedLot).toFixed(2) : "—"}</b>
