@@ -108,10 +108,12 @@ Active plans: FREE, STANDARD ($99/mo), PRO ($299/mo), ELITE ($699/mo)
 - Force-deactivate devices (revokes access)
 
 ### Windows Agent Monitoring
-- Agent connection status (WebSocket heartbeat)
-- Agent version tracking
+- Agent connection status (WebSocket heartbeat) — now bridged into the control-plane database for unified monitoring
+- Agent version tracking, health endpoint verification, and license validation (proactive server-side, no agent changes)
 - Suspended agents list (3-strike SL violation system)
 - Agent commands: disconnect, emergency stop, kill switch
+- Live agent status visible via `/api/v1/agents/status` and admin dashboard
+- **EA Diagnostics (v1.16.x):** TRADE-CONFIG startup diagnostic confirms AutoExecute/ExecuteCandidates/algo-trading flags. SIGNAL-EXEC-CHECK reveals execution decision per signal — traces swap/triple-swap vetoes, duplicate ID filtering, license status, and all silent veto reasons
 
 ---
 

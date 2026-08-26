@@ -100,11 +100,16 @@ Complete signal table with per-strategy filtering and evidence chain expansion:
 - **Expiry:** 60 minutes
 
 ### Signal Grades
+Every signal receives a quality grade based on evidence confluence, R:R quality, and gate pass/fail:
+
 | Grade | Meaning | Action |
 |:-----:|---------|--------|
+| **A+** | Maximum confluence, highest confidence | Strong entry — all evidence pillars aligned |
 | **A** | Strong confluence, high confidence | Preferred entry |
 | **B** | Good setup, moderate confidence | Consider with caution |
-| **C** | Marginal setup, low confidence | Observe or skip |
+| **REJECTED** | Failed gate or insufficient evidence | Do not trade — signal rejected by engine |
+
+Grades are displayed as color-coded badges on every signal card and table row.
 
 ---
 
@@ -290,7 +295,13 @@ Alert types:
 - Confirm "Allow Automated Trading" is enabled
 - Check EA is attached to XAUUSD M1 chart
 - Look for smiley face icon in MT4/MT5 (green = active)
-- Check Experts tab for error messages
+- Check Experts tab for error messages — look for SIGNAL-EXEC-CHECK and TRADE-CONFIG diagnostics
+- Verify broker server time matches engine timezone (default: GMT+3; configurable via BROKER_TIMEZONE)
+- Check for "Duplicate signal ID — skipping" or "Strategy check: X NOT in allowed list" messages
+- Verify license status: the EA checks license status server-side and fails closed
+
+### Signal timestamps off by a few hours
+The engine uses broker-local time (GMT+3) for session classification. Signal timestamps in Postgres are UTC. The frontend displays in UTC. If you see a 3-hour offset, it's the normal broker-local vs UTC difference and does not affect signal accuracy.
 
 ### Support
 - Email: support@predictatrade.com

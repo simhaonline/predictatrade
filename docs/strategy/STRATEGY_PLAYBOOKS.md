@@ -11,6 +11,18 @@
 | 4 | Trend Swing | TREND_SWING | H1/H4 | 70 | 60m | LIVE |
 | 5 | MARNIE_FIB | MARNIE_FIB | H1 | 70 | 60m | SHADOW |
 
+### Per-Strategy Exit Specifications (v1.16.x)
+
+Each strategy now has its own exit profile with defined TP1/TP2/TP3 levels and micro profit-taking targets. R:R ratios are computed per level from the strategy-specific stop distance.
+
+| Engine | TP1 R:R | TP2 R:R | TP3 R:R | Micro TP | Partial Close |
+|--------|:-------:|:-------:|:-------:|:--------:|:-------------:|
+| Standard Scalping | 1.0x | 2.0x | 3.0x | Configurable | Configurable |
+| Ultra Scalping | 0.75x | 1.5x | — | Configurable | Configurable |
+| Standard Swing | 1.5x | 3.0x | — | Configurable | Configurable |
+| Trend Swing | 2.0x | 4.0x | — | Configurable | Configurable |
+| MARNIE_FIB | Per fib level | Per fib level | — | — | — |
+
 ### Standard Scalping (M1/M5)
 - Personality: Quick scalping, high-frequency, low-exposure
 - Decision TF: M1, HTF confirmation: M5
@@ -23,6 +35,7 @@
 - Decision TF: M1
 - Min ATR: 3 pips, Max spread: 2.0 pips
 - SL buffer: 1.0x ATR, TP1: 0.75x, TP2: 1.5x
+- Candidate thresholds widened (v1.16.x) for broader BUY_CANDIDATE/SELL_CANDIDATE reach
 
 ### Standard Swing (M15/H1)
 - Personality: Medium-term swings, structure-focused
@@ -41,3 +54,14 @@
 - Fibonacci levels: 38.2%, 50%, 61.8%, 78.6%
 - Requires BOS/CHoCH + 2+ fib confluences
 - Accumulating outcomes before activation
+- Available on ELITE plan
+
+### Micro Profit-Taking (v1.16.x)
+Each strategy defines a `MicroTP` level — a first partial profit target before TP1. The engine computes `PartialClosePct` (fraction of position to close at MicroTP) per strategy, enabling risk-reducing partial exits while letting the remainder run to full TP targets.
+
+### Signal Quality & Expectancy (v1.16.x)
+Every signal now carries:
+- **QualityGrade:** A+, A, B, or REJECTED — derived from evidence confluence, R:R quality, and gate pass/fail status
+- **ExpectancyR (EV_R):** Expected value per unit risk = (P_win × AvgWinR) − (P_loss × AvgLossR) − CostR
+- **ExpectancyScore:** 0-100 normalized score for sorting and comparison
+- **CalibratedProbability:** Win probability from research-trained calibration model (shows "Pending" until validated per SOW §16, §36)

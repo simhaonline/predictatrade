@@ -5,24 +5,41 @@
 
 | # | Gate | Type | Behaviour |
 |---|------|------|-----------|
-| 1 | ExecutionPermission | Entitlement | Fail-closed |
-| 2 | BrokerSymbolValidation | P0 safety | Degrade on missing meta |
-| 3 | SeedCapitalProtection | Capital | Fail-closed |
-| 4 | DailyLossLimit | Capital | Fail-closed |
-| 5 | MaxSpread | Market | Fail-closed |
-| 6 | NewsRisk | Event | Fail-closed |
-| 7 | Slippage | Execution | Fail-closed |
-| 8 | MaxPositions | Exposure | Fail-closed |
-| 9 | MaxExposure | Exposure | Fail-closed |
-| 10 | Cooldown | Timing | Fail-closed |
-| 11 | StopHuntFilter | Structural | Advisory |
-| 12 | MarginCheck | Broker | Fail-closed |
-| 13 | OvertradeProtection | Frequency | Fail-closed |
-| 14 | MaxDailyTrades | Frequency | Fail-closed |
-| 15 | RegimeFilter | Market | Advisory |
-| 16 | ProfitTarget | Capital | Fail-closed |
+| 1 | ExecutionPermission | Entitlement | Fail-closed. Supports operator edge-arming per strategy for broker-position authorization. |
+| 2 | BrokerSymbolValidation | P0 safety | Degrade on missing meta. Validates SL/TP/lot against broker symbol metadata. |
+| 3 | SeedCapitalProtection | Capital | Fail-closed. 5% daily loss cap enforced per account equity snapshot. |
+| 4 | DailyLossLimit | Capital | Fail-closed. Per-(strategy, timeframe) loss tracking. |
+| 5 | MaxSpread | Market | Fail-closed. Relaxed thresholds for wider market conditions. |
+| 6 | NewsRisk | Event | Fail-closed. |
+| 7 | Slippage | Execution | Fail-closed. |
+| 8 | MaxPositions | Exposure | Fail-closed. |
+| 9 | MaxExposure | Exposure | Fail-closed. |
+|10 | Cooldown | Timing | Fail-closed. |
+|11 | StopHuntFilter | Structural | Advisory. |
+|12 | MarginCheck | Broker | Fail-closed. |
+|13 | OvertradeProtection | Frequency | Fail-closed. |
+|14 | MaxDailyTrades | Frequency | Fail-closed. |
+|15 | RegimeFilter | Market | Advisory. |
+|16 | ProfitTarget | Capital | Fail-closed. |
 
-### P0-001: BrokerSymbolValidationGate (v1.16.0)
+### Key Changes (v1.16.x)
+
+**Per-(Strategy, Timeframe) Gate Isolation:**
+Gate state is now scoped to `(strategy_id, timeframe)` pairs. Each strategy+timeframe combination maintains independent gate tracking (cooldown timers, loss counters, trade counts), preventing cross-strategy contamination.
+
+**Seed Capital Protection (5% Daily Loss Cap):**
+New P0 fail-closed gate that enforces a 5% daily capital loss limit. Engine computes account-size-aware position sizing from broker account snapshots and annotates every signal with `SuggestedLot`, `RiskDollars`, `RiskPctOfEquity`, and `SLDistancePoints`.
+
+**Operator Edge-Arming & Broker-Position Authorization:**
+`ExecutionPermission` gate now supports per-strategy operator arming. When armed for a strategy, the gate requires broker-position authorization before delivering EXECUTABLE-class signals. This enables controlled live trading with an explicit operator approval step.
+
+**ProfitabilityGate — Entry Veto Removed:**
+Hard veto removed from ProfitabilityGate for entry decisions. The profitability filter now degrades to advisory rather than blocking entry, while still enforcing fail-closed on exit decisions.
+
+**Fail-Closed Capital Veto:**
+Strategies with proven-negative live-edge performance receive a fail-closed veto (`cc8353a`). This prevents strategies whose live performance is demonstrably negative from continuing to generate EXECUTABLE signals.
+
+### P0-001: BrokerSymbolValidationGate
 Validates SL/TP/lot against broker symbol metadata (min stop, min freeze, max spread). Degrades (doesn't veto) when broker metadata unavailable. Price rounding to broker digits applied in signal engine (P1-001).
 
 ### Safety Principles
@@ -30,3 +47,4 @@ Validates SL/TP/lot against broker symbol metadata (min stop, min freeze, max sp
 - NO-TRADE is a valid first-class result
 - Gate failures produce distinct status (never masked as NO-TRADE)
 - Engine liveness tracking distinguishes DEGRADED from NO-TRADE
+- Gate state is isolated per (strategy, timeframe) — no cross-contamination

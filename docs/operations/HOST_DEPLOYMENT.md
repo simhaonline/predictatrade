@@ -161,7 +161,7 @@ chmod 600 /srv/predictatrade/xauusd/jwt_secret.txt
 ### Realtime engine env
 ```bash
 cat > /srv/predictatrade/xauusd/infra/env/realtime.env <<'EOF'
-DATABASE_URL=postgresql://pat_admin:choose_strong_password_here@127.0.0.1:5432/predictatrade?sslmode=disable
+DATABASE_URL=postgresql://pat_admin:***@127.0.0.1:5432/predictatrade?sslmode=disable
 VALKEY_ADDR=127.0.0.1:6379
 HTTP_HOST=127.0.0.1
 HTTP_PORT=13081
@@ -172,6 +172,7 @@ TWELVEDATA_API_KEY=your_twelvedata_key
 FMP_API_KEY=your_fmp_key
 JWT_SECRET=your_jwt_secret_base64
 LOG_LEVEL=info
+BROKER_TIMEZONE=GMT+3
 PTB_ENABLED=true
 COT_ENABLED=true
 DXY_ENABLED=true

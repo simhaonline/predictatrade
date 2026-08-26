@@ -70,9 +70,11 @@ MT4/MT5 → Windows Agent → WebSocket → Go Realtime Engine :13081
 
 42 indicators, 35 live, 7 warming up.
 
-## Risk Gates (16 gates, ordered)
+## Risk Gates (16 gates, ordered, per-(strategy, timeframe) isolated)
 
-ExecutionPermission → BrokerSymbolValidation (P0) → SeedCapitalProtection → DailyLossLimit → MaxSpread → NewsRisk → Slippage → MaxPositions → MaxExposure → Cooldown → StopHuntFilter → MarginCheck → OvertradeProtection → MaxDailyTrades → RegimeFilter → ProfitTarget
+ExecutionPermission → BrokerSymbolValidation (P0) → SeedCapitalProtection (5% daily cap) → DailyLossLimit → MaxSpread → NewsRisk → Slippage → MaxPositions → MaxExposure → Cooldown → StopHuntFilter → MarginCheck → OvertradeProtection → MaxDailyTrades → RegimeFilter → ProfitTarget
+
+Gate state is isolated per (strategy, timeframe) to prevent cross-strategy contamination. Operator edge-arming enables per-strategy broker-position authorization for EXECUTABLE delivery.
 
 ## v1.16.0 Features (P2 — ACTIVE)
 

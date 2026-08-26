@@ -13,7 +13,7 @@ Step-by-step guide to deploy Predict-A-Trade XAUUSD using Docker Compose.
 | Docker Compose | v2+ | `docker compose version` |
 | RAM | 4GB free | `free -h` |
 | Disk | 20GB free | `df -h` |
-| Ports | 80, 443, 5432, 6379 available | `ss -tlnp` |
+| Ports | 80, 443, 5432, 6379, 13090, 13081, 13080, 13082, 13083, 8091 available | `ss -tlnp` |
 | Git | any recent | `git --version` |
 | API keys | TwelveData, FMP | (see Step 2) |
 
@@ -50,12 +50,13 @@ TWELVEDATA_API_KEY=your_twelvedata_key_here    # XAUUSD candles + DXY
 FMP_API_KEY=your_fmp_key_here                  # COT data
 ```
 
-Optional features (leave commented to disable):
+Optional — broker timezone (defaults to GMT+3 for XAUUSD brokers):
 ```ini
-# COT_ENABLED=true           # Commitment of Traders data
-# DXY_ENABLED=true           # US Dollar Index
-# SENTIMENT_ENABLED=true     # Ollama AI sentiment
-# RL_MODE=filter_only        # RL optimizer
+# BROKER_TIMEZONE=GMT+3       # Default. Set to your broker's server timezone.
+# COT_ENABLED=true             # Commitment of Traders data
+# DXY_ENABLED=true            # US Dollar Index
+# SENTIMENT_ENABLED=true      # Ollama AI sentiment
+# RL_MODE=filter_only         # RL optimizer
 ```
 
 ---
@@ -64,7 +65,7 @@ Optional features (leave commented to disable):
 
 ```bash
 # Create env files from templates if they don't exist
-ls infra/env/realtime.env || echo "DATABASE_URL=postgresql://pat_admin:pat_local_dev_only@postgres:5432/predictatrade?sslmode=disable" > infra/env/realtime.env
+ls infra/env/realtime.env || echo "DATABASE_URL=postgresql://pat_admin:***@postgres:5432/predictatrade?sslmode=disable" > infra/env/realtime.env
 ls infra/env/control.env || echo "# Control plane env" > infra/env/control.env
 ls infra/env/frontend.env || echo "# Frontend env" > infra/env/frontend.env
 ```
@@ -92,6 +93,7 @@ Expected output:
  ✔ Container pat-realtime  Started
  ✔ Container pat-control   Started
  ✔ Container pat-frontend  Started
+ ✔ Container pat-live-terminal Started
  ✔ Container pat-nginx     Started
  ...
 ```
@@ -144,6 +146,10 @@ curl -I http://localhost:13082
 curl http://localhost/
 # Expected: HTML response
 
+# Live Terminal
+curl http://localhost:13090/health
+# Expected: {"status":"ok"}
+
 # PostgreSQL
 docker exec pat-postgres pg_isready -U pat_admin -d predictatrade
 # Expected: accepting connections
@@ -176,7 +182,7 @@ The Nginx container auto-configures via mounted volumes:
 For production:
 ```bash
 # Edit the site config
-nano nginx/sites-available/predictatrade.conf
+nano nginx/sites-available/live.predictatrade.com.conf
 
 # SSL certificates are expected at /etc/letsencrypt/
 # Mounted in docker-compose.yml as:
@@ -261,6 +267,12 @@ docker compose ps postgres
 docker exec pat-realtime nc -zv postgres 5432
 ```
 
+### Stale binary after code changes
+After `git pull`, the running container may have an older binary:
+```bash
+docker compose up -d --build realtime   # Force rebuild
+```
+
 ### Out of memory / shm errors
 PostgreSQL needs large shared memory. docker-compose.yml already sets:
 ```yaml
@@ -286,6 +298,7 @@ sudo chown -R $(whoami):$(whoami) /var/www/pat-live
 - [ ] Configure real SSL certificates (Let's Encrypt / certbot)
 - [ ] Set `CORS_ORIGINS` to production domains
 - [ ] Enable firewall: only ports 80 and 443 public
+- [ ] Set `BROKER_TIMEZONE` to match your broker's server time
 - [ ] Set up automated database backups (cron job)
 - [ ] Configure Prometheus alerting rules
 - [ ] Test backup restore procedure
