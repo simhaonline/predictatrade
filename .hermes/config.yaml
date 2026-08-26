@@ -1,0 +1,78 @@
+# Portable Hermes MCP configuration for Predict-A-Trade
+# Install: hermes --accept-hooks mcp add <name> with matching args
+
+mcp_servers:
+  figma:
+    command: npx
+    args:
+      - "-y"
+      - "figma-developer-mcp"
+      - "--figma-api-key=${FIGMA_API_KEY}"
+      - "--stdio"
+    enabled: true
+    timeout: 60
+
+  playwright:
+    command: npx
+    args:
+      - "-y"
+      - "@playwright/mcp@latest"
+      - "--headless"
+    enabled: true
+    timeout: 120
+    connect_timeout: 30
+
+  github:
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-github"
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN}
+    enabled: true
+    timeout: 120
+    connect_timeout: 30
+
+  postgres:
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-postgres"
+      - "postgresql://pat_admin:pat_local_dev_only@localhost:5432/predictatrade"
+    enabled: true
+    timeout: 60
+
+  docker:
+    command: docker
+    args:
+      - "run"
+      - "-i"
+      - "--rm"
+      - "-v"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "mcp/docker"
+    enabled: true
+    timeout: 30
+
+  metatrader:
+    command: python
+    args:
+      - "-m"
+      - "metatrader_mcp"
+    env:
+      MT_HOST: "127.0.0.1"
+      MT_PORT: "18080"
+      API_KEY: ${MT5_API_KEY}
+    enabled: true
+    timeout: 60
+    connect_timeout: 30
+
+  context7:
+    url: "https://mcp.context7.com/mcp"
+    enabled: true
+    timeout: 60
+
+  openaiDeveloperDocs:
+    url: "https://developers.openai.com/mcp"
+    enabled: true
+    timeout: 60

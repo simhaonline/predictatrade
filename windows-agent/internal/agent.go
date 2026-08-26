@@ -801,6 +801,49 @@ func (a *Agent) connect() error {
 			a.halt()
 			return fmt.Errorf("kill switch activated by server")
 		
+		} else if event.Type == "LICENSE_STATUS" {
+			// Handle license validation result from the Go RT server.
+			// The Go RT server validates the license against the control plane DB
+			// when MASTER_INIT arrives and sends LICENSE_STATUS back via WebSocket.
+			// Without this handler, the Go RT server's license validation result
+			// was silently dropped, leaving the EA's license status stuck at
+			// "PENDING"/"UNKNOWN" and blocking ALL signal execution.
+			var licResp struct {
+				Valid         bool     `json:"valid"`
+				Status        string   `json:"status"`
+				Plan          string   `json:"plan"`
+				MaxDevices    int      `json:"max_devices"`
+				MaxMTAccounts int      `json:"max_mt_accounts"`
+				Strategies    []string `json:"allowed_strategies"`
+				Error         string   `json:"error,omitempty"`
+			}
+			if err := json.Unmarshal(event.Payload, &licResp); err != nil {
+				log.Printf("LICENSE_STATUS parse error: %v", err)
+				continue
+			}
+
+			// Determine the effective status: if Valid is true, status must be ACTIVE
+			status := licResp.Status
+			if licResp.Valid {
+				status = "ACTIVE"
+			}
+
+			log.Printf("LICENSE_STATUS from Go RT server: status=%s plan=%s valid=%v strategies=%v",
+				status, licResp.Plan, licResp.Valid, licResp.Strategies)
+
+			if a.pipeManager != nil {
+				// Always surface a plan so the EA's "License Type" field is never blank
+				plan := licResp.Plan
+				if plan == "" {
+					plan = "ELITE"
+				}
+				// Record the authoritative verdict so licenseLoop() writes it
+				// to PAT_license.txt for the EA to read
+				a.pipeManager.SetLicenseResult(status, plan, licResp.Strategies)
+				// Also write LICENSE_RESPONSE to PAT_signals.txt for immediate pickup
+				a.sendLicenseResponse(a.config.LicenseKey, status, plan, licResp.Strategies)
+			}
+
 		} else if event.Type == "ERROR" || event.Type == "DENIAL" {
 			// P1-001: Distinguish distinct failure types — never conflate
 			// auth failures with signal halts, license issues, etc.
