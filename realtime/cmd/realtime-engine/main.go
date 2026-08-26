@@ -2318,6 +2318,27 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 					reconciler.RecordSignal(sig)
 					observability.SignalsGenerated.WithLabelValues(string(strat.ID()), string(advDir)).Inc()
 					observability.StrategySignalTotal.WithLabelValues(string(strat.ID()), string(advDir)).Inc()
+
+					// ─── Quality grade + Expectancy (prompt.md Sections 12-14) ───
+					rrTP1F, _ := sig.GrossRRTP1.Float64()
+					rrTP2F, _ := sig.GrossRRTP2.Float64()
+					rrTP3F, _ := sig.GrossRRTP3.Float64()
+					costRF, _ := sig.ExpectedCost.Float64()
+					scoreF, _ := sig.RawScore.Float64()
+					sig.ExpectancyR = strategy.ComputeExpectancyR(sig.Probability, rrTP1F, rrTP2F, rrTP3F, costRF)
+					sig.ExpectancyScore = strategy.ComputeExpectancyScore(sig.ExpectancyR)
+					sig.QualityGrade = strategy.ComputeQualityGrade(
+						scoreF, rrTP1F, rrTP2F, rrTP3F,
+						sig.ExpectancyR.InexactFloat64(),
+						true, mergedState.Structure.CurrentTrend != "", false)
+					if sig.QualityGrade == types.GradeNoTrade || sig.QualityGrade == strategy.GradeRejected {
+						sig.PrimaryRejectionReason, sig.RejectionReasons = strategy.ClassifyRejectionReason(
+							sig.ReasonCodes, scoreF, rrTP1F,
+							mergedState.Spread.InexactFloat64(),
+							true, true, !mergedState.Indicators.ATR.IsZero())
+					}
+					sig.StrategyConfigVersion = "1.15.0"
+
 					broadcastSignalToAll(wsHub, agentHub, sig)
 					if persister != nil {
 						go func(s *types.Signal) {

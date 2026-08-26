@@ -3,6 +3,7 @@ export const STRATEGIES = [
   'ULTRA_SCALPING',
   'STANDARD_SWING',
   'TREND_SWING',
+  'MARNIE_FIB',
 ] as const;
 
 export type Strategy = (typeof STRATEGIES)[number];
@@ -35,7 +36,6 @@ export function validateStrategySelection(
   if (selected.some((s) => !policy.allowedStrategies.includes(s))) {
     return { allowed: false, selected: [], reason: 'STRATEGY_NOT_ENTITLED' };
   }
-  // Bug 7: enforce BOTH allowed_strategies and max_active_strategies.
   if (selected.length > policy.maxActiveStrategies) {
     return { allowed: false, selected: [], reason: 'plan_strategy_limit' };
   }

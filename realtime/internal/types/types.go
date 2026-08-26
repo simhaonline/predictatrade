@@ -409,6 +409,23 @@ type Signal struct {
 	RealizedPnL decimal.Decimal
 	RealizedR   decimal.Decimal
 
+	// Quality grade (prompt.md Section 12): A+, A, B, REJECTED
+	QualityGrade SignalGrade
+
+	// Expectancy metrics computed from calibrated probabilities and costs
+	ExpectancyR      decimal.Decimal // EV_R = (P_win * AvgWinR) - (P_loss * AvgLossR) - CostR
+	ExpectancyScore  float64         // 0-100 scale for sorting/quality
+
+	// Rejection diagnostics (prompt.md Sections 17-18)
+	PrimaryRejectionReason string   // machine-readable: LOW_EXPECTANCY, etc.
+	RejectionReasons       []string // all contributing factors
+
+	// Strategy config version (prompt.md Section 32)
+	StrategyConfigVersion string
+
+	// Performance tracking fields
+	SignalReferenceID string // PAT-XAU-YYYYMMDD-NNNNNN (if not already set)
+
 	// Candidate/advisory classification (SOW Sections 12, 31-35)
 	SignalClass        string // ADVISORY, EXECUTABLE
 	CandidateThreshold float64
@@ -639,6 +656,20 @@ const (
 	NTConflictingDirection     NoTradeReason = "NT_CONFLICTING_DIRECTION"
 	NTScoreBelowTradeThreshold NoTradeReason = "SCORE_BELOW_TRADE_THRESHOLD"
 	NTScoreBelowCandidate      NoTradeReason = "SCORE_BELOW_CANDIDATE_THRESHOLD"
+
+	// Rejection diagnostics (prompt.md Sections 17-18)
+	NTLowExpectancy       NoTradeReason = "LOW_EXPECTANCY"
+	NTInvalidSL           NoTradeReason = "INVALID_SL"
+	NTInvalidTP           NoTradeReason = "INVALID_TP"
+	NTRRBelowMin          NoTradeReason = "RR_BELOW_MIN"
+	NTSpreadTooHigh       NoTradeReason = "SPREAD_TOO_HIGH"
+	NTDuplicate           NoTradeReason = "DUPLICATE"
+	NTCooldown            NoTradeReason = "COOLDOWN"
+	NTVolatilityFilter    NoTradeReason = "VOLATILITY_FILTER"
+	NTLiquidityFilter     NoTradeReason = "LIQUIDITY_FILTER"
+	NTSessionFilter       NoTradeReason = "SESSION_FILTER"
+	NTInsufficientSamples NoTradeReason = "INSUFFICIENT_SAMPLES"
+	NTNoSetup             NoTradeReason = "NO_SETUP"
 )
 
 // ProvenanceState represents the authenticity verification state of a signal.
