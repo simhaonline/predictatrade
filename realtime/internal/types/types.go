@@ -469,6 +469,9 @@ type Signal struct {
 	ProvenanceState   ProvenanceState // LIVE_VERIFIED, UNVERIFIED, etc.
 	CalibrationStatus CalibrationStatus
 
+	// P2-004: Trade group ID for multi-position signal tracking
+	TradeGroupID string `json:"trade_group_id,omitempty"`
+
 	// Deterministic hash (prompt.md Section 38)
 	InputHash    string
 	DecisionHash string

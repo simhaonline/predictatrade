@@ -143,7 +143,8 @@ func applyFamilyCaps(evidence []types.EvidenceContribution) []types.EvidenceCont
 		"CANDLE":     0.20,  // raised from 0.15
 		"REGIME":     0.15,  // raised from 0.10
 		"ML":         0.25,
-		"SENTIMENT":  0.25,
+		"SENTIMENT":    0.25,
+		"SESSION_ORB":  0.15, // P2-001: opening range breakout evidence
 	}
 	familySums := map[string]float64{}
 	for _, e := range evidence {
