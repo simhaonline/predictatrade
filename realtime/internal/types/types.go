@@ -299,6 +299,12 @@ const (
 	NTDataStale              NoTradeReason = "NT_DATA_STALE"
 	NTBrokerConstraint       NoTradeReason = "NT_BROKER_CONSTRAINT"
 	NTCalibrationUnavailable NoTradeReason = "NT_CALIBRATION_UNAVAILABLE"
+	NTDirectionNoTrade      NoTradeReason = "NT_DIRECTION_NO_TRADE"
+	NTDirectionWait         NoTradeReason = "NT_DIRECTION_WAIT"
+	NTDirectionError        NoTradeReason = "NT_DIRECTION_ERROR"
+	NTDirectionBlocked      NoTradeReason = "NT_DIRECTION_BLOCKED"
+	NTHTFBearishVeto        NoTradeReason = "HTF_BEARISH_VETO"
+	NTHTFBullishVeto        NoTradeReason = "HTF_BULLISH_VETO"
 )
 
 // EvidenceContribution represents a single pillar's contribution to a signal score (SOW Section 12C.3).

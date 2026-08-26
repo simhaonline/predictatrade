@@ -35,6 +35,14 @@ type Snapshot struct {
 	SignalCount        int64     `json:"signal_count"`
 	NoTradeCount       int64     `json:"no_trade_count"`
 	ErrorCount         int64     `json:"error_count"`
+
+	// audit.md Sections 21, 26, 27: data freshness, observability gaps
+	DataAgeSeconds       float64  `json:"data_age_seconds"`
+	CurrentThreshold     float64  `json:"current_threshold,omitempty"`
+	EngineVersion        string   `json:"engine_version,omitempty"`
+	LastError            string   `json:"last_error,omitempty"`
+	LastErrorAt          time.Time `json:"last_error_at,omitempty"`
+	CurrentRejectionReasons []string `json:"current_rejection_reasons,omitempty"`
 }
 
 // Tracker keeps current-state snapshots per strategy engine.
@@ -46,7 +54,7 @@ type Tracker struct {
 func NewTracker(ids ...types.StrategyID) *Tracker {
 	t := &Tracker{m: make(map[types.StrategyID]*Snapshot)}
 	for _, id := range ids {
-		t.m[id] = &Snapshot{Engine: string(id), Enabled: true, Health: "WAITING", DataQuality: "UNKNOWN"}
+		t.m[id] = &Snapshot{Engine: string(id), Enabled: true, Health: "WAITING", DataQuality: "UNKNOWN", EngineVersion: "1.0.0"}
 	}
 	return t
 }
@@ -58,7 +66,7 @@ func (t *Tracker) Update(id types.StrategyID, fn func(s *Snapshot)) {
 	defer t.mu.Unlock()
 	s, ok := t.m[id]
 	if !ok {
-		s = &Snapshot{Engine: string(id), Enabled: true}
+		s = &Snapshot{Engine: string(id), Enabled: true, EngineVersion: "1.0.0"}
 		t.m[id] = s
 	}
 	fn(s)
@@ -66,7 +74,7 @@ func (t *Tracker) Update(id types.StrategyID, fn func(s *Snapshot)) {
 }
 
 // RecordEvaluation records one strategy evaluation outcome.
-func (t *Tracker) RecordEvaluation(id types.StrategyID, tf types.Timeframe, marketTime time.Time, decision types.Direction, score, confidence, prob float64, hasProb bool, regime, dataQuality string) {
+func (t *Tracker) RecordEvaluation(id types.StrategyID, tf types.Timeframe, marketTime time.Time, decision types.Direction, score, confidence, prob float64, hasProb bool, regime, dataQuality string, rejectionReasons []string, threshold float64) {
 	t.Update(id, func(s *Snapshot) {
 		now := time.Now().UTC()
 		s.LastEvaluation = now
@@ -80,6 +88,9 @@ func (t *Tracker) RecordEvaluation(id types.StrategyID, tf types.Timeframe, mark
 		s.Regime = regime
 		s.DataQuality = dataQuality
 		s.EvaluationCount++
+		s.DataAgeSeconds = now.Sub(marketTime).Seconds()
+		s.CurrentRejectionReasons = rejectionReasons
+		s.CurrentThreshold = threshold
 		switch decision {
 		case types.DirectionBuy, types.DirectionSell:
 			s.CandidateCount++

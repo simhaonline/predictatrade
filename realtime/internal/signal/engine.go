@@ -65,6 +65,10 @@ type DecisionInput struct {
 	OpenBuyPositions      int
 	OpenSellPositions     int
 	StrategyOpenPositions int
+
+	// Strategy-provided reason codes propagated into engine decision
+	// for audit traceability (fixes GAP-5: engine discards strategy reasons).
+	DecisionReasons []types.NoTradeReason
 }
 
 // DecisionResult is the final output of the master decision hierarchy.
@@ -91,7 +95,12 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 	direction := input.Direction
 	if direction != types.DirectionBuy && direction != types.DirectionSell {
 		// NO_TRADE, WAIT, ERROR, BLOCKED — skip gates, persist as-is
-		result.NoTradeReasons = append(result.NoTradeReasons, types.NTInsufficientScore)
+		// Preserve strategy-level reason codes for traceability (audit GAP-5).
+		// Only append NTInsufficientScore if the strategy provided no reasons.
+		result.NoTradeReasons = input.DecisionReasons
+		if len(result.NoTradeReasons) == 0 {
+			result.NoTradeReasons = append(result.NoTradeReasons, types.NTInsufficientScore)
+		}
 		grade := types.GradeNoTrade
 		if direction == types.DirectionWait {
 			grade = types.GradeWait

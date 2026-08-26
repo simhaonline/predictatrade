@@ -928,11 +928,11 @@ export class AdminService {
                count(CASE WHEN direction = 'BLOCKED' THEN 1 END) as blocked
         FROM trading.signals WHERE created_at > now() - interval '24 hours'`),
 
-      // Gate veto reasons (from reason_codes in BLOCKED signals)
+      // Gate veto reasons (from reason_codes in BLOCKED signals — grade=BLOCKED, not direction)
       this.pool.query(`
         SELECT jsonb_array_elements_text(reason_codes) as reason, count(*) as count
         FROM trading.signals 
-        WHERE direction = 'BLOCKED' AND reason_codes != '[]'::jsonb
+        WHERE grade = 'BLOCKED' AND reason_codes IS NOT NULL AND reason_codes::text != '[]'
         GROUP BY reason ORDER BY count DESC LIMIT 10`),
     ]);
 

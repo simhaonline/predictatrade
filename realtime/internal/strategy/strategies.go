@@ -453,7 +453,7 @@ func scoreDirection(state *features.MarketState, evidence []types.EvidenceContri
 			// HARD VETO: Block BUY if price below H1 close (bearish HTF)
 			if !htfTrendFilter(state, types.DirectionBuy) {
 				direction = types.DirectionNoTrade
-				reasons = append(reasons, "HTF_BEARISH_VETO")
+				reasons = append(reasons, types.NTHTFBearishVeto)
 			}
 		} else {
 			direction = types.DirectionNoTrade
@@ -466,7 +466,7 @@ func scoreDirection(state *features.MarketState, evidence []types.EvidenceContri
 			// HARD VETO: Block SELL if price above H1 close (bullish HTF)
 			if !htfTrendFilter(state, types.DirectionSell) {
 				direction = types.DirectionNoTrade
-				reasons = append(reasons, "HTF_BULLISH_VETO")
+				reasons = append(reasons, types.NTHTFBullishVeto)
 			}
 		} else {
 			direction = types.DirectionNoTrade
@@ -754,10 +754,10 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 	// HARD VETO: Block BUY if price below H1 close, block SELL if above
 	if dir == types.DirectionBuy && !htfTrendFilter(state, types.DirectionBuy) {
 		dir = types.DirectionNoTrade
-		reasons = append(reasons, "HTF_BEARISH_VETO")
+		reasons = append(reasons, types.NTHTFBearishVeto)
 	} else if dir == types.DirectionSell && !htfTrendFilter(state, types.DirectionSell) {
 		dir = types.DirectionNoTrade
-		reasons = append(reasons, "HTF_BULLISH_VETO")
+		reasons = append(reasons, types.NTHTFBullishVeto)
 	}
 	result.Direction = dir
 	result.RawScore = raw
@@ -960,10 +960,10 @@ func (s *UltraScalping) Evaluate(state *features.MarketState) StrategyResult {
 	// HARD VETO: Block BUY if price below H1 close, block SELL if above
 	if dir == types.DirectionBuy && !htfTrendFilter(state, types.DirectionBuy) {
 		dir = types.DirectionNoTrade
-		reasons = append(reasons, "HTF_BEARISH_VETO")
+		reasons = append(reasons, types.NTHTFBearishVeto)
 	} else if dir == types.DirectionSell && !htfTrendFilter(state, types.DirectionSell) {
 		dir = types.DirectionNoTrade
-		reasons = append(reasons, "HTF_BULLISH_VETO")
+		reasons = append(reasons, types.NTHTFBullishVeto)
 	}
 	result.RawScore = raw
 	result.LongScore = long
@@ -1195,10 +1195,10 @@ func (s *StandardSwing) Evaluate(state *features.MarketState) StrategyResult {
 	// HARD VETO: Block BUY if price below H1 close, block SELL if above
 	if dir == types.DirectionBuy && !htfTrendFilter(state, types.DirectionBuy) {
 		dir = types.DirectionNoTrade
-		reasons = append(reasons, "HTF_BEARISH_VETO")
+		reasons = append(reasons, types.NTHTFBearishVeto)
 	} else if dir == types.DirectionSell && !htfTrendFilter(state, types.DirectionSell) {
 		dir = types.DirectionNoTrade
-		reasons = append(reasons, "HTF_BULLISH_VETO")
+		reasons = append(reasons, types.NTHTFBullishVeto)
 	}
 	result.RawScore = raw
 	result.LongScore = long
@@ -1488,10 +1488,10 @@ func (s *TrendSwing) Evaluate(state *features.MarketState) StrategyResult {
 	// HARD VETO: Block BUY if price below H1 close, block SELL if above
 	if dir == types.DirectionBuy && !htfTrendFilter(state, types.DirectionBuy) {
 		dir = types.DirectionNoTrade
-		reasons = append(reasons, "HTF_BEARISH_VETO")
+		reasons = append(reasons, types.NTHTFBearishVeto)
 	} else if dir == types.DirectionSell && !htfTrendFilter(state, types.DirectionSell) {
 		dir = types.DirectionNoTrade
-		reasons = append(reasons, "HTF_BULLISH_VETO")
+		reasons = append(reasons, types.NTHTFBullishVeto)
 	}
 	result.RawScore = raw
 	result.LongScore = long

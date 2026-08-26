@@ -12,7 +12,7 @@ func TestTrackerRecordsEvaluationLifecycle(t *testing.T) {
 
 	tr.RecordEvaluation(types.StrategyUltraScalping, types.TFM1,
 		time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC),
-		types.DirectionBuy, 72.5, 0, 0.63, true, "TREND", "GOOD")
+		types.DirectionBuy, 72.5, 0, 0.63, true, "TREND", "GOOD", nil, 0)
 
 	snaps := tr.All()
 	if len(snaps) != 2 {
@@ -39,7 +39,7 @@ func TestTrackerRecordsEvaluationLifecycle(t *testing.T) {
 
 	// NO-TRADE counts separately (prompt.md #26)
 	tr.RecordEvaluation(types.StrategyUltraScalping, types.TFM1, time.Now().UTC(),
-		types.DirectionNoTrade, 10, 0, 0, false, "RANGE", "GOOD")
+		types.DirectionNoTrade, 10, 0, 0, false, "RANGE", "GOOD", nil, 0)
 	snaps = tr.All()
 	for i := range snaps {
 		if snaps[i].Engine == string(types.StrategyUltraScalping) {

@@ -2155,25 +2155,26 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				observability.CalibratedProbability.WithLabelValues(string(strat.ID())).Set(toF(calibratedProb))
 			}
 		}
-		// ─── Engine liveness tracking (prompt.md Sections 26, 38) ───
-		if engTracker != nil {
-			probF, _ := calibratedProb.Float64()
-			scoreF, _ := stratResult.RawScore.Float64()
-			dq := "GOOD"
-			if mergedState.LastTick != nil && mergedState.LastTick.Quality == types.QualityStale {
-				dq = "DEGRADED"
-			} else if mergedState.LastTick == nil {
-				dq = "DEGRADED"
-			}
-			engTracker.RecordEvaluation(strat.ID(), candle.Timeframe, candle.Time, stratResult.Direction,
-				scoreF, stratResult.Confidence, probF, !calibratedProb.IsZero(),
-				string(mergedState.Regime.Current), dq)
+	// ─── Engine liveness tracking (prompt.md Sections 26, 38) ───
+	if engTracker != nil {
+		probF, _ := calibratedProb.Float64()
+		scoreF, _ := stratResult.RawScore.Float64()
+		dq := "GOOD"
+		if mergedState.LastTick != nil && mergedState.LastTick.Quality == types.QualityStale {
+			dq = "DEGRADED"
+		} else if mergedState.LastTick == nil {
+			dq = "DEGRADED"
 		}
-		// Phase 2: Regime-specific candidate threshold — advisory signals (SOW Sections 7-10, 34-35)
-		// If strategy returned NO-TRADE but score is meaningful, check for candidate
-		// Uses regime-specific thresholds: RANGE has lower thresholds because evidence budget is lower
-		candidateThresh, tradeThresh, threshFound := strategy.GetThresholds(strat.ID(), mergedState.Regime.Current)
-		if threshFound {
+		engTracker.RecordEvaluation(strat.ID(), candle.Timeframe, candle.Time, stratResult.Direction,
+			scoreF, stratResult.Confidence, probF, !calibratedProb.IsZero(),
+			string(mergedState.Regime.Current), dq,
+			noTradeReasonStrings(stratResult.ReasonCodes), 0)
+	}
+	// Phase 2: Regime-specific candidate threshold — advisory signals (SOW Sections 7-10, 34-35)
+	// If strategy returned NO-TRADE but score is meaningful, check for candidate
+	// Uses regime-specific thresholds: RANGE has lower thresholds because evidence budget is lower
+	candidateThresh, tradeThresh, threshFound := strategy.GetThresholds(strat.ID(), mergedState.Regime.Current)
+	if threshFound {
 			rawScoreF, _ := stratResult.RawScore.Float64()
 			if rawScoreF >= candidateThresh && rawScoreF < tradeThresh {
 				// Score is above candidate threshold — determine direction from long/short
@@ -2629,6 +2630,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			NewsRisk: mergedState.Session.NewsRisk, Evidence: stratResult.Evidence,
 			EntryPrice: stratResult.EntryPrice, StopLoss: stratResult.StopLoss,
 			TP1: stratResult.TP1, TP2: stratResult.TP2, TP3: stratResult.TP3,
+			DecisionReasons: stratResult.ReasonCodes,
 			RoundTripCost: roundTripCost, CurrentExposure: func() float64 {
 				es, _ := gateRegistry.GetState(types.GateExposure)
 				if v, ok := es.Value.(float64); ok {
@@ -3582,6 +3584,18 @@ func computeRR(entry, sl, tp decimal.Decimal) decimal.Decimal {
 }
 
 func toF(d decimal.Decimal) float64 { f, _ := d.Float64(); return f }
+
+// noTradeReasonStrings converts NoTradeReason codes to strings for engine liveness tracking.
+func noTradeReasonStrings(codes []types.NoTradeReason) []string {
+	if len(codes) == 0 {
+		return nil
+	}
+	out := make([]string, len(codes))
+	for i, c := range codes {
+		out[i] = string(c)
+	}
+	return out
+}
 
 // parseDecimalSafe parses a decimal string, returning zero on error.
 func parseDecimalSafe(s string) decimal.Decimal {
