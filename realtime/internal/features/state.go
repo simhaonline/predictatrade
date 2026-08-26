@@ -278,6 +278,14 @@ type CandleIntelligence struct {
 	ATRNormalized  decimal.Decimal
 	ConsecutiveBull int
 	ConsecutiveBear int
+
+	// P2-002: Pin Bar geometry features (shadow mode — computed, not yet scored)
+	PinBarUppWickRatio decimal.Decimal `json:"pinbar_upper_wick_ratio,omitempty"`
+	PinBarLowWickRatio decimal.Decimal `json:"pinbar_lower_wick_ratio,omitempty"`
+	PinBarBodyRatio    decimal.Decimal `json:"pinbar_body_ratio,omitempty"`
+	PinBarRngATRRatio  decimal.Decimal `json:"pinbar_range_atr_ratio,omitempty"`
+	PinBarRejDirection string          `json:"pinbar_rejection_direction,omitempty"` // BUY/SELL
+	PinBarQuality      decimal.Decimal `json:"pinbar_quality,omitempty"`             // 0-1
 }
 
 type StateManager struct {

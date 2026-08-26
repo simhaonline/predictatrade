@@ -60,6 +60,14 @@ type Config struct {
 	SlippageCostPoints        float64            // SLIPPAGE_COST_POINTS (price units) added to round-trip cost
 	CommissionCostPoints      float64            // COMMISSION_COST_POINTS (price units) added to round-trip cost
 
+	// P0-001: Broker symbol metadata validation gate config
+	BrokerMinStopPoints   float64 // BROKER_MIN_STOP_POINTS — symbol STOPS_LEVEL (0 = no constraint)
+	BrokerMinFreezePoints float64 // BROKER_MIN_FREEZE_POINTS — symbol FREEZE_LEVEL (0 = no constraint)
+	BrokerMinLot          float64 // BROKER_MIN_LOT — symbol volume_min (0 = no constraint)
+	BrokerMaxLot          float64 // BROKER_MAX_LOT — symbol volume_max (0 = no constraint)
+	BrokerLotStep         float64 // BROKER_LOT_STEP — symbol volume_step
+	BrokerDigits          int     // BROKER_DIGITS — symbol digits for XAUUSD
+
 	// CORS/origin validation
 	AllowedOrigins []string
 
@@ -192,6 +200,13 @@ func Default() *Config {
 		CostToTP1MaxPct:      getEnvFloat("COST_TO_TP1_MAX_PCT", 0.30),
 		SlippageCostPoints:   getEnvFloat("SLIPPAGE_COST_POINTS", 0.10),
 		CommissionCostPoints: getEnvFloat("COMMISSION_COST_POINTS", 0.06),
+		// P0-001: Broker symbol validation — zero means "no constraint" (gate degrades, not vetoes)
+		BrokerMinStopPoints:   getEnvFloat("BROKER_MIN_STOP_POINTS", 0),
+		BrokerMinFreezePoints: getEnvFloat("BROKER_MIN_FREEZE_POINTS", 0),
+		BrokerMinLot:          getEnvFloat("BROKER_MIN_LOT", 0.01),
+		BrokerMaxLot:          getEnvFloat("BROKER_MAX_LOT", 0),
+		BrokerLotStep:         getEnvFloat("BROKER_LOT_STEP", 0.01),
+		BrokerDigits:          getEnvInt("BROKER_DIGITS", 2),
 		AllowedOrigins:       strings.Split(getEnv("ALLOWED_ORIGINS", "https://platform.predictatrade.com,https://predictatrade.com"), ","),
 		LogLevel:             getEnv("LOG_LEVEL", "info"),
 

@@ -84,6 +84,31 @@ func (e *CandleEngine) Process(candle *types.Candle, atr decimal.Decimal) Candle
 	ci.ConsecutiveBull = e.consecutiveBull
 	ci.ConsecutiveBear = e.consecutiveBear
 
+	// P2-002: Pin Bar geometry features — structured computation for shadow mode
+	ci.PinBarBodyRatio = body.Div(range_)
+	ci.PinBarUppWickRatio = highBody.Div(range_)
+	ci.PinBarLowWickRatio = lowBody.Div(range_)
+	if atr.GreaterThan(decimal.Zero) {
+		ci.PinBarRngATRRatio = range_.Div(atr)
+	}
+	// Rejection direction
+	if highBody.GreaterThan(lowBody) {
+		ci.PinBarRejDirection = "SELL"
+	} else if lowBody.GreaterThan(highBody) {
+		ci.PinBarRejDirection = "BUY"
+	}
+	// Quality: body smallness + wick dominance composite
+	one := decimal.NewFromInt(1)
+	bodyQuality := one.Sub(ci.PinBarBodyRatio)
+	dominantWick := highBody
+	if lowBody.GreaterThan(highBody) {
+		dominantWick = lowBody
+	}
+	wickDominance := dominantWick.Div(range_)
+	ci.PinBarQuality = bodyQuality.Mul(decimal.NewFromFloat(0.4)).
+		Add(wickDominance.Mul(decimal.NewFromFloat(0.4))).
+		Add(ci.ATRNormalized.Mul(decimal.NewFromFloat(0.2)))
+
 	// Engulfing and inside/outside bars need previous candle
 	if e.prevCandle != nil {
 		prevBody := e.prevCandle.Close.Sub(e.prevCandle.Open).Abs()

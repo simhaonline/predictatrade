@@ -2678,6 +2678,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			PositionsKnown:    bs.PositionsKnown,
 			OpenBuyPositions:  bs.BuyCount,
 			OpenSellPositions: bs.SellCount,
+			BrokerDigits:      int32(cfg.BrokerDigits), // P1-001: broker precision
 			StructuralLow: func() float64 {
 				if len(mergedState.Structure.SwingLows) > 0 {
 					v, _ := mergedState.Structure.SwingLows[len(mergedState.Structure.SwingLows)-1].Float64()
@@ -2952,6 +2953,18 @@ func registerGates(reg *gates.Registry, cfg *config.Config) *gates.PositionCapsG
 	reg.Register(&gates.EntitlementGate{})
 	reg.Register(&gates.LicenseGate{})
 	reg.Register(&gates.ExecutionPermissionGate{})
+	// P0-001: Broker Symbol Validation — validates price/lot against broker constraints
+	// Placed after ExecPermit, before capital-protection gates.
+	// Degrades (not vetoes) when broker metadata is unavailable — capital gates
+	// provide the hard safety barriers; this gate adds precision hardening.
+	reg.RegisterOrdered(&gates.BrokerSymbolValidatorGate{
+		MinStopPoints:  cfg.BrokerMinStopPoints,
+		MinFreezePoints: cfg.BrokerMinFreezePoints,
+		MinLot:          cfg.BrokerMinLot,
+		MaxLot:          cfg.BrokerMaxLot,
+		LotStep:         cfg.BrokerLotStep,
+		Digits:          cfg.BrokerDigits,
+	}, types.GateExecutionPermit)
 
 	// ─── Capital-protection gates (R1-R7, EV1-EV3, PT/P&L) ───
 	// R2: head-of-order right after DataQuality — a wrong-side stop must

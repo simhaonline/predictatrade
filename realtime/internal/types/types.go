@@ -250,6 +250,9 @@ const (
 	GateProfitTarget   GateID = "profit_target"
 	GateMartingaleBan  GateID = "martingale_ban"
 	GateEdgeValidation GateID = "edge_validation"
+
+	// GitHub Reference P0-001: Broker symbol metadata validation
+	GateBrokerSymbolValidation GateID = "broker_symbol_validation"
 )
 
 // NoTradeReason represents a standardized NO-TRADE reason (SOW Section 18).

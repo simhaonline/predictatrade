@@ -69,6 +69,9 @@ type DecisionInput struct {
 	// Strategy-provided reason codes propagated into engine decision
 	// for audit traceability (fixes GAP-5: engine discards strategy reasons).
 	DecisionReasons []types.NoTradeReason
+
+	// P1-001: Broker precision — digits for price rounding (e.g., 2 for XAUUSD)
+	BrokerDigits int32
 }
 
 // DecisionResult is the final output of the master decision hierarchy.
@@ -89,6 +92,17 @@ type DecisionResult struct {
 // 3. Produce BUY/SELL/NO-TRADE
 func (e *Engine) Decide(input DecisionInput) DecisionResult {
 	result := DecisionResult{}
+
+	// P1-001: Round prices to broker digits before gate evaluation and signal output.
+	// This prevents impossible price levels that don't match broker tick size.
+	digits := input.BrokerDigits
+	if digits > 0 {
+		input.EntryPrice = roundToDigits(input.EntryPrice, digits)
+		input.StopLoss = roundToDigits(input.StopLoss, digits)
+		input.TP1 = roundToDigits(input.TP1, digits)
+		input.TP2 = roundToDigits(input.TP2, digits)
+		input.TP3 = roundToDigits(input.TP3, digits)
+	}
 
 	// Step 1: Use the strategy's pre-computed direction
 	// The strategy has already evaluated all evidence, conflicts, MTF, regime, session
@@ -265,6 +279,13 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 func toFloat(d decimal.Decimal) float64 {
 	f, _ := d.Float64()
 	return f
+}
+
+// roundToDigits rounds a decimal to the broker-specified number of digits.
+// P1-001: Broker precision validation — prevents impossible price levels
+// that don't match broker tick size (e.g., XAUUSD at 2 digits = 0.01 resolution).
+func roundToDigits(d decimal.Decimal, digits int32) decimal.Decimal {
+	return d.Round(digits)
 }
 
 func convertGateEvals(evals []gates.GateEvaluation) []types.GateEvaluation {
