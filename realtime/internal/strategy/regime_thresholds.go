@@ -33,47 +33,46 @@ func DefaultRegimeThresholds() map[types.StrategyID]map[types.Regime]RegimeTrade
 	return map[types.StrategyID]map[types.Regime]RegimeTradeThreshold{
 		types.StrategyStandardScalping: {
 			// TREND: EMA+ADX+BOS+MACD+MTF all align → max ~80, threshold 65 reachable
-			types.RegimeTrendingBullish: {types.StrategyStandardScalping, types.RegimeTrendingBullish, 40, 65, "TREND: max~80, threshold 65 reachable"},
-			types.RegimeTrendingBearish: {types.StrategyStandardScalping, types.RegimeTrendingBearish, 40, 65, "TREND: max~80, threshold 65 reachable"},
+			types.RegimeTrendingBullish: {types.StrategyStandardScalping, types.RegimeTrendingBullish, 25, 65, "TREND: max~80, candidate widened to 25 for wider candidate reach"},
+			types.RegimeTrendingBearish: {types.StrategyStandardScalping, types.RegimeTrendingBearish, 25, 65, "TREND: max~80, candidate widened to 25"},
 			// BREAKOUT: BOS+displacement+ATR expansion → max ~75, threshold 65 reachable
-			types.RegimeBreakout: {types.StrategyStandardScalping, types.RegimeBreakout, 40, 65, "BREAKOUT: max~75, threshold 65 reachable"},
-			// RANGE: evidence split + family caps → max ~47, threshold 65 UNREACHABLE
-			// Fixed: trade threshold 45 (mathematically achievable), candidate 30
-			types.RegimeRange: {types.StrategyStandardScalping, types.RegimeRange, 30, 45, "RANGE: max~47 with family caps, old threshold 65 unreachable, fixed to 45"},
-			types.RegimeMeanReversion: {types.StrategyStandardScalping, types.RegimeMeanReversion, 30, 45, "MEAN_REVERSION: max~47, threshold 45"},
-			types.RegimeHighVolatility: {types.StrategyStandardScalping, types.RegimeHighVolatility, 30, 50, "HIGH_VOL: reduced evidence quality"},
+			types.RegimeBreakout: {types.StrategyStandardScalping, types.RegimeBreakout, 25, 65, "BREAKOUT: max~75, candidate widened to 25"},
+			// RANGE: evidence split + family caps → max ~47. Wider candidate band
+			// (15) so more directional NO-TRADE scores become advisory candidates.
+			types.RegimeRange: {types.StrategyStandardScalping, types.RegimeRange, 15, 45, "RANGE: max~47, trade threshold 45, candidate widened to 15"},
+			types.RegimeMeanReversion: {types.StrategyStandardScalping, types.RegimeMeanReversion, 15, 45, "MEAN_REVERSION: max~47, candidate widened to 15"},
+			types.RegimeHighVolatility: {types.StrategyStandardScalping, types.RegimeHighVolatility, 15, 50, "HIGH_VOL: reduced evidence quality, candidate widened to 15"},
 		},
 		types.StrategyUltraScalping: {
-			types.RegimeTrendingBullish: {types.StrategyUltraScalping, types.RegimeTrendingBullish, 40, 65, "TREND: max~78"},
-			types.RegimeTrendingBearish: {types.StrategyUltraScalping, types.RegimeTrendingBearish, 40, 65, "TREND: max~78"},
-			types.RegimeBreakout: {types.StrategyUltraScalping, types.RegimeBreakout, 40, 65, "BREAKOUT: max~72"},
-			types.RegimeMeanReversion: {types.StrategyUltraScalping, types.RegimeMeanReversion, 35, 50, "MEAN_REVERSION: max~52"},
-			types.RegimeRange: {types.StrategyUltraScalping, types.RegimeRange, 35, 50, "RANGE: max~52"},
-			types.RegimeHighVolatility: {types.StrategyUltraScalping, types.RegimeHighVolatility, 35, 55, "HIGH_VOL"},
+			types.RegimeTrendingBullish: {types.StrategyUltraScalping, types.RegimeTrendingBullish, 25, 65, "TREND: max~78, candidate widened to 25"},
+			types.RegimeTrendingBearish: {types.StrategyUltraScalping, types.RegimeTrendingBearish, 25, 65, "TREND: max~78, candidate widened to 25"},
+			types.RegimeBreakout: {types.StrategyUltraScalping, types.RegimeBreakout, 25, 65, "BREAKOUT: max~72, candidate widened to 25"},
+			types.RegimeMeanReversion: {types.StrategyUltraScalping, types.RegimeMeanReversion, 15, 50, "MEAN_REVERSION: max~52, candidate widened to 15"},
+			types.RegimeRange: {types.StrategyUltraScalping, types.RegimeRange, 15, 50, "RANGE: max~52, candidate widened to 15"},
+			types.RegimeHighVolatility: {types.StrategyUltraScalping, types.RegimeHighVolatility, 15, 55, "HIGH_VOL: candidate widened to 15"},
 		},
 		types.StrategyStandardSwing: {
-			types.RegimeTrendingBullish: {types.StrategyStandardSwing, types.RegimeTrendingBullish, 35, 55, "TREND: max~92"},
-			types.RegimeTrendingBearish: {types.StrategyStandardSwing, types.RegimeTrendingBearish, 35, 55, "TREND: max~92"},
-			types.RegimeBreakout: {types.StrategyStandardSwing, types.RegimeBreakout, 35, 55, "BREAKOUT: max~85"},
-			// RANGE: already accepts RANGE, max~60 with range evidence, threshold 55 borderline
-			types.RegimeRange: {types.StrategyStandardSwing, types.RegimeRange, 25, 40, "RANGE: max~60 with range evidence, old 55 borderline, fixed 40"},
-			types.RegimeMeanReversion: {types.StrategyStandardSwing, types.RegimeMeanReversion, 25, 40, "MEAN_REVERSION: max~60"},
-			types.RegimeHighVolatility: {types.StrategyStandardSwing, types.RegimeHighVolatility, 30, 50, "HIGH_VOL"},
+			types.RegimeTrendingBullish: {types.StrategyStandardSwing, types.RegimeTrendingBullish, 20, 55, "TREND: max~92, candidate widened to 20"},
+			types.RegimeTrendingBearish: {types.StrategyStandardSwing, types.RegimeTrendingBearish, 20, 55, "TREND: max~92, candidate widened to 20"},
+			types.RegimeBreakout: {types.StrategyStandardSwing, types.RegimeBreakout, 20, 55, "BREAKOUT: max~85, candidate widened to 20"},
+			types.RegimeRange: {types.StrategyStandardSwing, types.RegimeRange, 15, 40, "RANGE: max~60, candidate widened to 15"},
+			types.RegimeMeanReversion: {types.StrategyStandardSwing, types.RegimeMeanReversion, 15, 40, "MEAN_REVERSION: max~60, candidate widened to 15"},
+			types.RegimeHighVolatility: {types.StrategyStandardSwing, types.RegimeHighVolatility, 15, 50, "HIGH_VOL: candidate widened to 15"},
 		},
 		types.StrategyTrendSwing: {
 			// TrendSwing only accepts trending/breakout — no RANGE threshold needed
-			types.RegimeTrendingBullish: {types.StrategyTrendSwing, types.RegimeTrendingBullish, 30, 50, "TREND: max~75"},
-			types.RegimeTrendingBearish: {types.StrategyTrendSwing, types.RegimeTrendingBearish, 30, 50, "TREND: max~75"},
-			types.RegimeBreakout: {types.StrategyTrendSwing, types.RegimeBreakout, 30, 50, "BREAKOUT: max~70"},
+			types.RegimeTrendingBullish: {types.StrategyTrendSwing, types.RegimeTrendingBullish, 15, 50, "TREND: max~75, candidate widened to 15"},
+			types.RegimeTrendingBearish: {types.StrategyTrendSwing, types.RegimeTrendingBearish, 15, 50, "TREND: max~75, candidate widened to 15"},
+			types.RegimeBreakout: {types.StrategyTrendSwing, types.RegimeBreakout, 15, 50, "BREAKOUT: max~70, candidate widened to 15"},
 		},
 		types.StrategyMarnieFib: {
 			// Marnie Fib works best in RANGE/MEAN_REVERSION (retracement reversals)
-			types.RegimeRange: {types.StrategyMarnieFib, types.RegimeRange, 25, 40, "RANGE: Fib retracement reversals, max~55"},
-			types.RegimeMeanReversion: {types.StrategyMarnieFib, types.RegimeMeanReversion, 25, 40, "MEAN_REVERSION: Fib reversals, max~55"},
-			types.RegimeTrendingBullish: {types.StrategyMarnieFib, types.RegimeTrendingBullish, 30, 45, "TREND: Fib pullback entries, max~65"},
-			types.RegimeTrendingBearish: {types.StrategyMarnieFib, types.RegimeTrendingBearish, 30, 45, "TREND: Fib pullback entries, max~65"},
-			types.RegimeBreakout: {types.StrategyMarnieFib, types.RegimeBreakout, 30, 45, "BREAKOUT: Fib extension targets, max~60"},
-			types.RegimeHighVolatility: {types.StrategyMarnieFib, types.RegimeHighVolatility, 25, 40, "HIGH_VOL: wider Fib zones"},
+			types.RegimeRange: {types.StrategyMarnieFib, types.RegimeRange, 15, 40, "RANGE: Fib retracement reversals, max~55, candidate widened to 15"},
+			types.RegimeMeanReversion: {types.StrategyMarnieFib, types.RegimeMeanReversion, 15, 40, "MEAN_REVERSION: Fib reversals, max~55, candidate widened to 15"},
+			types.RegimeTrendingBullish: {types.StrategyMarnieFib, types.RegimeTrendingBullish, 15, 45, "TREND: Fib pullback entries, max~65, candidate widened to 15"},
+			types.RegimeTrendingBearish: {types.StrategyMarnieFib, types.RegimeTrendingBearish, 15, 45, "TREND: Fib pullback entries, max~65, candidate widened to 15"},
+			types.RegimeBreakout: {types.StrategyMarnieFib, types.RegimeBreakout, 15, 45, "BREAKOUT: Fib extension targets, max~60, candidate widened to 15"},
+			types.RegimeHighVolatility: {types.StrategyMarnieFib, types.RegimeHighVolatility, 15, 40, "HIGH_VOL: wider Fib zones, candidate widened to 15"},
 		},
 	}
 }
