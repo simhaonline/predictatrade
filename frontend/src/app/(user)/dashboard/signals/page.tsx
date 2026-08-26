@@ -7,7 +7,7 @@ import { fetchLicenses } from "@/lib/user-licensing-api";
 import { format } from "date-fns";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { getGlobalWs, type WsMessage, type SignalEvent } from "@/lib/websocket";
-import { IconChevronRight, IconChevronDown } from "@tabler/icons-react";
+import { IconChevronRight, IconChevronDown, IconChevronLeft } from "@tabler/icons-react";
 import SignalEvidencePanel from "@/components/signal/signal-evidence";
 
 // Interface matches the actual Go engine API response (PascalCase)
@@ -49,6 +49,7 @@ interface EngineSignal {
 
 const STRATEGIES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"];
 const DIRECTIONS = ["BUY", "SELL", "BUY_CANDIDATE", "SELL_CANDIDATE", "NO-TRADE"];
+const PAGE_SIZE = 15;
 
 function mapWs(s: SignalEvent): EngineSignal {
   return {
@@ -79,6 +80,7 @@ export default function UserSignalsPage() {
   const [filterStrategy, setFilterStrategy] = useState("ALL");
   const [filterDirection, setFilterDirection] = useState("ALL");
   const [filterRegime, setFilterRegime] = useState("ALL");
+  const [page, setPage] = useState(0);
 
   // Fetch user's license to determine allowed strategies
   const { data: licenses } = useQuery({
@@ -92,7 +94,7 @@ export default function UserSignalsPage() {
   const { data: signalsData, isLoading, error, refetch } = useQuery<{ signals: EngineSignal[] }>({
     queryKey: ["engine-signals-user"],
     queryFn: async () => {
-      const res = await customInstance.get("/signals");
+      const res = await customInstance.get("/signals?limit=200");
       return res.data as { signals: EngineSignal[] };
     },
     refetchInterval: 10000,
@@ -103,7 +105,7 @@ export default function UserSignalsPage() {
     const unsub = ws.subscribe((msg: WsMessage) => {
       if (msg.type === "signal") {
         const signal = mapWs(msg.payload);
-        sigBuffer.current = [signal, ...sigBuffer.current].slice(0, 50);
+        sigBuffer.current = [signal, ...sigBuffer.current].slice(0, 200);
         setLiveSignals(sigBuffer.current);
       }
     });
@@ -133,6 +135,12 @@ export default function UserSignalsPage() {
       ),
     [combinedSignals, filterStrategy, filterDirection, filterRegime],
   );
+
+  // Reset page when filters change
+  useEffect(() => { setPage(0); }, [filterStrategy, filterDirection, filterRegime]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pagedSignals = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   const dirColor = (dir: string): string => {
     if (dir === "BUY") return "text-pat-success";
@@ -197,97 +205,126 @@ export default function UserSignalsPage() {
           )}
         </div>
       ) : (
-        <div className="overflow-x-auto border border-pat-table-border rounded-lg">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-pat-bg-surface text-pat-text-secondary uppercase text-xs">
-              <tr>
-                <th className="px-3 py-3"></th>
-                <th className="px-3 py-3 font-medium">Direction</th>
-                <th className="px-3 py-3 font-medium">Strategy</th>
-                <th className="px-3 py-3 font-medium">Score</th>
-                <th className="px-3 py-3 font-medium">Prob.</th>
-                <th className="px-3 py-3 font-medium">Entry</th>
-                <th className="px-3 py-3 font-medium">SL</th>
-                <th className="px-3 py-3 font-medium">TP1</th>
-                <th className="px-3 py-3 font-medium">Quality</th>
-                <th className="px-3 py-3 font-medium">Status</th>
-                <th className="px-3 py-3 font-medium">Regime</th>
-                <th className="px-3 py-3 font-medium">Date</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-pat-border">
-              {filtered.map((row) => {
-                const isOpen = expanded === row.ID;
-                return (
-                  <React.Fragment key={row.ID}>
-                    <tr className="hover:bg-pat-table-hover transition-colors">
-                      <td className="px-3 py-3">
-                        <button
-                          onClick={() => setExpanded(isOpen ? null : row.ID)}
-                          aria-expanded={isOpen}
-                          aria-label={`Expand signal ${row.ID}`}
-                          className="p-1 rounded hover:bg-pat-bg-surface-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pat-primary"
-                        >
-                          {isOpen ? <IconChevronDown size={14} className="text-pat-text-muted" /> : <IconChevronRight size={14} className="text-pat-text-muted" />}
-                        </button>
-                      </td>
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-1.5">
-                          <span className={`text-xs font-bold ${dirColor(row.Direction)}`}>{row.Direction}</span>
-                          {row.Executable && <span className="text-[9px] px-1 py-0.5 rounded-full bg-pat-success/15 text-pat-success">EXEC</span>}
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 text-xs text-pat-text-secondary">{row.StrategyID?.replace(/_/g, " ")}</td>
-                      <td className="px-3 py-3 text-xs text-pat-text-primary tabular-nums">{num(row.RawScore) > 0 ? num(row.RawScore).toFixed(1) : "—"}</td>
-                      <td className="px-3 py-3 text-xs text-pat-text-primary" title="Calibrated probability — shows 'Pending' until calibration model is validated">
-                        {num(row.CalibratedProbability) > 0 ? `${(num(row.CalibratedProbability) * 100).toFixed(1)}%` : "Pending"}
-                      </td>
-                      <td className="px-3 py-3 text-xs text-pat-text-primary tabular-nums">{num(row.EntryPrice) > 0 ? num(row.EntryPrice).toFixed(2) : "—"}</td>
-                      <td className="px-3 py-3 text-xs text-pat-danger tabular-nums">{num(row.StopLoss) > 0 ? num(row.StopLoss).toFixed(2) : "—"}</td>
-                      <td className="px-3 py-3 text-xs text-pat-success tabular-nums">{num(row.TP1) > 0 ? num(row.TP1).toFixed(2) : "—"}</td>
-                      <td className="px-3 py-3">
-                      {row.QualityGrade ? (
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${
-                          row.QualityGrade === "A+" ? "bg-pat-success/15 text-pat-success" :
-                          row.QualityGrade === "A" ? "bg-pat-info/15 text-pat-info" :
-                          row.QualityGrade === "B" ? "bg-pat-warning/15 text-pat-warning" :
-                          "bg-pat-danger/15 text-pat-danger"
-                        }`}>{row.QualityGrade}</span>
-                      ) : <span className="text-xs text-pat-text-muted">—</span>}
-                    </td>
-                    <td className="px-3 py-3"><StatusText status={row.Status} /></td>
-                      <td className="px-3 py-3 text-[10px] text-pat-text-muted">{row.Regime || "—"}</td>
-                      <td className="px-3 py-3 text-xs text-pat-text-muted">
-                        {row.CreatedAt && row.CreatedAt !== "0001-01-01T00:00:00Z" ? format(new Date(row.CreatedAt), "MMM d, HH:mm:ss") : "—"}
-                      </td>
-                    </tr>
-                    {isOpen && (
-                      <tr className="bg-pat-bg-surface-secondary/30">
-                        <td colSpan={13} className="px-4 py-4 space-y-3">
-                          <div className="flex flex-wrap gap-4 text-xs text-pat-text-secondary">
-                            <span title="Engine-recommended lot (risk-capped, margin-aware)">
-                              Lot: <b className="text-pat-text-primary">{num(row.SuggestedLot) > 0 ? Number(row.SuggestedLot).toFixed(2) : "—"}</b>
-                            </span>
-                            <span title="Risk at stop distance, USD">
-                              Risk: <b className="text-pat-text-primary">{num(row.RiskDollars) > 0 ? `$${Number(row.RiskDollars).toFixed(2)}` : "—"}</b>
-                            </span>
-                            <span title="Risk as % of account equity">
-                              Equity %: <b className="text-pat-text-primary">{num(row.RiskPctOfEquity) > 0 ? `${Number(row.RiskPctOfEquity).toFixed(2)}%` : "—"}</b>
-                            </span>
-                            <span title="Stop distance in points">
-                              SL pts: <b className="text-pat-text-primary">{num(row.SLDistancePoints) > 0 ? Number(row.SLDistancePoints).toFixed(0) : "—"}</b>
-                            </span>
+        <>
+          <div className="overflow-x-auto border border-pat-table-border rounded-lg">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-pat-bg-surface text-pat-text-secondary uppercase text-xs">
+                <tr>
+                  <th className="px-3 py-3"></th>
+                  <th className="px-3 py-3 font-medium">Direction</th>
+                  <th className="px-3 py-3 font-medium">Strategy</th>
+                  <th className="px-3 py-3 font-medium">Score</th>
+                  <th className="px-3 py-3 font-medium">Prob.</th>
+                  <th className="px-3 py-3 font-medium">Entry</th>
+                  <th className="px-3 py-3 font-medium">SL</th>
+                  <th className="px-3 py-3 font-medium">TP1</th>
+                  <th className="px-3 py-3 font-medium">TP2</th>
+                  <th className="px-3 py-3 font-medium">TP3</th>
+                  <th className="px-3 py-3 font-medium">Quality</th>
+                  <th className="px-3 py-3 font-medium">Status</th>
+                  <th className="px-3 py-3 font-medium">Regime</th>
+                  <th className="px-3 py-3 font-medium">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-pat-border">
+                {pagedSignals.map((row) => {
+                  const isOpen = expanded === row.ID;
+                  return (
+                    <React.Fragment key={row.ID}>
+                      <tr className="hover:bg-pat-table-hover transition-colors">
+                        <td className="px-3 py-3">
+                          <button
+                            onClick={() => setExpanded(isOpen ? null : row.ID)}
+                            aria-expanded={isOpen}
+                            aria-label={`Expand signal ${row.ID}`}
+                            className="p-1 rounded hover:bg-pat-bg-surface-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pat-primary"
+                          >
+                            {isOpen ? <IconChevronDown size={14} className="text-pat-text-muted" /> : <IconChevronRight size={14} className="text-pat-text-muted" />}
+                          </button>
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-xs font-bold ${dirColor(row.Direction)}`}>{row.Direction}</span>
+                            {row.Executable && <span className="text-[9px] px-1 py-0.5 rounded-full bg-pat-success/15 text-pat-success">EXEC</span>}
                           </div>
-                          <SignalEvidencePanel sig={row} />
+                        </td>
+                        <td className="px-3 py-3 text-xs text-pat-text-secondary">{row.StrategyID?.replace(/_/g, " ")}</td>
+                        <td className="px-3 py-3 text-xs text-pat-text-primary tabular-nums">{num(row.RawScore) > 0 ? num(row.RawScore).toFixed(1) : "—"}</td>
+                        <td className="px-3 py-3 text-xs text-pat-text-primary" title="Calibrated probability — shows 'Pending' until calibration model is validated">
+                          {num(row.CalibratedProbability) > 0 ? `${(num(row.CalibratedProbability) * 100).toFixed(1)}%` : "Pending"}
+                        </td>
+                        <td className="px-3 py-3 text-xs text-pat-text-primary tabular-nums">{num(row.EntryPrice) > 0 ? num(row.EntryPrice).toFixed(2) : "—"}</td>
+                        <td className="px-3 py-3 text-xs text-pat-danger tabular-nums">{num(row.StopLoss) > 0 ? num(row.StopLoss).toFixed(2) : "—"}</td>
+                        <td className="px-3 py-3 text-xs text-pat-success tabular-nums">{num(row.TP1) > 0 ? num(row.TP1).toFixed(2) : "—"}</td>
+                        <td className="px-3 py-3 text-xs text-pat-success tabular-nums">{num(row.TP2) > 0 ? num(row.TP2).toFixed(2) : "—"}</td>
+                        <td className="px-3 py-3 text-xs text-pat-success tabular-nums">{num(row.TP3) > 0 ? num(row.TP3).toFixed(2) : "—"}</td>
+                        <td className="px-3 py-3">
+                          {row.QualityGrade ? (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${
+                              row.QualityGrade === "A+" ? "bg-pat-success/15 text-pat-success" :
+                              row.QualityGrade === "A" ? "bg-pat-info/15 text-pat-info" :
+                              row.QualityGrade === "B" ? "bg-pat-warning/15 text-pat-warning" :
+                              "bg-pat-danger/15 text-pat-danger"
+                            }`}>{row.QualityGrade}</span>
+                          ) : <span className="text-xs text-pat-text-muted">—</span>}
+                        </td>
+                        <td className="px-3 py-3"><StatusText status={row.Status} /></td>
+                        <td className="px-3 py-3 text-[10px] text-pat-text-muted">{row.Regime || "—"}</td>
+                        <td className="px-3 py-3 text-xs text-pat-text-muted">
+                          {row.CreatedAt && row.CreatedAt !== "0001-01-01T00:00:00Z" ? format(new Date(row.CreatedAt), "MMM d, HH:mm:ss") : "—"}
                         </td>
                       </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                      {isOpen && (
+                        <tr className="bg-pat-bg-surface-secondary/30">
+                          <td colSpan={15} className="px-4 py-4 space-y-3">
+                            <div className="flex flex-wrap gap-4 text-xs text-pat-text-secondary">
+                              <span title="Engine-recommended lot (risk-capped, margin-aware)">
+                                Lot: <b className="text-pat-text-primary">{num(row.SuggestedLot) > 0 ? Number(row.SuggestedLot).toFixed(2) : "—"}</b>
+                              </span>
+                              <span title="Risk at stop distance, USD">
+                                Risk: <b className="text-pat-text-primary">{num(row.RiskDollars) > 0 ? `$${Number(row.RiskDollars).toFixed(2)}` : "—"}</b>
+                              </span>
+                              <span title="Risk as % of account equity">
+                                Equity %: <b className="text-pat-text-primary">{num(row.RiskPctOfEquity) > 0 ? `${Number(row.RiskPctOfEquity).toFixed(2)}%` : "—"}</b>
+                              </span>
+                              <span title="Stop distance in points">
+                                SL pts: <b className="text-pat-text-primary">{num(row.SLDistancePoints) > 0 ? Number(row.SLDistancePoints).toFixed(0) : "—"}</b>
+                              </span>
+                            </div>
+                            <SignalEvidencePanel sig={row} />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 text-xs">
+              <button
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                disabled={page === 0}
+                className="px-2 py-1 rounded border border-pat-border bg-pat-bg-surface hover:bg-pat-bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed text-pat-text-secondary"
+              >
+                <IconChevronLeft size={14} className="inline" /> Prev
+              </button>
+              <span className="text-pat-text-muted">
+                Page {page + 1} of {totalPages} ({filtered.length} signals)
+              </span>
+              <button
+                onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                disabled={page >= totalPages - 1}
+                className="px-2 py-1 rounded border border-pat-border bg-pat-bg-surface hover:bg-pat-bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed text-pat-text-secondary"
+              >
+                Next <IconChevronRight size={14} className="inline" />
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
