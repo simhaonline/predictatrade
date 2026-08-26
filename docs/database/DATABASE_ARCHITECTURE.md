@@ -26,7 +26,7 @@
 
 ### Hypertables
 - market.candles: 1-hour chunks, TimescaleDB compression
-- Pending: retention policy (operator approval required)
+- Retention policy: 3 years on market.candles (v1.16.0) ✅
 
 ### Money Types
 - All financial columns use `NUMERIC(18,8)` — no float/double anywhere
