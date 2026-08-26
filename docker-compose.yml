@@ -292,16 +292,16 @@ services:
     restart: always
 
 volumes:
+  # Docker-managed named volumes — created automatically on first `docker compose up`.
+  # Do NOT set external:true here; the "volume already exists" warning is cosmetic
+  # and harmless (it means the volume survived a previous down/rm). external:true
+  # would silently skip creation on a fresh machine, causing DATA LOSS when
+  # pat-pgdata is missing and PostgreSQL cannot start.
   pat-pgdata:
-    external: true
   pat-valkey:
-    external: true
   pat-prometheus:
-    external: true
   pat-grafana:
-    external: true
   pat-ntfy:
-    external: true
   live-dashboard:
     driver: local
     driver_opts:
