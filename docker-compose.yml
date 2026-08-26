@@ -232,6 +232,7 @@ services:
       - ./nginx/downloads:/var/www/downloads:ro
       - ssl-certs:/etc/letsencrypt:ro
       - nginx-logs:/var/log/nginx
+      - /var/www/certbot:/var/www/certbot:ro
       # Documentation (self-hosted Docsify)
       - ./docs/nginx/docs.predictatrade.com.conf:/etc/nginx/sites-available/docs.predictatrade.com.conf:ro
       - ./docs:/var/www/pat-docs:ro
