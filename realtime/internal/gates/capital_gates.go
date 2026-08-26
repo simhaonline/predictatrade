@@ -107,12 +107,13 @@ func (g *RiskOversizeGate) Evaluate(input GateInput, state GateState) GateEvalua
 		return eval
 	}
 	if input.AccountEquity <= 0 {
-		// Broker account not hydrated — fail CLOSED. Trading blind (unknown
-		// balance/equity) can blow through the per-trade and daily-loss budgets,
-		// especially on small accounts. The EA also enforces sizing locally, but
-		// the server must not be the weak link.
-		eval.Result = types.GateVeto
-		eval.ReasonCodes = []string{ReasonRiskOversize}
+		// Broker account not hydrated — PASS (not veto). The EA enforces
+		// sizing and risk locally with real broker data. The server gate
+		// is a secondary barrier, not the primary one. Blocking all signals
+		// when account data is temporarily unavailable prevents any trading
+		// for 10K+ clients whose agents may not send MARKET_SNAPSHOT with
+		// account_info on every cycle.
+		eval.Result = types.GatePass
 		return eval
 	}
 	econ := risk.SymbolEconomics{

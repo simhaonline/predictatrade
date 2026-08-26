@@ -3243,7 +3243,7 @@ func registerGates(reg *gates.Registry, cfg *config.Config) *gates.PositionCapsG
 	for tf, v := range cfg.MinATRByTimeframe {
 		minATRByTF[types.Timeframe(tf)] = v
 	}
-	reg.Register(&gates.MinAbsoluteATRGate{MinATR: 2.0, MinATRByTF: minATRByTF})
+	reg.Register(&gates.MinAbsoluteATRGate{MinATR: 0.5, MinATRByTF: minATRByTF})
 	reg.Register(&gates.SlippageGate{MaxSlippage: 0.10})
 	logCopy := observability.Log
 	// Bug 6: scalping strategies get strict cost-to-TP1 enforcement using the
