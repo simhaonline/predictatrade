@@ -77,7 +77,7 @@ cd "$AGENT_DIR"
 # Remove the .syso file if it exists to prevent Go from embedding it
 rm -f "$AGENT_DIR/cmd/agent/resource_windows_amd64.syso"
 
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
+GOTOOLCHAIN=go1.23.0 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
   -ldflags="-s -w -X github.com/predictatrade/windows-agent/internal/agent.AgentVersion=$NEW_VERSION" \
   -o "$BIN_PATH" ./cmd/agent/ || fatal "Build failed"
 log "Binary built: $BIN_PATH ($(du -h "$BIN_PATH" | cut -f1))"

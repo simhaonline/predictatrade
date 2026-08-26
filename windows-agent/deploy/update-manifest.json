@@ -1,8 +1,8 @@
 {
     "version": "1.2.31",
     "download_url": "https://downloads.predictatrade.com/windows-agent/pat-agent.exe",
-    "checksum": "555676bcb269748ab74886a6627776197ab0b3234e28242b9759b04dcb3d04de",
+    "checksum": "10a93ba1906bbbaa04f27a4326f3e7279c0aa6150a18c287e7b6f81025630f75",
     "min_version": "1.0.0",
-    "release_notes": "v1.2.31 — original v1.2.30 + LICENSE_STATUS handler only. No other changes.",
-    "timestamp": "2026-08-26T11:37:17Z"
+    "release_notes": "v1.2.31 — built with Go 1.23 (not Go 1.26 which produced incompatible binary)",
+    "timestamp": "2026-08-26T11:41:22Z"
 }
