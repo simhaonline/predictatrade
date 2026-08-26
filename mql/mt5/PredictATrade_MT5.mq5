@@ -329,22 +329,45 @@ datetime PAT_ParseISO8601UTC(string s)
     MqlDateTime dt;
     dt.year = y; dt.mon = mo; dt.day = d; dt.hour = h; dt.min = mi; dt.sec = se;
     dt.day_of_week = 0; dt.day_of_year = 0;
-    datetime gmt = StructToTime(dt);
+    datetime localInterp = StructToTime(dt);   // MQL interprets components as TERMINAL-LOCAL time
+
+    // Terminal local offset from UTC (seconds), e.g. +10800 for GMT+3.
+    // Derived from the live wall-clock difference so it is broker/DST safe.
+    int off = 0;
+    {
+        MqlDateTime lc, gc;
+        TimeToStruct(TimeCurrent(), lc);
+        TimeToStruct(TimeGMT(), gc);
+        off = (lc.hour - gc.hour) * 3600 + (lc.min - gc.min) * 60 + (lc.sec - gc.sec);
+        while(off > 43200) off -= 86400;
+        while(off < -43200) off += 86400;
+    }
+
+    // Timezone suffix offset relative to UTC (seconds).
+    int suffixOff = 0;
     int tzPos = 19;
     if(tzPos < StringLen(s))
     {
         string tzChar = StringSubstr(s, tzPos, 1);
-        if(tzChar == "+" || tzChar == "-")
+        if(tzChar == "Z" || tzChar == "z")
         {
-            int sign = (tzChar == "+") ? -1 : 1; // local ahead of UTC => subtract to get UTC
+            suffixOff = 0;   // explicit UTC
+        }
+        else if(tzChar == "+" || tzChar == "-")
+        {
+            int sign = (tzChar == "+") ? 1 : -1;
             int oh = (int)StringToInteger(StringSubstr(s, tzPos + 1, 2));
             int om = 0;
             if(StringLen(s) >= tzPos + 6)
                 om = (int)StringToInteger(StringSubstr(s, tzPos + 4, 2));
-            gmt += sign * (oh * 3600 + om * 60);
+            suffixOff = sign * (oh * 3600 + om * 60);
         }
+        // unrecognized suffix => treat as UTC (suffixOff = 0)
     }
-    return (gmt + (TimeCurrent() - TimeGMT()));
+    // No suffix and no "Z" => assume UTC.
+
+    // Correct absolute time = (components as local) + terminal offset - suffix offset
+    return (localInterp + off - suffixOff);
 }
 
 bool PAT_SignalFresh()
