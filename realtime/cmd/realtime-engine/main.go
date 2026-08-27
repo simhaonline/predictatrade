@@ -539,6 +539,9 @@ func main() {
 			// Use persister's DB pool for exit profile configuration
 			strategy.InitExitProfileDB(persister.GetDB())
 			strategy.ClearProfileCache()
+			// Install per-symbol volatility-scale overrides (e.g. XAUUSD.sd) so
+			// stop distances track each broker instrument's real volatility.
+			strategy.SetSymbolVolatilityScale(cfg.SymbolVolatilityScale)
 			observability.Log.Info().Msg("Database connected for exit profile configuration")
 		}
 		if err != nil {

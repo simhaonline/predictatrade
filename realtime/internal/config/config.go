@@ -105,6 +105,17 @@ type Config struct {
 	// are hard-coded — if unset, the single global floor applies to all TFs.
 	MinATRByTimeframe map[string]float64
 
+	// SymbolVolatilityScale overrides the per-strategy VolatilityScale for a
+	// specific traded symbol (canonical or broker symbol, e.g. "XAUUSD.sd").
+	// Keyed by symbol; a present entry takes precedence over
+	// StrategyConfig.VolatilityScale for that symbol. Format (SYMBOL_VOLATILITY_SCALE):
+	//   "XAUUSD=2.0,XAUUSD.sd=3.0"
+	// This lets each broker instrument carry its own stop-distance scaling so the
+	// engine sizes risk off the REAL execution-market volatility (the root cause of
+	// client stop-outs when the feed understates true volatility). If unset, the
+	// per-strategy VolatilityScale applies uniformly.
+	SymbolVolatilityScale map[string]float64
+
 	// P0-001: Broker symbol metadata validation gate config
 	BrokerMinStopPoints   float64 // BROKER_MIN_STOP_POINTS — symbol STOPS_LEVEL (0 = no constraint)
 	BrokerMinFreezePoints float64 // BROKER_MIN_FREEZE_POINTS — symbol FREEZE_LEVEL (0 = no constraint)
@@ -254,6 +265,7 @@ func Default() *Config {
 		CommissionCostPoints:      getEnvFloat("COMMISSION_COST_POINTS", 0.06),
 		PaperEquity:               getEnvFloat("PAT_PAPER_EQUITY", 0),
 		MinATRByTimeframe:         getEnvFloatMapJSON("MIN_ATR_BY_TIMEFRAME"),
+		SymbolVolatilityScale:     getEnvFloatMap("SYMBOL_VOLATILITY_SCALE"),
 		// P0-001: Broker symbol validation — zero means "no constraint" (gate degrades, not vetoes)
 		BrokerMinStopPoints:   getEnvFloat("BROKER_MIN_STOP_POINTS", 0),
 		BrokerMinFreezePoints: getEnvFloat("BROKER_MIN_FREEZE_POINTS", 0),
@@ -466,6 +478,35 @@ func getEnvFloatMapJSON(key string) map[string]float64 {
 	}
 	m := map[string]float64{}
 	if err := json.Unmarshal([]byte(v), &m); err != nil {
+		return nil
+	}
+	return m
+}
+
+// getEnvFloatMap parses a comma-separated "K=V,K=V" env value into a
+// map[string]float64 (e.g. SYMBOL_VOLATILITY_SCALE="XAUUSD=2.0,XAUUSD.sd=3.0").
+func getEnvFloatMap(key string) map[string]float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return nil
+	}
+	m := map[string]float64{}
+	for _, pair := range strings.Split(v, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		kv := strings.SplitN(pair, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		f, err := strconv.ParseFloat(strings.TrimSpace(kv[1]), 64)
+		if err != nil {
+			continue
+		}
+		m[strings.TrimSpace(kv[0])] = f
+	}
+	if len(m) == 0 {
 		return nil
 	}
 	return m

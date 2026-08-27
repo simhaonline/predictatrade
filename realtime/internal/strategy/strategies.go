@@ -128,6 +128,12 @@ type StrategyConfig struct {
 	// absolute stop distance tracks the real execution market. Default 1.0 = no
 	// scaling. Must be > 0 when set.
 	VolatilityScale  float64
+	// MinSLSpreadMult guarantees the protective SL buffer dominates transaction
+	// cost: SL distance >= MinSLSpreadMult * full spread. Without this, when the
+	// broker spread/slippage on the traded symbol (e.g. XAUUSD.sd) is comparable
+	// to or larger than the ATR-based stop, every trade is stopped out by cost
+	// alone — the dominant real-world cause of client stop-outs. 0 disables.
+	MinSLSpreadMult  float64
 	MaxSpreadPips     float64
 	MaxSlippagePoints int   // per-strategy max slippage in points (prompt.md Section 4.2)
 	MinADX            float64
@@ -139,6 +145,20 @@ type StrategyConfig struct {
 	AcceptedRegimes   []types.Regime
 	AcceptedSessions  []string
 	MinQualityState   types.QualityState
+}
+
+// symbolVolatilityScale holds per-symbol VolatilityScale overrides installed from
+// engine configuration (SetSymbolVolatilityScale). A present entry for the live
+// symbol takes precedence over StrategyConfig.VolatilityScale, so each broker
+// instrument (e.g. "XAUUSD.sd") can carry its own stop-distance scaling to match
+// its real execution-market volatility.
+var symbolVolatilityScale = map[string]float64{}
+
+// SetSymbolVolatilityScale installs the per-symbol volatility-scale map from config.
+func SetSymbolVolatilityScale(m map[string]float64) {
+	if m != nil {
+		symbolVolatilityScale = m
+	}
 }
 
 // ─── Common helpers ───
@@ -202,9 +222,27 @@ func computeEntrySLTP(state *features.MarketState, direction types.Direction, cf
 	atr := state.Indicators.ATR
 	// VolatilityScale compensates for an understated volatility feed: scale the
 	// ATR used for SL/TP sizing so the absolute stop distance tracks the real
-	// execution market while preserving the risk:reward geometry.
-	if cfg.VolatilityScale > 0 {
-		atr = atr.Mul(decimal.NewFromFloat(cfg.VolatilityScale))
+	// execution market while preserving the risk:reward geometry. A per-symbol
+	// override (from config) takes precedence over the per-strategy default so
+	// each broker instrument (e.g. XAUUSD.sd) sizes risk off its own volatility.
+	scale := cfg.VolatilityScale
+	if s, ok := symbolVolatilityScale[state.Symbol]; ok && s > 0 {
+		scale = s
+	}
+	if scale > 0 {
+		atr = atr.Mul(decimal.NewFromFloat(scale))
+	}
+	// Ensure the protective SL buffer dominates transaction cost. The position must
+	// absorb the full round-trip spread and still have real room before being
+	// stopped; if the ATR-based stop is thinner than MinSLSpreadMult×spread, widen
+	// the effective ATR so BOTH SL and TP scale together (R:R geometry preserved).
+	// This is the primary defense against trades being stopped out by spread/slippage
+	// alone — the dominant real-world cause of client stop-outs.
+	if cfg.MinSLSpreadMult > 0 && !state.Spread.IsZero() && cfg.ATRMultiplierSL > 0 {
+		required := state.Spread.Mul(decimal.NewFromFloat(cfg.MinSLSpreadMult / cfg.ATRMultiplierSL))
+		if required.GreaterThan(atr) {
+			atr = required
+		}
 	}
 
 	// ─── PRIORITY: Check database exit profile (percentage mode) FIRST ───
@@ -722,7 +760,7 @@ func NewStandardScalping() *StandardScalping {
 		StrategyID: types.StrategyStandardScalping,
 		MinConfluence: 65, MinMTFAlignment: 40,
 		ATRMultiplierSL: 1.5, ATRMultiplierTP1: 2.5, ATRMultiplierTP2: 4.0, ATRMultiplierTP3: 6.0,
-		MinSLATRFloor: 0.0, VolatilityScale: 2.0, // provisional: widen stops for understated feed; calibrate from client real ATR
+		MinSLATRFloor: 0.0, VolatilityScale: 2.0, MinSLSpreadMult: 3.0, // provisional: widen stops for understated feed + dominate spread; calibrate from client real ATR/spread
 		MaxSpreadPips: 2.5, MaxSlippagePoints: 10, MinADX: 20, MinRR: 2.0,
 		ExpiryMinutes: 10, CooldownMinutes: 15,
 		DecisionTFs: []types.Timeframe{types.TFM1, types.TFM5},
@@ -928,7 +966,7 @@ func NewUltraScalping() *UltraScalping {
 		StrategyID: types.StrategyUltraScalping,
 		MinConfluence: 65, MinMTFAlignment: 50,
 		ATRMultiplierSL: 1.0, ATRMultiplierTP1: 1.5, ATRMultiplierTP2: 2.5, ATRMultiplierTP3: 4.0,
-		MinSLATRFloor: 0.0, VolatilityScale: 2.0, // provisional: widen stops for understated feed; calibrate from client real ATR
+		MinSLATRFloor: 0.0, VolatilityScale: 2.0, MinSLSpreadMult: 3.0, // provisional: widen stops for understated feed + dominate spread; calibrate from client real ATR/spread
 		MaxSpreadPips: 1.5, MaxSlippagePoints: 5, MinADX: 25, MinRR: 2.0,
 		ExpiryMinutes: 3, CooldownMinutes: 5,
 		DecisionTFs: []types.Timeframe{types.TFM1},
@@ -1142,7 +1180,7 @@ func NewStandardSwing() *StandardSwing {
 		StrategyID: types.StrategyStandardSwing,
 		MinConfluence: 55, MinMTFAlignment: 30,
 		ATRMultiplierSL: 2.0, ATRMultiplierTP1: 3.0, ATRMultiplierTP2: 5.0, ATRMultiplierTP3: 8.0,
-		MinSLATRFloor: 0.0, VolatilityScale: 2.0, // provisional: widen stops for understated feed; calibrate from client real ATR
+		MinSLATRFloor: 0.0, VolatilityScale: 2.0, MinSLSpreadMult: 3.0, // provisional: widen stops for understated feed + dominate spread; calibrate from client real ATR/spread
 		MaxSpreadPips: 4.0, MaxSlippagePoints: 20, MinADX: 20, MinRR: 2.0,
 		ExpiryMinutes: 60, CooldownMinutes: 120,
 		DecisionTFs: []types.Timeframe{types.TFM15, types.TFM30, types.TFH1},
@@ -1384,7 +1422,7 @@ func NewTrendSwing() *TrendSwing {
 		StrategyID: types.StrategyTrendSwing,
 		MinConfluence: 50, MinMTFAlignment: 25,
 		ATRMultiplierSL: 2.5, ATRMultiplierTP1: 4.0, ATRMultiplierTP2: 6.5, ATRMultiplierTP3: 10.0,
-		MinSLATRFloor: 0.0, VolatilityScale: 2.0, // provisional: widen stops for understated feed; calibrate from client real ATR
+		MinSLATRFloor: 0.0, VolatilityScale: 2.0, MinSLSpreadMult: 3.0, // provisional: widen stops for understated feed + dominate spread; calibrate from client real ATR/spread
 		MaxSpreadPips: 5.0, MaxSlippagePoints: 30, MinADX: 20, MinRR: 2.0,
 		ExpiryMinutes: 240, CooldownMinutes: 360,
 		DecisionTFs: []types.Timeframe{types.TFH1, types.TFH4},

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-27T20:50:56.074018+00:00",
+  "generated_at": "2026-08-27T21:04:06.512723+00:00",
   "target": "TP1_HIT_BEFORE_SL",
   "source": "live trading.signals labeled on XAUUSD M5",
   "strategies": {
@@ -10,7 +10,7 @@
       "oos_auc": 0.5792862398822664,
       "a": 0.0,
       "b": -0.8694771076856331,
-      "n_unresolved": 190,
+      "n_unresolved": 205,
       "monotonic_inc": true
     },
     "ULTRA_SCALPING": {
@@ -20,7 +20,7 @@
       "oos_auc": 0.5459682510130645,
       "a": 0.0,
       "b": -0.930047029996416,
-      "n_unresolved": 74,
+      "n_unresolved": 84,
       "monotonic_inc": true
     },
     "STANDARD_SWING": {
@@ -30,7 +30,7 @@
       "oos_auc": 0.5583102428027991,
       "a": 2.845674098527143,
       "b": -2.014475402208252,
-      "n_unresolved": 29,
+      "n_unresolved": 53,
       "monotonic_inc": true
     },
     "TREND_SWING": {
@@ -40,17 +40,17 @@
       "oos_auc": 0.4042277167277167,
       "a": 0.0,
       "b": -2.3436867686795977,
-      "n_unresolved": 26,
+      "n_unresolved": 42,
       "monotonic_inc": true
     },
     "MARNIE_FIB": {
       "status": "OK",
-      "n": 180,
-      "win_rate": 0.43333333333333335,
-      "oos_auc": 0.1705426356589147,
-      "a": 2.66340833007941,
-      "b": -0.7600594441073671,
-      "n_unresolved": 49,
+      "n": 182,
+      "win_rate": 0.42857142857142855,
+      "oos_auc": 0.17151162790697672,
+      "a": 2.7779381190014845,
+      "b": -0.8307096083027853,
+      "n_unresolved": 63,
       "monotonic_inc": true
     }
   }

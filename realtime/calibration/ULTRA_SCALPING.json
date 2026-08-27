@@ -10,7 +10,7 @@
     "a": 0.0,
     "b": -0.930047029996416
   },
-  "trained_at": "2026-08-27T20:50:57.340840+00:00",
+  "trained_at": "2026-08-27T21:04:07.628414+00:00",
   "monotonic_bins": [],
   "x_scale": 100.0,
   "x_clip": [
@@ -19,7 +19,7 @@
   ],
   "meta": {
     "win_rate": 0.2829151732377539,
-    "n_unresolved": 74,
+    "n_unresolved": 84,
     "n_train": 2929,
     "n_test": 1256,
     "monotonic_inc": true,

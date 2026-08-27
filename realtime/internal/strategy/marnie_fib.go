@@ -39,7 +39,7 @@ func NewMarnieFibStrategy() *MarnieFibStrategy {
 			ATRMultiplierTP1:  2.0,
 			ATRMultiplierTP2:  3.5,
 			ATRMultiplierTP3:  5.5,
-			MinSLATRFloor:     0.0, VolatilityScale: 2.0, // provisional: widen stops for understated feed; calibrate from client real ATR
+			MinSLATRFloor:     0.0, VolatilityScale: 2.0, MinSLSpreadMult: 3.0, // provisional: widen stops + dominate spread; calibrate from client real ATR/spread
 			MaxSpreadPips:     4.0,
 			MaxSlippagePoints: 20,
 			MinADX:            15, // Fib works in ranging markets too (lower ADX)

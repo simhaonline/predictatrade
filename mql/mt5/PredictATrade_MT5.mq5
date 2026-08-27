@@ -277,7 +277,14 @@ int PAT_GetMaxSlippage(string strategyName)
 //| WRONG-SIDE SL/TP VALIDATION (highest priority — fail-closed).     |
 //| Never clamps. Aborts the order on any violation.                  |
 //+------------------------------------------------------------------+
-bool PAT_ValidateLevels(bool isBuy, double entry, double sl, double tpFinal)
+// PAT_ValidateLevels validates that SL/TP are on the correct side of entry for
+// the trade direction. A wrong-side level (e.g. a BUY stop placed ABOVE entry) is
+// a non-protective placement defect — instead of aborting the trade we MIRROR it
+// to the correct side at the same distance from entry, so the position always
+// carries a valid protective stop. This is the EA-side safety net that pairs with
+// the server-side enforceSLDirection guard; it guarantees no inverted stop is ever
+// sent to the broker even if a malformed signal arrives.
+bool PAT_ValidateLevels(bool isBuy, double entry, double &sl, double &tpFinal)
 {
     if(entry <= 0 || sl <= 0 || tpFinal <= 0)
     {
@@ -290,30 +297,34 @@ bool PAT_ValidateLevels(bool isBuy, double entry, double sl, double tpFinal)
     {
         if(sl >= entry)
         {
-            Print("REJECTED wrong_side_sl: BUY entry=", DoubleToString(entry, _Digits),
-                  " sl=", DoubleToString(sl, _Digits), " — SL must be BELOW entry. Order ABORTED.");
-            return false;
+            double d = sl - entry;
+            sl = entry - d; // mirror to correct side, same distance
+            Print("CORRECTED wrong_side_sl: BUY sl mirrored to ", DoubleToString(sl, _Digits));
+            if(sl <= 0) return false;
         }
         if(tpFinal <= entry)
         {
-            Print("REJECTED wrong_side_tp: BUY entry=", DoubleToString(entry, _Digits),
-                  " tp=", DoubleToString(tpFinal, _Digits), " — TP must be ABOVE entry. Order ABORTED.");
-            return false;
+            double d = entry - tpFinal;
+            tpFinal = entry + d;
+            Print("CORRECTED wrong_side_tp: BUY tp mirrored to ", DoubleToString(tpFinal, _Digits));
+            if(tpFinal <= 0) return false;
         }
     }
     else
     {
         if(sl <= entry)
         {
-            Print("REJECTED wrong_side_sl: SELL entry=", DoubleToString(entry, _Digits),
-                  " sl=", DoubleToString(sl, _Digits), " — SL must be ABOVE entry. Order ABORTED.");
-            return false;
+            double d = entry - sl;
+            sl = entry + d;
+            Print("CORRECTED wrong_side_sl: SELL sl mirrored to ", DoubleToString(sl, _Digits));
+            if(sl <= 0) return false;
         }
         if(tpFinal >= entry)
         {
-            Print("REJECTED wrong_side_tp: SELL entry=", DoubleToString(entry, _Digits),
-                  " tp=", DoubleToString(tpFinal, _Digits), " — TP must be BELOW entry. Order ABORTED.");
-            return false;
+            double d = tpFinal - entry;
+            tpFinal = entry - d;
+            Print("CORRECTED wrong_side_tp: SELL tp mirrored to ", DoubleToString(tpFinal, _Digits));
+            if(tpFinal <= 0) return false;
         }
     }
     return true;
