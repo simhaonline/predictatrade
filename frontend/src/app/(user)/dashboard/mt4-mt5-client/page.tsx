@@ -97,8 +97,8 @@ export default function UserMtClientPage() {
 
   const downloadFiles = [
     { name: "Windows Agent (Installer)", file: "https://downloads.predictatrade.com/windows-agent/install.ps1", desc: "Automated installer — run in PowerShell as Administrator", size: "9.2 MB", icon: IconBrandWindows, type: "exe", primary: true },
-    { name: "MT5 Expert Advisor (Compiled)", file: "/downloads/Predict-A-Trade.ex5", desc: "Pre-compiled EA for MetaTrader 5 — ready to use, no compilation needed", size: "136 KB", icon: IconTerminal2, type: "ex5" },
-    { name: "MT4 Expert Advisor (Compiled)", file: "/downloads/PredictATrade.ex4", desc: "Pre-compiled EA for MetaTrader 4 — ready to use, no compilation needed", size: "122 KB", icon: IconTerminal2, type: "ex4" },
+    { name: "MT5 Expert Advisor (Compiled)", file: "/downloads/Predict-A-Trade.ex5", desc: "Pre-compiled EA for MetaTrader 5 — ready to use, no compilation needed", size: "128 KB", icon: IconTerminal2, type: "ex5" },
+    { name: "MT4 Expert Advisor (Compiled)", file: "/downloads/PredictATrade.ex4", desc: "Pre-compiled EA for MetaTrader 4 — ready to use, no compilation needed", size: "104 KB", icon: IconTerminal2, type: "ex4" },
   ];
 
   const installSteps: { id: InstallStep; label: string }[] = [
