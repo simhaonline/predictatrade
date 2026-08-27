@@ -10,7 +10,8 @@
 # ─── Parameters ───
 #   -Mode client  → Client Agent (execution). Connects to engine exec port 13081.
 #   -Mode master  → Master Node (data-only). Connects to engine data port 13091.
-# Both install the SAME pat-agent.exe binary; only the role/port differ.
+# Both roles use the SAME agent binary (shipped as pat-agent.exe / pat-master.exe);
+# only the role/mode/port/env differ. Logs: client -> agent.log, master -> master_agent.log.
 [CmdletBinding()]
 param(
     [ValidateSet("client","master")][string]$Mode = "client",
