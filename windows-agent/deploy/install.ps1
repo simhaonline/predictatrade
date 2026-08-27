@@ -218,8 +218,11 @@ if ($svc) {
 }
 
 $serviceCreated = $false
-$stdoutLog = Join-Path $logsDir "stdout.log"
-$stderrLog = Join-Path $logsDir "stderr.log"
+# Role-specific log file name so the master and client agents are easy to tell
+# apart:  Master Node -> master_agent.log,  Client -> agent.log.
+$AgentLog = if ($Mode -eq "master") { Join-Path $logsDir "master_agent.log" } else { Join-Path $logsDir "agent.log" }
+$stdoutLog = $AgentLog
+$stderrLog = $AgentLog
 
 # Method 1: Try NSSM (best — handles crashes, logs, auto-restart)
 if (-not $serviceCreated -and $nssmDownloaded -and (Test-Path $nssmDest)) {
@@ -300,17 +303,10 @@ if ($serviceCreated) {
 
 if (-not $serviceRunning) {
     Write-Host "  WARN: Agent not responding — checking logs..."
-    $stderrLog = Join-Path $logsDir "stderr.log"
-    $stdoutLog = Join-Path $logsDir "stdout.log"
-    if (Test-Path $stderrLog) {
-        Write-Host "  --- stderr.log ---"
-        Get-Content $stderrLog -Tail 10 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" }
-    }
-    if (Test-Path $stdoutLog) {
-        Write-Host "  --- stdout.log ---"
-        Get-Content $stdoutLog -Tail 10 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" }
-    }
-    if (-not (Test-Path $stderrLog) -and -not (Test-Path $stdoutLog)) {
+    if (Test-Path $AgentLog) {
+        Write-Host "  --- $($AgentLog | Split-Path -Leaf) ---"
+        Get-Content $AgentLog -Tail 15 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" }
+    } else {
         Write-Host "  No logs — agent may be blocked by antivirus"
         Write-Host "  Manual fix: Windows Security > Virus & threat protection > Exclusions > Add > C:\\PredictATrade"
     }

@@ -11,6 +11,8 @@ set "BASE_URL=https://downloads.predictatrade.com/windows-agent"
 set "SERVICE_NAME=pat-agent"
 set "AGENT_EXE=pat-agent.exe"
 set "NSSM_EXE=nssm.exe"
+set "AGENT_LOG=agent.log"
+if "%AGENT_EXE%"=="pat-master.exe" set "AGENT_LOG=master_agent.log"
 
 echo.
 echo ========================================
@@ -77,8 +79,8 @@ if exist "%INSTALL_DIR%\%NSSM_EXE%" (
     echo   Trying NSSM...
     "%INSTALL_DIR%\%NSSM_EXE%" install %SERVICE_NAME% "%INSTALL_DIR%\%AGENT_EXE%" >nul 2>&1
     "%INSTALL_DIR%\%NSSM_EXE%" set %SERVICE_NAME% AppDirectory "%INSTALL_DIR%" >nul 2>&1
-    "%INSTALL_DIR%\%NSSM_EXE%" set %SERVICE_NAME% AppStdout "%INSTALL_DIR%\logs\stdout.log" >nul 2>&1
-    "%INSTALL_DIR%\%NSSM_EXE%" set %SERVICE_NAME% AppStderr "%INSTALL_DIR%\logs\stderr.log" >nul 2>&1
+    "%INSTALL_DIR%\%NSSM_EXE%" set %SERVICE_NAME% AppStdout "%INSTALL_DIR%\logs\%AGENT_LOG%" >nul 2>&1
+    "%INSTALL_DIR%\%NSSM_EXE%" set %SERVICE_NAME% AppStderr "%INSTALL_DIR%\logs\%AGENT_LOG%" >nul 2>&1
     "%INSTALL_DIR%\%NSSM_EXE%" set %SERVICE_NAME% AppExit Default Restart >nul 2>&1
     "%INSTALL_DIR%\%NSSM_EXE%" set %SERVICE_NAME% AppRestartDelay 5000 >nul 2>&1
     "%INSTALL_DIR%\%NSSM_EXE%" set %SERVICE_NAME% Start SERVICE_AUTO_START >nul 2>&1

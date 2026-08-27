@@ -119,9 +119,9 @@ Write-Host ""
 # ─── 4. Connection to Go Server ───
 Write-Host "[4] Go Server Connection"
 $logsDir = Join-Path $InstallDir "logs"
-$stdoutLog = Join-Path $logsDir "stdout.log"
-if (Test-Path $stdoutLog) {
-    $lastLines = Get-Content $stdoutLog -Tail 30 -ErrorAction SilentlyContinue
+$AgentLog = if ($Mode -eq "master") { Join-Path $logsDir "master_agent.log" } else { Join-Path $logsDir "agent.log" }
+if (Test-Path $AgentLog) {
+    $lastLines = Get-Content $AgentLog -Tail 30 -ErrorAction SilentlyContinue
     $connected = ($lastLines | Where-Object { $_ -match "Connected to" } | Select-Object -Last 1)
     $error = ($lastLines | Where-Object { $_ -match "ERROR|FATAL|failed" } | Select-Object -Last 1)
 
@@ -144,8 +144,8 @@ Write-Host ""
 
 # ─── 5. MT4/MT5 Terminal Connection ───
 Write-Host "[5] MT4/MT5 Terminal"
-if (Test-Path $stdoutLog) {
-    $mtLines = Get-Content $stdoutLog -Tail 50 -ErrorAction SilentlyContinue
+if (Test-Path $AgentLog) {
+    $mtLines = Get-Content $AgentLog -Tail 50 -ErrorAction SilentlyContinue
     $mt5 = ($mtLines | Where-Object { $_ -match "MT5.*connected|MT5.*tick|Master.*tick" } | Select-Object -Last 1)
     $mt4 = ($mtLines | Where-Object { $_ -match "MT4.*connected|MT4.*tick" } | Select-Object -Last 1)
     $master = ($mtLines | Where-Object { $_ -match "Master Node|MARKET_SNAPSHOT|master" } | Select-Object -Last 1)
@@ -199,13 +199,13 @@ Write-Host ""
 
 # ─── 7. Recent Log Tail ───
 Write-Host "[7] Recent Log Output (last 10 lines)"
-if (Test-Path $stdoutLog) {
-    $tail = Get-Content $stdoutLog -Tail 10 -ErrorAction SilentlyContinue
+if (Test-Path $AgentLog) {
+    $tail = Get-Content $AgentLog -Tail 10 -ErrorAction SilentlyContinue
     foreach ($line in $tail) {
         Write-Host "    $line"
     }
 } else {
-    Write-Host "    No log file found at $stdoutLog"
+    Write-Host "    No log file found at $AgentLog"
 }
 Write-Host ""
 
