@@ -473,6 +473,13 @@ func main() {
 	agentProvider, isAgentProvider := provider.(*marketdata.AgentProvider)
 	if isAgentProvider {
 		globalAgentProvider = agentProvider
+		// Operator override for the broker UTC offset; 0 = auto-detect from ticks.
+		agentProvider.SetConfiguredOffset(cfg.BrokerUTCOffset)
+		if cfg.BrokerUTCOffset != 0 {
+			log.Info().Int("offset_hours", cfg.BrokerUTCOffset).Msg("Broker UTC offset set from BROKER_UTC_OFFSET (candles aligned to broker sessions)")
+		} else {
+			log.Info().Msg("Broker UTC offset will be auto-detected from live Master Node ticks (broker-session-aligned candles)")
+		}
 	}
 	if isAgentProvider {
 		log.Info().Msg("Using AgentProvider — waiting for Windows MT5 Agent connection for real tick data")
@@ -873,7 +880,28 @@ func main() {
 
 	validator := marketdata.NewTickValidator()
 	staleDetector := marketdata.NewStaleDetector(10 * time.Second)
-	aggregator := marketdata.NewAggregator()
+	aggregator := marketdata.NewAggregator(agentProvider.BrokerOffsetHours)
+
+	// Re-align historical candles (H4/D1/W1/MN) to the broker's session
+	// boundaries once the broker UTC offset is known. Idempotent — safe to
+	// re-run. Runs in the background so startup is not blocked waiting for ticks.
+	if isAgentProvider && persister != nil {
+		go func() {
+			deadline := time.Now().Add(90 * time.Second)
+			for time.Now().Before(deadline) {
+				if agentProvider.BrokerOffsetHours() != 0 {
+					break
+				}
+				time.Sleep(2 * time.Second)
+			}
+			off := agentProvider.BrokerOffsetHours()
+			if err := persister.RealignCandlesToBrokerOffset(off); err != nil {
+				log.Warn().Err(err).Int("offset_hours", off).Msg("Historical candle realignment failed")
+			} else {
+				log.Info().Int("offset_hours", off).Msg("Historical candles re-aligned to broker session boundaries")
+			}
+		}()
+	}
 
 	// ─── Devil Liquidity / Devil's Mark engine (prompt.md) ───
 	devilStore, devilStoreErr := devilliquidity.NewStore(cfg.DBURL)
@@ -1731,13 +1759,26 @@ func main() {
 	// Fixes audit P0 F-006: fabricated VALIDATED metadata on seed models.
 	var liveCalib *calibration.LiveCalibrator
 	if xmValidation != nil {
+		calibInterval := time.Duration(cfg.CalibrationIntervalSec) * time.Second
+		if calibInterval <= 0 {
+			calibInterval = 1 * time.Hour
+		}
 		liveCalib = calibration.NewLiveCalibrator(calibration.CalibratorConfig{
 			DB:        xmValidation.GetDB(),
 			OutputDir: calibDir,
-			Interval:  1 * time.Hour,
+			Interval:  calibInterval,
+			// After each live calibration run, reload the freshly written models
+			// into the prediction consumer so realtime signals carry the latest
+			// empirically-calibrated probability (separate calibration engine →
+			// live predictions). Only reloads schema-compatible models.
+			AfterRun: func() {
+				calibConsumer.LoadJSONModels(calibDir)
+				log.Info().Msg("Live calibration models reloaded into prediction consumer (realtime calibrated probability active)")
+			},
 		})
 		liveCalib.Start()
-		log.Info().Msg("Live Calibration Writer started (runs every 1h, writes to " + calibDir + ")")
+		log.Info().Str("interval", calibInterval.String()).Str("dir", calibDir).
+			Msg("Live Calibration Engine started (separate engine — periodically retrains from real resolved outcomes)")
 	}
 
 	globalCrossMarketEngine = xmEngine

@@ -147,9 +147,12 @@ type AlignmentProfile string
 
 const (
 	AlignmentBrokerUTCPlus3 AlignmentProfile = "BROKER_ALIGNED_UTC_PLUS_3"
-	AlignmentUTC            AlignmentProfile = "UTC_ALIGNED"
-	AlignmentVenue          AlignmentProfile = "VENUE_ALIGNED"
-	AlignmentSourceNative   AlignmentProfile = "SOURCE_NATIVE"
+	// AlignmentBroker marks candles bucket-aligned to the live broker session
+	// timezone (offset collected from the Master Node), not UTC.
+	AlignmentBroker        AlignmentProfile = "BROKER_ALIGNED"
+	AlignmentUTC           AlignmentProfile = "UTC_ALIGNED"
+	AlignmentVenue         AlignmentProfile = "VENUE_ALIGNED"
+	AlignmentSourceNative  AlignmentProfile = "SOURCE_NATIVE"
 )
 
 // Regime represents the current market regime (SOW Section 11).

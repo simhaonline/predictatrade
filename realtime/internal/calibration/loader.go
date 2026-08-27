@@ -105,6 +105,26 @@ func (c *Consumer) LoadJSONModels(dir string) {
 			c.jsonModels = make(map[types.StrategyID]jsonModel)
 		}
 		c.jsonModels[sid] = m
+
+		// Mirror the live model into the internal model used by Calibrate() so
+		// realtime signal probability (calibratedProb / calibStatus) is driven
+		// by the separate live calibration engine, not the static PROVISIONAL
+		// seed. Only logistic models can be represented in the sigmoid internal
+		// model; isotonic models are still served via ProbabilityFor().
+		if f.Method == "logistic" {
+			if c.models == nil {
+				c.models = make(map[types.StrategyID]*CalibrationModel)
+			}
+			if _, exists := c.models[sid]; !exists {
+				c.models[sid] = &CalibrationModel{StrategyID: sid, PredictionTarget: "TP1_HIT"}
+			}
+			cm := c.models[sid]
+			cm.SigmoidA = decimal.NewFromFloat(f.Params["a"])
+			cm.SigmoidB = decimal.NewFromFloat(f.Params["b"])
+			cm.SampleSize = int64(f.NSamples)
+			cm.IsActive = true
+			cm.Status = "VALIDATED" // empirically calibrated from real resolved outcomes
+		}
 	}
 }
 

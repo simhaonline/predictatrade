@@ -338,6 +338,9 @@ void SendTickToAgent()
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";
     msg += ",\"node\":\"MASTER\"";
+    // Broker session timezone — collected live so the engine works on Broker TF
+    // (not UTC). TimeGMTOffset() returns the broker's GMT offset in seconds.
+    msg += ",\"broker_offset\":" + IntegerToString(TimeGMTOffset() / 3600);
     msg += "}\n";
 
     MasterAppend(msg);
@@ -370,6 +373,9 @@ void SendMarketSnapshot()
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";
     msg += ",\"node\":\"MASTER\"";
+    // Broker session timezone — collected live so the engine works on Broker TF
+    // (not UTC). TimeGMTOffset() returns the broker's GMT offset in seconds.
+    msg += ",\"broker_offset\":" + IntegerToString(TimeGMTOffset() / 3600);
 
     //--- Tick data
     long vol = 0;

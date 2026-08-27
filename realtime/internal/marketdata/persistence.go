@@ -158,6 +158,41 @@ func (p *Persister) SaveSignal(ctx context.Context, s *types.Signal) error {
 	return err
 }
 
+// RealignCandlesToBrokerOffset re-buckets historical UTC-aligned candles to the
+// broker session timezone. A UTC-aligned bucket at time T maps to the broker
+// bucket at T - off (because brokerLocal = T + off, then Truncate(period) yields
+// a start that differs from the UTC start by exactly off). A uniform shift
+// preserves bucket spacing, so no primary-key collisions occur. Idempotent:
+// only UTC_ALIGNED rows are shifted, and they are marked BROKER_ALIGNED. Rows
+// written by the live aggregator under a known offset are already BROKER_ALIGNED
+// and are skipped. Recent (in-flight) candles are excluded to avoid clashing
+// with candles the aggregator is actively writing.
+func (p *Persister) RealignCandlesToBrokerOffset(off int) error {
+	if off == 0 {
+		return nil
+	}
+	db := p.GetDB()
+	if db == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	res, err := db.ExecContext(ctx, `
+		UPDATE market.candles
+		SET time = time - make_interval(hours => $1),
+		    alignment_profile = 'BROKER_ALIGNED'
+		WHERE alignment_profile = 'UTC_ALIGNED'
+		  AND time < now() - interval '2 hours'
+	`, off)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n > 0 {
+		log.Printf("[RT] Realigned %d historical candles to broker offset %d (BROKER_ALIGNED)", n, off)
+	}
+	return nil
+}
+
 // GetRecentCandles retrieves recent candles from the database.
 func (p *Persister) GetRecentCandles(ctx context.Context, symbol string, tf string, limit int) ([]*types.Candle, error) {
 	rows, err := p.db.QueryContext(ctx, `

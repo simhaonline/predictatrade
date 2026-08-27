@@ -10,12 +10,18 @@ import (
 )
 
 // Aggregator collects ticks and produces time-aligned candles.
-// SOW Section 8, 150: UTC-aligned candle buckets.
+// SOW Section 8, 150: candle buckets are aligned to the BROKER session
+// timezone (not UTC) using the offset reported by the Master Node, so D1/H4/
+// W1/MN bars open at the broker's session boundaries — critical for correct
+// indicator/strategy calculation.
 type Aggregator struct {
-	mu            sync.Mutex
-	candles       map[string]map[types.Timeframe]*candleBuilder
-	candleChan    chan *types.Candle
-	supportedTFs  []types.Timeframe
+	mu           sync.Mutex
+	candles      map[string]map[types.Timeframe]*candleBuilder
+	candleChan   chan *types.Candle
+	supportedTFs []types.Timeframe
+	// offsetFunc returns the broker UTC offset in hours (+3 = UTC+3). The
+	// Master Node supplies this (auto-detected from live ticks or via config).
+	offsetFunc func() int
 }
 
 type candleBuilder struct {
@@ -31,7 +37,12 @@ type candleBuilder struct {
 	updated   bool
 }
 
-func NewAggregator() *Aggregator {
+// NewAggregator creates a candle aggregator. offsetFunc returns the broker UTC
+// offset in hours so buckets align to broker session boundaries.
+func NewAggregator(offsetFunc func() int) *Aggregator {
+	if offsetFunc == nil {
+		offsetFunc = func() int { return 0 }
+	}
 	return &Aggregator{
 		candles: make(map[string]map[types.Timeframe]*candleBuilder),
 		candleChan: make(chan *types.Candle, 256),
@@ -39,6 +50,7 @@ func NewAggregator() *Aggregator {
 			types.TFM1, types.TFM5, types.TFM15, types.TFM30,
 			types.TFH1, types.TFH4, types.TFD1,
 		},
+		offsetFunc: offsetFunc,
 	}
 }
 
@@ -56,7 +68,14 @@ func (a *Aggregator) ProcessTick(tick *types.Tick) {
 
 	for _, tf := range a.supportedTFs {
 		period := timeframeDuration(tf)
-		bucketStart := tick.GatewayTimestamp.Truncate(period)
+		// Align the bucket to the BROKER session boundary, not UTC. The tick's
+		// SourceTimestamp is the true UTC instant; shift into broker-local time,
+		// truncate to the period, then shift back to UTC. This makes D1/H4/W1/MN
+		// candles open at the broker's session start (e.g. NY-close D1), matching
+		// what the trader sees on the MT5 chart — eliminating indicator misalignment.
+		off := a.offsetFunc()
+		brokerLocal := tick.SourceTimestamp.Add(time.Duration(off) * time.Hour)
+		bucketStart := brokerLocal.Truncate(period).Add(-time.Duration(off) * time.Hour)
 
 		builder, exists := a.candles[symbol][tf]
 		if !exists || !builder.bucketStart.Equal(bucketStart) {
@@ -104,7 +123,9 @@ func (a *Aggregator) ProcessTick(tick *types.Tick) {
 	}
 }
 
-// FlushClosedCandles checks for completed candles and emits them.
+// FlushClosedCandles checks for completed candles and emits them. Completion is
+// evaluated in BROKER session time (not UTC) so candles close at the broker's
+// bar boundary — critical for correct H4/D1/W1/MN alignment.
 func (a *Aggregator) FlushClosedCandles(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -115,32 +136,46 @@ func (a *Aggregator) FlushClosedCandles(ctx context.Context) {
 			return
 		case <-ticker.C:
 			a.mu.Lock()
-			now := time.Now().UTC()
+			off := a.offsetFunc()
+			// "now" expressed in the broker session timezone.
+			brokerNow := time.Now().UTC().Add(time.Duration(off) * time.Hour)
 			for symbol, tfs := range a.candles {
 				for tf, builder := range tfs {
 					if !builder.updated {
 						continue
 					}
-					nextBucket := builder.bucketStart.Add(builder.period)
-					if now.After(nextBucket) {
-					a.emitCandle(builder, true)
-					a.candles[symbol][tf] = &candleBuilder{
-						symbol:      symbol,
-						timeframe:   tf,
-						period:      builder.period,
-						open:        builder.close, // Carry forward last close as seed
-						high:        builder.close,
-						low:         builder.close,
-						close:       builder.close,
-						bucketStart: now.Truncate(builder.period),
-						updated:     false,
-					}
+					// Candle completes when broker-local time passes the bucket end.
+					bucketEndLocal := builder.bucketStart.Add(time.Duration(off) * time.Hour).Add(builder.period)
+					if brokerNow.After(bucketEndLocal) {
+						a.emitCandle(builder, true)
+						newLocalStart := brokerNow.Truncate(builder.period)
+						a.candles[symbol][tf] = &candleBuilder{
+							symbol:      symbol,
+							timeframe:   tf,
+							period:      builder.period,
+							open:        builder.close, // Carry forward last close as seed
+							high:        builder.close,
+							low:         builder.close,
+							close:       builder.close,
+							bucketStart: newLocalStart.Add(-time.Duration(off) * time.Hour),
+							updated:     false,
+						}
 					}
 				}
 			}
 			a.mu.Unlock()
 		}
 	}
+}
+
+// alignmentForOffset returns the candle alignment profile based on the active
+// broker offset. When the offset is non-zero (broker session time collected
+// from the Master Node) candles are BROKER_ALIGNED; otherwise UTC_ALIGNED.
+func (a *Aggregator) alignmentForOffset() types.AlignmentProfile {
+	if a.offsetFunc() != 0 {
+		return types.AlignmentBroker
+	}
+	return types.AlignmentUTC
 }
 
 func (a *Aggregator) emitCandle(b *candleBuilder, isClosed bool) {
@@ -165,7 +200,7 @@ func (a *Aggregator) emitCandle(b *candleBuilder, isClosed bool) {
 		Source:    "AGGREGATOR",
 		Quality:   quality,
 		IsClosed:  isClosed,
-		Alignment: types.AlignmentUTC,
+		Alignment: a.alignmentForOffset(),
 	}
 	if !isClosed {
 		candle.Quality = types.CandlePartial
@@ -194,7 +229,7 @@ func (a *Aggregator) GetCurrentCandle(symbol string, tf types.Timeframe) *types.
 				Source:    "AGGREGATOR",
 				Quality:   types.CandlePartial,
 				IsClosed:  false,
-				Alignment: types.AlignmentUTC,
+				Alignment: a.alignmentForOffset(),
 			}
 		}
 	}

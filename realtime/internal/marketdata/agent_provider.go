@@ -7,6 +7,7 @@ import (
 	"log"
 	"encoding/json"
 	"context"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -60,6 +61,9 @@ type AgentTickMessage struct {
 	Source    string          `json:"source"`     // "MT5", "MT4"
 	Broker    string          `json:"broker"`
 	Account   string          `json:"account"`
+	// BrokerOffset is the broker's UTC offset in hours, reported live by the
+	// Master Node (TimeGMTOffset). Used to align candles to broker session TF.
+	BrokerOffset int `json:"broker_offset"`
 }
 
 // MarketSnapshot is a comprehensive market data message from the Master Node EA.
@@ -74,6 +78,9 @@ type MarketSnapshot struct {
 	Broker      string          `json:"broker"`
 	Account     string          `json:"account"`
 	Node        string          `json:"node"`
+	// BrokerOffset is the broker's UTC offset in hours, reported live by the
+	// Master Node (TimeGMTOffset). Authoritative broker session timezone.
+	BrokerOffset int `json:"broker_offset"`
 	Tick        SnapshotTick    `json:"tick"`
 	Bars        map[string]SnapshotBar `json:"bars,omitempty"`
 	Indicators  SnapshotIndicators `json:"indicators,omitempty"`
@@ -265,6 +272,113 @@ type AgentProvider struct {
 	// for persistence into the expected-vs-actual outcome table. Set by main.go.
 	tradeResultFn   func(agentID string, data []byte)
 	executionAckFn  func(agentID string, data []byte)
+
+	// Broker session alignment. The Master Node sends the broker's server
+	// time per tick; we derive the broker UTC offset from it so candles align
+	// to BROKER session boundaries (not UTC). cfgOffset is an operator override
+	// (BROKER_UTC_OFFSET); otherwise the offset is taken from the Master Node's
+	// authoritative live time (masterOffset) and falls back to auto-detection.
+	cfgOffset      int
+	brokerOffset   atomic.Int32 // auto-detected from naive broker-local ticks
+	masterOffset   atomic.Int32 // authoritative offset reported by Master Node
+	offsetMu       sync.Mutex
+	offsetSamples  map[int]int
+}
+
+// SetConfiguredOffset overrides auto-detection with an explicit broker UTC
+// offset (hours). 0 enables detection from the Master Node live time.
+func (p *AgentProvider) SetConfiguredOffset(hours int) {
+	p.cfgOffset = hours
+}
+
+// BrokerOffsetHours returns the broker UTC offset in hours (e.g. 3 = UTC+3).
+// Operator override (BROKER_UTC_OFFSET) wins; otherwise the authoritative
+// offset collected live from the Master Node is used, then auto-detection.
+func (p *AgentProvider) BrokerOffsetHours() int {
+	if p.cfgOffset != 0 {
+		return p.cfgOffset
+	}
+	if mo := int(p.masterOffset.Load()); mo != 0 {
+		return mo
+	}
+	return int(p.brokerOffset.Load())
+}
+
+// ObserveMasterOffset records the broker UTC offset reported live by the Master
+// Node (derived from TimeGMTOffset on the EA). This is the authoritative source
+// of the broker session timezone so the engine works on Broker TF, not UTC.
+func (p *AgentProvider) ObserveMasterOffset(hours int) {
+	if hours < -12 || hours > 14 {
+		return
+	}
+	if p.cfgOffset != 0 {
+		return // operator override always wins
+	}
+	p.masterOffset.Store(int32(hours))
+	log.Printf("[marketdata] broker UTC offset set from Master Node live time = %d (candles align to broker sessions)", hours)
+}
+
+// BrokerNow returns the current time in the broker's session timezone, collected
+// live from the Master Node. This is the engine's authoritative "now" for any
+// time-of-day / session / candle-completion logic so it runs on Broker TF.
+func (p *AgentProvider) BrokerNow() time.Time {
+	return time.Now().UTC().Add(time.Duration(p.BrokerOffsetHours()) * time.Hour)
+}
+
+// observeOffset records a candidate offset from a live tick and promotes it to
+// the stable broker offset once enough consistent evidence arrives.
+func (p *AgentProvider) observeOffset(cand int) {
+	if cand < -12 || cand > 14 {
+		return
+	}
+	p.offsetMu.Lock()
+	defer p.offsetMu.Unlock()
+	if p.brokerOffset.Load() != 0 {
+		return // already locked in
+	}
+	p.offsetSamples[cand]++
+	best, bestN := 0, 0
+	for k, n := range p.offsetSamples {
+		if n > bestN {
+			bestN = n
+			best = k
+		}
+	}
+	if bestN >= 5 {
+		p.brokerOffset.Store(int32(best))
+		log.Printf("[marketdata] auto-detected broker UTC offset = %d (from live Master Node ticks)", best)
+	}
+}
+
+// resolveSourceTime converts the EA's MT5 server timestamp into a true UTC
+// time while preserving broker-session alignment. For naive broker-local
+// timestamps (old EAs) it derives the UTC offset; ISO8601 UTC timestamps are
+// used as-is and aligned downstream by the aggregator using the broker offset.
+func (p *AgentProvider) resolveSourceTime(raw string) time.Time {
+	// New EAs send ISO8601 UTC — already a true UTC instant.
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		return t.UTC()
+	}
+	// Old EAs send naive broker-local time "YYYY-MM-DD HH:MM:SS" (dots/dashes).
+	dash := strings.ReplaceAll(raw, ".", "-")
+	if t, err := time.Parse("2006-01-02 15:04:05", dash); err == nil {
+		off := p.currentBrokerOffset(t)
+		// broker-local wall clock -> true UTC
+		return t.Add(-time.Duration(off) * time.Hour)
+	}
+	return time.Now().UTC()
+}
+
+// currentBrokerOffset returns the effective broker offset for a naive
+// broker-local tick time, auto-detecting it on the fly when not overridden.
+func (p *AgentProvider) currentBrokerOffset(brokerLocal time.Time) int {
+	if p.cfgOffset != 0 {
+		return p.cfgOffset
+	}
+	// brokerLocal - gatewayUTC ≈ offset (latency is sub-second, rounds away).
+	cand := int(math.Round(brokerLocal.Sub(time.Now().UTC()).Hours()))
+	p.observeOffset(cand)
+	return p.BrokerOffsetHours()
 }
 
 func truncateForLog(data []byte) string {
@@ -404,10 +518,15 @@ func (p *AgentProvider) processAgentTicks(agentID string, ch chan *AgentTickMess
 				continue // Skip heartbeats and other non-tick messages
 			}
 
-			// Parse the MT5 timestamp — new EAs send ISO8601 UTC, old EAs send
-			// broker time with dots. parseMQLTimestamp handles both and falls
-			// back to gateway time for old format (broker time without TZ info).
-			sourceTime := parseMQLTimestamp(msg.Timestamp)
+			// Resolve the MT5 server timestamp into true UTC while preserving the
+			// broker's session alignment (auto-detects the broker UTC offset from
+			// live Master Node ticks so candles align to broker TFs, not UTC).
+			sourceTime := p.resolveSourceTime(msg.Timestamp)
+			// Collect the broker UTC offset reported live by the Master Node so
+			// the engine runs on Broker TF rather than UTC.
+			if msg.BrokerOffset != 0 {
+				p.ObserveMasterOffset(msg.BrokerOffset)
+			}
 			tick := &types.Tick{
 				Symbol:           normalizeSymbol(msg.Symbol),
 				Bid:              decimal.NewFromFloat(msg.Bid),
@@ -515,6 +634,11 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		p.lastSnapshot = &snapshot
 		p.snapshotCount++
 		p.snapshotMu.Unlock()
+		// Collect the broker UTC offset reported live by the Master Node so the
+		// engine runs on Broker TF rather than UTC.
+		if snapshot.BrokerOffset != 0 {
+			p.ObserveMasterOffset(snapshot.BrokerOffset)
+		}
 		// Write directly to Valkey
 		if p.valkeyCache != nil {
 			p.valkeyCache.SetSnapshot(&snapshot)
@@ -563,6 +687,9 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 				Source:  snapshot.Source,
 				Broker:  snapshot.Broker,
 				Account: snapshot.Account,
+				// Carry the Master Node's live broker offset onto the synthetic
+				// tick so ProcessTick also observes it (belt-and-suspenders).
+				BrokerOffset: snapshot.BrokerOffset,
 			}
 			p.mu.Lock()
 			ch, ok := p.agents[agentID]

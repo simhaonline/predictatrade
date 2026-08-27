@@ -34,9 +34,19 @@ type Config struct {
 	Symbols      []string
 	BasePrice    float64
 
+	// BrokerUTCOffset is the broker's UTC offset in hours (e.g. 3 for UTC+3).
+	// When 0 the engine AUTO-DETECTS it from the Master Node's live tick
+	// timestamps so candles align to the BROKER session boundaries (not UTC).
+	// This fixes prediction/indicator misalignment on D1/H4/W1/MN timeframes.
+	BrokerUTCOffset int
+
 	// Engine
 	TickRateMs     int
 	FeatureWorkers int
+
+	// CalibrationIntervalSec is how often the live calibration engine refits
+	// the win-probability model from REAL closed trades (realtime calibration).
+	CalibrationIntervalSec int
 
 	// Strategy
 	MaxSpreadPips   float64
@@ -202,8 +212,10 @@ func Default() *Config {
 		ReplayFile:      getEnv("REPLAY_FILE", ""),
 		Symbols:         strings.Split(getEnv("SYMBOLS", "XAUUSD"), ","),
 		BasePrice:       getEnvFloat("BASE_PRICE", 2430.0),
+		BrokerUTCOffset: getEnvInt("BROKER_UTC_OFFSET", 0),
 		TickRateMs:      getEnvInt("TICK_RATE_MS", 500),
 		FeatureWorkers:  getEnvInt("FEATURE_WORKERS", 4),
+		CalibrationIntervalSec: getEnvInt("CALIBRATION_INTERVAL_SEC", 300),
 		MaxSpreadPips:   getEnvFloat("MAX_SPREAD_PIPS", 3.0),
 		MinRR:           getEnvFloat("MIN_RR", 1.0),
 		MaxCostToTarget: getEnvFloat("MAX_COST_TO_TARGET", 0.35),

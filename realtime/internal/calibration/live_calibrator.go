@@ -25,6 +25,7 @@ type LiveCalibrator struct {
 	db       *sql.DB
 	outputDir string
 	interval  time.Duration
+	afterRun  func()
 	stopCh    chan struct{}
 
 	// Strategy-specific stats (computed during each run)
@@ -37,6 +38,10 @@ type CalibratorConfig struct {
 	DB          *sql.DB
 	OutputDir   string
 	Interval    time.Duration
+	// AfterRun is invoked after each successful calibration run (e.g. to reload
+	// the freshly written models into the live prediction consumer so realtime
+	// signals use the latest calibrated probability).
+	AfterRun func()
 }
 
 // DefaultCalibratorInterval is the default recalibration frequency.
@@ -52,6 +57,7 @@ func NewLiveCalibrator(cfg CalibratorConfig) *LiveCalibrator {
 		db:        cfg.DB,
 		outputDir: cfg.OutputDir,
 		interval:  cfg.Interval,
+		afterRun:  cfg.AfterRun,
 		stopCh:    make(chan struct{}),
 	}
 }
@@ -149,6 +155,10 @@ func (c *LiveCalibrator) runCalibration(ctx context.Context) {
 
 	c.LastRun = time.Now().UTC()
 	c.TotalSamples = len(outcomes)
+
+	if c.afterRun != nil {
+		c.afterRun()
+	}
 }
 
 // resolvedOutcome is a single resolved shadow signal for calibration.
