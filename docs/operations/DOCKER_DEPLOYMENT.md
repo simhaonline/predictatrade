@@ -63,24 +63,29 @@ Optional — broker timezone (defaults to GMT+3 for XAUUSD brokers):
 
 ## Step 3 — Configure Infrastructure Environment
 
+> **Secrets are NOT in `docker-compose.yml`** (remediated, SEC-1). All secret values live in
+> `infra/env/.env` (gitignored). Create/copy it from the provided template and fill in:
+> `JWT_SECRET`, `POSTGRES_PASSWORD`, `DATABASE_URL`, `BACKTEST_DB_URL`, `GF_SECURITY_ADMIN_PASSWORD`.
+
 ```bash
-# Create env files from templates if they don't exist
-ls infra/env/realtime.env || echo "DATABASE_URL=postgresql://pat_admin:***@postgres:5432/predictatrade?sslmode=disable" > infra/env/realtime.env
-ls infra/env/control.env || echo "# Control plane env" > infra/env/control.env
-ls infra/env/frontend.env || echo "# Frontend env" > infra/env/frontend.env
+ls infra/env/.env || cp infra/env/.env.example infra/env/.env
+nano infra/env/.env          # set the 5 secrets above
+# Per-service config (API keys, CORS) stays in realtime/.env / control/.env / frontend/.env
 ```
 
-The docker-compose.yml already contains dev defaults. For production:
-1. Change `POSTGRES_PASSWORD` in docker-compose.yml
-2. Set strong `JWT_SECRET` in the compose file (32+ characters)
-3. Update `CORS_ORIGINS` in infra/env/control.env
+For production:
+1. Set a strong `JWT_SECRET` in `infra/env/.env` (32+ chars). **If you rotate it, re-issue Windows Agent tokens** (the agent link will drop until re-registered).
+2. Set a strong `POSTGRES_PASSWORD` in `infra/env/.env`.
+3. Update `CORS_ORIGINS` in `infra/env/control.env`.
+
+> **Every `docker compose` command MUST use `--env-file infra/env/.env`** or containers start with blank secrets.
 
 ---
 
 ## Step 4 — Start All Services
 
 ```bash
-docker compose up -d
+docker compose --env-file infra/env/.env up -d
 ```
 
 Expected output:

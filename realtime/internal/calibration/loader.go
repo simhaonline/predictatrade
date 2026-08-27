@@ -89,6 +89,20 @@ func (c *Consumer) LoadJSONModels(dir string) {
 		if sid == "" {
 			continue
 		}
+
+		// ─── Quality gate (BE-5 / BE-9) ─────────────────────────────────────
+		// A loaded model is only promoted to VALIDATED when it is monotonic AND
+		// meets a minimum out-of-sample quality bar. Models below the bar are
+		// skipped entirely so the engine reports "no valid probability" rather
+		// than surfacing a fabricated/placeholder value. This also fixes BE-9:
+		// promotion is no longer driven by sample count alone — quality gates it.
+		if f.OOSAUC < minCalibratedOOSAUC {
+			continue
+		}
+		if f.Method == "isotonic" && !binsMonotonic(f.MonotonicBins) {
+			continue
+		}
+
 		m := jsonModel{
 			strategyID: sid,
 			method:     f.Method,
@@ -109,7 +123,9 @@ func (c *Consumer) LoadJSONModels(dir string) {
 		// Precedence: never downgrade to a lower-sample calibration. The
 		// research-trained model (typically thousands of labeled outcomes) must
 		// not be clobbered by a low-sample live retrain; the live model takes
-		// over only once it has accumulated more samples.
+		// over only once it has accumulated more samples. Both the incumbent and
+		// the candidate have already passed the quality gate above, so this is a
+		// pure higher-sample-wins decision among trustworthy models.
 		if existing, ok := c.jsonModels[sid]; ok && existing.nSamples >= m.nSamples {
 			continue
 		}
@@ -119,7 +135,9 @@ func (c *Consumer) LoadJSONModels(dir string) {
 		// realtime signal probability (calibratedProb / calibStatus) is driven
 		// by the separate live calibration engine, not the static PROVISIONAL
 		// seed. Only logistic models can be represented in the sigmoid internal
-		// model; isotonic models are still served via ProbabilityFor().
+		// model; isotonic models are still served via ProbabilityFor(). The
+		// VALIDATED status is only set here because the quality gate above has
+		// already been satisfied.
 		if f.Method == "logistic" {
 			if c.models == nil {
 				c.models = make(map[types.StrategyID]*CalibrationModel)
@@ -132,7 +150,7 @@ func (c *Consumer) LoadJSONModels(dir string) {
 			cm.SigmoidB = decimal.NewFromFloat(f.Params["b"])
 			cm.SampleSize = int64(f.NSamples)
 			cm.IsActive = true
-			cm.Status = "VALIDATED" // empirically calibrated from real resolved outcomes
+			cm.Status = "VALIDATED" // empirically calibrated + passed OOS_AUC/monotonicity gate
 		}
 	}
 }
@@ -191,6 +209,23 @@ func interpBins(bins []CalibrationBin, x float64) float64 {
 		}
 	}
 	return clampProb(bins[len(bins)-1].P)
+}
+
+// binsMonotonic reports whether the calibration knots are non-decreasing in
+// probability (a calibrated model must be monotonically increasing in score →
+// probability; non-monotonic fits are not trustworthy and must not be promoted).
+func binsMonotonic(bins []CalibrationBin) bool {
+	if len(bins) == 0 {
+		return false
+	}
+	prev := bins[0].P
+	for i := 1; i < len(bins); i++ {
+		if bins[i].P < prev {
+			return false
+		}
+		prev = bins[i].P
+	}
+	return true
 }
 
 func clampProb(p float64) float64 {

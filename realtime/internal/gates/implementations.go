@@ -74,7 +74,27 @@ func (g *SessionGate) Evaluate(input GateInput, state GateState) GateEvaluation 
 }
 
 // NewsGate checks news blackout windows (fast, <1ms).
-type NewsGate struct{}
+//
+// BE-4 (fail-closed): news-data-unavailable (or stale beyond TTL) is treated as
+// a VETO, not a pass. A feed outage must NOT silently remove the mandated news
+// protection. The only exception is a brief gap: if a successful news sync
+// occurred within NewsSyncGraceTTL, the provider is known-good and a transient
+// fetch failure is tolerated (does not kill every signal). When the gate has no
+// last-sync provider (LastSuccessfulSync == nil) it fails closed, because the
+// absence of freshness evidence must never be interpreted as "safe to trade".
+type NewsGate struct {
+	// LastSuccessfulSync returns the time of the last successful news sync.
+	// Optional; when nil the gate always fails closed on DATA_UNAVAILABLE.
+	LastSuccessfulSync func() time.Time
+}
+
+// NewsSyncGraceTTL is the window after a successful sync during which a
+// transient DATA_UNAVAILABLE (brief fetch gap) is tolerated instead of vetoing.
+const NewsSyncGraceTTL = 15 * time.Minute
+
+func NewNewsGate(lastSync func() time.Time) *NewsGate {
+	return &NewsGate{LastSuccessfulSync: lastSync}
+}
 
 func (g *NewsGate) ID() types.GateID { return types.GateNews }
 
@@ -86,17 +106,33 @@ func (g *NewsGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 		StateVersion: state.SourceVersion,
 	}
 
-	// Block on HIGH, EXTREME, and BLOCKED (actual news risk).
-	// DATA_UNAVAILABLE is NOT blocked here — it means the news provider is
-	// temporarily stale, not that there is actual news risk. The session gate
-	// and regime gate remain authoritative for execution decisions.
-	// Blocking on DATA_UNAVAILABLE kills ALL signals during brief sync gaps,
-	// which is overly aggressive when the provider has recently synced events.
+	// Block on genuine news risk: HIGH, EXTREME, and BLOCKED.
+	// A genuine "no news event" (NONE/LOW/MEDIUM) is NOT a veto — only actual
+	// scheduled-event risk is.
 	if input.NewsRisk == "HIGH" || input.NewsRisk == "EXTREME" ||
 		input.NewsRisk == "BLOCKED" {
 		eval.Result = types.GateVeto
 		eval.ReasonCodes = []string{string(types.NTHighNewsRisk)}
 		return eval
+	}
+
+	// Fail-closed on unavailable/stale news data (BE-4). DATA_UNAVAILABLE means
+	// the provider is stale or failed — the mandated protection must remain in
+	// force. The single allowed exception is a recent successful sync: a known
+	// good provider that merely dropped one fetch should not halt all trading.
+	if input.NewsRisk == "DATA_UNAVAILABLE" {
+		graceOK := false
+		if g.LastSuccessfulSync != nil {
+			last := g.LastSuccessfulSync()
+			if !last.IsZero() && time.Since(last) <= NewsSyncGraceTTL {
+				graceOK = true
+			}
+		}
+		if !graceOK {
+			eval.Result = types.GateVeto
+			eval.ReasonCodes = []string{string(types.NTNewsDataUnavailable)}
+			return eval
+		}
 	}
 
 	eval.Result = types.GatePass

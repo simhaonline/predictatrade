@@ -1,3 +1,4 @@
+-- LEGACY DUPLICATE PREFIX 071: shares its numeric prefix with another migration file. Tolerated legacy collision (see database/migrations/MIGRATION_ORDER.md); DO NOT rename (rename risks re-applying applied schema). The CI guard scripts/check_migrations.sh blocks NEW duplicate prefixes only.
 -- 071: Server-enforced anonymous 5-minute live preview trials
 -- for live.predictatrade.com (prompt.md funnel spec).
 --

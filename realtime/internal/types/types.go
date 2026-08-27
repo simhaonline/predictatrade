@@ -266,6 +266,7 @@ const (
 	NTInsufficientScore     NoTradeReason = "INSUFFICIENT_SCORE"
 	NTConflictingTimeframes NoTradeReason = "CONFLICTING_TIMEFRAMES"
 	NTHighNewsRisk          NoTradeReason = "HIGH_NEWS_RISK"
+	NTNewsDataUnavailable    NoTradeReason = "NEWS_DATA_UNAVAILABLE"
 	NTExtremeVolatility     NoTradeReason = "EXTREME_VOLATILITY"
 	NTLowLiquidity          NoTradeReason = "LOW_LIQUIDITY"
 	NTHighSpread            NoTradeReason = "HIGH_SPREAD"

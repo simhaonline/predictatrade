@@ -1118,7 +1118,15 @@ func main() {
 
 	// Risk gates — seeded conservatively (fail-closed for safety-critical gates)
 	gateRegistry := gates.NewRegistry()
-	posCaps := registerGates(gateRegistry, cfg)
+	// BE-4: feed the NewsGate the last-successful-sync time so a brief outage is
+	// tolerated only when the provider is known-good; otherwise it fails closed.
+	newsLastSync := func() time.Time {
+		if newsRiskEngine == nil {
+			return time.Time{}
+		}
+		return newsRiskEngine.GetHealth().LastSuccessfulSync
+	}
+	posCaps := registerGates(gateRegistry, cfg, newsLastSync)
 	gates.SeedConservativeGateStates(gateRegistry)
 	// Capital-protection seeds: position caps DEGRADED until broker positions
 	// arrive; P&L gates veto pnl_state_unknown until anchors hydrate;
@@ -1696,8 +1704,18 @@ func main() {
 			expectedSignal := reconciler.GetSignal(ack.SignalID)
 			if expectedSignal != nil {
 				expectedSL, _ := expectedSignal.Signal.StopLoss.Float64()
-				// Allow small tolerance for broker rounding (0.5 points)
+				// BE-3: digits-aware tolerance instead of hardcoded 0.5 points.
+				// Derive from the broker tick_size/digits when available; fall
+				// back to max(0.5, tick_size*2) so a couple of ticks of broker
+				// rounding is tolerated without silently accepting a wrong SL.
 				tolerance := 0.5
+				if broker != nil {
+					if ts := broker.Get().TickSize; ts > 0 {
+						if t := ts * 2; t > tolerance {
+							tolerance = t
+						}
+					}
+				}
 				diff := math.Abs(ack.SL - expectedSL)
 				if diff > tolerance {
 					log.Warn().
@@ -1706,9 +1724,34 @@ func main() {
 						Float64("expected_sl", expectedSL).
 						Float64("actual_sl", ack.SL).
 						Float64("diff", diff).
-						Msg("SL VIOLATION: EA SL differs from server-sent SL — flagging")
+						Float64("tolerance", tolerance).
+						Msg("SL VIOLATION: EA SL differs from server-sent SL — closing position")
+
+					// BE-2: a wrong SL is a hard safety breach. In addition to
+					// recording the violation (which can suspend the agent after
+					// 3 strikes), send CLOSE_POSITION so the mis-protected
+					// position is corrected/closed immediately, matching the
+					// NO_SL path.
+					if agentHub != nil {
+						agentHub.SendToAgent(agentID, "CLOSE_POSITION", map[string]interface{}{
+							"ticket":    ack.Ticket,
+							"magic":     ack.Magic,
+							"reason":    "SL_VIOLATION_MISMATCH",
+							"signal_id": ack.SignalID,
+						})
+					}
 
 					recordSLViolation(agentID, ack.SignalID, "SL_MISMATCH", ack.SL, expectedSL)
+
+					if globalPersister != nil {
+						ctxV, cancelV := context.WithTimeout(context.Background(), 3*time.Second)
+						defer cancelV()
+						globalPersister.GetDB().ExecContext(ctxV, `
+							INSERT INTO audit.client_events (user_id, event_type, metadata, event_time)
+							VALUES ($1, 'SL_VIOLATION', $2, now())`,
+							"agent:"+agentID, fmt.Sprintf(`{"signal_id":"%s","violation":"SL_MISMATCH","ticket":%d}`,
+								ack.SignalID, ack.Ticket))
+					}
 				} else {
 					log.Info().
 						Str("agent_id", agentID).
@@ -2834,17 +2877,17 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			})
 			evalCancel()
 		}
-		// prompt.md Section 36: Remove fake/unverified probability
-		// Until calibration is PROMOTED/VALIDATED, probability must be NULL (zero)
+		// prompt.md Section 36 / AGENTS.md (BE-5): Never fabricate probability.
+		// Only a VALIDATED (or PROMOTED-from-validated) calibration model may
+		// surface a probability. Calibrate() returns (0,false) for any model
+		// that is not VALIDATED — including PROVISIONAL seed placeholders and
+		// models that failed the OOS_AUC/monotonicity gate. When no validated
+		// model exists we keep CalibratedProbability=0 and status UNVERIFIED.
 		calibratedProb := decimal.Zero
 		calibStatus := types.CalibrationUnverified
 		if calibConsumer != nil {
-			model := calibConsumer.GetModel(strat.ID())
-			if model != nil && model.Status == "PROMOTED" {
-				calibratedProb = calibConsumer.Calibrate(strat.ID(), stratResult.RawScore)
-				calibStatus = types.CalibrationPromoted
-			} else if model != nil && (model.Status == "VALIDATED" || model.Status == "PROVISIONAL") {
-				calibratedProb = calibConsumer.Calibrate(strat.ID(), stratResult.RawScore)
+			if prob, ok := calibConsumer.Calibrate(strat.ID(), stratResult.RawScore); ok {
+				calibratedProb = prob
 				calibStatus = types.CalibrationValidated
 			}
 		}
@@ -3728,10 +3771,10 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 	}
 }
 
-func registerGates(reg *gates.Registry, cfg *config.Config) *gates.PositionCapsGate {
+func registerGates(reg *gates.Registry, cfg *config.Config, newsLastSync func() time.Time) *gates.PositionCapsGate {
 	reg.Register(&gates.DataQualityGate{})
 	reg.Register(&gates.SessionGate{})
-	reg.Register(&gates.NewsGate{})
+	reg.Register(gates.NewNewsGate(newsLastSync))
 	reg.Register(&gates.SpreadGate{MaxSpreadAbsolute: 0.80, MaxSpreadToATR: 0.50})
 	// Phase 3: New precision gates
 	// Stop-hunt guard: only veto entries sitting extremely close to the exact

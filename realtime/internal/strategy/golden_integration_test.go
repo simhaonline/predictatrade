@@ -16,10 +16,26 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// markValidated promotes the seeded default model to VALIDATED so Calibrate can
+// return a real (non-fabricated) probability. Under BE-5, Calibrate only emits a
+// probability for a VALIDATED model; the PROVISIONAL seed must not be surfaced.
+func markValidated(c *calibration.Consumer, sid types.StrategyID) {
+	m := c.GetModel(sid)
+	if m == nil {
+		return
+	}
+	m.IsActive = true
+	m.Status = "VALIDATED"
+}
+
 func TestGolden_Calibration_ClampsHighScore(t *testing.T) {
 	c := calibration.NewConsumer()
 	c.SeedDefaultModels()
-	prob := c.Calibrate(types.StrategyStandardScalping, decimal.NewFromFloat(209.7))
+	markValidated(c, types.StrategyStandardScalping)
+	prob, ok := c.Calibrate(types.StrategyStandardScalping, decimal.NewFromFloat(209.7))
+	if !ok {
+		t.Fatalf("expected a validated calibration probability, got ok=false")
+	}
 	probF, _ := prob.Float64()
 	if probF > 0.90 {
 		t.Errorf("Clamped probability for score 209.7 = %.4f, expected < 0.90 (no sigmoid saturation)", probF)
@@ -32,7 +48,11 @@ func TestGolden_Calibration_ClampsHighScore(t *testing.T) {
 func TestGolden_Calibration_ClampsZeroScore(t *testing.T) {
 	c := calibration.NewConsumer()
 	c.SeedDefaultModels()
-	prob := c.Calibrate(types.StrategyStandardScalping, decimal.Zero)
+	markValidated(c, types.StrategyStandardScalping)
+	prob, ok := c.Calibrate(types.StrategyStandardScalping, decimal.Zero)
+	if !ok {
+		t.Fatalf("expected a validated calibration probability, got ok=false")
+	}
 	probF, _ := prob.Float64()
 	if probF < 0.30 || probF > 0.50 {
 		t.Errorf("Probability for score 0 = %.4f, expected ~0.378", probF)
@@ -42,12 +62,31 @@ func TestGolden_Calibration_ClampsZeroScore(t *testing.T) {
 func TestGolden_Calibration_BoundedZeroToOne(t *testing.T) {
 	c := calibration.NewConsumer()
 	c.SeedDefaultModels()
+	markValidated(c, types.StrategyStandardScalping)
 	for _, score := range []float64{0, 25, 50, 75, 100, 150, 200, 500, -50} {
-		prob := c.Calibrate(types.StrategyStandardScalping, decimal.NewFromFloat(score))
+		prob, ok := c.Calibrate(types.StrategyStandardScalping, decimal.NewFromFloat(score))
+		if !ok {
+			t.Fatalf("expected a validated calibration probability for score %.1f, got ok=false", score)
+		}
 		probF, _ := prob.Float64()
 		if probF < 0.0 || probF > 1.0 {
 			t.Errorf("Probability for score %.1f = %.4f, out of [0,1] bounds", score, probF)
 		}
+	}
+}
+
+// TestGolden_Calibration_NoFabrication verifies BE-5: a PROVISIONAL (unvalidated)
+// model must NOT produce a probability. Calibrate must return (0, false) so the
+// engine never surfaces a fabricated confidence value to subscribers.
+func TestGolden_Calibration_NoFabrication(t *testing.T) {
+	c := calibration.NewConsumer()
+	c.SeedDefaultModels() // seeds are PROVISIONAL, not VALIDATED
+	prob, ok := c.Calibrate(types.StrategyStandardScalping, decimal.NewFromFloat(80))
+	if ok {
+		t.Errorf("PROVISIONAL seed model must not yield a probability (ok=false), got prob=%s", prob.String())
+	}
+	if !prob.IsZero() {
+		t.Errorf("expected zero sentinel probability for unvalidated model, got %s", prob.String())
 	}
 }
 

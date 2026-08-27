@@ -1,3 +1,4 @@
+-- LEGACY DUPLICATE PREFIX 020: shares its numeric prefix with another migration file. Tolerated legacy collision (see database/migrations/MIGRATION_ORDER.md); DO NOT rename (rename risks re-applying applied schema). The CI guard scripts/check_migrations.sh blocks NEW duplicate prefixes only.
 -- Migration 020: Signal truth, traceability, probability, and data durability closure
 -- Prompt.md Sections 5-9, 12-20, 27-34, 57-63
 

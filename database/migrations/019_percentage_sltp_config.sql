@@ -1,3 +1,4 @@
+-- LEGACY DUPLICATE PREFIX 019: shares its numeric prefix with another migration file. Tolerated legacy collision (see database/migrations/MIGRATION_ORDER.md); DO NOT rename (rename risks re-applying applied schema). The CI guard scripts/check_migrations.sh blocks NEW duplicate prefixes only.
 -- Migration 019: Percentage-based SL/TP configuration (database-driven, no recompile needed)
 -- Replaces hardcoded ATR multipliers with configurable percentages.
 -- SL/TP = Entry × (1 ± percentage), with ATR as guardrails.

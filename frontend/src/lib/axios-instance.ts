@@ -4,9 +4,9 @@ import { refreshSession } from './session-refresh';
 
 export const customInstance = axios.create({
   baseURL:
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
     process.env.NEXT_PUBLIC_API_URL ||
-    'http://localhost:13080/api/v1',
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    '/api/v1',
   withCredentials: true,
   timeout: 15000, // 15s timeout — prevents permanent loading spinners
   headers: {

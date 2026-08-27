@@ -4,7 +4,7 @@ import { RawBodyRequest } from '@nestjs/common';
 import { BillingService } from './billing.service';
 import { NowPaymentsService } from './nowpayments.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { AdminGuard } from '../../common/guards/admin.guard';
+import { RolesGuard, Roles, Role, PermissionGuard, Permission, RequirePermissions } from '../../common/guards/roles.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @Controller('billing')
@@ -52,7 +52,9 @@ export class BillingController {
     res.type('text/html').send(html);
   }
 
-  @UseGuards(JwtAuthGuard, AdminGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionGuard)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions(Permission.BILLING_MANAGE)
   @Post('invoices/:id/mark-paid')
   async markPaid(
     @CurrentUser('sub') userId: string,

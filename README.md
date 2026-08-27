@@ -2,18 +2,22 @@
 
 Multi-plane XAUUSD trading signal generation and analytics platform.
 
-**Version:** v1.16.0 | **Date:** 26 August 2026 | **Verdict:** GO (100/100)
+**Version:** v1.16.0 | **Date:** 26 August 2026 | **Launch verdict:** NO-GO per `docs/reports/MACROSCOPIC_AUDIT_REPORT_2026-08-28.md` — remediated, see `docs/reports/REMEDIATION_REPORT_2026-08-28.md` (residual: restart Windows MT5 Agent to restore live flow)
 
 ## Quick Start
 
 ```bash
 git clone https://github.com/simhaonline/predictatrade.git
 cd predictatrade/xauusd
-cp realtime/.env.example realtime/.env
-# Edit realtime/.env: set TWELVEDATA_API_KEY, FMP_API_KEY
-docker compose up -d
+# Secrets live in infra/env/.env (gitignored). Copy the template and fill values:
+cp infra/env/.env.example infra/env/.env   # if template exists; otherwise use the provided infra/env/.env
+# Edit infra/env/.env: JWT_SECRET, POSTGRES_PASSWORD, DATABASE_URL, BACKTEST_DB_URL, GF_SECURITY_ADMIN_PASSWORD
+# Per-service config (API keys etc.) still comes from realtime/.env / control/.env / frontend/.env
+docker compose --env-file infra/env/.env up -d
 curl http://localhost:13081/health
 ```
+
+> **IMPORTANT:** All `docker compose` commands MUST include `--env-file infra/env/.env` (the compose file no longer contains secret values — see `docs/reports/REMEDIATION_REPORT_2026-08-28.md`, SEC-1). Running `docker compose up -d` without it starts containers with blank secrets.
 
 ## Architecture
 

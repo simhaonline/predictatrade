@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, Inject } from '@nestjs/common';
 import { Pool } from 'pg';
+import Decimal from 'decimal.js';
 import { DB_POOL } from '../../common/database.module';
 
 @Injectable()
@@ -24,7 +25,7 @@ export class PayoutsService {
   async requestPayout(
     userId: string,
     dto: {
-      amount: number;
+      amount: string;
       method: 'BANK_TRANSFER' | 'USDT';
       destination: string;
       idempotency_key?: string;
@@ -32,8 +33,8 @@ export class PayoutsService {
       details?: Record<string, string>;
     },
   ) {
-    const amount = Number(dto.amount);
-    if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('amount must be positive');
+    const amount = new Decimal(dto.amount);
+    if (!amount.isFinite() || amount.lte(0)) throw new BadRequestException('amount must be positive');
     // Only BANK_TRANSFER and USDT payouts are supported (PayPal/Wise removed).
     if (!['BANK_TRANSFER', 'USDT'].includes(dto.method)) {
       throw new BadRequestException('method must be BANK_TRANSFER or USDT');
@@ -50,8 +51,8 @@ export class PayoutsService {
         throw new BadRequestException('USDT payout requires a valid wallet address in destination');
       }
     }
-    const MIN_PAYOUT = 50;
-    if (amount < MIN_PAYOUT) throw new BadRequestException(`minimum payout is ${MIN_PAYOUT}`);
+    const MIN_PAYOUT = new Decimal(50);
+    if (amount.lt(MIN_PAYOUT)) throw new BadRequestException(`minimum payout is ${MIN_PAYOUT}`);
 
     const currency = dto.currency || 'USD';
     const client = await this.pool.connect();
@@ -76,8 +77,8 @@ export class PayoutsService {
         [userId, currency],
       );
       if (walletRes.rows.length === 0) throw new BadRequestException(`no ${currency} wallet for user`);
-      const available = Number(walletRes.rows[0].available_balance);
-      if (amount > available) {
+      const available = new Decimal(walletRes.rows[0].available_balance);
+      if (amount.gt(available)) {
         throw new BadRequestException(`requested ${amount} exceeds available balance ${available}`);
       }
 
@@ -90,14 +91,14 @@ export class PayoutsService {
         [userId, currency],
       );
       let remaining = amount;
-      const items: Array<{ id: string; amt: number }> = [];
+      const items: Array<{ id: string; amt: Decimal }> = [];
       for (const row of eligible.rows) {
-        if (remaining <= 0) break;
-        const amt = Math.min(Number(row.commission_amount), remaining);
+        if (remaining.lte(0)) break;
+        const amt = Decimal.min(new Decimal(row.commission_amount), remaining);
         items.push({ id: row.id, amt });
-        remaining -= amt;
+        remaining = remaining.minus(amt);
       }
-      if (remaining > 0.00000001) {
+      if (remaining.gt(new Decimal('0.00000001'))) {
         throw new BadRequestException('insufficient CLEARED commissions to cover payout');
       }
 
@@ -111,7 +112,7 @@ export class PayoutsService {
         [
           id,
           userId,
-          amount,
+          amount.toString(),
           currency,
           JSON.stringify({ method: dto.method, destination: dto.destination, details: dto.details ?? {} }),
           dto.idempotency_key ?? null,
@@ -122,7 +123,7 @@ export class PayoutsService {
         await client.query(
           `INSERT INTO referral.payout_items (payout_id, commission_id, amount)
            VALUES ($1, $2, $3)`,
-          [id, item.id, item.amt],
+          [id, item.id, item.amt.toString()],
         );
       }
 
@@ -213,7 +214,7 @@ export class PayoutsService {
 
   async reconcilePayout(
     id: string,
-    payload: { provider_reference?: string; net_amount?: number; fee_amount?: number },
+    payload: { provider_reference?: string; net_amount?: string | number; fee_amount?: string | number },
   ) {
     const client = await this.pool.connect();
     try {
@@ -225,15 +226,15 @@ export class PayoutsService {
       );
       if (payoutRes.rows.length === 0) throw new BadRequestException('Payout not found');
 
-      const requested = Number(payoutRes.rows[0].requested_amount);
-      if (!Number.isFinite(requested) || requested <= 0) {
+      const requested = new Decimal(payoutRes.rows[0].requested_amount);
+      if (!requested.isFinite() || requested.lte(0)) {
         throw new BadRequestException('payout has invalid requested_amount');
       }
       // P0-CP3: negative fees would inflate the net payout
-      const fee = payload.fee_amount ?? 0;
-      if (fee < 0 || fee > requested) throw new BadRequestException('invalid fee_amount');
-      const net = payload.net_amount ?? requested - fee;
-      if (net <= 0 || net > requested) throw new BadRequestException('invalid net_amount');
+      const fee = payload.fee_amount != null ? new Decimal(payload.fee_amount) : new Decimal(0);
+      if (fee.lt(0) || fee.gt(requested)) throw new BadRequestException('invalid fee_amount');
+      const net = payload.net_amount != null ? new Decimal(payload.net_amount) : requested.minus(fee);
+      if (net.lte(0) || net.gt(requested)) throw new BadRequestException('invalid net_amount');
 
       const upd = await client.query(
         `UPDATE referral.payouts
@@ -241,7 +242,7 @@ export class PayoutsService {
               provider_reference = $2, fee_amount = $3, net_amount = $4
           WHERE id = $1 AND status IN ('PROCESSING', 'APPROVED', 'UNDER_REVIEW', 'FAILED')
           RETURNING *`,
-        [id, payload.provider_reference ?? null, fee, net],
+        [id, payload.provider_reference ?? null, fee.toString(), net.toString()],
       );
       if (upd.rows.length === 0) {
         throw new BadRequestException('Payout not found or not in a reconcilable state');

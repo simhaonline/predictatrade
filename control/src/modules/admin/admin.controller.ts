@@ -1,13 +1,14 @@
 import { Controller, Get, Post, Patch, Put, Param, Query, Body, UseGuards, BadRequestException, Inject } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { AdminGuard } from '../../common/guards/admin.guard';
+import { RolesGuard, Roles, Role, PermissionGuard, Permission, RequirePermissions } from '../../common/guards/roles.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { DB_POOL } from '../../common/database.module';
 import { Pool } from 'pg';
 
 @Controller('admin')
-@UseGuards(JwtAuthGuard, AdminGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionGuard)
+@Roles(Role.ADMIN, Role.SUPER_ADMIN)
 export class AdminController {
   constructor(
     private adminService: AdminService,
@@ -28,6 +29,7 @@ export class AdminController {
   }
 
   @Patch('users/:id/status')
+  @RequirePermissions(Permission.USER_MANAGE)
   async updateUserStatus(@Param('id') id: string, @Query('status') status: string, @CurrentUser('sub') actorId: string) {
     if (!status) throw new BadRequestException('Status query parameter is required');
     return this.adminService.updateUserStatus(id, status, actorId);
@@ -106,6 +108,7 @@ export class AdminController {
   }
 
   @Post('users/:id/assign-license')
+  @RequirePermissions(Permission.USER_MANAGE)
   async assignLicense(
     @Param('id') id: string,
     @Body() body: { planId: string; licenseKey?: string },
@@ -130,6 +133,7 @@ export class AdminController {
   }
 
   @Put('risk-config')
+  @RequirePermissions(Permission.RISK_MANAGE)
   async saveRiskConfig(
     @Body() body: {
       kill_switches?: Record<string, boolean>;

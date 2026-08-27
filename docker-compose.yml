@@ -21,15 +21,18 @@ services:
     shm_size: '2gb'
     environment:
       POSTGRES_USER: pat_admin
-      POSTGRES_PASSWORD: pat_local_dev_only
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: predictatrade
       PGDATA: /var/lib/postgresql/data
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C.UTF-8"
     ports:
       - "5432:5432"
     volumes:
+      # DB-5: initdb.d auto-run removed. scripts/migrate.sh is now the single
+      # source of truth for schema. On a FRESH volume, run
+      # `./scripts/migrate.sh up` (host, against 127.0.0.1:5432) or mount it
+      # inside the postgres container and run it there BEFORE app services start.
       - pat-pgdata:/var/lib/postgresql/data
-      - ./database/migrations:/docker-entrypoint-initdb.d:ro
       - ./database/roles:/roles:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pat_admin -d predictatrade"]
@@ -66,9 +69,9 @@ services:
     env_file:
       - ./infra/env/realtime.env
     environment:
-      - DATABASE_URL=postgresql://pat_admin:pat_local_dev_only@postgres:5432/predictatrade?sslmode=disable
+      - DATABASE_URL=${DATABASE_URL}
       - UPSTREAM_REALTIME_URL=http://realtime:13081
-      - JWT_SECRET=lyFoqwbIPuflF/6PjNtrZXCM1wXGVfYJhj7ZxDAWKYA=
+      - JWT_SECRET=${JWT_SECRET}
       - LIVE_TERMINAL_PORT=13090
     ports:
       - "13090:13090"
@@ -89,10 +92,10 @@ services:
     env_file:
       - ./infra/env/realtime.env
     environment:
-      - DATABASE_URL=postgresql://pat_admin:pat_local_dev_only@postgres:5432/predictatrade?sslmode=disable
+      - DATABASE_URL=${DATABASE_URL}
       - VALKEY_ADDR=valkey:6379
       - HTTP_HOST=0.0.0.0
-      - JWT_SECRET=lyFoqwbIPuflF/6PjNtrZXCM1wXGVfYJhj7ZxDAWKYA=
+      - JWT_SECRET=${JWT_SECRET}
       - HTTP_PORT=13081
       - WS_PORT=13081
       # Dedicated listener for the data-only Master Node agent (separate from
@@ -146,7 +149,7 @@ services:
     env_file:
       - ./infra/env/control.env
     environment:
-      - DATABASE_URL=postgresql://pat_admin:pat_local_dev_only@postgres:5432/predictatrade?sslmode=disable
+      - DATABASE_URL=${DATABASE_URL}
       - CONTROL_HOST=0.0.0.0
       - CONTROL_PORT=13080
     # Backtest engine binary — mounted read-only so the control plane can execute
@@ -174,7 +177,7 @@ services:
       dockerfile: services/backtest-service/Dockerfile
     container_name: pat-backtest
     environment:
-      - BACKTEST_DB_URL=postgresql://pat_admin:pat_local_dev_only@postgres:5432/predictatrade?sslmode=disable
+      - BACKTEST_DB_URL=${BACKTEST_DB_URL}
       - PAT_RESEARCH_SRC=/app/research/src
     ports:
       - "8088:8088"
@@ -287,7 +290,7 @@ services:
     container_name: pat-grafana
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: pat_local_dev_only
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
       GF_USERS_ALLOW_SIGN_UP: "false"
     ports:
       - "3001:3000"

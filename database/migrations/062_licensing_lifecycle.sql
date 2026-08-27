@@ -1,3 +1,4 @@
+-- LEGACY DUPLICATE PREFIX 062: shares its numeric prefix with another migration file. Tolerated legacy collision (see database/migrations/MIGRATION_ORDER.md); DO NOT rename (rename risks re-applying applied schema). The CI guard scripts/check_migrations.sh blocks NEW duplicate prefixes only.
 -- 062_licensing_lifecycle.sql
 -- License lifecycle + device security-action support (vertical slice).
 -- Adds columns required for:

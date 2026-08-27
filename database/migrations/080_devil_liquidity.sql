@@ -1,3 +1,4 @@
+-- LEGACY DUPLICATE PREFIX 080: shares its numeric prefix with another migration file. Tolerated legacy collision (see database/migrations/MIGRATION_ORDER.md); DO NOT rename (rename risks re-applying applied schema). The CI guard scripts/check_migrations.sh blocks NEW duplicate prefixes only.
 -- Devil Liquidity / Devil's Mark engine (prompt.md Sections 50-55)
 -- Canonical PostgreSQL state + TimescaleDB append-only event hypertable.
 

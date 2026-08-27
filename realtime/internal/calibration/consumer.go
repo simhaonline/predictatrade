@@ -42,6 +42,11 @@ func (c *Consumer) SetModel(model *CalibrationModel) {
 	c.models[model.StrategyID] = model
 }
 
+// minCalibratedOOSAUC is the floor a calibration model must meet (along with
+// monotonicity) before it is promoted to VALIDATED and allowed to surface a
+// probability to subscribers. Anything below this is treated as not-yet-trustworthy.
+const minCalibratedOOSAUC = 0.5
+
 // Calibrate converts a raw score (0-100) to a calibrated probability (0-1).
 // SOW Section 16: calibrated_probability = sigmoid(a * (raw_score/100) + b)
 //
@@ -51,7 +56,14 @@ func (c *Consumer) SetModel(model *CalibrationModel) {
 // unbounded value into the sigmoid saturates it to ~99% regardless of the
 // actual evidence quality, producing a meaningless "probability".
 // Clamping ensures the sigmoid input stays in the designed [0, 1] range.
-func (c *Consumer) Calibrate(strategyID types.StrategyID, rawScore decimal.Decimal) decimal.Decimal {
+//
+// CRITICAL — NO FABRICATION (AGENTS.md / BE-5): a probability is only returned
+// when a VALIDATED calibration model is active for the strategy. When no
+// validated model is available (including PROVISIONAL/seed placeholders, or
+// models that failed the OOS_AUC/monotonicity gate in the loader) Calibrate
+// returns (decimal.Zero, false). Callers MUST treat ok==false as "no valid
+// probability" and must NOT surface a synthetic or placeholder value.
+func (c *Consumer) Calibrate(strategyID types.StrategyID, rawScore decimal.Decimal) (decimal.Decimal, bool) {
 	// Clamp raw score to [0, 100] — scores outside this range are not meaningful
 	// as calibration inputs (the sigmoid model was designed for 0-100 scale).
 	clamped := rawScore
@@ -64,10 +76,12 @@ func (c *Consumer) Calibrate(strategyID types.StrategyID, rawScore decimal.Decim
 	}
 
 	model, ok := c.models[strategyID]
-	if !ok || !model.IsActive {
-		// Default: simple linear mapping with 0.5 offset
-		// probability = clampedScore / 200 + 0.25 (so 0 → 0.25, 50 → 0.50, 100 → 0.75)
-		return clamped.Div(decimal.NewFromInt(200)).Add(decimal.NewFromFloat(0.25))
+	// Gate on a genuinely VALIDATED (or PROMOTED-from-validated) model only.
+	// Seed/PROVISIONAL models are deliberately NOT eligible: showing a
+	// probability derived from an unvalidated model would fabricate confidence.
+	if !ok || !model.IsActive ||
+		(model.Status != "VALIDATED" && model.Status != "PROMOTED") {
+		return decimal.Zero, false
 	}
 
 	// Sigmoid calibration: x = clampedScore / 100 ∈ [0, 1]
@@ -76,7 +90,7 @@ func (c *Consumer) Calibrate(strategyID types.StrategyID, rawScore decimal.Decim
 	// sigmoid(scaled) = 1 / (1 + exp(-scaled))
 	scaledF, _ := scaled.Float64()
 	prob := 1.0 / (1.0 + mathExp(-scaledF))
-	return decimal.NewFromFloat(prob)
+	return decimal.NewFromFloat(prob), true
 }
 
 // GetModel returns the calibration model for a strategy.

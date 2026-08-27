@@ -1,3 +1,4 @@
+-- LEGACY DUPLICATE PREFIX 018: shares its numeric prefix with another migration file. Tolerated legacy collision (see database/migrations/MIGRATION_ORDER.md); DO NOT rename (rename risks re-applying applied schema). The CI guard scripts/check_migrations.sh blocks NEW duplicate prefixes only.
 -- Predict-A-Trade v1.0.0 — Migration 018
 -- Phase 2: Regime Transition Telemetry & Shadow Signal Tables
 -- SOW Phase 2 Sections 6, 9, 33

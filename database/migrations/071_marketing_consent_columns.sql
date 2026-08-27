@@ -1,3 +1,4 @@
+-- LEGACY DUPLICATE PREFIX 071: shares its numeric prefix with another migration file. Tolerated legacy collision (see database/migrations/MIGRATION_ORDER.md); DO NOT rename (rename risks re-applying applied schema). The CI guard scripts/check_migrations.sh blocks NEW duplicate prefixes only.
 -- 071_marketing_consent_columns.sql
 -- Add marketing opt-in columns to iam.users for consent tracking
 -- Forward-only migration — adds nullable columns with safe defaults

@@ -1,3 +1,4 @@
+-- LEGACY DUPLICATE PREFIX 019: shares its numeric prefix with another migration file. Tolerated legacy collision (see database/migrations/MIGRATION_ORDER.md); DO NOT rename (rename risks re-applying applied schema). The CI guard scripts/check_migrations.sh blocks NEW duplicate prefixes only.
 -- Migration 019: Signal bug closure — add timestamp, exit lifecycle, and candidate classification fields
 -- SOW Phase 2 Sections 26-35: Detailed timestamp model, exit lifecycle, candidate thresholds
 

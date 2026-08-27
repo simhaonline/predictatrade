@@ -1,5 +1,6 @@
 import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
+import Decimal from 'decimal.js';
 import { DB_POOL } from '../../common/database.module';
 import { CommissionEngine } from './commission-engine';
 
@@ -248,7 +249,7 @@ export class CommissionsService {
     target: CommissionStatus,
     actorId: string,
     reason?: string,
-    amountOverride?: number,
+    amountOverride?: Decimal | number,
   ) {
     const cur = await client.query(
       'SELECT * FROM referral.commission_ledger WHERE id = $1 FOR UPDATE',
@@ -262,7 +263,7 @@ export class CommissionsService {
       throw new BadRequestException(`Illegal transition ${oldStatus} -> ${target}`);
     }
 
-    const amt = amountOverride != null ? Number(amountOverride) : Number(row.commission_amount);
+    const amt = amountOverride != null ? new Decimal(amountOverride) : new Decimal(row.commission_amount);
     const srcBucket = bucketForStatus(oldStatus);
     const destBucket =
       target === 'FRAUD_HOLD' ? 'on_hold_balance'
@@ -281,7 +282,7 @@ export class CommissionsService {
     await client.query(
       `UPDATE referral.affiliate_wallets SET ${setParts.join(', ')}
        WHERE user_id = $2 AND currency = $3`,
-      [amt, row.recipient_user_id, row.currency],
+      [amt.toString(), row.recipient_user_id, row.currency],
     );
 
     const r = await client.query(
@@ -335,14 +336,14 @@ export class CommissionsService {
       ) as { rows: any[] };
       if (cur.rows.length === 0) throw new NotFoundException('Commission not found');
       const row = cur.rows[0];
-      const full = Number(row.commission_amount);
-      const revAmount = amount != null ? Number(amount) : full;
-      if (!(revAmount > 0) || revAmount > full) {
+      const full = new Decimal(row.commission_amount);
+      const revAmount = amount != null ? new Decimal(amount) : full;
+      if (!revAmount.gt(0) || revAmount.gt(full)) {
         throw new BadRequestException('Reversal amount must be > 0 and <= commission amount');
       }
-      const type = revAmount < full ? 'PARTIAL_REVERSAL' : 'REVERSAL';
+      const type = revAmount.lt(full) ? 'PARTIAL_REVERSAL' : 'REVERSAL';
       let updated: any = null;
-      if (revAmount < full) {
+      if (revAmount.lt(full)) {
         // M6 fix: partial reversal must NOT flip the whole commission to
         // REVERSED (that would mis-attribute the full commission_amount to the
         // reversed bucket in summaries). Keep the original lifecycle status and
@@ -354,7 +355,7 @@ export class CommissionsService {
                  reversed_balance = reversed_balance + $1,
                  updated_at = now()
            WHERE user_id = $2 AND currency = $3`,
-          [revAmount, row.recipient_user_id, row.currency],
+          [revAmount.toString(), row.recipient_user_id, row.currency],
         );
       } else {
         updated = await this.transitionLedgerAndWallet(
@@ -365,7 +366,7 @@ export class CommissionsService {
         `INSERT INTO referral.commission_adjustments
            (id, original_commission_id, adjustment_type, amount, currency, reason, adjusted_by, created_at)
          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, now())`,
-        [id, type, (-revAmount).toString(), row.currency, reason, actorId],
+        [id, type, revAmount.negated().toString(), row.currency, reason, actorId],
       );
       await client.query('COMMIT');
       return updated;
@@ -378,8 +379,8 @@ export class CommissionsService {
   }
 
   async adjustCommission(id: string, amount: number, reason: string, actorId: string) {
-    const delta = Number(amount);
-    if (Number.isNaN(delta)) throw new BadRequestException('Invalid adjustment amount');
+    const delta = new Decimal(amount);
+    if (!delta.isFinite()) throw new BadRequestException('Invalid adjustment amount');
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -389,8 +390,8 @@ export class CommissionsService {
       );
       if (cur.rows.length === 0) throw new NotFoundException('Commission not found');
       const row = cur.rows[0];
-      const newAmt = Number(row.commission_amount) + delta;
-      if (newAmt < 0) throw new BadRequestException('Adjustment would make commission negative');
+      const newAmt = new Decimal(row.commission_amount).plus(delta);
+      if (newAmt.lt(0)) throw new BadRequestException('Adjustment would make commission negative');
 
       await client.query(
         `INSERT INTO referral.commission_adjustments
@@ -412,7 +413,7 @@ export class CommissionsService {
       await client.query(
         `UPDATE referral.affiliate_wallets SET ${bucket} = ${bucket} + $1, updated_at = now()
          WHERE user_id = $2 AND currency = $3`,
-        [delta, row.recipient_user_id, row.currency],
+        [delta.toString(), row.recipient_user_id, row.currency],
       );
       await client.query('COMMIT');
       return { id, new_amount: newAmt.toString() };
@@ -444,10 +445,10 @@ export class CommissionsService {
            WHERE id = ANY($1)`,
           [clearedIds],
         );
-        const agg = new Map<string, number>();
+        const agg = new Map<string, Decimal>();
         for (const r of pend.rows) {
           const k = `${r.recipient_user_id}|${r.currency}`;
-          agg.set(k, (agg.get(k) ?? 0) + Number(r.commission_amount));
+          agg.set(k, (agg.get(k) ?? new Decimal(0)).plus(new Decimal(r.commission_amount)));
         }
         for (const [k, amt] of agg) {
           const [uid, cur2] = k.split('|');
@@ -462,7 +463,7 @@ export class CommissionsService {
                  cleared_balance = cleared_balance + $1,
                  updated_at = now()
              WHERE user_id = $2 AND currency = $3`,
-            [amt, uid, cur2],
+            [amt.toString(), uid, cur2],
           );
         }
       }
@@ -481,10 +482,10 @@ export class CommissionsService {
            WHERE id = ANY($1)`,
           [availIds],
         );
-        const agg = new Map<string, number>();
+        const agg = new Map<string, Decimal>();
         for (const r of clr.rows) {
           const k = `${r.recipient_user_id}|${r.currency}`;
-          agg.set(k, (agg.get(k) ?? 0) + Number(r.commission_amount));
+          agg.set(k, (agg.get(k) ?? new Decimal(0)).plus(new Decimal(r.commission_amount)));
         }
         for (const [k, amt] of agg) {
           const [uid, cur2] = k.split('|');
@@ -499,7 +500,7 @@ export class CommissionsService {
                  available_balance = available_balance + $1,
                  updated_at = now()
              WHERE user_id = $2 AND currency = $3`,
-            [amt, uid, cur2],
+            [amt.toString(), uid, cur2],
           );
         }
       }

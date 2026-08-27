@@ -1,3 +1,4 @@
+-- LEGACY DUPLICATE PREFIX 028: shares its numeric prefix with another migration file. Tolerated legacy collision (see database/migrations/MIGRATION_ORDER.md); DO NOT rename (rename risks re-applying applied schema). The CI guard scripts/check_migrations.sh blocks NEW duplicate prefixes only.
 -- Migration 028: Audit execution tables for pipeline, score, and signal traceability
 -- Extends existing audit schema with execution logging (TimescaleDB hypertables)
 

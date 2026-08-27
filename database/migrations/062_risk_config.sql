@@ -1,3 +1,4 @@
+-- LEGACY DUPLICATE PREFIX 062: shares its numeric prefix with another migration file. Tolerated legacy collision (see database/migrations/MIGRATION_ORDER.md); DO NOT rename (rename risks re-applying applied schema). The CI guard scripts/check_migrations.sh blocks NEW duplicate prefixes only.
 -- 062: Persistent global risk configuration for the admin Risk Center.
 -- Stores kill switches, numeric risk limits and session/news blackout flags
 -- so that "Save Risk Config" is durable instead of local-only/preview.

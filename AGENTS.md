@@ -218,10 +218,19 @@ Services (all in docker-compose.yml):
 - pat-nginx (reverse proxy + SSL) — pat-prometheus (metrics)
 - pat-grafana (dashboards) — pat-ntfy (notifications)
 
-**Restart:** `docker compose restart <service>`
-**Rebuild:** `docker compose build <service> && docker compose up -d <service>`
-**Logs:** `docker compose logs -f <service>`
-**Status:** `docker compose ps`
+**Restart:** `docker compose --env-file infra/env/.env restart <service>`
+**Rebuild:** `docker compose --env-file infra/env/.env build <service> && docker compose --env-file infra/env/.env up -d <service>`
+**Logs:** `docker compose --env-file infra/env/.env logs -f <service>`
+**Status:** `docker compose --env-file infra/env/.env ps`
+
+> **SECURITY (post-remediation, see `docs/reports/REMEDIATION_REPORT_2026-08-28.md` SEC-1):** All
+> secrets were removed from `docker-compose.yml` and now live ONLY in `infra/env/*.env`
+> (gitignored). **Every `docker compose` command must use `--env-file infra/env/.env`.** Running
+> without it starts containers with blank secrets and breaks the stack.
+> - The live `JWT_SECRET` was intentionally kept at its prior value to preserve existing agent/control
+>   sessions. A coordinated rotation (re-issue Windows Agent tokens) is deferred to a maintenance window.
+> - Do NOT commit `infra/env/*.env`. `.gitignore` already excludes them.
+> - `services/backtest-service` now requires `pandas` + `scipy` (added to its `requirements.txt`); rebuild the image after pulling.
 
 ## Build Commands
 

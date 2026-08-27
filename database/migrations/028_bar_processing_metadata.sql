@@ -1,3 +1,4 @@
+-- LEGACY DUPLICATE PREFIX 028: shares its numeric prefix with another migration file. Tolerated legacy collision (see database/migrations/MIGRATION_ORDER.md); DO NOT rename (rename risks re-applying applied schema). The CI guard scripts/check_migrations.sh blocks NEW duplicate prefixes only.
 -- ─── Bar Processing Metadata (prompt.md Section 30) ───
 -- Tracks which bars have been received and processed for signal generation.
 -- Used for idempotency: a duplicate bar_closed event from the MT5 Master Node

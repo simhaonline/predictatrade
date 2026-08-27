@@ -6,6 +6,12 @@
 **Scope:** `/srv/predictatrade/xauusd` — Go realtime engine, NestJS control plane, Next.js frontend, Python research plane, Windows/MQL edge, PostgreSQL 17 + TimescaleDB, Valkey, and the full market→signal→delivery→broker and auth→subscription→billing→payout pipelines.
 **Supersedes:** `docs/reports/MACROSCOPIC_AUDIT_REPORT.md` (27 Aug 2026) — prior criticals re-verified and **still open / worsened**.
 
+> **REMEDIATION STATUS (28 Aug 2026):** All code/security/integrity launch-blockers from this audit have been
+> remediated in source and verified to build/test clean. See **`docs/reports/REMEDIATION_REPORT_2026-08-28.md`**.
+> **Residual operational items:** (1) external Windows MT5 Agent must be restarted/re-registered to restore live
+> signal flow after the engine restart; (2) JWT rotation deferred to a maintenance window (live secret reverted to
+> prior value to preserve agent sessions). These are operator actions, not source defects.
+
 ---
 
 ## 0. GO / NO-GO Verdict

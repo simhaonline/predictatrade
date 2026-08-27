@@ -1,14 +1,19 @@
 import { Controller, Post, Get, Body, Query, UseGuards, Req, HttpCode, HttpStatus } from '@nestjs/common';
 import { ComplianceService } from './compliance.service';
+import { GdprService } from './gdpr.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../common/guards/admin.guard';
 import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { ComplianceLog } from '../../common/interceptors/compliance.interceptor';
 import { ComplianceService as svc, extractClientIp } from './compliance.service';
 
 @Controller('')
 export class ComplianceController {
-  constructor(private complianceService: ComplianceService) {}
+  constructor(
+    private complianceService: ComplianceService,
+    private gdprService: GdprService,
+  ) {}
 
   /**
    * POST /api/v1/telemetry/client
@@ -86,5 +91,51 @@ export class ComplianceController {
       Math.min(parseInt(limit), 200),
       { userId, eventType },
     );
+  }
+
+  /**
+   * POST /api/v1/compliance/gdpr/anonymize
+   * Admin-only: anonymize PII for a single user (account stays usable).
+   */
+  @Post('compliance/gdpr/anonymize')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ComplianceLog('GDPR_USER_ANONYMIZED')
+  @HttpCode(HttpStatus.OK)
+  async anonymizeUser(
+    @Body('userId') userId: string,
+    @CurrentUser('sub') actorId: string,
+  ) {
+    return this.gdprService.anonymizeUser(userId, actorId);
+  }
+
+  /**
+   * POST /api/v1/compliance/gdpr/erase
+   * Admin-only: erase (anonymize + lock) a single user's PII.
+   */
+  @Post('compliance/gdpr/erase')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ComplianceLog('GDPR_USER_ERASURE')
+  @HttpCode(HttpStatus.OK)
+  async eraseUser(
+    @Body('userId') userId: string,
+    @CurrentUser('sub') actorId: string,
+  ) {
+    return this.gdprService.eraseUser(userId, actorId);
+  }
+
+  /**
+   * POST /api/v1/compliance/gdpr/retention
+   * Admin-only: anonymize audit/client telemetry PII older than `days`
+   * (default 365). Run on a schedule for GDPR retention compliance.
+   */
+  @Post('compliance/gdpr/retention')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ComplianceLog('GDPR_RETENTION_RUN')
+  @HttpCode(HttpStatus.OK)
+  async applyRetention(
+    @Body('days') days?: number,
+    @CurrentUser('sub') actorId?: string,
+  ) {
+    return this.gdprService.applyRetention(days, actorId);
   }
 }

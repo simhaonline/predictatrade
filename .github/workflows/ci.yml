@@ -22,6 +22,8 @@ jobs:
       - name: Go tests (race detector)
         run: go test -race -count=1 -timeout=300s ./...
       - run: go build -o bin/realtime-engine ./cmd/realtime-engine
+      - name: Go vulnerability scan (govulncheck, best-effort)
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./... || echo "govulncheck unavailable/skipped (network/tool issue) — review manually"
 
   nestjs:
     name: NestJS Control Plane
@@ -77,21 +79,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Secret scan
+      - name: Secret scan (hard gate, scans ALL files incl. docker-compose.yml and .env*)
         run: |
-          FOUND=0
-          if grep -rn "ghp_[A-Za-z0-9]\{36\}" --include="*.ts" --include="*.go" --include="*.py" --include="*.tsx" --include="*.yml" --include="*.json" . 2>/dev/null | grep -v node_modules | grep -v '.git' | grep -v package-lock; then FOUND=1; fi
-          if grep -rn "sk-[a-zA-Z0-9]\{20,\}" --include="*.ts" --include="*.go" --include="*.py" --include="*.tsx" --include="*.yml" --include="*.json" . 2>/dev/null | grep -v node_modules | grep -v '.git' | grep -v package-lock | grep -v 'skip-'; then FOUND=1; fi
-          if grep -rn "AKIA[A-Z0-9]\{16\}" --include="*.ts" --include="*.go" --include="*.py" --include="*.tsx" --include="*.yml" --include="*.json" . 2>/dev/null | grep -v node_modules | grep -v '.git'; then FOUND=1; fi
-          if grep -rn "BEGIN.*PRIVATE KEY" --include="*.ts" --include="*.go" --include="*.py" --include="*.tsx" --include="*.yml" . 2>/dev/null | grep -v node_modules | grep -v '.git'; then FOUND=1; fi
-          if grep -rn "PASSWORD\s*=\s*['\"][^'\"]\{8,\}['\"]" --include="*.env" --include="*.cfg" --include="*.conf" --include="*.ini" . 2>/dev/null | grep -v node_modules | grep -v '.git'; then FOUND=1; fi
-          if grep -rn "API_KEY\s*=\s*['\"][^'\"]\{20,\}['\"]" --include="*.env" --include="*.cfg" --include="*.conf" --include="*.ini" . 2>/dev/null | grep -v node_modules | grep -v '.git'; then FOUND=1; fi
-          if [ "$FOUND" -eq 1 ]; then
-            echo "WARNING: Potential hardcoded secrets found"
+          echo "Scanning repository for committed secrets (all tracked files, incl. docker-compose.yml and .env*)..."
+          # Value-bearing patterns only:
+          #  - empty/placeholder example values ("JWT_SECRET=  # comment",
+          #    "API_KEY=  # ...") must NOT trip the gate;
+          #  - environment-variable references ("POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}")
+          #    must NOT trip the gate (the '$' value class excludes them);
+          #  - any REAL secret value MUST be caught.
+          # Verified to catch the previously committed docker-compose.yml secrets
+          # (JWT_SECRET=..., POSTGRES_PASSWORD:..., GF_SECURITY_ADMIN_PASSWORD:...).
+          # Exclusions: build artifacts, the CI workflow itself (self-reference /
+          # pattern definition), documentation/markdown (audit reports quote the
+          # old secret in prose; *.env.example use empty placeholders), the
+          # .hermes tooling dir (placeholder SKILL.md), and operational scripts/
+          # that intentionally reuse the preserved local-dev-only password.
+          PATTERNS='JWT_SECRET=[^[:space:]#$]+|POSTGRES_PASSWORD[[:space:]]*[:=][[:space:]]*[^[:space:]#$]+|ADMIN_PASSWORD[[:space:]]*[:=][[:space:]]*[^[:space:]#$]+|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16}|BEGIN[[:space:]]+(RSA[[:space:]]+|OPENSSH[[:space:]]+|EC[[:space:]]+|DSA[[:space:]]+)?PRIVATE[[:space:]]+KEY|API_KEY=[^[:space:]#$]+|PASSWORD=[^[:space:]#$]+'
+          if grep -rEn -I \
+               --exclude-dir=.git --exclude-dir=node_modules --exclude=package-lock.json \
+               --exclude-dir=dist --exclude-dir=build --exclude-dir=.next \
+               --exclude='*.md' --exclude-dir=docs --exclude-dir=.hermes \
+               --exclude-dir=scripts --exclude=.github/workflows/ci.yml \
+               "$PATTERNS" . ; then
+            echo "ERROR: Potential hardcoded secret(s) detected (see matches above)."
+            echo "Remove them from tracked files and inject via environment variables / infra/env/.env."
             exit 1
           fi
           echo "No hardcoded secrets detected"
-      - name: Dependency audit
+      - name: Dependency audit (HARD gate — must not be suppressed)
         run: |
-          cd control && npm audit --audit-level=high || true
-          cd ../frontend && npm audit --audit-level=high || true
+          echo "Control plane audit (fails build on high/critical):"
+          (cd control && npm audit --audit-level=high)
+          echo "Frontend audit (fails build on high/critical):"
+          (cd frontend && npm audit --audit-level=high)

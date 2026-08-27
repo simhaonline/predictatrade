@@ -1,3 +1,4 @@
+-- LEGACY DUPLICATE PREFIX 018: shares its numeric prefix with another migration file. Tolerated legacy collision (see database/migrations/MIGRATION_ORDER.md); DO NOT rename (rename risks re-applying applied schema). The CI guard scripts/check_migrations.sh blocks NEW duplicate prefixes only.
 -- Migration 018: Slippage tracking and capital protection events
 -- Stores execution slippage, swap costs, and daily capital protection decisions
 

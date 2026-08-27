@@ -8,9 +8,14 @@ git clone https://github.com/simhaonline/predictatrade.git
 cd predictatrade/xauusd
 cp realtime/.env.example realtime/.env
 # Edit realtime/.env with required API keys
-docker compose up -d
+# Secrets (JWT_SECRET, POSTGRES_PASSWORD, DATABASE_URL, BACKTEST_DB_URL, GF_SECURITY_ADMIN_PASSWORD)
+# live in infra/env/.env (gitignored) — fill those in too.
+docker compose --env-file infra/env/.env up -d
 curl http://localhost:13081/health
 ```
+
+> Secrets are no longer in `docker-compose.yml`. **Always pass `--env-file infra/env/.env`** to every
+> `docker compose` command. See `docs/reports/REMEDIATION_REPORT_2026-08-28.md` (SEC-1).
 
 ### Required Environment Variables
 
