@@ -105,6 +105,24 @@ Both roles expose a local health endpoint (HTTP 200 = healthy):
 (The health port is set via `PAT_HEALTH_PORT` so both roles can run on one
 machine without a bind conflict.)
 
+Open the root URL (`http://127.0.0.1:9000/` or `:9001/`) — or `/status` — for a
+human-readable, auto-refreshing HTML dashboard. The cards shown are **role
+specific**; there is deliberately **no generic "SERVER (Backend)" card**:
+
+- **Master Node (data / `--mode=data`, port 9001)** shows:
+  - **MASTER NODE (Terminal)** — MT4/MT5 terminal link, license, plan.
+  - **CANDLE DELIVERY → Engine** — backend data-WS status, candles delivered
+    count, last candle timestamp, and clock drift. This is the live
+    data-delivery telemetry for the broker TF candles the engine consumes.
+- **Client Agent (exec / `--mode=exec`, port 9000)** shows:
+  - **CLIENT (EA / MetaTrader)** — MT4/MT5 terminal link, license, plan.
+  - **SIGNAL DELIVERY → EA** — backend exec-WS status, signals delivered count,
+    and last-signal timestamp. The server/backend connection is shown only as
+    the signal-delivery channel, not as a separate server card.
+
+JSON equivalents: `/api/status` (full snapshot, includes `mode`,
+`candles_delivered`, `signals_delivered`, etc.).
+
 ```powershell
 # Client status
 irm https://downloads.predictatrade.com/windows-agent/status.ps1 | iex   # add -Mode master for Master Node

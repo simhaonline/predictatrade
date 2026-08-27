@@ -62,6 +62,18 @@ type Agent struct {
 
 	tickMu         sync.RWMutex
 	lastXAUUSDTick *MT5Tick // most recent XAUUSD tick, used for heartbeat market status
+
+	// Delivery telemetry (read by the local status page). Counters are guarded
+	// by deliveryMu and intentionally separated by agent role:
+	//   - data (Master Node) mode → candlesDelivered counts broker data messages
+	//     forwarded to the engine (live candle delivery).
+	//   - exec (Client) mode      → signalsDelivered counts signals forwarded to
+	//     the MT4/MT5 EA (live signal delivery).
+	deliveryMu       sync.Mutex
+	candlesDelivered int64
+	signalsDelivered int64
+	lastCandleAt     time.Time
+	lastSignalAt     time.Time
 }
 
 type SignalEvent struct {
@@ -141,6 +153,7 @@ func maskSecret(s string) string {
 type AgentStatus struct {
 	Version           string `json:"version"`
 	DeviceID          string `json:"device_id"`
+	Mode              string `json:"mode"` // "data" (Master Node) or "exec" (Client)
 	UptimeSeconds     int64  `json:"uptime_seconds"`
 	BackendURL        string `json:"backend_url"`
 	BackendConnected  bool   `json:"backend_connected"`
@@ -152,7 +165,12 @@ type AgentStatus struct {
 	LastHeartbeat     string `json:"last_heartbeat"`
 	LastSignal        string `json:"last_signal"`
 	ClockDriftMs      int64  `json:"clock_drift_ms"`
-	GeneratedAt       string `json:"generated_at"`
+	// Delivery telemetry (role-specific)
+	CandlesDelivered      int64  `json:"candles_delivered"`       // Master Node → engine
+	LastCandleDelivered   string `json:"last_candle_delivered"`
+	SignalsDelivered      int64  `json:"signals_delivered"`       // Client → EA
+	LastSignalDelivered   string `json:"last_signal_delivered"`
+	GeneratedAt           string `json:"generated_at"`
 }
 
 // getStatus returns a consistent snapshot of the agent's live state.
@@ -175,9 +193,17 @@ func (a *Agent) getStatus() AgentStatus {
 		licStatus, licPlan = a.pipeManager.GetLicense()
 	}
 
+	a.deliveryMu.Lock()
+	candlesDelivered := a.candlesDelivered
+	signalsDelivered := a.signalsDelivered
+	lastCandleAt := a.lastCandleAt
+	lastSignalAt := a.lastSignalAt
+	a.deliveryMu.Unlock()
+
 	return AgentStatus{
 		Version:           AgentVersion,
 		DeviceID:          a.deviceID,
+		Mode:              a.mode,
 		UptimeSeconds:     int64(time.Since(sa).Seconds()),
 		BackendURL:        bname,
 		BackendConnected:  conn != nil,
@@ -189,6 +215,10 @@ func (a *Agent) getStatus() AgentStatus {
 		LastHeartbeat:     lhb.UTC().Format(time.RFC3339),
 		LastSignal:        a.lastSignal.UTC().Format(time.RFC3339),
 		ClockDriftMs:      a.clockDriftMs,
+		CandlesDelivered:  candlesDelivered,
+		LastCandleDelivered: lastCandleAt.UTC().Format(time.RFC3339),
+		SignalsDelivered:  signalsDelivered,
+		LastSignalDelivered: lastSignalAt.UTC().Format(time.RFC3339),
 		GeneratedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
 }
@@ -891,6 +921,13 @@ func (a *Agent) sendToServer(data []byte) error {
 	if a.conn == nil {
 		return fmt.Errorf("not connected")
 	}
+	// Master Node (data mode) → count live candle/data delivery to the engine.
+	if a.mode == "data" {
+		a.deliveryMu.Lock()
+		a.candlesDelivered++
+		a.lastCandleAt = time.Now()
+		a.deliveryMu.Unlock()
+	}
 	return a.conn.WriteMessage(websocket.TextMessage, data)
 }
 
@@ -1183,6 +1220,10 @@ func (a *Agent) processSignals() {
 			// Forward signal to EA via named pipe
 			if a.pipeManager != nil {
 				a.pipeManager.SendSignalToEA(string(event.Payload))
+				a.deliveryMu.Lock()
+				a.signalsDelivered++
+				a.lastSignalAt = time.Now()
+				a.deliveryMu.Unlock()
 			}
 
 			// Send acknowledgement back to Go RT server

@@ -93,6 +93,11 @@ func (h *healthServer) pageHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // renderStatusHTML builds a clean, self-contained status dashboard.
+// The displayed cards depend on the agent role:
+//   - data (Master Node): MASTER NODE connection + live CANDLE DELIVERY status.
+//   - exec (Client):      CLIENT connection + live SIGNAL DELIVERY status.
+// A standalone "SERVER (Backend)" card is intentionally omitted; the backend
+// link is shown only as the relevant delivery channel for the role.
 func renderStatusHTML(s AgentStatus) string {
 	uptime := time.Duration(s.UptimeSeconds) * time.Second
 	uptimeStr := uptime.Truncate(time.Second).String()
@@ -100,6 +105,7 @@ func renderStatusHTML(s AgentStatus) string {
 	serverBadge := badge(s.BackendConnected, "CONNECTED", "OFFLINE")
 	mt4 := badge(s.MT4Connected, "MT4 CONNECTED", "MT4 OFFLINE")
 	mt5 := badge(s.MT5Connected, "MT5 CONNECTED", "MT5 OFFLINE")
+	terminalLink := fmt.Sprintf("%s %s", mt4, mt5)
 
 	licClass := "bad"
 	licText := "UNKNOWN"
@@ -123,10 +129,10 @@ func renderStatusHTML(s AgentStatus) string {
 	}
 
 	drift := s.ClockDriftMs
-	driftClass := "ok"
 	if drift < 0 {
 		drift = -drift
 	}
+	driftClass := "ok"
 	if drift > 120000 {
 		driftClass = "bad"
 	} else if drift > 30000 {
@@ -139,22 +145,54 @@ func renderStatusHTML(s AgentStatus) string {
 		deviceShort = deviceShort[:8]
 	}
 
+	// Role-specific cards.
+	isMaster := s.Mode == "data"
+	var cards string
+	if isMaster {
+		roleTitle := "Master Node (Data · Broker TF)"
+		connCard := cardHTML("MASTER NODE (Terminal)",
+			rowHTML("Terminal link", terminalLink)+
+				rowHTML("License", licBadge)+
+				rowHTML("Plan", planText))
+		deliveryCard := cardHTML("CANDLE DELIVERY → Engine",
+			rowHTML("Backend data WS", serverBadge)+
+				rowHTML("Candles delivered", fmt.Sprintf("%d", s.CandlesDelivered))+
+				rowHTML("Last candle", html.EscapeString(s.LastCandleDelivered))+
+				rowHTML("Clock drift", fmt.Sprintf(`<span class="badge %s">%s</span>`, driftClass, driftStr)))
+		cards = connCard + deliveryCard
+		_ = roleTitle
+	} else {
+		roleTitle := "Client (Execution)"
+		connCard := cardHTML("CLIENT (EA / MetaTrader)",
+			rowHTML("Terminal link", terminalLink)+
+				rowHTML("License", licBadge)+
+				rowHTML("Plan", planText))
+		deliveryCard := cardHTML("SIGNAL DELIVERY → EA",
+			rowHTML("Backend exec WS", serverBadge)+
+				rowHTML("Signals delivered", fmt.Sprintf("%d", s.SignalsDelivered))+
+				rowHTML("Last signal", html.EscapeString(s.LastSignalDelivered)))
+		cards = connCard + deliveryCard
+		_ = roleTitle
+	}
+
 	return fmt.Sprintf(statusPageTemplate,
 		html.EscapeString(s.Version),
 		html.EscapeString(deviceShort),
 		uptimeStr,
-		html.EscapeString(s.BackendURL),
-		serverBadge,
-		html.EscapeString(s.LastHeartbeat),
-		driftClass,
-		driftStr,
-		mt4,
-		mt5,
-		licBadge,
-		planText,
-		html.EscapeString(s.LastSignal),
+		html.EscapeString(s.Mode),
+		cards,
 		html.EscapeString(s.GeneratedAt),
 	)
+}
+
+// cardHTML renders a titled card containing pre-built row HTML.
+func cardHTML(title, rows string) string {
+	return fmt.Sprintf(`<div class="card"><h2>%s</h2>%s</div>`, title, rows)
+}
+
+// rowHTML renders a label/value row.
+func rowHTML(label, value string) string {
+	return fmt.Sprintf(`<div class="row"><span class="label">%s</span><span class="value">%s</span></div>`, label, value)
 }
 
 func badge(ok bool, yes, no string) string {
@@ -201,28 +239,14 @@ const statusPageTemplate = `<!DOCTYPE html>
 <div class="wrap">
   <header>
     <h1>Predict-A-Trade <span class="sub">XAUUSD · Windows Agent</span></h1>
-    <div class="meta">v%s · device <code>%s</code> · uptime %s</div>
+    <div class="meta">v%s · device <code>%s</code> · uptime %s · role <code>%s</code></div>
   </header>
 
   <div class="grid">
-    <div class="card">
-      <h2>SERVER (Backend)</h2>
-      <div class="row"><span class="label">Backend URL</span><span class="value">%s</span></div>
-      <div class="row"><span class="label">Connection</span><span class="value">%s</span></div>
-      <div class="row"><span class="label">Last heartbeat</span><span class="value">%s</span></div>
-      <div class="row"><span class="label">Clock drift</span><span class="value"><span class="badge %s">%s</span></span></div>
-    </div>
-
-    <div class="card">
-      <h2>CLIENT (EA / MetaTrader)</h2>
-      <div class="row"><span class="label">Terminal link</span><span class="value">%s %s</span></div>
-      <div class="row"><span class="label">License</span><span class="value">%s</span></div>
-      <div class="row"><span class="label">Plan</span><span class="value">%s</span></div>
-      <div class="row"><span class="label">Last signal</span><span class="value">%s</span></div>
-    </div>
+    %s
   </div>
 
-  <div class="legend">Auto-refreshing every 5s · page generated %s · open <code>http://127.0.0.1:9000/health</code> for JSON</div>
+  <div class="legend">Auto-refreshing every 5s · page generated %s · open <code>/health</code> for JSON</div>
 </div>
 </body>
 </html>`

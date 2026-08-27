@@ -178,7 +178,8 @@ export default function UserMtClientPage() {
     verify: {
       title: "Verify Your Connection",
       steps: [
-        "Check http://127.0.0.1:9000 — agent should show 'Connected' and 'Backend: LIVE'.",
+        "Check http://127.0.0.1:9000 — the Client Agent dashboard should show your CLIENT (EA) connection and a live SIGNAL DELIVERY → EA status.",
+        "If you also run the Master Node, open http://127.0.0.1:9001 — it shows the MASTER NODE connection and live CANDLE DELIVERY → Engine status (no server/backend card).",
         "In MT4/MT5, check the Experts tab — should show 'License validated — ACTIVE'.",
         "In MT4/MT5, check the Journal tab — should show 'License strategies from server: ...'",
         "Your terminal status should appear as 'Online' in the dashboard above.",
@@ -221,12 +222,12 @@ export default function UserMtClientPage() {
         </div>
       </div>
 
-      {/* MT4 / MT5 Connection Liveness */}
+      {/* Client Agent — Connection & Signal Delivery (no server connection shown) */}
       <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-4">
         <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
           <div className="flex items-center gap-2">
             <IconDeviceDesktop size={18} className="text-pat-info" />
-            <h2 className="text-sm font-semibold text-pat-text-primary">MT4 / MT5 Connection Liveness</h2>
+            <h2 className="text-sm font-semibold text-pat-text-primary">Client Agent — Connection &amp; Signal Delivery</h2>
           </div>
           <button
             onClick={() => refetchAgents()}
@@ -243,11 +244,10 @@ export default function UserMtClientPage() {
               : "bg-pat-danger/10 text-pat-danger border border-pat-danger/20"
           }`}>
             <span className={`inline-block h-1.5 w-1.5 rounded-full ${(agentsStatus?.agents_connected ?? 0) > 0 ? "bg-pat-success animate-pulse" : "bg-pat-danger"}`} />
-            Windows Agent: {(agentsStatus?.agents_connected ?? 0) > 0 ? "LIVE" : "OFFLINE"}
+            Client Agent: {(agentsStatus?.agents_connected ?? 0) > 0 ? "LIVE" : "OFFLINE"}
           </span>
           <span>
-            {agentsStatus?.agents_connected ?? 0} agent(s)
-            {" · "}{(agentsStatus?.snapshot_count ?? 0).toLocaleString()} snapshots
+            {agentsStatus?.agents_connected ?? 0} client agent(s)
           </span>
         </div>
 
@@ -264,11 +264,12 @@ export default function UserMtClientPage() {
           />
         </div>
 
-        {agentsStatus && !agentsStatus.backend_reachable && (
-          <div className="mt-3 text-[11px] text-pat-warning">
-            Agent status backend unreachable — showing last known state.
-          </div>
-        )}
+        <div className="mt-3 text-[11px] text-pat-text-muted leading-relaxed">
+          This page shows your <strong>Client Agent</strong> (execution) connection. Live
+          <strong> signal delivery</strong> (signals → EA) and <strong>candle delivery</strong> (Master
+          Node → engine) are reported on the local Windows Agent dashboard:
+          Client <code>http://127.0.0.1:9000</code> · Master Node <code>http://127.0.0.1:9001</code>.
+        </div>
       </div>
 
       {/* Registered devices with terminal details */}
