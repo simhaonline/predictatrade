@@ -10,9 +10,10 @@ same machine (or separate machines) without conflict:
 | **Client Agent** | Receives signals and **places/Closes XAUUSD orders** (execution). | `pat-agent.exe` | `pat-agent-client` | **13081** (exec) | `wss://<host>:13081/ws` |
 | **Master Node** | Streams market/structure **data only** — never executes. | `pat-master.exe` | `pat-agent-master` | **13091** (data) | `wss://<host>:13091/ws/v1/data` |
 
-Both binaries are the **same Go build**; only the runtime role (`--mode=exec`
-vs `--mode=data`) and the install name/service/port differ. This lets a Client
-and a Master Node run side-by-side on one Windows box.
+Both roles ship as **separate Go binaries** — `pat-agent.exe` (Client, built
+from `cmd/client`) and `pat-master.exe` (Master Node, built from `cmd/master`).
+The role is fixed by the binary itself (no runtime `--mode` flag). This lets a
+Client and a Master Node run side-by-side on one Windows box.
 
 > Default engine host is `live.predictatrade.com`. To point at a different
 > server, run the installer with `-EngineHost your.host`.
@@ -109,12 +110,12 @@ Open the root URL (`http://127.0.0.1:9000/` or `:9001/`) — or `/status` — fo
 human-readable, auto-refreshing HTML dashboard. The cards shown are **role
 specific**; there is deliberately **no generic "SERVER (Backend)" card**:
 
-- **Master Node (data / `--mode=data`, port 9001)** shows:
+- **Master Node (data, port 9001)** shows:
   - **MASTER NODE (Terminal)** — MT4/MT5 terminal link, license, plan.
   - **CANDLE DELIVERY → Engine** — backend data-WS status, candles delivered
     count, last candle timestamp, and clock drift. This is the live
     data-delivery telemetry for the broker TF candles the engine consumes.
-- **Client Agent (exec / `--mode=exec`, port 9000)** shows:
+- **Client Agent (exec, port 9000)** shows:
   - **CLIENT (EA / MetaTrader)** — MT4/MT5 terminal link, license, plan.
   - **SIGNAL DELIVERY → EA** — backend exec-WS status, signals delivered count,
     and last-signal timestamp. The server/backend connection is shown only as

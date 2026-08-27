@@ -35,7 +35,8 @@ func logf(format string, args ...any) {
 
 type Agent struct {
 	config           *Config
-	mode             string // "exec" (default) or "data" — data mode never executes orders
+	role             string // "exec" (Client) or "data" (Master Node) — data role never executes orders
+	handler          serverMessageHandler // role-specific server-message behavior
 	deviceID         string
 	deviceKey        *ecdsa.PrivateKey
 	mu               sync.Mutex
@@ -113,10 +114,32 @@ type HeartbeatData struct {
 	AuthMAC         string     `json:"auth_mac,omitempty"` // W3: HMAC of agent_id|timestamp for server-side impersonation check
 }
 
-func NewAgent(config *Config) *Agent {
+// NewMasterAgent constructs a data-only (Master Node) agent. It never executes
+// orders and is deployed as pat-master.exe. It only forwards market snapshots
+// from the EA to the engine.
+func NewMasterAgent(config *Config) *Agent {
+	config.Mode = "data"
+	a := newBaseAgent(config, "data")
+	a.handler = masterHandler{}
+	return a
+}
+
+// NewClientAgent constructs the execution (Client) agent. It receives signals
+// from the engine and forwards execution commands to the EA. Deployed as
+// pat-agent.exe.
+func NewClientAgent(config *Config) *Agent {
+	config.Mode = "exec"
+	a := newBaseAgent(config, "exec")
+	a.handler = clientHandler{}
+	return a
+}
+
+// newBaseAgent builds the role-agnostic Agent shared by both the Master Node
+// and Client agents. Role-specific behavior is supplied via the handler.
+func newBaseAgent(config *Config, role string) *Agent {
 	return &Agent{
 		config:           config,
-		mode:             config.Mode,
+		role:             role,
 		deviceID:         uuid.New().String(),
 		stopChan:         make(chan struct{}),
 		signals:          make(chan *SignalEvent, 100),
@@ -124,6 +147,17 @@ func NewAgent(config *Config) *Agent {
 		reconnectDelay:   3 * time.Second,
 		processedSignals: make(map[string]bool),
 	}
+}
+
+// serverMessageHandler isolates the role-specific handling of server messages
+// and startup loops so the Master Node and Client agents share one connection
+// core without mode branching:
+//   - masterHandler: data-only, ignores all execution server messages.
+//   - clientHandler: handles SIGNAL/CLOSE_POSITION/EMERGENCY_STOP/KILL_SWITCH/
+//     LICENSE_STATUS/ERROR.
+type serverMessageHandler interface {
+	handleServerMessage(a *Agent, event SignalEvent)
+	startRoleLoops(a *Agent)
 }
 
 // buildInfo is overridden at link time via -ldflags "-X ...buildInfo=...".
@@ -203,7 +237,7 @@ func (a *Agent) getStatus() AgentStatus {
 	return AgentStatus{
 		Version:           AgentVersion,
 		DeviceID:          a.deviceID,
-		Mode:              a.mode,
+		Mode:              a.role,
 		UptimeSeconds:     int64(time.Since(sa).Seconds()),
 		BackendURL:        bname,
 		BackendConnected:  conn != nil,
@@ -240,7 +274,7 @@ func (a *Agent) Start() error {
 	a.startedAt = time.Now()
 	// The data (Master Node) role connects to the dedicated data WS; the exec
 	// (Client) role connects to the live/exec WS. Show the correct one.
-	if a.mode == "data" {
+	if a.role == "data" {
 		a.backendName = a.config.DataWSURL
 	} else {
 		a.backendName = a.config.LiveWSURL
@@ -283,11 +317,18 @@ func (a *Agent) Start() error {
 	// Start heartbeat
 	go a.safe(a.heartbeatLoop)
 
-	// Start signal processor (receives signals from server → forwards to EA)
-	go a.safe(a.processSignals)
+	// Start role-specific loops (Client launches the signal processor; the
+	// Master Node is data-only and starts no extra loops).
+	a.handler.startRoleLoops(a)
 
 	// Start auto-updater (checks for updates every hour)
-	manifestURL := getEnv("PAT_UPDATE_MANIFEST_URL", "https://downloads.predictatrade.com/windows-agent/update-manifest.json")
+	// The Master Node (data role) fetches its role-specific manifest so it
+	// always downloads the correct pat-master.exe rather than the client binary.
+	defaultManifest := "https://downloads.predictatrade.com/windows-agent/update-manifest.json"
+	if a.role == "data" {
+		defaultManifest = "https://downloads.predictatrade.com/windows-agent/master/update-manifest.json"
+	}
+	manifestURL := getEnv("PAT_UPDATE_MANIFEST_URL", defaultManifest)
 	installDir := getEnv("PAT_INSTALL_DIR", "C:\\Program Files\\PredictATrade\\XAUUSD")
 	a.updater = NewUpdater(manifestURL, AgentVersion, a.config.AgentDataDir, installDir, a.config.UpdateChannel)
 	go a.safe(a.updateLoop)
@@ -659,7 +700,7 @@ func (a *Agent) loadOrCreateDeviceKey() error {
 		log.Printf("Device key file corrupt (len=%d, need 36) — regenerating", len(data))
 	}
 
-	// Generate new device identity (a.deviceID was already set by NewAgent)
+	// Generate new device identity (a.deviceID was already set by newBaseAgent)
 	if a.deviceID == "" {
 		a.deviceID = uuid.New().String()
 	}
@@ -726,11 +767,11 @@ func (a *Agent) connect() error {
 	// role=data; execution agents use the exec endpoint with role=exec. This
 	// lets the server isolate data collection from order execution.
 	wsURL := a.config.LiveWSURL
-	if a.mode == "data" {
+	if a.role == "data" {
 		wsURL = a.config.DataWSURL
 	}
-	url := wsURL + "?agentId=" + a.deviceID + "&agentVersion=" + AgentVersion + "&role=" + a.mode
-	log.Printf("Connecting to %s (mode=%s)", url, a.mode)
+	url := wsURL + "?agentId=" + a.deviceID + "&agentVersion=" + AgentVersion + "&role=" + a.role
+	log.Printf("Connecting to %s (role=%s)", url, a.role)
 
 	// CRITICAL: Use a custom dialer that forces HTTP/1.1 via TLS ALPN.
 	// The default dialer allows HTTP/2 negotiation, but HTTP/2 does NOT
@@ -806,117 +847,9 @@ func (a *Agent) connect() error {
 			continue
 		}
 
-		// Handle signal events
-		if a.mode != "exec" {
-			// Data-only agent: never processes execution commands (SIGNAL,
-			// CLOSE_POSITION, EMERGENCY_STOP, KILL_SWITCH, LICENSE_STATUS are
-			// execution concerns). It only forwards market snapshots, which are
-			// sent by the EA via the pipe and handled independently. This is a
-			// hard fail-closed boundary — a data agent cannot trade.
-			if event.Type != "" {
-				log.Printf("DATA mode: ignoring server message type=%s", event.Type)
-			}
-			continue
-		}
-		if event.Type == "SIGNAL" {
-			// Idempotency check
-			if a.processedSignals[event.EventID] {
-				log.Printf("Duplicate signal ignored: %s", event.EventID)
-				continue
-			}
-			a.processedSignals[event.EventID] = true
-
-			a.lastSignal = time.Now()
-			select {
-			case a.signals <- &event:
-			default:
-				log.Printf("Signal buffer full, dropping: %s", event.EventID)
-			}
-		} else if event.Type == "CLOSE_POSITION" {
-			var closePayload struct {
-				Ticket   int64  `json:"ticket"`
-				Magic    int64  `json:"magic"`
-				Reason   string `json:"reason"`
-				SignalID string `json:"signal_id"`
-			}
-			json.Unmarshal(event.Payload, &closePayload)
-			log.Printf("CLOSE_POSITION from server: ticket=%d magic=%d reason=%s", closePayload.Ticket, closePayload.Magic, closePayload.Reason)
-			if a.pipeManager != nil {
-				a.pipeManager.WriteToPipe("CLOSE_POSITION", fmt.Sprintf(`{"ticket":%d,"magic":%d,"reason":"%s","signal_id":"%s"}`, closePayload.Ticket, closePayload.Magic, closePayload.Reason, closePayload.SignalID))
-			}
-		} else if event.Type == "EMERGENCY_STOP" {
-			var emergencyPayload struct {
-				Reason string `json:"reason"`
-			}
-			json.Unmarshal(event.Payload, &emergencyPayload)
-			log.Printf("EMERGENCY_STOP from server: reason=%s", emergencyPayload.Reason)
-			if a.pipeManager != nil {
-				a.pipeManager.WriteToPipe("EMERGENCY_STOP", fmt.Sprintf(`{"reason":"%s"}`, emergencyPayload.Reason))
-			}
-		} else if event.Type == "KILL_SWITCH" {
-			// W8: STOP forwarding signals and disconnect — do not keep running.
-			log.Printf("KILL_SWITCH from server - halting agent and disconnecting")
-			if a.pipeManager != nil {
-				a.pipeManager.WriteToPipe("KILL_SWITCH", `{"reason":"SERVER_KILL_SWITCH"}`)
-			}
-			a.halt()
-			return fmt.Errorf("kill switch activated by server")
-		
-		} else if event.Type == "LICENSE_STATUS" {
-			var lic struct {
-				Valid      bool     `json:"valid"`
-				Status     string   `json:"status"`
-				Plan       string   `json:"plan"`
-				Strategies []string `json:"allowed_strategies"`
-			}
-			if json.Unmarshal(event.Payload, &lic) != nil {
-				continue
-			}
-			status := lic.Status
-			if lic.Valid {
-				status = "ACTIVE"
-			}
-			log.Printf("LICENSE_STATUS received: status=%s plan=%s", status, lic.Plan)
-			if a.pipeManager != nil {
-				plan := lic.Plan
-				if plan == "" { plan = "ELITE" }
-				a.pipeManager.SetLicenseResult(status, plan, lic.Strategies)
-			}
-
-		} else if event.Type == "ERROR" || event.Type == "DENIAL" {
-			// P1-001: Distinguish distinct failure types — never conflate
-			// auth failures with signal halts, license issues, etc.
-			var errPayload struct {
-				ErrorCode  string `json:"error_code"`
-				Reason     string `json:"reason"`
-				SignalID   string `json:"signal_id,omitempty"`
-				StrategyID string `json:"strategy_id,omitempty"`
-			}
-			_ = json.Unmarshal(event.Payload, &errPayload)
-			switch errPayload.ErrorCode {
-			case "AUTH_TOKEN_EXPIRED", "AUTH_INVALID":
-				log.Printf("AUTH FAILURE: %s — token refresh required", errPayload.ErrorCode)
-				go a.refreshToken()
-			case "LICENSE_EXPIRED", "LICENSE_DEVICE_MISMATCH":
-				log.Printf("LICENSE FAILURE: %s — %s", errPayload.ErrorCode, errPayload.Reason)
-			case "SUBSCRIPTION_NOT_ENTITLED":
-				log.Printf("ENTITLEMENT DENIED: strategy=%s — %s", errPayload.StrategyID, errPayload.Reason)
-			case "TERMINAL_DISCONNECTED":
-				log.Printf("TERMINAL DISCONNECTED: %s", errPayload.Reason)
-			case "ACCOUNT_STATE_STALE":
-				log.Printf("ACCOUNT STATE STALE: %s", errPayload.Reason)
-			case "SYSTEM_HALTED":
-				log.Printf("SYSTEM HALTED: %s — all execution suspended", errPayload.Reason)
-			case "SIGNAL_NOT_EXECUTABLE", "SIGNAL_EXPIRED":
-				log.Printf("SIGNAL REJECTED: %s signal=%s — %s", errPayload.ErrorCode, errPayload.SignalID, errPayload.Reason)
-			case "RISK_REJECTED":
-				log.Printf("RISK REJECTED: signal=%s — %s", errPayload.SignalID, errPayload.Reason)
-			case "MARKET_CLOSED":
-				log.Printf("MARKET CLOSED: %s", errPayload.Reason)
-			default:
-				log.Printf("SERVER ERROR: code=%s reason=%s", errPayload.ErrorCode, errPayload.Reason)
-			}
-		}
+		// Delegate role-specific handling to the configured handler. The
+		// Master Node ignores execution messages; the Client processes them.
+		a.handler.handleServerMessage(a, event)
 	}
 }
 
@@ -927,8 +860,8 @@ func (a *Agent) sendToServer(data []byte) error {
 	if a.conn == nil {
 		return fmt.Errorf("not connected")
 	}
-	// Master Node (data mode) → count live candle/data delivery to the engine.
-	if a.mode == "data" {
+	// Master Node (data role) → count live candle/data delivery to the engine.
+	if a.role == "data" {
 		a.deliveryMu.Lock()
 		a.candlesDelivered++
 		a.lastCandleAt = time.Now()
@@ -1194,54 +1127,6 @@ func (a *Agent) heartbeatLoop() {
 			} else if absDrift > 30000 { // > 30 seconds
 				log.Printf("WARN: Clock drift %dms — consider syncing Windows clock via NTP.", a.clockDriftMs)
 			}
-
-			// Also send heartbeat to EA via pipe
-			if a.pipeManager != nil {
-			}
-
-		case <-a.stopChan:
-			return
-		}
-	}
-}
-
-// processSignals handles received signals and forwards them to the MT4/MT5 EA
-func (a *Agent) processSignals() {
-	for {
-		select {
-		case event := <-a.signals:
-			log.Printf("Signal received from server: type=%s priority=%s", event.Type, event.Priority)
-
-			// Parse signal payload
-			var signal map[string]interface{}
-			if err := json.Unmarshal(event.Payload, &signal); err != nil {
-				log.Printf("Failed to parse signal: %v", err)
-				continue
-			}
-
-			direction, _ := signal["Direction"].(string)
-			strategyID, _ := signal["StrategyID"].(string)
-			log.Printf("Signal: %s %s (strategy: %s)", direction, signal["Symbol"], strategyID)
-
-			// Forward signal to EA via named pipe
-			if a.pipeManager != nil {
-				a.pipeManager.SendSignalToEA(string(event.Payload))
-				a.deliveryMu.Lock()
-				a.signalsDelivered++
-				a.lastSignalAt = time.Now()
-				a.deliveryMu.Unlock()
-			}
-
-			// Send acknowledgement back to Go RT server
-			ack := map[string]interface{}{
-				"type":      "ACK",
-				"signal_id": signal["ID"],
-				"device_id": a.deviceID,
-				"timestamp": time.Now().UTC(),
-				"status":    "FORWARDED_TO_EA",
-			}
-			data, _ := json.Marshal(ack)
-			a.sendToServer(data)
 
 		case <-a.stopChan:
 			return

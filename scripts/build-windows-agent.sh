@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# build-windows-agent.sh — Build Windows Agent and auto-update deploy folder
+# build-windows-agent.sh — Build Windows Agent (Client + Master) and auto-update deploy folders
 #
 # Usage:
 #   ./scripts/build-windows-agent.sh              # Build with current version
@@ -9,14 +9,14 @@
 #
 # What it does (in order):
 #   1. Reads (or sets) the version from windows-agent/internal/version.go
-#   2. Cross-compiles pat-agent.exe for Windows amd64
-#   3. Binary goes to windows-agent/bin/pat-agent.exe
-#   4. deploy/pat-agent.exe is a real copied file so the Docker/Nginx deploy mount
-#      can serve it (symlinks outside the mounted directory are not portable)
-#   5. Calculates SHA256 checksum of the new binary
-#   6. Updates deploy/version.txt
-#   7. Updates deploy/update-manifest.json with new version, checksum, timestamp
-#   8. Prints a summary
+#   2. Cross-compiles pat-agent.exe     (Client / execution)  → bin/pat-agent.exe
+#   3. Cross-compiles pat-master.exe    (Master Node / data)  → bin/pat-master.exe
+#   4. Copies standalone deploy binaries into the role subdirs the installers
+#      fetch from (deploy/client/pat-agent.exe and deploy/master/pat-master.exe),
+#      plus the legacy root copies for backward compatibility.
+#   5. Calculates SHA256 checksums of both binaries.
+#   6. Updates deploy/version.txt (shared) and both role update-manifests.
+#   7. Prints a summary.
 #
 # The deploy folder is served live by nginx at:
 #   https://downloads.predictatrade.com/windows-agent/
@@ -27,11 +27,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 AGENT_DIR="$ROOT_DIR/windows-agent"
-BIN_PATH="$AGENT_DIR/bin/pat-agent.exe"
+
+BIN_CLIENT="$AGENT_DIR/bin/pat-agent.exe"
+BIN_MASTER="$AGENT_DIR/bin/pat-master.exe"
+
 DEPLOY_DIR="$AGENT_DIR/deploy"
-DEPLOY_EXE="$DEPLOY_DIR/pat-agent.exe"
+DEPLOY_CLIENT_DIR="$DEPLOY_DIR/client"
+DEPLOY_MASTER_DIR="$DEPLOY_DIR/master"
+
+DEPLOY_CLIENT_EXE="$DEPLOY_CLIENT_DIR/pat-agent.exe"
+DEPLOY_MASTER_EXE="$DEPLOY_MASTER_DIR/pat-master.exe"
+DEPLOY_ROOT_CLIENT_EXE="$DEPLOY_DIR/pat-agent.exe"
+DEPLOY_ROOT_MASTER_EXE="$DEPLOY_DIR/pat-master.exe"
+
 VERSION_FILE="$DEPLOY_DIR/version.txt"
-MANIFEST_FILE="$DEPLOY_DIR/update-manifest.json"
+CLIENT_MANIFEST="$DEPLOY_DIR/update-manifest.json"
+MASTER_MANIFEST="$DEPLOY_MASTER_DIR/update-manifest.json"
 VERSION_GO="$AGENT_DIR/internal/version.go"
 
 # ─── Helpers ───
@@ -46,7 +57,6 @@ log "Current version: v$CURRENT_VERSION"
 NEW_VERSION="$CURRENT_VERSION"
 
 if [[ "${1:-}" == "--bump" ]]; then
-    # Bump patch version: 1.2.0 → 1.2.1
     IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
     NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
 elif [[ "${1:-}" == "--version" && -n "${2:-}" ]]; then
@@ -62,108 +72,110 @@ package agent
 
 // AgentVersion is the single source of truth for the agent binary version.
 // The installer's version.txt on the server must match this value.
-// When pushing a new release: increment this, rebuild pat-agent.exe, update deploy/version.txt.
+// When pushing a new release: increment this, rebuild both binaries, update deploy/version.txt.
 const AgentVersion = "$NEW_VERSION"
 EOF
     log "Updated version.go → v$NEW_VERSION"
 fi
 
-# ─── Step 3: Build the Windows binary ───
+# ─── Step 3: Build the Windows binaries ───
 log "Cross-compiling for Windows amd64..."
 cd "$AGENT_DIR"
 # Build WITHOUT .syso resource file — the manifest was causing Windows
-# App Control to reject the binary. The agent works fine without a manifest
-# when managed by NSSM (NSSM handles the service protocol itself).
-# Remove the .syso file if it exists to prevent Go from embedding it
-rm -f "$AGENT_DIR/cmd/agent/resource_windows_amd64.syso"
+# App Control to reject the binary.
+rm -f "$AGENT_DIR/cmd/client/resource_windows_amd64.syso" "$AGENT_DIR/cmd/master/resource_windows_amd64.syso"
 
 GOTOOLCHAIN=go1.23.0 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
   -ldflags="-s -w -X github.com/predictatrade/windows-agent/internal/agent.AgentVersion=$NEW_VERSION" \
-  -o "$BIN_PATH" ./cmd/agent/ || fatal "Build failed"
-log "Binary built: $BIN_PATH ($(du -h "$BIN_PATH" | cut -f1))"
+  -o "$BIN_CLIENT" ./cmd/client/ || fatal "Client build failed"
 
-# ─── Step 3b: Code-signing is intentionally DISABLED ───
-# We ship the agent UNSIGNED. Authenticode signing (with the self-signed
-# certs/pat-code-sign.pfx) was removed because it caused Windows Defender /
-# SmartScreen failures. The unsigned binary is handled cleanly by the installer:
-# Unblock-File strips the "downloaded from the internet" mark (the trigger for
-# SmartScreen) and a Defender exclusion on the install dir prevents AV from
-# quarantining the agent. No certificate is required.
-# DISABLED: CERT_PFX="$AGENT_DIR/certs/pat-code-sign.pfx"
-# DISABLED: if [[ -f "$CERT_PFX" ]] && which osslsigncode >/dev/null 2>&1; then
-# DISABLED:     osslsigncode sign -pkcs12 "$CERT_PFX" -pass "$CERT_PASS" ...
-# DISABLED: fi
+GOTOOLCHAIN=go1.23.0 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
+  -ldflags="-s -w -X github.com/predictatrade/windows-agent/internal/agent.AgentVersion=$NEW_VERSION" \
+  -o "$BIN_MASTER" ./cmd/master/ || fatal "Master build failed"
 
-# ─── Step 4: Copy a standalone deployment binary ───
+log "Client binary built: $BIN_CLIENT ($(du -h "$BIN_CLIENT" | cut -f1))"
+log "Master binary built: $BIN_MASTER ($(du -h "$BIN_MASTER" | cut -f1))"
+
+# ─── Step 4: Copy standalone deployment binaries ───
 # The Nginx container mounts deploy/ only. A symlink to ../bin is therefore
-# broken inside the container and produces a public 404 for pat-agent.exe.
-rm -f "$DEPLOY_EXE"
-cp "$BIN_PATH" "$DEPLOY_EXE"
-chmod 0644 "$DEPLOY_EXE"
-log "Copied standalone deploy binary (client): $DEPLOY_EXE"
+# broken inside the container and produces a public 404.
+mkdir -p "$DEPLOY_CLIENT_DIR" "$DEPLOY_MASTER_DIR"
+rm -f "$DEPLOY_CLIENT_EXE" "$DEPLOY_ROOT_CLIENT_EXE" "$DEPLOY_MASTER_EXE" "$DEPLOY_ROOT_MASTER_EXE"
+cp "$BIN_CLIENT" "$DEPLOY_CLIENT_EXE"
+cp "$BIN_CLIENT" "$DEPLOY_ROOT_CLIENT_EXE"
+cp "$BIN_MASTER" "$DEPLOY_MASTER_EXE"
+cp "$BIN_MASTER" "$DEPLOY_ROOT_MASTER_EXE"
+chmod 0644 "$DEPLOY_CLIENT_EXE" "$DEPLOY_ROOT_CLIENT_EXE" "$DEPLOY_MASTER_EXE" "$DEPLOY_ROOT_MASTER_EXE"
+log "Copied deploy binaries (client + master, role subdirs + root)"
 
-# ─── Step 4b: Copy the Master Node binary (same build, distinct filename) ─
-# The Master Node runs the IDENTICAL agent but is deployed as pat-master.exe so
-# it never collides with the Client Agent (pat-agent.exe) when both roles are
-# installed on one machine. Role is chosen at runtime via --mode=data.
-DEPLOY_MASTER_EXE="$DEPLOY_DIR/pat-master.exe"
-rm -f "$DEPLOY_MASTER_EXE"
-cp "$BIN_PATH" "$DEPLOY_MASTER_EXE"
-chmod 0644 "$DEPLOY_MASTER_EXE"
-log "Copied standalone deploy binary (master): $DEPLOY_MASTER_EXE"
+# ─── Step 5: Calculate SHA256 checksums ───
+CLIENT_CHECKSUM=$(sha256sum "$BIN_CLIENT" | cut -d' ' -f1)
+MASTER_CHECKSUM=$(sha256sum "$BIN_MASTER" | cut -d' ' -f1)
+log "Client SHA256: $CLIENT_CHECKSUM"
+log "Master SHA256: $MASTER_CHECKSUM"
 
-# ─── Step 5: Calculate SHA256 checksum ───
-CHECKSUM=$(sha256sum "$BIN_PATH" | cut -d' ' -f1)
-log "SHA256: $CHECKSUM"
-
-# ─── Step 6: Update version.txt ───
+# ─── Step 6: Update version.txt (shared) ───
 echo -n "$NEW_VERSION" > "$VERSION_FILE"
 log "Updated version.txt → v$NEW_VERSION"
 
 # ─── Step 6b: Update install.ps1 version strings ───
 INSTALL_PS1="$DEPLOY_DIR/install.ps1"
 if [[ -f "$INSTALL_PS1" ]]; then
-    # Update the installer banner version (e.g., "Installer v1.2.21" → "Installer v1.2.32")
     sed -i "s/Installer v[0-9]\+\.[0-9]\+\.[0-9]\+/Installer v$NEW_VERSION/" "$INSTALL_PS1"
-    # Update the fallback $serverVersion default (e.g., "1.2.26" → "1.2.32")
-    sed -i "s/\$serverVersion = "[0-9]\+\.[0-9]\+\.[0-9]\+"/\$serverVersion = "$NEW_VERSION"/" "$INSTALL_PS1"
+    sed -i "s/\$serverVersion = \"[0-9]\+\.[0-9]\+\.[0-9]\+\"/\$serverVersion = \"$NEW_VERSION\"/" "$INSTALL_PS1"
     log "Updated install.ps1 version strings → v$NEW_VERSION"
 fi
 
-# ─── Step 7: Update update-manifest.json ───
+# ─── Step 7: Update update-manifests ───
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-cat > "$MANIFEST_FILE" << EOF
+cat > "$CLIENT_MANIFEST" << EOF
 {
     "version": "$NEW_VERSION",
-    "download_url": "https://downloads.predictatrade.com/windows-agent/pat-agent.exe",
-    "checksum": "$CHECKSUM",
+    "download_url": "https://downloads.predictatrade.com/windows-agent/client/pat-agent.exe",
+    "checksum": "$CLIENT_CHECKSUM",
     "min_version": "1.0.0",
-    "release_notes": "v$NEW_VERSION — FIX: MT client connection. The agent now discovers and uses the user's real MetaQuotes Common\\Files folder so it meets the EA (which uses MQL FILE_COMMON and never needed to change). Agent auto-removes orphaned IPC files from older versions, so subscribers only need to update the agent — no EA recompile required.",
+    "release_notes": "v$NEW_VERSION — Windows Agent (Client). Distinct client binary (pat-agent.exe) and master binary (pat-master.exe) now shipped separately per role.",
     "timestamp": "$TIMESTAMP"
 }
 EOF
-log "Updated update-manifest.json"
+log "Updated client update-manifest.json"
 
-# ─── Step 8: Verify live endpoint ───
-log "Verifying live download endpoint..."
-HTTP_CODE=$(curl -sI -o /dev/null -w "%{http_code}" "https://downloads.predictatrade.com/windows-agent/pat-agent.exe" 2>/dev/null || echo "000")
-if [[ "$HTTP_CODE" == "200" ]]; then
-    log "✅ Live endpoint OK (HTTP 200)"
-else
-    log "⚠️  Live endpoint returned HTTP $HTTP_CODE (may be expected in dev)"
-fi
+cat > "$MASTER_MANIFEST" << EOF
+{
+    "version": "$NEW_VERSION",
+    "download_url": "https://downloads.predictatrade.com/windows-agent/master/pat-master.exe",
+    "checksum": "$MASTER_CHECKSUM",
+    "min_version": "1.0.0",
+    "release_notes": "v$NEW_VERSION — Windows Master Node (data-only). Distinct master binary (pat-master.exe).",
+    "timestamp": "$TIMESTAMP"
+}
+EOF
+log "Updated master update-manifest.json"
+
+# ─── Step 8: Verify live endpoints ───
+log "Verifying live download endpoints..."
+for ep in "windows-agent/client/pat-agent.exe" "windows-agent/master/pat-master.exe"; do
+    HTTP_CODE=$(curl -sI -o /dev/null -w "%{http_code}" "https://downloads.predictatrade.com/$ep" 2>/dev/null || echo "000")
+    if [[ "$HTTP_CODE" == "200" ]]; then
+        log "✅ Live endpoint OK ($ep): HTTP 200"
+    else
+        log "⚠️  Live endpoint $ep returned HTTP $HTTP_CODE (may be expected in dev)"
+    fi
+done
 
 # ─── Summary ───
 echo ""
 echo "═══════════════════════════════════════════════"
 echo "  Windows Agent Build Complete"
 echo "═══════════════════════════════════════════════"
-echo "  Version:     v$NEW_VERSION"
-echo "  Binary:      $BIN_PATH"
-echo "  Deploy:      $DEPLOY_EXE (standalone copy)"
-echo "  Checksum:    $CHECKSUM"
-echo "  Manifest:    $MANIFEST_FILE"
-echo "  Live URL:    https://downloads.predictatrade.com/windows-agent/pat-agent.exe"
-echo "  Install cmd: irm https://downloads.predictatrade.com/windows-agent/install.ps1 | iex"
+echo "  Version:        v$NEW_VERSION"
+echo "  Client binary:  $BIN_CLIENT"
+echo "  Master binary:  $BIN_MASTER"
+echo "  Client deploy:  $DEPLOY_CLIENT_EXE"
+echo "  Master deploy:  $DEPLOY_MASTER_EXE"
+echo "  Client checksum:  $CLIENT_CHECKSUM"
+echo "  Master checksum:  $MASTER_CHECKSUM"
+echo "  Client URL:    https://downloads.predictatrade.com/windows-agent/client/pat-agent.exe"
+echo "  Master URL:    https://downloads.predictatrade.com/windows-agent/master/pat-master.exe"
+echo "  Install:        irm https://downloads.predictatrade.com/windows-agent/install.ps1 | iex"
 echo "═══════════════════════════════════════════════"
-# Binary will be UNSIGNED (self-signed causes Windows SmartScreen issues)

@@ -10,8 +10,9 @@
 # ─── Parameters ───
 #   -Mode client  → Client Agent (execution). Connects to engine exec port 13081.
 #   -Mode master  → Master Node (data-only). Connects to engine data port 13091.
-# Both roles use the SAME agent binary (shipped as pat-agent.exe / pat-master.exe);
-# only the role/mode/port/env differ. Logs: client -> agent.log, master -> master_agent.log.
+# The two roles ship as SEPARATE binaries (pat-agent.exe for client,
+# pat-master.exe for master) so there is no shared --mode flag at runtime.
+# Logs: client -> agent.log, master -> master_agent.log.
 [CmdletBinding()]
 param(
     [ValidateSet("client","master")][string]$Mode = "client",
@@ -55,7 +56,9 @@ if ($Mode -eq "master") {
     $RoleLabel    = "Client Agent (execution)"
 }
 $AgentExe    = if ($Mode -eq "master") { "pat-master.exe" } else { "pat-agent.exe" }
-$AgentArgs   = "--mode=$AgentMode"
+# The role is fixed by the binary itself (pat-agent.exe = client, pat-master.exe
+# = Master Node). No --mode flag is passed at runtime.
+$AgentArgs   = ""
 $NssmExe     = "nssm.exe"
 
 # ─── Self-elevation ───
@@ -80,7 +83,7 @@ if (-not $isAdmin) {
 # ─── NOW RUNNING AS ADMIN ───
 Write-Host ""
 Write-Host "=========================================="
-Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.33"
+Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.32"
 Write-Host "=========================================="
 Write-Host ""
 
@@ -336,7 +339,7 @@ try {
     $serverVersion = (Invoke-WebRequest -Uri "$RootUrl/version.txt" -UseBasicParsing -TimeoutSec 10).Content.Trim()
     Write-Host "  Server version: v$serverVersion"
 } catch {
-    $serverVersion = "1.2.33"
+    $serverVersion = "1.2.32"
     Write-Host "  WARN: Could not fetch server version — using default v$serverVersion"
 }
 Set-Content -Path (Join-Path $InstallDir "version.txt") -Value $serverVersion -NoNewline

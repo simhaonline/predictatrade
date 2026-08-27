@@ -1,8 +1,8 @@
 {
-    "version": "1.2.33",
-    "download_url": "https://downloads.predictatrade.com/windows-agent/pat-agent.exe",
-    "checksum": "5017a6a87047ecac2027ecec48f7a081ed783c514c32d05b3975ae6bf024649e",
+    "version": "1.2.32",
+    "download_url": "https://downloads.predictatrade.com/windows-agent/client/pat-agent.exe",
+    "checksum": "dcbe00dde6c878e4446647edd05710245684b318afdd66599fb87355f2824587",
     "min_version": "1.0.0",
-    "release_notes": "v1.2.33 — fix: auto-register terminal from MASTER_TICK/MASTER_INIT so dashboard shows MT5 connected",
-    "timestamp": "2026-08-27T11:51:37Z"
+    "release_notes": "v1.2.32 — Windows Agent (Client). Distinct client binary (pat-agent.exe) and master binary (pat-master.exe) now shipped separately per role.",
+    "timestamp": "2026-08-27T12:20:29Z"
 }

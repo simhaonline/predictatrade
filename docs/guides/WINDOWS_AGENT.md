@@ -10,7 +10,7 @@ The Windows Agent bridges MetaTrader 4/5 (MT4/MT5) terminals with the Predict-A-
 | **Client Agent** | Receives signals and **places/closes XAUUSD orders** (execution). | `pat-agent.exe` | `pat-agent-client` | 13081 (exec) | `wss://<host>/ws/v1/agent` | 9000 |
 | **Master Node** | Streams market/structure **data only** — never executes. | `pat-master.exe` | `pat-agent-master` | 13091 (data) | `wss://<host>/ws/v1/data` | 9001 |
 
-Both binaries are the **same Go build**; only the runtime role (`--mode=exec` vs `--mode=data`) and the install name/service/port differ. This lets a Client and a Master Node run side-by-side on one Windows box.
+Both roles ship as **separate Go binaries** — `pat-agent.exe` (Client) and `pat-master.exe` (Master Node) — built from distinct entrypoints (`cmd/client` and `cmd/master`). The role is **fixed by the binary itself**, not a runtime flag, so a Client and a Master Node can run side-by-side on one Windows box with no ambiguity.
 
 > Default engine host is `live.predictatrade.com`. To point at a different server, run the installer with `-EngineHost your.host`.
 
@@ -96,10 +96,10 @@ Both roles expose a local health endpoint (HTTP 200 = healthy):
 
 Open the root URL (`http://127.0.0.1:9000/` or `:9001/`) — or `/status` — for a human-readable, auto-refreshing HTML dashboard. The cards shown are **role specific**:
 
-- **Master Node (data / `--mode=data`, port 9001)** shows:
+- **Master Node (data, port 9001)** shows:
   - **MASTER NODE (Terminal)** — MT4/MT5 terminal link, license, plan.
   - **CANDLE DELIVERY → Engine** — backend data-WS status, candles delivered count, last candle timestamp, clock drift.
-- **Client Agent (exec / `--mode=exec`, port 9000)** shows:
+- **Client Agent (exec, port 9000)** shows:
   - **CLIENT (EA / MetaTrader)** — MT4/MT5 terminal link, license, plan.
   - **SIGNAL DELIVERY → EA** — backend exec-WS status, signals delivered count, last-signal timestamp.
 

@@ -11,9 +11,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ROOT     = Resolve-Path (Join-Path $PSScriptRoot "..")
-$SRC      = Join-Path $ROOT "cmd\agent"
+$SRC      = Join-Path $ROOT "cmd\client"
 $DEPLOY   = Join-Path $ROOT "deploy"
 $BINOUT   = Join-Path $DEPLOY "pat-agent.exe"
+$MASTERSRC = Join-Path $ROOT "cmd\master"
+$MASTERBIN = Join-Path $DEPLOY "pat-master.exe"
 
 # --- 1. Validate Go --------------------------------------------------------
 if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
@@ -47,15 +49,23 @@ if (-not $resGenerated -and $goversioninfo) {
 }
 if ($resGenerated) { Write-Host "[build] Resource metadata: OK" } else { Write-Warning "[build] Resource generation skipped (install winres or goversioninfo for version info)" }
 
-# --- 4. Compile Windows executable -----------------------------------------
-Write-Host "[build] Cross-compiling windows/amd64 (v$Version)..."
+# --- 4. Compile Windows executable (Client) -------------------------------
+Write-Host "[build] Cross-compiling client (windows/amd64, v$Version)..."
 $ldflags = "-s -w -X github.com/predictatrade/windows-agent/internal.buildInfo=$Version"
 $env:GOOS = "windows"; $env:GOARCH = "amd64"; $env:CGO_ENABLED = "0"
 Push-Location $ROOT
-go build -trimpath -ldflags $ldflags -o $BINOUT .\cmd\agent\
-if ($LASTEXITCODE -ne 0) { Write-Error "Build failed"; exit 1 }
+go build -trimpath -ldflags $ldflags -o $BINOUT .\cmd\client\
+if ($LASTEXITCODE -ne 0) { Write-Error "Client build failed"; exit 1 }
 Pop-Location
-Write-Host "[build] Executable: $BINOUT"
+Write-Host "[build] Client executable: $BINOUT"
+
+# --- 4b. Compile Windows executable (Master Node / data-only) --------------
+Write-Host "[build] Cross-compiling master (windows/amd64, v$Version)..."
+Push-Location $ROOT
+go build -trimpath -ldflags $ldflags -o $MASTERBIN .\cmd\master\
+if ($LASTEXITCODE -ne 0) { Write-Error "Master build failed"; exit 1 }
+Pop-Location
+Write-Host "[build] Master executable: $MASTERBIN"
 
 # --- 5. Code signing (Authenticode) ----------------------------------------
 $signMode = "Unsigned"
@@ -78,13 +88,8 @@ if ($signMode -ne "Unsigned") {
 $hash = (Get-FileHash $BINOUT -Algorithm SHA256).Hash
 Write-Host "[build] SHA256: $hash"
 
-# --- 7b. Produce master-node binary (same build, distinct filename) ------
-# The Master Node runs the IDENTICAL agent binary but is installed as
-# pat-master.exe so it never collides with the Client Agent (pat-agent.exe)
-# when both are installed on the same machine. Role is selected at runtime
-# via --mode=data (install-master.ps1 handles this).
-$MasterBin = Join-Path $DEPLOY "pat-master.exe"
-Copy-Item -Path $BINOUT -Destination $MasterBin -Force
+# --- 7b. Master-node binary already built above (distinct source/role) ------
+$MasterBin = $MASTERBIN
 if ($signMode -ne "Unsigned") {
     $mSig = Get-AuthenticodeSignature $MasterBin
     Write-Host "[build] Master signature status: $($mSig.Status)"
@@ -102,7 +107,7 @@ Write-Host " Executable:        $BINOUT"
 Write-Host " Resource Metadata: $(if ($resGenerated) {'OK'} else {'SKIPPED'})"
 Write-Host " Signature:         $signMode"
 Write-Host " SHA256:            $hash"
-Write-Host " Master binary:     $MasterBin"
+Write-Host " Master binary:     $MASTERBIN"
 Write-Host " Build:             SUCCESS"
 Write-Host "================================================="
 
