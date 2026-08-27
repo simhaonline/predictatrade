@@ -14,7 +14,10 @@
     Master uninstall:               irm https://downloads.predictatrade.com/windows-agent/uninstall.ps1 | iex   (run with -Mode master)
     Uninstall BOTH client + master: irm https://downloads.predictatrade.com/windows-agent/uninstall.ps1 | iex   (run with -Mode all)
 .PARAMETER Mode
-    Which role to uninstall: "client" (default), "master", or "all" (both).
+    Which role to uninstall: "client" (default), "master", or "all". NOTE: the
+    uninstall always cleans up EVERY Predict-A-Trade agent service/process present
+    (both client and master), so the default is sufficient for a full uninstall —
+    -Mode only affects messaging, not what gets removed.
 .PARAMETER Silent
     When specified, removes everything without any user prompts.
 #>
@@ -92,8 +95,9 @@ if (-not $isAdmin) {
     Set-Content -Path $tempScript -Value $scriptContent -Encoding UTF8
 
     try {
-        # Build arguments — preserve -Silent flag
-        $procArgs = @("-ExecutionPolicy", "Bypass", "-NoProfile", "-File", "`"$tempScript`"")
+        # Build arguments — preserve the role (-Mode) and -Silent flag so the
+        # elevated re-run doesn't silently drop them and default to client.
+        $procArgs = @("-ExecutionPolicy", "Bypass", "-NoProfile", "-File", "`"$tempScript`"", "-Mode", $Mode)
         if ($Silent) { $procArgs += "-Silent" }
 
         # Elevate: UAC prompt appears, user clicks Yes, elevated PowerShell runs the script
@@ -130,6 +134,23 @@ if ($Silent) {
 
 Write-PATEventLog -Message "Predict-A-Trade XAUUSD uninstall started$(if ($Silent) { ' (silent mode)' })" -EventId 401
 
+# ─── 0.4 Stop + remove the health-check Scheduled Task FIRST ───
+# health-check.ps1 restarts the agent whenever it is not running. If we left it
+# in place, it would re-launch the agent during/after uninstall. Remove (and
+# disable) it before touching the service or the process so nothing resurrects
+# the agent. Done once, up front, and again later (idempotent).
+if (-not $Silent) {
+    Write-Host "[uninstall] Stopping + removing health-check Scheduled Task (if any)..."
+}
+try {
+    $hTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if ($hTask) {
+        Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+        if (-not $Silent) { Write-Host "  OK: Health-check task removed" }
+    }
+} catch {}
+
 # ─── 0. Remove any stale prior service names of THIS product ───
 # Older installs used different service names (agent / PredictATradeAgent /
 # PredictATradeXAUUSD). Remove them so uninstall fully cleans up and there is
@@ -165,7 +186,9 @@ foreach ($prior in $PriorServiceNames) {
 # ─── 1. Stop and delete the Windows service(s) ───
 Write-Host "[uninstall] Stopping and removing service(s)..."
 $nssmPath = Join-Path $InstallDir $NssmExe
-$ServicesToRemove = if ($Mode -eq "all") { @("pat-agent-client", "pat-agent-master") } else { @($ServiceName) }
+# Always clean up BOTH roles (client + master). Running the default uninstall
+# must not leave a Master Node service running behind.
+$ServicesToRemove = @("pat-agent-client", "pat-agent-master")
 foreach ($svcName in $ServicesToRemove) {
     $svc = Get-Service -Name $svcName -ErrorAction SilentlyContinue
     if ($svc) {
@@ -205,7 +228,8 @@ foreach ($svcName in $ServicesToRemove) {
 
 # ─── 1.5. Kill any running agent processes (in case service didn't stop) ───
 Write-Host "[uninstall] Killing any running agent processes..."
-$procNames = if ($Mode -eq "all") { @("pat-agent", "pat-master") } else { @($AgentExe -replace '\.exe', '') }
+# Kill BOTH role processes regardless of -Mode so the uninstall is thorough.
+$procNames = @("pat-agent", "pat-master")
 $agentProcs = @()
 foreach ($pn in $procNames) {
     $p = Get-Process -Name $pn -ErrorAction SilentlyContinue
@@ -254,8 +278,8 @@ if ($cleanedCount -gt 0) {
 # ─── 1.7. Remove Windows Defender exclusions (if we added them) ───
 try {
     Remove-MpPreference -ExclusionPath "C:\PredictATrade" -ErrorAction SilentlyContinue
-    Remove-MpPreference -ExclusionProcess $AgentExe -ErrorAction SilentlyContinue
-    if ($Mode -eq "all") { Remove-MpPreference -ExclusionProcess "pat-master.exe" -ErrorAction SilentlyContinue }
+    Remove-MpPreference -ExclusionProcess "pat-agent.exe" -ErrorAction SilentlyContinue
+    Remove-MpPreference -ExclusionProcess "pat-master.exe" -ErrorAction SilentlyContinue
 } catch {}
 
 # ─── 2. Delete the Scheduled Task ───
