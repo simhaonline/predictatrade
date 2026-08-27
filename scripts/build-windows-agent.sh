@@ -105,7 +105,17 @@ log "Binary built: $BIN_PATH ($(du -h "$BIN_PATH" | cut -f1))"
 rm -f "$DEPLOY_EXE"
 cp "$BIN_PATH" "$DEPLOY_EXE"
 chmod 0644 "$DEPLOY_EXE"
-log "Copied standalone deploy binary: $DEPLOY_EXE"
+log "Copied standalone deploy binary (client): $DEPLOY_EXE"
+
+# ─── Step 4b: Copy the Master Node binary (same build, distinct filename) ─
+# The Master Node runs the IDENTICAL agent but is deployed as pat-master.exe so
+# it never collides with the Client Agent (pat-agent.exe) when both roles are
+# installed on one machine. Role is chosen at runtime via --mode=data.
+DEPLOY_MASTER_EXE="$DEPLOY_DIR/pat-master.exe"
+rm -f "$DEPLOY_MASTER_EXE"
+cp "$BIN_PATH" "$DEPLOY_MASTER_EXE"
+chmod 0644 "$DEPLOY_MASTER_EXE"
+log "Copied standalone deploy binary (master): $DEPLOY_MASTER_EXE"
 
 # ─── Step 5: Calculate SHA256 checksum ───
 CHECKSUM=$(sha256sum "$BIN_PATH" | cut -d' ' -f1)

@@ -19,13 +19,25 @@
 
 $ErrorActionPreference = "Stop"
 
+[CmdletBinding()]
+param(
+    [ValidateSet("client","master")][string]$Mode = "client"
+)
+
+if ($Mode -eq "master") {
+    $ServiceName = "pat-agent-master"
+    $AgentExe    = "pat-master.exe"
+} else {
+    $ServiceName = "pat-agent-client"
+    $AgentExe    = "pat-agent.exe"
+}
+
 # ─── Paths ───
 $ScriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SettingsFile = Join-Path $ScriptDir "settings.json"
 $NotifyScript = Join-Path $ScriptDir "notify.ps1"
 $EventSource  = "pat-agent"
-$ServiceName  = "pat-agent"
-$InstallDir   = "C:\Program Files\PredictATrade\XAUUSD"
+$InstallDir   = "C:\PredictATrade\XAUUSD"
 
 # ─── Helper: Write to Event Log ───
 function Write-PATEventLog {
@@ -76,7 +88,7 @@ if ([string]::IsNullOrWhiteSpace($healthUrl)) {
 }
 
 # ─── Check 1: Is the agent process running? ───
-$agentProcess = Get-Process -Name "pat-agent" -ErrorAction SilentlyContinue
+$agentProcess = Get-Process -Name ($AgentExe -replace '.exe', '') -ErrorAction SilentlyContinue
 if (-not $agentProcess) {
     # Also check by service name
     $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
@@ -182,7 +194,7 @@ try {
     Start-Sleep -Seconds 2
 
     # Ensure process is killed
-    $proc = Get-Process -Name "pat-agent" -ErrorAction SilentlyContinue
+    $proc = Get-Process -Name ($AgentExe -replace '.exe', '') -ErrorAction SilentlyContinue
     if ($proc) {
         $proc | Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 1

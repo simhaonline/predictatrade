@@ -20,9 +20,23 @@
       & "C:\Program Files\PredictATrade\XAUUSD\status.ps1"
 #>
 
-$ServiceName = "pat-agent"
-$InstallDir  = "C:\Program Files\PredictATrade\XAUUSD"
-$HealthUrl   = "http://127.0.0.1:9000/health"
+[CmdletBinding()]
+param(
+    [ValidateSet("client","master")][string]$Mode = "client"
+)
+
+if ($Mode -eq "master") {
+    $ServiceName = "pat-agent-master"
+    $AgentExe    = "pat-master.exe"
+    $RoleLabel   = "Master Node (data-only)"
+} else {
+    $ServiceName = "pat-agent-client"
+    $AgentExe    = "pat-agent.exe"
+    $RoleLabel   = "Client Agent (execution)"
+}
+$InstallDir  = "C:\PredictATrade\XAUUSD"
+$HealthPort  = if ($Mode -eq "master") { "9001" } else { "9000" }
+$HealthUrl   = "http://127.0.0.1:$HealthPort/health"
 $EventSource = "pat-agent"
 
 Write-Host ""
@@ -49,8 +63,8 @@ if ($svc) {
 Write-Host ""
 
 # ─── 2. Agent Process ───
-Write-Host "[2] Agent Process"
-$proc = Get-Process -Name "pat-agent" -ErrorAction SilentlyContinue
+Write-Host "[2] Agent Process ($RoleLabel)"
+$proc = Get-Process -Name ($AgentExe -replace '\.exe', '') -ErrorAction SilentlyContinue
 if ($proc) {
     $mem = [math]::Round($proc.WorkingSet64 / 1MB, 1)
     $cpu = $proc.CPU

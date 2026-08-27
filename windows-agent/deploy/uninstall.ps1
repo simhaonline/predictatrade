@@ -11,21 +11,37 @@
 
     Client uninstall (interactive): irm https://downloads.predictatrade.com/windows-agent/uninstall.ps1 | iex
     Client uninstall (silent):      irm "https://downloads.predictatrade.com/windows-agent/uninstall.ps1?Silent=true" | iex
+    Master uninstall:               irm https://downloads.predictatrade.com/windows-agent/uninstall.ps1 | iex   (run with -Mode master)
+    Uninstall BOTH client + master: irm https://downloads.predictatrade.com/windows-agent/uninstall.ps1 | iex   (run with -Mode all)
+.PARAMETER Mode
+    Which role to uninstall: "client" (default), "master", or "all" (both).
 .PARAMETER Silent
     When specified, removes everything without any user prompts.
 #>
 
 param(
+    [ValidateSet("client","master","all")][string]$Mode = "client",
     [switch]$Silent
 )
 
 # ─── Configuration ───
 $BaseUrl       = "https://downloads.predictatrade.com/windows-agent"
 $InstallDir    = "C:\PredictATrade\XAUUSD"
-$ServiceName   = "pat-agent"
 $EventSource   = "pat-agent"
 $TaskName      = "PredictATradeHealthCheck"
 $NssmExe       = "nssm.exe"
+
+# Role-specific service + binary names (must match install.ps1).
+if ($Mode -eq "master") {
+    $ServiceName = "pat-agent-master"
+    $AgentExe    = "pat-master.exe"
+} elseif ($Mode -eq "all") {
+    $ServiceName = "pat-agent-client"   # primary; loop below also removes master
+    $AgentExe    = "pat-agent.exe"
+} else {
+    $ServiceName = "pat-agent-client"
+    $AgentExe    = "pat-agent.exe"
+}
 
 # ─── Helper: Write to Event Log ───
 function Write-PATEventLog {
@@ -146,48 +162,55 @@ foreach ($prior in $PriorServiceNames) {
     }
 }
 
-# ─── 1. Stop and delete the Windows service ───
-Write-Host "[uninstall] Stopping and removing service..."
+# ─── 1. Stop and delete the Windows service(s) ───
+Write-Host "[uninstall] Stopping and removing service(s)..."
 $nssmPath = Join-Path $InstallDir $NssmExe
-$svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-
-if ($svc) {
-    # Stop the service
-    try {
-        if ($svc.Status -eq "Running") {
-            if (Test-Path $nssmPath) {
-                & $nssmPath stop $ServiceName 2>&1 | Out-Null
-            } else {
-                Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+$ServicesToRemove = if ($Mode -eq "all") { @("pat-agent-client", "pat-agent-master") } else { @($ServiceName) }
+foreach ($svcName in $ServicesToRemove) {
+    $svc = Get-Service -Name $svcName -ErrorAction SilentlyContinue
+    if ($svc) {
+        # Stop the service
+        try {
+            if ($svc.Status -eq "Running") {
+                if (Test-Path $nssmPath) {
+                    & $nssmPath stop $svcName 2>&1 | Out-Null
+                } else {
+                    Stop-Service -Name $svcName -Force -ErrorAction SilentlyContinue
+                }
+                Start-Sleep -Seconds 2
             }
-            Start-Sleep -Seconds 2
+            Write-Host "  OK: Service $svcName stopped"
+        } catch {
+            Write-Host "  WARN: Could not stop service $svcName : $_"
         }
-        Write-Host "  OK: Service stopped"
-    } catch {
-        Write-Host "  WARN: Could not stop service: $_"
-    }
 
-    # Delete the service
-    try {
-        if (Test-Path $nssmPath) {
-            & $nssmPath remove $ServiceName confirm 2>&1 | Out-Null
-        } else {
-            sc.exe delete $ServiceName 2>&1 | Out-Null
+        # Delete the service
+        try {
+            if (Test-Path $nssmPath) {
+                & $nssmPath remove $svcName confirm 2>&1 | Out-Null
+            } else {
+                sc.exe delete $svcName 2>&1 | Out-Null
+            }
+            Start-Sleep -Seconds 1
+            Write-Host "  OK: Service $svcName removed"
+        } catch {
+            # Fallback to sc.exe
+            sc.exe delete $svcName 2>&1 | Out-Null
+            Write-Host "  OK: Service $svcName removed (via sc.exe fallback)"
         }
-        Start-Sleep -Seconds 1
-        Write-Host "  OK: Service removed"
-    } catch {
-        # Fallback to sc.exe
-        sc.exe delete $ServiceName 2>&1 | Out-Null
-        Write-Host "  OK: Service removed (via sc.exe fallback)"
+    } else {
+        Write-Host "  OK: Service $svcName not found — skipping"
     }
-} else {
-    Write-Host "  OK: Service not found — skipping"
 }
 
-# ─── 1.5. Kill any running pat-agent.exe processes (in case service didn't stop) ───
-Write-Host "[uninstall] Killing any running pat-agent processes..."
-$agentProcs = Get-Process -Name "pat-agent" -ErrorAction SilentlyContinue
+# ─── 1.5. Kill any running agent processes (in case service didn't stop) ───
+Write-Host "[uninstall] Killing any running agent processes..."
+$procNames = if ($Mode -eq "all") { @("pat-agent", "pat-master") } else { @($AgentExe -replace '\.exe', '') }
+$agentProcs = @()
+foreach ($pn in $procNames) {
+    $p = Get-Process -Name $pn -ErrorAction SilentlyContinue
+    if ($p) { $agentProcs += $p }
+}
 if ($agentProcs) {
     $agentProcs | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 2
@@ -231,7 +254,8 @@ if ($cleanedCount -gt 0) {
 # ─── 1.7. Remove Windows Defender exclusions (if we added them) ───
 try {
     Remove-MpPreference -ExclusionPath "C:\PredictATrade" -ErrorAction SilentlyContinue
-    Remove-MpPreference -ExclusionProcess "pat-agent.exe" -ErrorAction SilentlyContinue
+    Remove-MpPreference -ExclusionProcess $AgentExe -ErrorAction SilentlyContinue
+    if ($Mode -eq "all") { Remove-MpPreference -ExclusionProcess "pat-master.exe" -ErrorAction SilentlyContinue }
 } catch {}
 
 # ─── 2. Delete the Scheduled Task ───

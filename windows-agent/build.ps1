@@ -78,6 +78,19 @@ if ($signMode -ne "Unsigned") {
 $hash = (Get-FileHash $BINOUT -Algorithm SHA256).Hash
 Write-Host "[build] SHA256: $hash"
 
+# --- 7b. Produce master-node binary (same build, distinct filename) ------
+# The Master Node runs the IDENTICAL agent binary but is installed as
+# pat-master.exe so it never collides with the Client Agent (pat-agent.exe)
+# when both are installed on the same machine. Role is selected at runtime
+# via --mode=data (install-master.ps1 handles this).
+$MasterBin = Join-Path $DEPLOY "pat-master.exe"
+Copy-Item -Path $BINOUT -Destination $MasterBin -Force
+if ($signMode -ne "Unsigned") {
+    $mSig = Get-AuthenticodeSignature $MasterBin
+    Write-Host "[build] Master signature status: $($mSig.Status)"
+}
+Write-Host "[build] Master-node binary: $MasterBin"
+
 # --- 8. Summary ------------------------------------------------------------
 Write-Host ""
 Write-Host "================================================="
@@ -89,6 +102,7 @@ Write-Host " Executable:        $BINOUT"
 Write-Host " Resource Metadata: $(if ($resGenerated) {'OK'} else {'SKIPPED'})"
 Write-Host " Signature:         $signMode"
 Write-Host " SHA256:            $hash"
+Write-Host " Master binary:     $MasterBin"
 Write-Host " Build:             SUCCESS"
 Write-Host "================================================="
 

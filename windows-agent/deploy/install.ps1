@@ -37,7 +37,7 @@ if ($Mode -eq "master") {
     $EngineWsUrl  = "wss://$EngineHost:13081/ws"
     $RoleLabel    = "Client Agent (execution)"
 }
-$AgentExe    = "pat-agent.exe"
+$AgentExe    = if ($Mode -eq "master") { "pat-master.exe" } else { "pat-agent.exe" }
 $AgentArgs   = "--mode=$AgentMode"
 $NssmExe     = "nssm.exe"
 
@@ -83,6 +83,12 @@ Write-Host "  OK: $InstallDir"
 [Environment]::SetEnvironmentVariable($EngineEnvVar, $EngineWsUrl, "Machine") | Out-Null
 Write-Host "  OK: Engine URL ($RoleLabel) = $EngineWsUrl"
 
+# Step 2c: Unique local health port per role so Client + Master can coexist on
+# the same machine (both default to 9000 otherwise → bind conflict).
+$HealthPort = if ($Mode -eq "master") { "9001" } else { "9000" }
+[Environment]::SetEnvironmentVariable("PAT_HEALTH_PORT", $HealthPort, "Machine") | Out-Null
+Write-Host "  OK: Local health port = $HealthPort"
+
 # Step 3: Stop existing service if running
 Write-Host "[3/9] Stopping existing service if running..."
 $nssmDest = Join-Path $InstallDir $NssmExe
@@ -103,12 +109,12 @@ Write-Host "[4/9] Waiting for processes..."
 Start-Sleep -Seconds 2
 Write-Host "  OK"
 
-# Step 5: Download pat-agent.exe
-Write-Host "[5/9] Downloading pat-agent.exe..."
+# Step 5: Download the role-specific agent binary
+Write-Host "[5/9] Downloading $AgentExe..."
 $agentPath = Join-Path $InstallDir $AgentExe
 try {
     if (Test-Path $agentPath) { Remove-Item $agentPath -Force -ErrorAction SilentlyContinue }
-    Invoke-WebRequest -Uri "$BaseUrl/pat-agent.exe" -OutFile $agentPath -UseBasicParsing -TimeoutSec 120
+    Invoke-WebRequest -Uri "$BaseUrl/$AgentExe" -OutFile $agentPath -UseBasicParsing -TimeoutSec 120
     Unblock-File -Path $agentPath -ErrorAction SilentlyContinue
 
     # Check if Defender quarantined the file immediately after download
@@ -116,12 +122,12 @@ try {
         Write-Host "  WARN: Binary appears quarantined by Defender — attempting restore..."
         try {
             # Try to restore from quarantine
-            $threat = Get-MpThreatDetection -ErrorAction SilentlyContinue | Where-Object { $_.Resources -like "*pat-agent*" } | Select-Object -First 1
+            $threat = Get-MpThreatDetection -ErrorAction SilentlyContinue | Where-Object { $_.Resources -like "*$AgentExe*" } | Select-Object -First 1
             if ($threat) {
                 Remove-MpThreat -ErrorAction SilentlyContinue
                 Start-Sleep -Seconds 2
                 # Re-download after restoring
-                Invoke-WebRequest -Uri "$BaseUrl/pat-agent.exe" -OutFile $agentPath -UseBasicParsing -TimeoutSec 120
+                Invoke-WebRequest -Uri "$BaseUrl/$AgentExe" -OutFile $agentPath -UseBasicParsing -TimeoutSec 120
                 Unblock-File -Path $agentPath -ErrorAction SilentlyContinue
                 Write-Host "  OK: Restored and re-downloaded"
             }
@@ -328,11 +334,12 @@ Write-Host "  Service:     $ServiceName"
 Write-Host "  Role:        $RoleLabel"
 Write-Host "  Status:      $(if ($serviceRunning) { 'Running ✓' } else { 'Check logs above' })"
 Write-Host "  Install Dir: $InstallDir"
-Write-Host "  Health:      http://127.0.0.1:9000"
+Write-Host "  Health:      http://127.0.0.1:$HealthPort"
 Write-Host "  Logs:        $logsDir"
 Write-Host ""
-Write-Host "  To uninstall: irm $BaseUrl/uninstall.ps1 | iex"
-Write-Host "  To update:     irm $BaseUrl/install.ps1 | iex"
+$roleName = if ($Mode -eq "master") { "master" } else { "client" }
+Write-Host "  To uninstall: irm $BaseUrl/uninstall.ps1 | iex   (use: -Mode $roleName)"
+Write-Host "  To update:    irm $BaseUrl/install-$roleName.ps1 | iex"
 Write-Host "=========================================="
 Write-Host ""
 Read-Host "Press Enter to close"
