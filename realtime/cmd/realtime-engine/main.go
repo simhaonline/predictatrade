@@ -2267,12 +2267,15 @@ func main() {
 
 // normalizeXAUUSD converts broker-specific XAUUSD variants to canonical "XAUUSD".
 func normalizeXAUUSD(s string) string {
-	// Normalize all XAUUSD variants: XAUUSD.sd, XAUUSD.e, XAUUSD_micro, etc → XAUUSD
-	if len(s) >= 6 && strings.ToUpper(s[:6]) == "XAUUSD" {
+	// Normalize all XAUUSD variants: XAUUSD.sd, XAUUSD.e, XAU/USD, "XAU USD",
+	// GOLD, etc → XAUUSD. Strips common separators so every broker's gold
+	// symbol maps to the same canonical instrument (no broker lock-in).
+	u := strings.ToUpper(strings.TrimSpace(s))
+	cleaned := strings.NewReplacer("/", "", " ", "", ".", "").Replace(u)
+	if len(cleaned) >= 6 && cleaned[:6] == "XAUUSD" {
 		return "XAUUSD"
 	}
-	// Gold symbol variants
-	if strings.Contains(strings.ToUpper(s), "XAUUSD") || strings.Contains(strings.ToUpper(s), "GOLD") {
+	if strings.Contains(cleaned, "XAUUSD") || strings.Contains(cleaned, "GOLD") {
 		return "XAUUSD"
 	}
 	return s // Non-XAUUSD symbol — will be rejected by processTick

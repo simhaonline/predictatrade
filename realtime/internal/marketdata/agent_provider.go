@@ -697,10 +697,18 @@ func (p *AgentProvider) processAgentTicks(agentID string, ch chan *AgentTickMess
 }
 
 // normalizeSymbol converts broker-specific XAUUSD variants to canonical "XAUUSD".
-// Brokers use different suffixes: XAUUSD, XAUUSD.sd, XAUUSD.e, XAUUSD.m, etc.
-// All should be treated as the same instrument for strategy evaluation.
+// Brokers use different suffixes/symbols: XAUUSD, XAUUSD.sd, XAUUSD.e, XAUUSD.m,
+// XAU/USD, "XAU USD", GOLD, GOLD.sb, etc. All are the same underlying instrument,
+// so the engine treats them identically. This is what lets the Master Node run on
+// any broker (e.g. Equiti's XAUUSD.sd) while Clients on any other broker receive
+// the same signal for their own symbol variant — no broker lock-in required.
 func normalizeSymbol(s string) string {
-	if len(s) >= 6 && s[:6] == "XAUUSD" {
+	u := strings.ToUpper(strings.TrimSpace(s))
+	cleaned := strings.NewReplacer("/", "", " ", "", ".", "").Replace(u)
+	if len(cleaned) >= 6 && cleaned[:6] == "XAUUSD" {
+		return "XAUUSD"
+	}
+	if strings.Contains(cleaned, "XAUUSD") || strings.Contains(cleaned, "GOLD") {
 		return "XAUUSD"
 	}
 	return s
