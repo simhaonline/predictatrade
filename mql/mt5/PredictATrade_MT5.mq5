@@ -102,6 +102,9 @@ input string TripleSwapDay      = "Wednesday"; // Weekday treated as triple-swap
 #define PAT_SIGNAL_FILE  "PAT_signals.txt"
 #define PAT_LICENSE_FILE "PAT_license.txt"
 #define PAT_HEARTBEAT    "PAT_heartbeat.txt"
+// Client MT terminal log — formatted [Predict-A-Trade] lines written here (FILE_COMMON)
+// and echoed to the MT Experts log so the trader can see status/signal activity.
+#define PAT_ERROR_LOG    "error.log"
 
 // Strategy magic bases (mql-fix.md convention; +offset within 100 range)
 #define MAGIC_BASE_SS   40101
@@ -1553,6 +1556,14 @@ void HandleSignal(string json)
     g_calibProb = ExtractJSONDouble(json, "CalibratedProbability");
     g_signalTime = TimeCurrent();
 
+    // Client MT terminal log — record every signal received from the engine.
+    string logType = g_signalDirection;
+    if(logType == "BUY_CANDIDATE") logType = "BUY";
+    else if(logType == "SELL_CANDIDATE") logType = "SELL";
+    string logPrice = (g_entry > 0) ? DoubleToString(g_entry, 2) : "—";
+    string logLot = (g_suggestedLot > 0) ? DoubleToString(g_suggestedLot, 2) : "—";
+    PAT_LogLine("SIGNAL RECEIVED | Symbol: " + g_symbol + " | Type: " + logType + " | Price: " + logPrice + " | Lot: " + logLot);
+
     if(g_signalID == g_lastExecutedSignalID)
     {
         Print("Duplicate signal ID — skipping: ", g_signalID);
@@ -1653,6 +1664,10 @@ void HandleLicenseResponse(string json)
         Print("License status changed: ", oldStatus, " → ", g_licenseStatus,
               " Plan:", g_licensePlan, " Strategies: ", g_allowedStrategies);
     }
+
+    // Client MT terminal log — record license/access status.
+    string access = (g_licenseStatus == "ACTIVE") ? "Access Granted" : "Access Denied";
+    PAT_LogLine("STATUS: " + access + " | License: " + g_licenseStatus + " | Subscription: " + g_licensePlan);
 }
 
 //+------------------------------------------------------------------+
@@ -1953,6 +1968,7 @@ void UpdateCapitalProtection()
             Print("CAPITAL PROTECTION (RECOVER): daily loss recovered to ", lossPct, "% — trading re-enabled");
             string recMsg = "CAPITAL_PROTECTION|{\"event_type\":\"RECOVER\",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + ",\"action\":\"RESUMED\"}";
             PAT_Append(PAT_TICK_FILE, recMsg + "\n");
+            PAT_LogLine("CAPITAL | dayOpenBal: " + DoubleToString(dayOpenBalance, 2) + " | dailyPnL: " + DoubleToString(g_dailyPnL, 2) + " | lossPct: " + DoubleToString(lossPct, 2) + " | status: RESUMED (not blocked)");
         }
     }
     else
@@ -1969,17 +1985,19 @@ void UpdateCapitalProtection()
             Print("*** CAPITAL PROTECTION (SOFT): Daily loss ", lossPct, "% — new entries blocked ***");
             string softMsg = "CAPITAL_PROTECTION|{\"event_type\":\"SOFT_HALT\",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + ",\"action\":\"BLOCKED_NEW_ENTRIES_ONLY\"}";
             PAT_Append(PAT_TICK_FILE, softMsg + "\n");
+            PAT_LogLine("CAPITAL | dayOpenBal: " + DoubleToString(dayOpenBalance, 2) + " | dailyPnL: " + DoubleToString(g_dailyPnL, 2) + " | lossPct: " + DoubleToString(lossPct, 2) + " | status: BLOCKED (daily loss)");
         }
     }
-    if(lossPct <= -effHardHalt && !g_hardHaltTriggered)
-    {
-        g_hardHaltTriggered = true;
-        Print("*** CAPITAL PROTECTION (HARD): Daily loss ", lossPct, "% — CLOSING ALL POSITIONS ***");
-        string hardMsg = "CAPITAL_PROTECTION|{\"event_type\":\"HARD_HALT\",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + ",\"action\":\"EMERGENCY_CLOSE_ALL\"}";
-        PAT_Append(PAT_TICK_FILE, hardMsg + "\n");
-        if(EmergencyCloseAll)
-            CloseAllPatPositions("EMERGENCY_CAPITAL_PROTECTION");
-    }
+        if(lossPct <= -effHardHalt && !g_hardHaltTriggered)
+        {
+            g_hardHaltTriggered = true;
+            Print("*** CAPITAL PROTECTION (HARD): Daily loss ", lossPct, "% — CLOSING ALL POSITIONS ***");
+            string hardMsg = "CAPITAL_PROTECTION|{\"event_type\":\"HARD_HALT\",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + ",\"action\":\"EMERGENCY_CLOSE_ALL\"}";
+            PAT_Append(PAT_TICK_FILE, hardMsg + "\n");
+            PAT_LogLine("CAPITAL | dayOpenBal: " + DoubleToString(dayOpenBalance, 2) + " | dailyPnL: " + DoubleToString(g_dailyPnL, 2) + " | lossPct: " + DoubleToString(lossPct, 2) + " | status: HARD HALT (closing all)");
+            if(EmergencyCloseAll)
+                CloseAllPatPositions("EMERGENCY_CAPITAL_PROTECTION");
+        }
 }
 
 //+------------------------------------------------------------------+
@@ -2161,8 +2179,19 @@ string PAT_Read(string filename)
     return content;
 }
 
-void PAT_Clear(string filename)
+ void PAT_Clear(string filename)
 {
     int h = FileOpen(filename, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
     if(h != INVALID_HANDLE) FileClose(h);
+}
+
+//+------------------------------------------------------------------+
+//| Client MT terminal log: echoes a formatted [Predict-A-Trade] line  |
+//| to the MT Experts log AND appends it to error.log (FILE_COMMON)   |
+//| so the trader can see why trading is blocked / what was received.  |
+//+------------------------------------------------------------------+
+ void PAT_LogLine(string msg)
+{
+    Print("[Predict-A-Trade] ", msg);
+    PAT_Append(PAT_ERROR_LOG, "[Predict-A-Trade] " + msg + "\n");
 }
