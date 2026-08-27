@@ -3522,9 +3522,10 @@ func registerGates(reg *gates.Registry, cfg *config.Config) *gates.PositionCapsG
 	reg.RegisterOrdered(riskOversizeGateRef, types.GateMargin)
 	reg.RegisterOrdered(posCaps, types.GateRiskOversize)
 	dailyLossGateRef = &gates.DailyLossGate{
-		MaxDailyLossPct:   cfg.MaxDailyLossPct,
-		MaxWeeklyLossPct:  cfg.MaxWeeklyLossPct,
-		MaxMonthlyLossPct: cfg.MaxMonthlyLossPct,
+		MaxDailyLossPct:        cfg.MaxDailyLossPct,
+		MaxWeeklyLossPct:       cfg.MaxWeeklyLossPct,
+		MaxMonthlyLossPct:      cfg.MaxMonthlyLossPct,
+		LossHardHaltMultiplier: cfg.LossHardHaltMultiplier,
 	}
 	reg.RegisterOrdered(dailyLossGateRef, types.GatePositionCaps)
 	profitTargetGateRef = &gates.ProfitTargetGate{
@@ -3785,8 +3786,17 @@ func runPnLAnchorLoop(gateRegistry *gates.Registry, valkeyCache *cache.ValkeyCac
 	defer ticker.Stop()
 	for range ticker.C {
 		bs := broker.Get()
-		eq := effectiveEquity(bs.Equity, cfg.PaperEquity)
-		if cfg.PaperEquity <= 0 && !bs.Known {
+		// LIVE mode always uses the client's REAL broker equity (the connected
+		// Client Agent streams account.Equity). The paper-equity fallback is ONLY
+		// applied when there is no broker snapshot at all (demo/paper), so it can
+		// never leak a fictional balance into a live client's loss cap.
+		var eq float64
+		if cfg.PaperEquity > 0 && !bs.Known {
+			eq = cfg.PaperEquity
+		} else {
+			eq = bs.Equity
+		}
+		if !bs.Known && cfg.PaperEquity <= 0 {
 			continue // live mode: gates stay fail-closed until broker P&L known
 		}
 		if eq <= 0 {

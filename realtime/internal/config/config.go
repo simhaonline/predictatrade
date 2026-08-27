@@ -45,14 +45,20 @@ type Config struct {
 	MaxExposure     float64
 
 	// Capital protection (R1-R7, EV1-EV3, PT/P&L)
-	EnableShorts              bool               // ENABLE_SHORTS — false suppresses SELL at generation
-	MaxRiskPerTradePct        float64            // MAX_RISK_PER_TRADE_PCT (default 1.5% of equity)
-	MaxSameDirectionPositions int                // MAX_SAME_DIRECTION_POSITIONS
-	MaxTotalPositions         int                // MAX_TOTAL_POSITIONS
-	MaxPerStrategyPositions   int                // MAX_PER_STRATEGY_POSITIONS
-	MaxDailyLossPct           float64            // MAX_DAILY_LOSS_PCT (negative halt threshold magnitude)
-	MaxWeeklyLossPct          float64            // MAX_WEEKLY_LOSS_PCT
-	MaxMonthlyLossPct         float64            // MAX_MONTHLY_LOSS_PCT
+	EnableShorts              bool    // ENABLE_SHORTS — false suppresses SELL at generation
+	MaxRiskPerTradePct        float64 // MAX_RISK_PER_TRADE_PCT (default 1.5% of equity)
+	MaxSameDirectionPositions int     // MAX_SAME_DIRECTION_POSITIONS
+	MaxTotalPositions         int     // MAX_TOTAL_POSITIONS
+	MaxPerStrategyPositions   int     // MAX_PER_STRATEGY_POSITIONS
+	MaxDailyLossPct           float64 // MAX_DAILY_LOSS_PCT (soft recovery-band threshold)
+	MaxWeeklyLossPct          float64 // MAX_WEEKLY_LOSS_PCT
+	MaxMonthlyLossPct         float64 // MAX_MONTHLY_LOSS_PCT
+	// LossHardHaltMultiplier turns the daily/weekly/monthly caps into a SOFT
+	// recovery pause instead of a hard halt. When a loss exceeds the cap it
+	// enters "recovery mode" (signal still executes, sized down by the recovery
+	// manager) — it only HARD-halts (blocks all new entries) when the loss
+	// exceeds cap × multiplier (a blowout guard). Default 2.0 = hard halt at 2× cap.
+	LossHardHaltMultiplier    float64            // DAILY_LOSS_HARD_HALT_MULT (0 → 2.0 default)
 	MaxDailyProfitPct         float64            // MAX_DAILY_PROFIT_PCT profit lock
 	MaxWeeklyProfitPct        float64            // MAX_WEEKLY_PROFIT_PCT profit lock
 	MartingaleMaxLotRatio     float64            // MARTINGALE_MAX_LOT_RATIO vs per-strategy base lot
@@ -212,6 +218,7 @@ func Default() *Config {
 		MaxDailyLossPct:           getEnvFloat("MAX_DAILY_LOSS_PCT", 5.0),
 		MaxWeeklyLossPct:          getEnvFloat("MAX_WEEKLY_LOSS_PCT", 8.0),
 		MaxMonthlyLossPct:         getEnvFloat("MAX_MONTHLY_LOSS_PCT", 12.0),
+		LossHardHaltMultiplier:    getEnvFloat("DAILY_LOSS_HARD_HALT_MULT", 2.0),
 		MaxDailyProfitPct:         getEnvFloat("MAX_DAILY_PROFIT_PCT", 5.0),
 		MaxWeeklyProfitPct:        getEnvFloat("MAX_WEEKLY_PROFIT_PCT", 12.0),
 		MartingaleMaxLotRatio:     getEnvFloat("MARTINGALE_MAX_LOT_RATIO", 1.0),

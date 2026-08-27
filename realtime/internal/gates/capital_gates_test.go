@@ -158,9 +158,15 @@ func TestDailyLossGate(t *testing.T) {
 		reason string
 	}{
 		{"healthy", snap(-0.5, -1, -2, true), types.GatePass, ""},
-		{"daily halt at -2%", snap(-2.0, -1, -2, true), types.GateVeto, ReasonDailyLossHalt + ":daily"},
-		{"weekly halt at -4%", snap(-1, -4.5, -2, true), types.GateVeto, ReasonDailyLossHalt + ":weekly"},
-		{"monthly halt at -5%", snap(-1, -2, -6, true), types.GateVeto, ReasonDailyLossHalt + ":monthly"},
+		// Soft recovery policy: loss within cap enters recovery mode (PASS, sized
+		// down by recovery manager) instead of a hard halt.
+		{"daily recovery band at -2%", snap(-2.0, -1, -2, true), types.GatePass, ReasonDailyLossHalt + ":daily:recovery"},
+		{"weekly recovery band at -4.5%", snap(-1, -4.5, -2, true), types.GatePass, ReasonDailyLossHalt + ":weekly:recovery"},
+		{"monthly recovery band at -6%", snap(-1, -2, -6, true), types.GatePass, ReasonDailyLossHalt + ":monthly:recovery"},
+		// Severe blowout (loss ≥ cap × multiplier, default 2×) hard-halts.
+		{"daily severe halt at -5%", snap(-5.0, -1, -2, true), types.GateVeto, ReasonDailyLossHalt + ":daily:severe"},
+		{"weekly severe halt at -9%", snap(-1, -9, -2, true), types.GateVeto, ReasonDailyLossHalt + ":weekly:severe"},
+		{"monthly severe halt at -11%", snap(-1, -2, -11, true), types.GateVeto, ReasonDailyLossHalt + ":monthly:severe"},
 		{"unknown state vetoes pnl_state_unknown", GateState{}, types.GateVeto, ReasonPnLStateUnknown},
 		{"known=false vetoes pnl_state_unknown", snap(0, 0, 0, false), types.GateVeto, ReasonPnLStateUnknown},
 	}

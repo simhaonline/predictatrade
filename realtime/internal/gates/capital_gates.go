@@ -312,12 +312,19 @@ func (g *PositionCapsGate) Evaluate(input GateInput, state GateState) GateEvalua
 type PnLSnapshot = risk.PnLSnapshot
 
 // DailyLossGate applies the nested loss caps: daily −MAX_DAILY_LOSS_PCT,
-// weekly −MAX_WEEKLY_LOSS_PCT, monthly −MAX_MONTHLY_LOSS_PCT. Unknown P&L
-// state vetoes with pnl_state_unknown (fail-closed).
+// weekly −MAX_WEEKLY_LOSS_PCT, monthly −MAX_MONTHLY_LOSS_PCT.
+//
+// SOFT RECOVERY POLICY (operator-tunable): a loss that exceeds the cap enters
+// "recovery mode" — the signal still EXECUTES but is sized down by the recovery
+// manager, so good signals can still trade to recover the loss instead of a
+// total halt freezing the account. Only a SEVERE blowout (loss ≥ cap ×
+// LossHardHaltMultiplier) hard-halts all new entries. Unknown P&L state still
+// vetoes with pnl_state_unknown (fail-closed) until the broker snapshot hydrates.
 type DailyLossGate struct {
-	MaxDailyLossPct   float64
-	MaxWeeklyLossPct  float64
-	MaxMonthlyLossPct float64
+	MaxDailyLossPct        float64
+	MaxWeeklyLossPct       float64
+	MaxMonthlyLossPct      float64
+	LossHardHaltMultiplier float64 // 0 → 2.0 default
 }
 
 func (g *DailyLossGate) ID() types.GateID { return types.GateDailyLoss }
@@ -328,28 +335,71 @@ func (g *DailyLossGate) Evaluate(input GateInput, state GateState) GateEvaluatio
 	if !ok || !snap.Known {
 		// PnL state not hydrated — fail CLOSED (prompt.md §18/§54). Without a
 		// known loss anchor we cannot enforce daily/weekly/monthly caps, so we
-		// must NOT open new positions. Consistent with ProfitTargetGate and the
-		// seed contract (Value=nil → veto pnl_state_unknown until hydrated).
+		// must NOT open new positions.
 		eval.Result = types.GateVeto
 		eval.ReasonCodes = []string{ReasonPnLStateUnknown}
 		return eval
 	}
-	halts := []string{}
-	if g.MaxDailyLossPct > 0 && snap.PeriodPc[risk.PeriodDay] <= -g.MaxDailyLossPct {
-		halts = append(halts, ReasonDailyLossHalt+":daily")
+	mult := g.LossHardHaltMultiplier
+	if mult <= 0 {
+		mult = 2.0
 	}
-	if g.MaxWeeklyLossPct > 0 && snap.PeriodPc[risk.PeriodWeek] <= -g.MaxWeeklyLossPct {
-		halts = append(halts, ReasonDailyLossHalt+":weekly")
+	hardDaily := g.MaxDailyLossPct * mult
+	hardWeekly := g.MaxWeeklyLossPct * mult
+	hardMonthly := g.MaxMonthlyLossPct * mult
+
+	type band struct {
+		reason string
+		severe bool
 	}
-	if g.MaxMonthlyLossPct > 0 && snap.PeriodPc[risk.PeriodMonth] <= -g.MaxMonthlyLossPct {
-		halts = append(halts, ReasonDailyLossHalt+":monthly")
+	var bands []band
+	if g.MaxDailyLossPct > 0 {
+		d := snap.PeriodPc[risk.PeriodDay]
+		if d <= -hardDaily {
+			bands = append(bands, band{ReasonDailyLossHalt + ":daily:severe", true})
+		} else if d <= -g.MaxDailyLossPct {
+			bands = append(bands, band{ReasonDailyLossHalt + ":daily:recovery", false})
+		}
 	}
-	if len(halts) > 0 {
-		eval.Result = types.GateVeto
-		eval.ReasonCodes = halts
+	if g.MaxWeeklyLossPct > 0 {
+		w := snap.PeriodPc[risk.PeriodWeek]
+		if w <= -hardWeekly {
+			bands = append(bands, band{ReasonDailyLossHalt + ":weekly:severe", true})
+		} else if w <= -g.MaxWeeklyLossPct {
+			bands = append(bands, band{ReasonDailyLossHalt + ":weekly:recovery", false})
+		}
+	}
+	if g.MaxMonthlyLossPct > 0 {
+		m := snap.PeriodPc[risk.PeriodMonth]
+		if m <= -hardMonthly {
+			bands = append(bands, band{ReasonDailyLossHalt + ":monthly:severe", true})
+		} else if m <= -g.MaxMonthlyLossPct {
+			bands = append(bands, band{ReasonDailyLossHalt + ":monthly:recovery", false})
+		}
+	}
+	if len(bands) == 0 {
+		eval.Result = types.GatePass
 		return eval
 	}
-	eval.Result = types.GatePass
+	severe := false
+	for _, b := range bands {
+		if b.severe {
+			severe = true
+			break
+		}
+	}
+	reasons := make([]string, len(bands))
+	for i, b := range bands {
+		reasons[i] = b.reason
+	}
+	if severe {
+		// Blowout guard — hard halt all new entries.
+		eval.Result = types.GateVeto
+	} else {
+		// Recovery band — allow execution; recovery manager sizes down.
+		eval.Result = types.GatePass
+	}
+	eval.ReasonCodes = reasons
 	return eval
 }
 
