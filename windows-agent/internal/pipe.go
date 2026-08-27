@@ -754,7 +754,22 @@ func (pm *PipeManager) masterReadLoop() {
 				}
 				pm.processMasterMessage(line)
 			}
-			os.WriteFile(masterPath, []byte(""), 0644)
+			// Truncate the file after draining it. Retry because the EA may
+			// briefly hold the file open (its append races our truncate) — an
+			// ignored failure here was the root cause of PAT_master_data.txt
+			// growing until the EA hit ERR_FILE_TOO_LONG (5004) and stopped
+			// writing snapshots.
+			truncated := false
+			for attempt := 0; attempt < 5; attempt++ {
+				if err := os.WriteFile(masterPath, []byte(""), 0644); err == nil {
+					truncated = true
+					break
+				}
+				time.Sleep(2 * time.Millisecond)
+			}
+			if !truncated && doDiag {
+				log.Printf("[IPC] WARN: failed to truncate %s after retries", masterPath)
+			}
 		}
 		time.Sleep(5 * time.Millisecond)
 	}

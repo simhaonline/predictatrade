@@ -683,7 +683,18 @@ void MasterWrite(string content)
         retry++;
         Sleep(5);
     }
-    Print("FileOpen APPEND failed after 3 retries: ", PAT_MASTER_FILE, " error=", GetLastError());
+    // Self-heal: if the append keeps failing (err 5004 = file too long, or a
+    // transient lock race with the Agent), reset the file with a truncating
+    // write and record the message so the market-data feed never dies.
+    int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+    if(h != -1)
+    {
+        FileWriteString(h, content);
+        FileClose(h);
+        Print("MasterAppend self-heal: reset ", PAT_MASTER_FILE, " (prev err ", GetLastError(), ")");
+        return;
+    }
+    Print("FileOpen APPEND failed after retries + self-heal: ", PAT_MASTER_FILE, " error=", GetLastError());
 }
 
 //+------------------------------------------------------------------+
