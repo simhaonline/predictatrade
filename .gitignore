@@ -92,3 +92,6 @@ windows-agent/certs/pat-code-sign.pfx
 
 # Go realtime build artifact (built inside Docker, never commit)
 realtime/realtime-engine
+
+# Local debug screenshots (not source)
+Screenshot_*.png
