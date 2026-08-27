@@ -107,8 +107,11 @@ func (g *RiskOversizeGate) Evaluate(input GateInput, state GateState) GateEvalua
 		return eval
 	}
 	if input.AccountEquity <= 0 {
-		// Broker account not hydrated — PASS. EA handles risk locally.
-		eval.Result = types.GatePass
+		// Broker account equity not hydrated — fail CLOSED (prompt.md §16/§54).
+		// Without equity we cannot size per-trade risk, so NO-TRADE rather than
+		// guessing. We must not deliver an executable signal we cannot risk-check.
+		eval.Result = types.GateVeto
+		eval.ReasonCodes = []string{ReasonRiskOversize}
 		return eval
 	}
 	if input.AccountEquity < 100 {
@@ -301,10 +304,12 @@ func (g *DailyLossGate) Evaluate(input GateInput, state GateState) GateEvaluatio
 	eval := g.base(state)
 	snap, ok := state.Value.(PnLSnapshot)
 	if !ok || !snap.Known {
-		// PnL state not hydrated — PASS. EA handles loss limits locally
-		// with real broker data. Blocking all signals when PnL is unknown
-		// prevents trading for new accounts with no trade history.
-		eval.Result = types.GatePass
+		// PnL state not hydrated — fail CLOSED (prompt.md §18/§54). Without a
+		// known loss anchor we cannot enforce daily/weekly/monthly caps, so we
+		// must NOT open new positions. Consistent with ProfitTargetGate and the
+		// seed contract (Value=nil → veto pnl_state_unknown until hydrated).
+		eval.Result = types.GateVeto
+		eval.ReasonCodes = []string{ReasonPnLStateUnknown}
 		return eval
 	}
 	halts := []string{}

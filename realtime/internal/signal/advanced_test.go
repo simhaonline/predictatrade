@@ -24,6 +24,7 @@ func setupEngineWithGates() *Engine {
 		types.GateSpread, types.GateSlippage, types.GateTotalCost,
 		types.GateExposure, types.GateMargin, types.GateRRNetExpectancy,
 		types.GateEntitlement, types.GateLicense, types.GateExecutionPermit,
+		types.GateProfitability,
 		// Self-evaluating precision gates are part of the canonical order
 		// (main.go registers + seeds them; mirror that here).
 		types.GateMinATR, types.GateStopHuntFilter,

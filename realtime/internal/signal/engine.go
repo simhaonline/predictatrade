@@ -248,11 +248,14 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 	// Step 4: Final decision
 	if !allPass {
 		if firstVeto != nil {
-			// Hard gate veto → NO-TRADE (fail closed, SOW Section 17/131).
-			// A vetoed signal MUST NOT be executable: set Direction to NO-TRADE so
-			// broadcastSignalToAll never delivers it to the EA for execution. This
-			// applies to candidates too — a proven-losing (negative live edge)
-			// strategy must not emit any executable candidate.
+			// Hard gate veto (fail closed, SOW Section 17/131 / prompt.md Section 17).
+			// The market thesis direction is PRESERVED (BUY/SELL/candidate) so the
+			// dashboard can show WHY the signal was blocked (gate diagnostics),
+			// but the signal is explicitly NOT executable — broadcastSignalToAll
+			// only delivers to the Windows Agent / EA when Executable == true, so a
+			// vetoed signal can never reach the terminal for execution. This applies
+			// to candidates too — a proven-losing (negative live edge) strategy must
+			// not emit any executable candidate.
 			for _, rc := range firstVeto.ReasonCodes {
 				result.NoTradeReasons = append(result.NoTradeReasons, types.NoTradeReason(rc))
 			}
@@ -260,8 +263,9 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 				ID:          uuid.New().String(),
 				Symbol:      types.SymbolXAUUSD,
 				StrategyID:  input.StrategyID,
-				Direction:   types.DirectionNoTrade, // fail closed: never executable
+				Direction:   direction, // preserve thesis (prompt.md §17): BUY/SELL/candidate
 				Grade:       types.GradeBlocked,
+				Executable:  false, // fail closed: never delivered to EA for execution
 				Status:      types.SignalDetected,
 				RawScore:    input.RawScore,
 				LongScore:   input.LongScore,
@@ -297,6 +301,7 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 				StrategyID:  input.StrategyID,
 				Direction:   types.DirectionNoTrade, // fail closed: never executable
 				Grade:       types.GradeBlocked,
+				Executable:  false,
 				Status:      types.SignalDetected,
 				RawScore:    input.RawScore,
 				LongScore:   input.LongScore,

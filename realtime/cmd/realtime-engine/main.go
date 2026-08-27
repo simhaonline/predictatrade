@@ -247,8 +247,15 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHu
 	// the agent's license allows. A FREE subscriber should NOT receive
 	// ULTRA_SCALPING signals even if their EA has all checkboxes enabled.
 	// The server is the authority for entitlements — it filters BEFORE sending.
+	//
+	// FAIL-CLOSED DELIVERY: only executable signals reach the EA. A signal with
+	// Executable == false (blocked by a hard gate, advisory candidate, or
+	// entitlement/license/execution not satisfied) is shown on the dashboard but
+	// is NEVER delivered to the Windows Agent / MT terminal for execution. This
+	// guarantees a vetoed signal cannot be traded even if its direction is
+	// preserved for diagnostics (prompt.md Section 17/29, SOW v1.15.0).
 	dir := string(signal.Direction)
-	if dir == "BUY" || dir == "SELL" || dir == "BUY_CANDIDATE" || dir == "SELL_CANDIDATE" {
+	if signal.Executable && (dir == "BUY" || dir == "SELL" || dir == "BUY_CANDIDATE" || dir == "SELL_CANDIDATE") {
 		payload, _ := json.Marshal(signal)
 		priority := "P1"
 		if signal.Direction != types.DirectionNoTrade {
