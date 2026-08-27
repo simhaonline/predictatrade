@@ -55,6 +55,7 @@ type jsonModel struct {
 	b          float64
 	bins       []CalibrationBin
 	version    string
+	nSamples   int
 }
 
 // LoadJSONModels scans dir for *.json calibration files and registers each
@@ -92,6 +93,7 @@ func (c *Consumer) LoadJSONModels(dir string) {
 			strategyID: sid,
 			method:     f.Method,
 			version:    f.Version,
+			nSamples:   f.NSamples,
 		}
 		if f.Method == "logistic" {
 			m.a = f.Params["a"]
@@ -103,6 +105,13 @@ func (c *Consumer) LoadJSONModels(dir string) {
 		}
 		if c.jsonModels == nil {
 			c.jsonModels = make(map[types.StrategyID]jsonModel)
+		}
+		// Precedence: never downgrade to a lower-sample calibration. The
+		// research-trained model (typically thousands of labeled outcomes) must
+		// not be clobbered by a low-sample live retrain; the live model takes
+		// over only once it has accumulated more samples.
+		if existing, ok := c.jsonModels[sid]; ok && existing.nSamples >= m.nSamples {
+			continue
 		}
 		c.jsonModels[sid] = m
 

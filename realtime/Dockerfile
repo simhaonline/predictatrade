@@ -20,6 +20,10 @@ ENV TZ=UTC
 
 WORKDIR /app
 COPY --from=builder /app/bin/realtime-engine /app/realtime-engine
+# Ship the research-trained calibration models into the runtime image so the
+# engine loads empirically-calibrated probabilities at startup (the Live
+# Calibrator also writes live retrains here at runtime).
+COPY --from=builder /app/calibration /app/calibration
 
 EXPOSE 13081
 CMD ["/app/realtime-engine"]

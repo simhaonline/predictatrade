@@ -1,0 +1,29 @@
+{
+  "version": "1.0.0",
+  "strategy": "STANDARD_SCALPING",
+  "target": "TP1_HIT_BEFORE_SL",
+  "exit_profile": "DEFAULT",
+  "oos_auc": 0.4747895898083543,
+  "n_samples": 4805,
+  "method": "logistic",
+  "params": {
+    "a": 0.9269430627949324,
+    "b": -2.440318494086417
+  },
+  "trained_at": "2026-08-27T20:27:13.348098+00:00",
+  "monotonic_bins": [],
+  "x_scale": 100.0,
+  "x_clip": [
+    0,
+    100
+  ],
+  "meta": {
+    "win_rate": 0.14193548387096774,
+    "n_unresolved": 59,
+    "n_train": 3363,
+    "n_test": 1442,
+    "monotonic_inc": true,
+    "p_at_score0": 0.08014942789784911,
+    "p_at_score100": 0.18043909305210956
+  }
+}

@@ -128,6 +128,10 @@ services:
     networks:
       - pat-net
     restart: always
+    volumes:
+      # Mount the calibration models so research-trained JSONs are live-updatable
+      # without rebuilding, and so the Live Calibrator's retrains persist.
+      - ./realtime/calibration:/app/calibration
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:13081/health"]
       interval: 10s

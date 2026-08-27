@@ -129,36 +129,119 @@ class PTBStrategyAdapter(BaseStrategy):
         self._indicators = self._compute_indicators(candles)
 
     def _compute_indicators(self, candles: List[HistoricalCandle]) -> List[Dict]:
-        """Compute EMA, RSI, ATR, ADX, MACD for all candles."""
-        if not candles:
+        """Compute EMA, RSI, ATR, ADX, MACD for all candles — incremental (O(n)).
+
+        Replaced the previous O(n^2) per-candle recomputation (which made
+        multi-year backtests unusable) with Wilder/incremental smoothing so the
+        full historical window can be processed in seconds.
+        """
+        n = len(candles)
+        if n == 0:
             return []
 
         closes = [c.close for c in candles]
         highs = [c.high for c in candles]
         lows = [c.low for c in candles]
+        vols = [max(c.volume, 0) for c in candles]
 
-        results = []
-        for i in range(len(candles)):
-            # Simple indicators
-            ema9 = self._ema(closes[:i+1], 9) if i >= 8 else closes[i]
-            ema21 = self._ema(closes[:i+1], 21) if i >= 20 else closes[i]
-            rsi = self._rsi(closes[:i+1], 14) if i >= 14 else 50.0
-            atr = self._atr(highs[:i+1], lows[:i+1], closes[:i+1], 14) if i >= 14 else 1.0
-            adx = self._adx(highs[:i+1], lows[:i+1], closes[:i+1], 14) if i >= 27 else 0.0
+        def ema_series(vals, period):
+            k = 2.0 / (period + 1)
+            out = [0.0] * n
+            out[0] = vals[0]
+            for i in range(1, n):
+                out[i] = vals[i] * k + out[i - 1] * (1 - k)
+            return out
 
-            # MACD
-            ema12 = self._ema(closes[:i+1], 12) if i >= 11 else closes[i]
-            ema26 = self._ema(closes[:i+1], 26) if i >= 25 else closes[i]
-            macd_main = ema12 - ema26
-            macd_signal = self._ema([ema12 - ema26 for j in range(max(0, i-8), i+1)], 9) if i >= 8 else macd_main
+        ema9 = ema_series(closes, 9)
+        ema21 = ema_series(closes, 21)
+        ema12 = ema_series(closes, 12)
+        ema26 = ema_series(closes, 26)
 
-            results.append({
-                "ema9": ema9, "ema21": ema21,
-                "rsi": rsi, "atr": atr, "adx": adx,
-                "macd_main": macd_main, "macd_signal": macd_signal,
-            })
+        rsi = [50.0] * n
+        if n >= 15:
+            g = 0.0
+            l = 0.0
+            for i in range(1, 15):
+                d = closes[i] - closes[i - 1]
+                if d >= 0:
+                    g += d
+                else:
+                    l -= d
+            ag = g / 14.0
+            al = l / 14.0
+            rsi[13] = (100 - 100 / (1 + ag / al)) if al > 0 else 100.0
+            for i in range(14, n):
+                d = closes[i] - closes[i - 1]
+                ng = d if d > 0 else 0.0
+                nl = -d if d < 0 else 0.0
+                ag = (ag * 13 + ng) / 14
+                al = (al * 13 + nl) / 14
+                rsi[i] = (100 - 100 / (1 + ag / al)) if al > 0 else 100.0
 
-        return results
+        atr = [1.0] * n
+        if n >= 2:
+            trs = [0.0] * n
+            for i in range(1, n):
+                trs[i] = max(highs[i] - lows[i], abs(highs[i] - closes[i - 1]),
+                             abs(lows[i] - closes[i - 1]))
+            if n >= 15:
+                atr[13] = sum(trs[1:15]) / 14.0
+                for i in range(14, n):
+                    atr[i] = (atr[i - 1] * 13 + trs[i]) / 14.0
+
+        adx = [0.0] * n
+        if n >= 28:
+            pDM = [0.0] * n
+            mDM = [0.0] * n
+            for i in range(1, n):
+                up = highs[i] - highs[i - 1]
+                dn = lows[i - 1] - lows[i]
+                pDM[i] = up if (up > dn and up > 0) else 0.0
+                mDM[i] = dn if (dn > up and dn > 0) else 0.0
+            sTR = sum([max(highs[i] - lows[i], abs(highs[i] - closes[i - 1]),
+                       abs(lows[i] - closes[i - 1])) for i in range(1, 15)]) / 14.0
+            sPDM = sum(pDM[1:15]) / 14.0
+            sMDM = sum(mDM[1:15]) / 14.0
+
+            def cdiv(a, b):
+                return a / b if b > 0 else 0.0
+
+            dx = [0.0] * n
+            pDI = cdiv(sPDM, sTR) * 100
+            mDI = cdiv(sMDM, sTR) * 100
+            dx[13] = cdiv(abs(pDI - mDI), (pDI + mDI)) * 100 if (pDI + mDI) > 0 else 0.0
+            for i in range(14, n):
+                sTR = (sTR * 13 + max(highs[i] - lows[i], abs(highs[i] - closes[i - 1]),
+                                       abs(lows[i] - closes[i - 1]))) / 14.0
+                sPDM = (sPDM * 13 + pDM[i]) / 14.0
+                sMDM = (sMDM * 13 + mDM[i]) / 14.0
+                pDI = cdiv(sPDM, sTR) * 100
+                mDI = cdiv(sMDM, sTR) * 100
+                dx[i] = cdiv(abs(pDI - mDI), (pDI + mDI)) * 100 if (pDI + mDI) > 0 else 0.0
+            adx[27] = sum(dx[14:28]) / 14.0
+            for i in range(28, n):
+                adx[i] = (adx[i - 1] * 13 + dx[i]) / 14.0
+
+        macd_main = [ema12[i] - ema26[i] for i in range(n)]
+        macd_signal = ema_series(macd_main, 9)
+
+        # Cumulative VWAP (volume-weighted typical price). Falls back to close
+        # when cumulative volume is zero to avoid divide-by-zero on sparse data.
+        vwap = [0.0] * n
+        cum_pv = 0.0
+        cum_v = 0.0
+        for i in range(n):
+            typ = (highs[i] + lows[i] + closes[i]) / 3.0
+            cum_pv += typ * vols[i]
+            cum_v += vols[i]
+            vwap[i] = (cum_pv / cum_v) if cum_v > 0 else closes[i]
+
+        return [{
+            "ema9": ema9[i], "ema21": ema21[i],
+            "rsi": rsi[i], "atr": atr[i], "adx": adx[i],
+            "macd_main": macd_main[i], "macd_signal": macd_signal[i],
+            "vwap": vwap[i],
+        } for i in range(n)]
 
     def evaluate(self, alignment: TimeframeAlignment, portfolio: Portfolio,
                  engine=None) -> SignalEvent:
@@ -200,7 +283,7 @@ class PTBStrategyAdapter(BaseStrategy):
             )
 
         # Generate evidence
-        evidence = self._generate_evidence(candle, ind, alignment)
+        evidence = self._generate_evidence(candle, ind, alignment, idx)
 
         # Apply family caps
         evidence = self._apply_family_caps(evidence)
@@ -289,38 +372,45 @@ class PTBStrategyAdapter(BaseStrategy):
         )
 
     def _generate_evidence(self, candle: HistoricalCandle, ind: Dict,
-                            alignment: TimeframeAlignment) -> List[Evidence]:
-        """Generate evidence from indicators (mirrors Go strategy logic)."""
+                            alignment: TimeframeAlignment, idx: int = 0) -> List[Evidence]:
+        """Generate evidence from indicators (mirrors Go strategy logic).
+
+        Reproduces the production confluence pillars — TREND, MOMENTUM, CANDLE,
+        VWAP, STRUCTURE, REGIME, SMC and MTF — so the raw score can reach the
+        strategy's min_confluence threshold on real historical data. Previously
+        only 3 of the 10 families were present, capping the score near 40 and
+        making the adapter mathematically unable to fire (INSUFFICIENT_SCORE on
+        every bar).
+        """
         evidence = []
 
-        # EMA alignment
+        # EMA alignment (TREND)
         if ind["ema9"] > ind["ema21"]:
             evidence.append(Evidence("TREND", "EMA9_ABOVE_EMA21", "BUY", 15, 0.12))
         else:
             evidence.append(Evidence("TREND", "EMA9_BELOW_EMA21", "SELL", 15, 0.12))
 
-        # MACD
+        # MACD (MOMENTUM)
         if ind["macd_main"] > ind["macd_signal"]:
             evidence.append(Evidence("MOMENTUM", "MACD_BULLISH", "BUY", 10, 0.06))
         else:
             evidence.append(Evidence("MOMENTUM", "MACD_BEARISH", "SELL", 10, 0.06))
 
-        # RSI
+        # RSI (MOMENTUM)
         rsi = ind["rsi"]
         if 50 < rsi < 70:
             evidence.append(Evidence("MOMENTUM", "RSI_BULLISH_MID", "BUY", 8, 0.05))
         elif 30 < rsi < 50:
             evidence.append(Evidence("MOMENTUM", "RSI_BEARISH_MID", "SELL", 8, 0.05))
 
-        # ADX
+        # ADX (TREND)
         if ind["adx"] > self.config["min_adx"]:
-            # Simplified: if ADX is high and price above EMA, bullish
             if candle.close > ind["ema9"]:
                 evidence.append(Evidence("TREND", "ADX_BULLISH", "BUY", 10, 0.07))
             else:
                 evidence.append(Evidence("TREND", "ADX_BEARISH", "SELL", 10, 0.07))
 
-        # Candle patterns
+        # Candle displacement (CANDLE)
         body = candle.close - candle.open
         is_bullish = body > 0
         is_bearish = body < 0
@@ -331,6 +421,53 @@ class PTBStrategyAdapter(BaseStrategy):
             evidence.append(Evidence("CANDLE", "BULLISH_DISPLACEMENT", "BUY", 15, 0.10))
         if is_bearish and body_ratio > 0.6:
             evidence.append(Evidence("CANDLE", "BEARISH_DISPLACEMENT", "SELL", 15, 0.10))
+
+        # VWAP (VOLUME-WEIGHTED MEAN)
+        if candle.close > ind["vwap"]:
+            evidence.append(Evidence("VWAP", "PRICE_ABOVE_VWAP", "BUY", 10, 0.10))
+        elif candle.close < ind["vwap"]:
+            evidence.append(Evidence("VWAP", "PRICE_BELOW_VWAP", "SELL", 10, 0.10))
+
+        # Market structure — HH/HL vs LH/LL over two recent halves (STRUCTURE)
+        if idx >= 40:
+            first = self._candles[idx - 40:idx - 20]
+            second = self._candles[idx - 20:idx]
+            if first and second:
+                hh1 = max(c.high for c in first)
+                hh2 = max(c.high for c in second)
+                ll1 = min(c.low for c in first)
+                ll2 = min(c.low for c in second)
+                if hh2 > hh1 and ll2 > ll1:
+                    evidence.append(Evidence("STRUCTURE", "HIGHER_HIGH_HIGHER_LOW", "BUY", 20, 0.18))
+                elif hh2 < hh1 and ll2 < ll1:
+                    evidence.append(Evidence("STRUCTURE", "LOWER_HIGH_LOWER_LOW", "SELL", 20, 0.18))
+
+        # Liquidity sweep (SMC) — new low then reclaim, or new high then reject
+        if idx >= 20:
+            prior = self._candles[idx - 20:idx]
+            prior_low = min(c.low for c in prior)
+            prior_high = max(c.high for c in prior)
+            # Bullish: swept prior low but closed back above it and up
+            if candle.low < prior_low and candle.close > prior_low and is_bullish:
+                evidence.append(Evidence("SMC", "LIQUIDITY_SWEEP_RECLAIM", "BUY", 15, 0.15))
+            # Bearish: swept prior high but closed back below it and down
+            elif candle.high > prior_high and candle.close < prior_high and is_bearish:
+                evidence.append(Evidence("SMC", "LIQUIDITY_SWEEP_REJECT", "SELL", 15, 0.15))
+
+        # Regime evidence (REGIME)
+        regime = self._classify_regime(ind, candle)
+        if regime in ("TRENDING_BULLISH", "BREAKOUT"):
+            evidence.append(Evidence("REGIME", "BULLISH_REGIME", "BUY", 10, 0.10))
+        elif regime == "TRENDING_BEARISH":
+            evidence.append(Evidence("REGIME", "BEARISH_REGIME", "SELL", 10, 0.10))
+
+        # Multi-timeframe alignment (MTF) when higher TF candle is available
+        h1 = alignment.get_closed_candle("H1") if alignment else None
+        if h1 is not None:
+            if h1.close > h1.open:
+                evidence.append(Evidence("MTF", "H1_BULLISH", "BUY", 15, 0.15))
+            else:
+                evidence.append(Evidence("MTF", "H1_BEARISH", "SELL", 15, 0.15))
 
         return evidence
 
@@ -364,7 +501,7 @@ class PTBStrategyAdapter(BaseStrategy):
         direction = "bull" if ind["ema9"] > ind["ema21"] else "bear"
         fib = compute_marnie_fib(swing_high, swing_low, current_price, direction)
 
-        evidence = self._generate_evidence(candle, ind, alignment)
+        evidence = self._generate_evidence(candle, ind, alignment, idx)
         q = "AUTHORITATIVE"
 
         in_golden = fib.golden_zone_low <= current_price <= fib.golden_zone_high

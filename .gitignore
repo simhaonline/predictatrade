@@ -95,3 +95,6 @@ realtime/realtime-engine
 
 # Local debug screenshots (not source)
 Screenshot_*.png
+
+# Runtime-generated live calibration retrains (regenerated hourly by the engine)
+realtime/calibration/calibration_*_live.json

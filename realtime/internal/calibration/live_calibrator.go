@@ -149,8 +149,23 @@ func (c *LiveCalibrator) runCalibration(ctx context.Context) {
 			continue
 		}
 
+		// Normalize scores to [0,1] for an honest, rank-based AUC of how well
+		// the raw score discriminates wins from losses (NOT the win rate, which
+		// is a separate statistic and must not be mislabeled as AUC).
+		norm := make([]float64, len(data.rawScores))
+		for i, s := range data.rawScores {
+			x := s / 100.0
+			if x < 0 {
+				x = 0
+			} else if x > 1 {
+				x = 1
+			}
+			norm[i] = x
+		}
+		oosAUC := auc(norm, data.labels)
+
 		winRate := float64(data.wins) / float64(total)
-		c.writeCalibrationJSON(strategy, a, b, total, winRate)
+		c.writeCalibrationJSON(strategy, a, b, total, winRate, oosAUC)
 	}
 
 	c.LastRun = time.Now().UTC()
@@ -286,7 +301,48 @@ func fitLogisticCalibration(sortedScores []float64, labels []float64) (a, b floa
 		return 0, 0, false
 	}
 
+	// Enforce a monotonic non-decreasing calibration. A negative slope would
+	// make a higher raw score map to a LOWER probability — misrepresenting the
+	// score as anti-informative. When the fit is non-positive the data shows no
+	// positive discrimination, so fall back to a flat empirical base-rate
+	// calibration (a=0, b=logit(base_rate)), which is the honest MLE and is
+	// strictly monotonic.
+	if a < 0 {
+		meanYc := clamp(meanY, 0.01, 0.99)
+		b = math.Log(meanYc / (1 - meanYc))
+		a = 0
+	}
+
 	return a, b, true
+}
+
+// auc computes the rank-based (Mann-Whitney) ROC AUC of the score against the
+// binary labels. It is independent of the calibration fit and reports how well
+// the raw score discriminates wins from losses. Returns 0.5 when only one class
+// is present (no discriminative signal).
+func auc(xs []float64, labels []float64) float64 {
+	var pos, neg []float64
+	for i := range xs {
+		if labels[i] > 0.5 {
+			pos = append(pos, xs[i])
+		} else {
+			neg = append(neg, xs[i])
+		}
+	}
+	if len(pos) == 0 || len(neg) == 0 {
+		return 0.5
+	}
+	var concordant, ties float64
+	for _, xp := range pos {
+		for _, xn := range neg {
+			if xp > xn {
+				concordant++
+			} else if xp == xn {
+				ties += 0.5
+			}
+		}
+	}
+	return (concordant + ties) / float64(len(pos)*len(neg))
 }
 
 // calibrationJSON is the schema-compatible output format consumed by LoadJSONModels.
@@ -305,13 +361,13 @@ type calibrationJSON struct {
 	XClip         []float64          `json:"x_clip"`
 }
 
-func (c *LiveCalibrator) writeCalibrationJSON(strategy string, a, b float64, nSamples int, winRate float64) {
+func (c *LiveCalibrator) writeCalibrationJSON(strategy string, a, b float64, nSamples int, winRate float64, oosAUC float64) {
 	cal := calibrationJSON{
 		Version:     SupportedCalibrationVersion,
 		Strategy:    strategy,
 		Target:      "TP1_HIT",
 		ExitProfile: "default",
-		OOSAUC:      winRate, // Use empirical win rate as OOS AUC proxy (live data)
+		OOSAUC:      oosAUC, // real rank-based AUC of score discrimination
 		NSamples:    nSamples,
 		Method:      "logistic",
 		Params: map[string]float64{

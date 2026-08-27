@@ -1,0 +1,29 @@
+{
+  "version": "1.0.0",
+  "strategy": "TREND_SWING",
+  "target": "TP1_HIT_BEFORE_SL",
+  "exit_profile": "DEFAULT",
+  "oos_auc": 0.6707047064777328,
+  "n_samples": 1639,
+  "method": "logistic",
+  "params": {
+    "a": 6.377343798466049,
+    "b": -5.330036841564157
+  },
+  "trained_at": "2026-08-27T20:27:13.399723+00:00",
+  "monotonic_bins": [],
+  "x_scale": 100.0,
+  "x_clip": [
+    0,
+    100
+  ],
+  "meta": {
+    "win_rate": 0.1452104942037828,
+    "n_unresolved": 19,
+    "n_train": 1147,
+    "n_test": 492,
+    "monotonic_inc": true,
+    "p_at_score0": 0.0048205413727864885,
+    "p_at_score100": 0.7402574257629672
+  }
+}
