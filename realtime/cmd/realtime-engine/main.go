@@ -330,56 +330,79 @@ func startHealthMonitor(
 		}
 	}
 
-	// agentsConnected reports how many execution agents are currently connected.
+	// agentsConnected reports how many agents are currently connected across the
+	// execution hub AND the data/master (Master Node) hub. The market-data feed
+	// is delivered by the Master Node (a data agent), so we must not gate the
+	// outage check solely on execution-agent count — otherwise a connected Master
+	// Node that has gone silent would not be detected.
 	agentsConnected := func() int {
-		if agentHub == nil {
-			return 0
+		n := 0
+		if agentHub != nil {
+			n += agentHub.AgentCount()
 		}
-		return agentHub.AgentCount()
+		if dataAgentHub != nil {
+			n += dataAgentHub.AgentCount()
+		}
+		return n
 	}
 
 	for range ticker.C {
 		hm.Update()
 
+		now := time.Now()
 		// Grace period avoids a false STALE alert at cold start (no candle has
 		// arrived yet). Also only meaningful when at least one agent is connected.
-		warmedUp := time.Since(startTime) > 60*time.Second
-		hasAgents := agentsConnected() > 0
+		warmedUp := now.Sub(startTime) > 60*time.Second
 
-		if hm.IsDegraded() && hm.DegradedReason() == "STALE_DATA_CRITICAL" && warmedUp && hasAgents {
+		// Outage = agents connected but the market STATE feed is down: either no
+		// MARKET_SNAPSHOT/candle has EVER been received, or it is critically stale.
+		// (A lone tick is not enough — signals require snapshot-built state.)
+		// StaleChecker.Check() returns critical=true for both cases.
+		_, critical, _ := sc.Check()
+		outage := dataFeedOutage(critical, agentsConnected())
+
+		if warmedUp && outage {
 			// Best-effort recovery: prod connected agents to resend a snapshot.
 			if time.Since(lastNudge) > nudgeInterval {
-				lastNudge = time.Now()
+				lastNudge = now
 				if agentHub != nil {
 					agentHub.BroadcastToAllAgents("REQUEST_SNAPSHOT", map[string]interface{}{"reason": "stale_data"})
 				}
 				if dataAgentHub != nil {
 					dataAgentHub.BroadcastToAllAgents("REQUEST_SNAPSHOT", map[string]interface{}{"reason": "stale_data"})
 				}
-				observability.Log.Warn().Msg("[HEALTH] Stale data — nudged agents with REQUEST_SNAPSHOT")
+				observability.Log.Warn().Msg("[HEALTH] Data feed outage — nudged agents with REQUEST_SNAPSHOT")
 			}
 			if !staleAlerted {
 				staleAlerted = true
-				age := "unknown"
+				age := "never"
 				if agentProvider != nil {
-					if t := agentProvider.LastMarketDataAt(); !t.IsZero() {
+					if t := agentProvider.LastSnapshotAt(); !t.IsZero() {
 						age = time.Since(t).Round(time.Second).String()
 					}
 				}
 				alert(notifications.EventType("DATA_FEED_STALE"), "critical",
 					"XAUUSD data feed STALE",
-					"Engine has not received live market data for "+age+". Agents are connected but not streaming; signals suspended (fail-closed). Check the Windows Agent / Master Node EA.")
+					"Engine has not received live market data (last snapshot: "+age+"). Agents are connected but not streaming; signals suspended (fail-closed). Check the Windows Agent / Master Node EA.")
 			}
 			continue
 		}
 
-		// Any other degraded state, or healthy: clear the stale alert once.
+		// Healthy (or no agents / still in warmup): clear the stale alert once.
 		if staleAlerted {
 			staleAlerted = false
 			alert(notifications.EventType("DATA_FEED_RESTORED"), "info",
 				"XAUUSD data feed restored", "Live market data resumed; signals re-enabled.")
 		}
 	}
+}
+
+// dataFeedOutage reports whether the market-data (snapshot) feed is in an
+// outage: at least one agent is connected (execution OR Master Node/data) but
+// the snapshot-built market state is missing or critically stale. A lone tick is
+// intentionally NOT sufficient — signals require snapshot-built state.
+func dataFeedOutage(critical bool, agentsConnected int) bool {
+	return agentsConnected > 0 && critical
 }
 
 func newIngestBus(provider *marketdata.AgentProvider) (bus.IngestBus, bus.IngestSubscriber) {	if url := os.Getenv("NATS_URL"); url != "" {
