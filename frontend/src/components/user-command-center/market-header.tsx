@@ -23,11 +23,13 @@ export function MarketHeader() {
   const [feedStatus, setFeedStatus] = useState<FeedStatus>("UNKNOWN");
   const [lastUpdate, setLastUpdate] = useState<number>(0);
   const [clockTick, setClockTick] = useState<number>(0);
+  const [mounted, setMounted] = useState(false);
   const ws = getGlobalWs();
   const { driftMs, driftWarning, driftCritical, brokerOffset, brokerTimeMode } = useServerTime();
 
   // Update clock display every second
   useEffect(() => {
+    setMounted(true);
     const interval = setInterval(() => setClockTick(t => t + 1), 1000);
     return () => clearInterval(interval);
   }, []);
@@ -150,7 +152,9 @@ export function MarketHeader() {
         <div className="ml-auto flex items-center gap-2">
           {/* Engine-authoritative clock — Broker TF (collected live from Master Node), not UTC */}
           <span className="text-[10px] font-mono tabular-nums text-pat-text-secondary" title={brokerTimeMode === "BROKER_ALIGNED" ? "Engine time aligned to broker session timezone" : "Engine time UTC-aligned"}>
-            {formatBrokerTime(driftMs, brokerOffset)}
+            {/* Clock is Date.now()-derived; render a stable placeholder until
+                mounted to avoid a server/client text mismatch (#418 hydration). */}
+            {mounted ? formatBrokerTime(driftMs, brokerOffset) : "—"}
           </span>
           {driftCritical ? (
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-pat-danger/10 text-pat-danger border border-pat-danger/20 font-semibold" title="Clock drift > 2min — check NTP sync on all machines">
