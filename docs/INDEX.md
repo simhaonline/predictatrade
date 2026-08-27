@@ -25,6 +25,7 @@
 ### Guides
 - [Admin Guide](guides/ADMIN_GUIDE.md) — System administration: users, billing, signals, agent monitoring, security
 - [User Guide](guides/USER_GUIDE.md) — Dashboard, strategies, signal interpretation, MT4/MT5 setup, troubleshooting
+- [Windows Agent Guide](guides/WINDOWS_AGENT.md) — Client Agent + Master Node roles, install/update/uninstall, health endpoints, deploy files
 
 ### Reports
 - [Whitepaper](reports/WHITEPAPER.md) — Technical whitepaper: architecture, risk, AI governance, commercial model

@@ -109,6 +109,7 @@ Active plans: FREE, STANDARD ($99/mo), PRO ($299/mo), ELITE ($699/mo)
 
 ### Windows Agent Monitoring
 - Agent connection status (WebSocket heartbeat) — now bridged into the control-plane database for unified monitoring
+- Two agent roles: **Client Agent** (execution, `pat-agent-client`, port 13081) and **Master Node** (data-only, `pat-agent-master`, port 13091)
 - Agent version tracking, health endpoint verification, and license validation (proactive server-side, no agent changes)
 - Suspended agents list (3-strike SL violation system)
 - Agent commands: disconnect, emergency stop, kill switch

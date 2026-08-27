@@ -15,11 +15,16 @@
 [CmdletBinding()]
 param(
     [ValidateSet("client","master")][string]$Mode = "client",
-    [string]$EngineHost = "live.predictatrade.com"
+    [string]$EngineHost = "live.predictatrade.com",
+    [string]$BaseUrl = "https://downloads.predictatrade.com/windows-agent"
 )
 
 # ─── Config ───
 $BaseUrl     = "https://downloads.predictatrade.com/windows-agent"
+# Root URL always points at the shared assets (nssm, settings, scripts, version).
+# $BaseUrl may be overridden to a role subdir (…/master or …/client) so the
+# role-specific binary is fetched from there; shared assets always come from root.
+$RootUrl     = "https://downloads.predictatrade.com/windows-agent"
 $InstallDir  = "C:\PredictATrade\XAUUSD"
 
 # Build the correct engine WebSocket URL for a given host/port/path.
@@ -59,9 +64,9 @@ if (-not $isAdmin) {
     Write-Host "[install] Admin rights required — UAC prompt will appear..."
     $tempScript = Join-Path $env:TEMP "pat_install_$(Get-Random).ps1"
     try {
-        $scriptContent = Invoke-WebRequest -Uri "$BaseUrl/install.ps1" -UseBasicParsing -TimeoutSec 30 | Select-Object -ExpandProperty Content
+        $scriptContent = Invoke-WebRequest -Uri "$RootUrl/install.ps1" -UseBasicParsing -TimeoutSec 30 | Select-Object -ExpandProperty Content
         Set-Content -Path $tempScript -Value $scriptContent -Encoding UTF8
-        $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy","Bypass","-NoProfile","-File","`"$tempScript`"","-Mode",$Mode,"-EngineHost",$EngineHost -Verb RunAs -Wait -PassThru
+        $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy","Bypass","-NoProfile","-File","`"$tempScript`"","-Mode",$Mode,"-EngineHost",$EngineHost,"-BaseUrl",$BaseUrl -Verb RunAs -Wait -PassThru
         exit $p.ExitCode
     } catch {
         Write-Host "[install] ERROR: Elevation failed: $_"
@@ -176,7 +181,7 @@ $nssmArch = if ($is64bit) { "nssm/win64/nssm.exe" } else { "nssm/win32/nssm.exe"
 $nssmDownloaded = $false
 try {
     if (Test-Path $nssmDest) { Remove-Item $nssmDest -Force -ErrorAction SilentlyContinue }
-    Invoke-WebRequest -Uri "$BaseUrl/$nssmArch" -OutFile $nssmDest -UseBasicParsing -TimeoutSec 60
+    Invoke-WebRequest -Uri "$RootUrl/$nssmArch" -OutFile $nssmDest -UseBasicParsing -TimeoutSec 60
     Unblock-File -Path $nssmDest -ErrorAction SilentlyContinue
     if (Test-Path $nssmDest) {
         $nssmDownloaded = $true
@@ -192,7 +197,7 @@ $supportFiles = @("health-check.ps1", "status.ps1", "notify.ps1")
 foreach ($file in $supportFiles) {
     try {
         $dest = Join-Path $InstallDir $file
-        Invoke-WebRequest -Uri "$BaseUrl/$file" -OutFile $dest -UseBasicParsing -TimeoutSec 30
+        Invoke-WebRequest -Uri "$RootUrl/$file" -OutFile $dest -UseBasicParsing -TimeoutSec 30
         Unblock-File -Path $dest -ErrorAction SilentlyContinue
     } catch {
         Write-Host "  WARN: Could not download ${file}: $_"
@@ -203,7 +208,7 @@ foreach ($file in $supportFiles) {
 $settingsPath = Join-Path $InstallDir "settings.json"
 if (-not (Test-Path $settingsPath)) {
     try {
-        Invoke-WebRequest -Uri "$BaseUrl/settings.json" -OutFile $settingsPath -UseBasicParsing -TimeoutSec 30
+        Invoke-WebRequest -Uri "$RootUrl/settings.json" -OutFile $settingsPath -UseBasicParsing -TimeoutSec 30
         Write-Host "  OK: Downloaded settings.json"
     } catch {
         Write-Host "  WARN: Could not download settings.json: $_"
@@ -302,7 +307,7 @@ if ($serviceCreated) {
         for ($i = 0; $i -lt 5; $i++) {
             Start-Sleep -Seconds 2
             try {
-                $healthResp = Invoke-WebRequest -Uri "http://127.0.0.1:9000/health" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+                $healthResp = Invoke-WebRequest -Uri "http://127.0.0.1:$HealthPort/health" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
                 if ($healthResp.StatusCode -eq 200) {
                     $serviceRunning = $true
                     Write-Host "  OK: Agent is RUNNING (health: HTTP 200)"
@@ -328,7 +333,7 @@ if (-not $serviceRunning) {
 Write-Host "[9/9] Finalizing..."
 # Fetch the actual version from the server's version.txt (single source of truth)
 try {
-    $serverVersion = (Invoke-WebRequest -Uri "$BaseUrl/version.txt" -UseBasicParsing -TimeoutSec 10).Content.Trim()
+    $serverVersion = (Invoke-WebRequest -Uri "$RootUrl/version.txt" -UseBasicParsing -TimeoutSec 10).Content.Trim()
     Write-Host "  Server version: v$serverVersion"
 } catch {
     $serverVersion = "1.2.31"
@@ -339,7 +344,7 @@ Set-Content -Path (Join-Path $InstallDir "version.txt") -Value $serverVersion -N
 # Try to verify health endpoint
 Start-Sleep -Seconds 2
 try {
-    $healthResp = Invoke-WebRequest -Uri "http://127.0.0.1:9000/health" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+    $healthResp = Invoke-WebRequest -Uri "http://127.0.0.1:$HealthPort/health" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
     Write-Host "  OK: Health endpoint responding (HTTP $($healthResp.StatusCode))"
 } catch {
     Write-Host "  WARN: Health endpoint not responding yet (service may still be starting)"
@@ -358,8 +363,8 @@ Write-Host "  Health:      http://127.0.0.1:$HealthPort"
 Write-Host "  Logs:        $logsDir"
 Write-Host ""
 $roleName = if ($Mode -eq "master") { "master" } else { "client" }
-Write-Host "  To uninstall: irm $BaseUrl/uninstall.ps1 | iex   (use: -Mode $roleName)"
-Write-Host "  To update:    irm $BaseUrl/install-$roleName.ps1 | iex"
+Write-Host "  To uninstall: irm $RootUrl/uninstall.ps1 | iex   (use: -Mode $roleName)"
+Write-Host "  To update:    irm $RootUrl/install-$roleName.ps1 | iex"
 Write-Host "=========================================="
 Write-Host ""
 Read-Host "Press Enter to close"

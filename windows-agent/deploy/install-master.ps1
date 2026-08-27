@@ -18,5 +18,5 @@ try {
     Write-Host "[install-master] ERROR: failed to download installer: $_"
     exit 1
 }
-$p = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy","Bypass","-NoProfile","-File","`"$tmp`"","-Mode","master" -Verb RunAs -Wait -PassThru
+$p = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy","Bypass","-NoProfile","-File","`"$tmp`"","-Mode","master","-BaseUrl","$BaseUrl/master" -Verb RunAs -Wait -PassThru
 exit $p.ExitCode

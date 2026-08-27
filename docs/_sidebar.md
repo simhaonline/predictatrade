@@ -21,6 +21,7 @@
 - **Guides**
   - [Admin Guide](guides/ADMIN_GUIDE.md)
   - [User Guide](guides/USER_GUIDE.md)
+  - [Windows Agent Guide](guides/WINDOWS_AGENT.md)
 
 - **Reports**
   - [Whitepaper](reports/WHITEPAPER.md)

@@ -160,49 +160,53 @@ View the evidence chain by clicking any signal in the dashboard.
 
 ## 6. Windows Agent & MT4/MT5 Setup
 
+> Full details: see the [Windows Agent Guide](WINDOWS_AGENT.md).
+
 ### Prerequisites
 - Windows 10/11 (64-bit)
 - MetaTrader 4 or MetaTrader 5 installed
 - Active Predict-A-Trade subscription (STANDARD tier or higher)
 - Broker account with XAUUSD symbol
 
+### Two Roles
+The Windows Agent installs as one of two roles (both can run on the same machine):
+
+| Role | Purpose | Install command |
+|------|---------|-----------------|
+| **Client Agent** | Receives signals and places/closes XAUUSD orders (execution). | `irm https://downloads.predictatrade.com/windows-agent/client/install.ps1 \| iex` |
+| **Master Node** | Streams market/structure data only — never executes. | `irm https://downloads.predictatrade.com/windows-agent/master/install.ps1 \| iex` |
+
 ### Installation Steps
 
-1. **Download the Windows Agent**
-   - From your dashboard: Settings → Downloads → Windows Agent
-   - Or: `https://platform.predictatrade.com/downloads/windows-agent`
+1. **Run the role installer** (PowerShell, as Administrator — UAC prompt appears):
+   ```powershell
+   # Client Agent (execution)
+   irm https://downloads.predictatrade.com/windows-agent/client/install.ps1 | iex
 
-2. **Install and configure**
-   ```bash
-   # Run the installer
-   PredictATrade-Agent-Setup.exe
-
-   # Or manual setup
-   unzip windows-agent.zip
-   cd windows-agent
+   # Master Node (data-only)
+   irm https://downloads.predictatrade.com/windows-agent/master/install.ps1 | iex
    ```
 
-3. **Enter your license key**
+2. **Enter your license key** (Client Agent only — the Master Node needs no license)
    - Find your license key at: Dashboard → Settings → License
-   - Enter in the Agent configuration window
+   - Enter it in the Execution EA input parameters
 
-4. **Connect to MT4/MT5**
-   - Agent auto-detects running MT4/MT5 terminals
-   - Select your terminal from the dropdown
-   - Verify XAUUSD symbol is available
-   - Click "Connect"
+3. **Connect to MT4/MT5**
+   - Attach the Master Node EA to an XAUUSD chart (data collection)
+   - Attach the Execution EA to an XAUUSD chart with your license key
+   - Enable "Allow Automated Trading" in MT4/MT5
 
-5. **Verify connection**
+4. **Verify connection**
    - Agent status shows "Connected" with green indicator
    - Dashboard shows "Agent Online" with device name
-   - Test connection: Agent sends heartbeat every 30s
+   - Health endpoint: `http://127.0.0.1:9000` (client) / `http://127.0.0.1:9001` (master)
 
 ### MQL Expert Advisor Installation
 The Windows Agent installs the MQL EA automatically. Manual steps:
 1. Copy `mql/mt5/Experts/PAT_SignalExecutor.ex5` to your MT5 Experts folder
 2. Copy `mql/mt4/Experts/PAT_SignalExecutor.ex4` to your MT4 Experts folder
 3. Restart MetaTrader
-4. Attach EA to XAUUSD chart (M1 timeframe)
+4. Attach EA to XAUUSD chart (any timeframe — execution is by symbol + price levels)
 5. Enable "Allow Automated Trading" in MT4/MT5
 
 ### Agent Features
