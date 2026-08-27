@@ -1232,7 +1232,7 @@ void PAT_LogDailyLossDeals()
       if(dy != today) continue;
       n++;
       PAT_LogLine("CAPITAL DEAL #" + IntegerToString(n)
-                  + " | date(UTC): " + TimeToString(closeTime, TIME_DATE)
+                  + " | date(Broker): " + TimeToString(closeTime, TIME_DATE)
                   + " | profit: " + DoubleToString(OrderProfit(), 2)
                   + " | swap: " + DoubleToString(OrderSwap(), 2)
                   + " | commission: " + DoubleToString(OrderCommission(), 2));

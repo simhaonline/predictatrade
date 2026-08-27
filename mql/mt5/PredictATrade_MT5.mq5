@@ -1921,7 +1921,7 @@ void PAT_LogDailyLossDeals()
       double s = HistoryDealGetDouble(t, DEAL_SWAP);
       double c = HistoryDealGetDouble(t, DEAL_COMMISSION);
       PAT_LogLine("CAPITAL DEAL #" + IntegerToString(n)
-                  + " | date(UTC): " + TimeToString(dtt, TIME_DATE)
+                  + " | date(Broker): " + TimeToString(dtt, TIME_DATE)
                   + " | profit: " + DoubleToString(p, 2)
                   + " | swap: " + DoubleToString(s, 2)
                   + " | commission: " + DoubleToString(c, 2));
