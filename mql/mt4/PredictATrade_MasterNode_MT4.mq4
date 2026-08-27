@@ -45,6 +45,9 @@ input int     NotifyCooldownSec    = 300;    // Min seconds between repeated not
 //=== IPC Files (in FILE_COMMON folder — shared with Windows Agent) ===
 #define PAT_MASTER_FILE  "PAT_master_data.txt"
 #define PAT_HEARTBEAT    "PAT_heartbeat.txt"
+// PAT_RESYNC is written by the Windows Agent (on engine REQUEST_SNAPSHOT nudge)
+// and polled by this EA to force an immediate MARKET_SNAPSHOT re-emit.
+#define PAT_RESYNC       "PAT_resync.txt"
 
 //=== Timeframes for multi-TF bar data ===
 // Per-TF broker CopyRates sync: the engine ingests these bars directly so its
@@ -115,12 +118,21 @@ int OnInit()
     }
 
     UpdatePanel();
+
+    // ─── Resilience: periodic timer ───
+    // OnTick only fires when the broker streams quotes for the chart symbol. If
+    // the terminal/connection hiccups and ticks stall, OnTick stops and the
+    // engine goes silently blind. A 1-second OnTimer keeps emitting
+    // MARKET_SNAPSHOT regardless of tick flow (terminal must be connected).
+    EventSetTimer(1000);
+
     return(INIT_SUCCEEDED);
 }
 
 //+------------------------------------------------------------------+
-void OnDeinit(const int reason)
+ void OnDeinit(const int reason)
 {
+    EventKillTimer();
     MasterWrite("MASTER_DEINIT|{\"reason\":" + IntegerToString((long)reason) +
                 ",\"symbol\":\"" + g_symbol + "\"}\n");
     Comment("");
@@ -138,6 +150,36 @@ void OnTick()
 
     if(SendSnapshots)
         SendMarketSnapshot();
+
+    UpdatePanel();
+}
+
+//+------------------------------------------------------------------+
+//| OnTimer — resilience fallback for market-data delivery.           |
+//+------------------------------------------------------------------+
+//| OnTick only fires while the broker streams quotes for the chart.  |
+//| If quotes stall (terminal/connection hiccup) OnTick stops and the |
+//| engine goes silently blind. This timer runs regardless of ticks   |
+//| (as long as the terminal is alive) and re-emits MARKET_SNAPSHOT,  |
+//| so the engine always has fresh data. It also honours a REQUEST_   |
+//| SNAPSHOT nudge: the agent writes PAT_resync.txt when the engine   |
+//| asks for a refresh; we delete it and force an immediate snapshot. |
+//+------------------------------------------------------------------+
+void OnTimer()
+{
+    CheckAgentConnection();
+
+    if(g_connection == "CONNECTED" && SendSnapshots)
+    {
+        // Engine recovery nudge: if the agent dropped a REQUEST_SNAPSHOT flag,
+        // force an immediate snapshot (bypass the snapshot throttle).
+        if(FileIsExist(PAT_RESYNC, FILE_COMMON))
+        {
+            FileDelete(PAT_RESYNC, FILE_COMMON);
+            g_lastSnapshot = 0;
+        }
+        SendMarketSnapshot();
+    }
 
     UpdatePanel();
 }

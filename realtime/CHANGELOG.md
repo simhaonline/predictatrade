@@ -1,5 +1,40 @@
 # Predict-A-Trade Changelog
 
+## v1.17.1 (27 August 2026) — Silent Data-Feed Detection + Auto-Recovery
+### Problem
+- After a Windows Agent / EA restart, the live market-data (MARKET_SNAPSHOT) feed
+  could go silent with NO error and NO alert: `healthManager.Update()` only ran
+  inside `processCandle`, so when snapshots stopped, no candle formed, the health
+  check never re-ran, and the engine went silently blind (observed ~1h of
+  NO-TRADE with no operator signal). Ticks kept arriving, which masked the dead
+  snapshot feed in naive liveness views.
+
+### Fixes
+- **Data-independent health monitor** (`cmd/realtime-engine/main.go` `startHealthMonitor`):
+  a 10s ticker (not driven by market data) that runs the health assessment, emits
+  `DATA_FEED_STALE` via ntfy on `STALE_DATA_CRITICAL` (60s warmup + agents
+  connected), nudges agents with `REQUEST_SNAPSHOT` every 30s, and emits
+  `DATA_FEED_RESTORED` + clears the alert on recovery.
+- **Snapshot-receipt tracking** (`marketdata.AgentProvider.LastSnapshotAt`):
+  market-state health is now based on MARKET_SNAPSHOT arrival, not bare ticks, so
+  a lone tick can no longer hide a dead snapshot feed. `/api/v1/agents/status`
+  now exposes `last_snapshot_at`, `last_market_data_at`, `data_stale_secs`,
+  `data_health` (NO_DATA/HEALTHY/STALE/CRITICAL).
+- **Agent (Go) recovery forwarding** (`windows-agent/internal/master.go` +
+  `pipe.go`): `REQUEST_SNAPSHOT` now writes `PAT_resync.txt` into every
+  MetaQuotes Common\Files folder the EA polls.
+- **MQL resilience** (`mql/mt5/PredictATrade_MasterNode_MT5.mq5` +
+  `mql/mt4/PredictATrade_MasterNode_MT4.mq4`): added `OnTimer()` (1s) that emits
+  `MARKET_SNAPSHOT` independent of `OnTick` (ticks can stall if the broker quote
+  stream hiccups), plus `PAT_resync.txt` polling that forces an immediate
+  snapshot on a `REQUEST_SNAPSHOT` nudge. `EventSetTimer`/`EventKillTimer`
+  lifecycle added to `OnInit`/`OnDeinit`.
+
+### Safety
+- All recovery paths are fail-open and observation-only: they never change
+  strategy, risk gates, or trade eligibility. Alerts are deterministic and
+  version/freshness stamped.
+
 ## v1.17.0 (27 August 2026) — Per-Client Risk Isolation + Ingest/Signal Decoupling
 ### New Features
 - **Per-client risk isolation at signal delivery** (`AgentHub.SetRiskCheck` +

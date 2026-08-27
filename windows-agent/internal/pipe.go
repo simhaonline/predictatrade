@@ -267,6 +267,20 @@ func hostMachineID() string {
 	return ""
 }
 
+// RequestResync writes a PAT_resync.txt flag into every MetaQuotes Common\Files
+// folder the EA reads via FILE_COMMON. The Master Node EA polls this flag and,
+// when present, emits a fresh MARKET_SNAPSHOT immediately (then deletes it).
+// This is the agent-side half of the engine's REQUEST_SNAPSHOT recovery nudge —
+// it lets the Go engine prod a stalled EA back into streaming without requiring
+// the EA to understand the WebSocket control message directly.
+func (pm *PipeManager) RequestResync() {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	for _, d := range pm.commonDirs {
+		_ = os.WriteFile(filepath.Join(d, "PAT_resync.txt"), []byte(time.Now().UTC().Format(time.RFC3339)), 0644)
+	}
+}
+
 // writeLicenseSig writes a detached HMAC signature for the current license
 // status so the EA can reject spoofed license files.
 func (pm *PipeManager) writeLicenseSig(status, plan string) {

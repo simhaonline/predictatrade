@@ -33,7 +33,14 @@ type HTTPServer struct {
 	states    *features.StateManager
 	agentHub  *AgentHub
 	DataAgentHub *AgentHub
-	agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool; BrokerOffsetHours() int }
+	agentProvider interface {
+		GetLastSnapshot() interface{}
+		GetSnapshotCount() uint64
+		HasConnectedAgents() bool
+		BrokerOffsetHours() int
+		LastMarketDataAt() time.Time
+		LastSnapshotAt() time.Time
+	}
 	valkeyCache *cache.ValkeyCache
 	crossMarketEngine *crossmarket.Engine
 	newsEngine *news.RiskEngine
@@ -43,7 +50,7 @@ type HTTPServer struct {
 	serverMu  sync.Mutex
 }
 
-func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool; BrokerOffsetHours() int }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine, newsEngine *news.RiskEngine, engTracker *engstatus.Tracker) *HTTPServer {
+func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool; BrokerOffsetHours() int; LastMarketDataAt() time.Time; LastSnapshotAt() time.Time }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine, newsEngine *news.RiskEngine, engTracker *engstatus.Tracker) *HTTPServer {
 	h := &HTTPServer{
 		agentHub: agentHub,
 		agentProvider: agentProvider,
@@ -876,11 +883,40 @@ func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) 
 	if h.DataAgentHub != nil {
 		dataAgentCount = h.DataAgentHub.AgentCount()
 	}
+	lastMarketDataAt := time.Time{}
+	lastSnapshotAt := time.Time{}
+	if h.agentProvider != nil {
+		lastMarketDataAt = h.agentProvider.LastMarketDataAt()
+		lastSnapshotAt = h.agentProvider.LastSnapshotAt()
+	}
+	// Derive a direct data-health view so a silent feed is never invisible.
+	// Health is based on MARKET_SNAPSHOT receipt (the feed that builds the market
+	// state required to generate signals), not bare ticks — a lone tick must not
+	// mask a dead snapshot feed.
+	// HEALTHY (<90s), STALE (>=90s), CRITICAL (>=180s), NO_DATA (never received).
+	dataHealth := "NO_DATA"
+	staleSecs := int64(-1)
+	if !lastSnapshotAt.IsZero() {
+		age := int64(time.Since(lastSnapshotAt).Seconds())
+		staleSecs = age
+		switch {
+		case age >= 180:
+			dataHealth = "CRITICAL"
+		case age >= 90:
+			dataHealth = "STALE"
+		default:
+			dataHealth = "HEALTHY"
+		}
+	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"agents_connected":      agentsConnected,
 		"master_node_connected": masterNodeConnected,
 		"data_agents_connected": dataAgentCount,
 		"snapshot_count":        snapshotCount,
+		"last_market_data_at":   lastMarketDataAt.UTC().Format(time.RFC3339),
+		"last_snapshot_at":      lastSnapshotAt.UTC().Format(time.RFC3339),
+		"data_stale_secs":       staleSecs,
+		"data_health":           dataHealth,
 		"mt4_connected":        h.agentHub.MT4ConnectedCount(),
 		"mt5_connected":        h.agentHub.MT5ConnectedCount(),
 		"timestamp":            time.Now().UTC().Format(time.RFC3339),

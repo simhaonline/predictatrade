@@ -330,6 +330,16 @@ type AgentProvider struct {
 	// client's executable signals (no shared global account-driven gate).
 	agentAccMu    sync.Mutex
 	agentAccounts map[string]*agentAccountState
+
+	// lastMarketDataAt records the most recent time the engine received ANY live
+	// market data (tick or snapshot) from ANY agent. Used for coarse liveness.
+	// lastSnapshotAt records the most recent MARKET_SNAPSHOT — the message that
+	// actually carries bars/indicators and builds the market state required to
+	// generate signals. Tracking it separately prevents a lone tick from masking
+	// a dead snapshot feed (which would silently suppress all executable signals).
+	lastMarketDataMu sync.Mutex
+	lastMarketDataAt time.Time
+	lastSnapshotAt   time.Time
 }
 
 // agentAccountState caches one client's latest broker account snapshot.
@@ -819,6 +829,12 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		return
 	}
 
+	// Record live market-data receipt (ticks + snapshots) so a silent feed is
+	// always detectable/alertable.
+	if msgType == "TICK" || msgType == "MASTER_TICK" || msgType == "MARKET_SNAPSHOT" {
+		p.updateLastMarketData()
+	}
+
 	switch msgType {
 	case "TICK", "MASTER_TICK", "HEARTBEAT":
 		// Notify main loop that an agent is active — hydrate execution permit gate
@@ -865,6 +881,9 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		p.lastSnapshot = &snapshot
 		p.snapshotCount++
 		p.snapshotMu.Unlock()
+		// Track snapshot receipt separately so a lone tick cannot mask a dead
+		// snapshot feed (snapshots build the market state for signal generation).
+		p.updateLastSnapshot()
 		// Collect the broker UTC offset reported live by the Master Node so the
 		// engine runs on Broker TF rather than UTC.
 		if snapshot.BrokerOffset != 0 {
@@ -1073,6 +1092,40 @@ func (p *AgentProvider) GetLastSnapshot() interface{} {
 	p.snapshotMu.RLock()
 	defer p.snapshotMu.RUnlock()
 	return p.lastSnapshot
+}
+
+// updateLastMarketData records the current time as the latest live market-data
+// receipt. Guarded by its own mutex so it is cheap to call on every message.
+func (p *AgentProvider) updateLastMarketData() {
+	p.lastMarketDataMu.Lock()
+	p.lastMarketDataAt = time.Now().UTC()
+	p.lastMarketDataMu.Unlock()
+}
+
+// updateLastSnapshot records the current time as the latest MARKET_SNAPSHOT
+// receipt (the data that builds the market state used for signal generation).
+func (p *AgentProvider) updateLastSnapshot() {
+	p.lastMarketDataMu.Lock()
+	p.lastSnapshotAt = time.Now().UTC()
+	p.lastMarketDataMu.Unlock()
+}
+
+// LastMarketDataAt returns the time the engine last received any live market
+// data (tick or snapshot) from any agent. A zero value means none received
+// since startup.
+func (p *AgentProvider) LastMarketDataAt() time.Time {
+	p.lastMarketDataMu.Lock()
+	defer p.lastMarketDataMu.Unlock()
+	return p.lastMarketDataAt
+}
+
+// LastSnapshotAt returns the time the engine last received a MARKET_SNAPSHOT
+// (the feed that builds market state). A zero value means none received since
+// startup — signal generation cannot proceed without it.
+func (p *AgentProvider) LastSnapshotAt() time.Time {
+	p.lastMarketDataMu.Lock()
+	defer p.lastMarketDataMu.Unlock()
+	return p.lastSnapshotAt
 }
 
 // GetSnapshotCount returns the total number of snapshots received.

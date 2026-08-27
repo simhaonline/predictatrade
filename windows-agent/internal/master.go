@@ -14,7 +14,20 @@ func (masterHandler) startRoleLoops(a *Agent) {}
 // handleServerMessage ignores every server message. The Master Node has no
 // execution concern (SIGNAL, CLOSE_POSITION, EMERGENCY_STOP, KILL_SWITCH,
 // LICENSE_STATUS, ERROR) — those are strictly Client (execution) concerns.
+//
+// The one exception is REQUEST_SNAPSHOT — a recovery nudge from the engine when
+// it detects a silent data feed. The Master Node cannot trade, but it CAN prod
+// its EA to re-emit a fresh MARKET_SNAPSHOT by writing a PAT_resync.txt flag
+// the EA polls. This is the recovery path that prevents a stalled EA from
+// silently leaving the engine blind.
 func (masterHandler) handleServerMessage(a *Agent, event SignalEvent) {
+	if event.Type == "REQUEST_SNAPSHOT" {
+		if a.pipeManager != nil {
+			a.pipeManager.RequestResync()
+			log.Printf("DATA mode: REQUEST_SNAPSHOT received — wrote PAT_resync.txt to prod EA resend")
+		}
+		return
+	}
 	if event.Type != "" {
 		log.Printf("DATA mode: ignoring server message type=%s", event.Type)
 	}

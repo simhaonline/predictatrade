@@ -301,8 +301,88 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHu
 // a NatsBus is used so data-collection is fully decoupled from the signal
 // engine (and a separate ingest service can be introduced without touching the
 // engine). On NATS connect failure it safely falls back to the DirectBus.
-func newIngestBus(provider *marketdata.AgentProvider) (bus.IngestBus, bus.IngestSubscriber) {
-	if url := os.Getenv("NATS_URL"); url != "" {
+// startHealthMonitor runs a data-independent health loop. It re-evaluates the
+// health manager on a fixed ticker (so it runs even when no candles are
+// processed), alerts via ntfy when the XAUUSD data feed goes stale/critical,
+// and nudges connected agents (REQUEST_SNAPSHOT) to resend a fresh snapshot as a
+// best-effort recovery. This guarantees a silent data feed is never invisible.
+func startHealthMonitor(
+	hm *health.Manager,
+	sc *health.StaleChecker,
+	agentHub *gateway.AgentHub,
+	dataAgentHub *gateway.AgentHub,
+	agentProvider *marketdata.AgentProvider,
+	notifMgr *notifications.Manager,
+	enqueueNotification func(eventType notifications.EventType, severity, title, message string),
+) {
+	const checkInterval = 10 * time.Second
+	const nudgeInterval = 30 * time.Second
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+
+	var staleAlerted bool
+	var lastNudge time.Time
+	startTime := time.Now()
+
+	alert := func(et notifications.EventType, severity, title, message string) {
+		if notifMgr != nil {
+			enqueueNotification(et, severity, title, message)
+		}
+	}
+
+	// agentsConnected reports how many execution agents are currently connected.
+	agentsConnected := func() int {
+		if agentHub == nil {
+			return 0
+		}
+		return agentHub.AgentCount()
+	}
+
+	for range ticker.C {
+		hm.Update()
+
+		// Grace period avoids a false STALE alert at cold start (no candle has
+		// arrived yet). Also only meaningful when at least one agent is connected.
+		warmedUp := time.Since(startTime) > 60*time.Second
+		hasAgents := agentsConnected() > 0
+
+		if hm.IsDegraded() && hm.DegradedReason() == "STALE_DATA_CRITICAL" && warmedUp && hasAgents {
+			// Best-effort recovery: prod connected agents to resend a snapshot.
+			if time.Since(lastNudge) > nudgeInterval {
+				lastNudge = time.Now()
+				if agentHub != nil {
+					agentHub.BroadcastToAllAgents("REQUEST_SNAPSHOT", map[string]interface{}{"reason": "stale_data"})
+				}
+				if dataAgentHub != nil {
+					dataAgentHub.BroadcastToAllAgents("REQUEST_SNAPSHOT", map[string]interface{}{"reason": "stale_data"})
+				}
+				observability.Log.Warn().Msg("[HEALTH] Stale data — nudged agents with REQUEST_SNAPSHOT")
+			}
+			if !staleAlerted {
+				staleAlerted = true
+				age := "unknown"
+				if agentProvider != nil {
+					if t := agentProvider.LastMarketDataAt(); !t.IsZero() {
+						age = time.Since(t).Round(time.Second).String()
+					}
+				}
+				alert(notifications.EventType("DATA_FEED_STALE"), "critical",
+					"XAUUSD data feed STALE",
+					"Engine has not received live market data for "+age+". Agents are connected but not streaming; signals suspended (fail-closed). Check the Windows Agent / Master Node EA.")
+			}
+			continue
+		}
+
+		// Any other degraded state, or healthy: clear the stale alert once.
+		if staleAlerted {
+			staleAlerted = false
+			alert(notifications.EventType("DATA_FEED_RESTORED"), "info",
+				"XAUUSD data feed restored", "Live market data resumed; signals re-enabled.")
+		}
+	}
+}
+
+func newIngestBus(provider *marketdata.AgentProvider) (bus.IngestBus, bus.IngestSubscriber) {	if url := os.Getenv("NATS_URL"); url != "" {
 		nb, err := bus.NewNatsBus(url, "pat.ingest.agent")
 		if err != nil {
 			observability.Log.Error().Err(err).Msg("NATS_URL set but connect failed; falling back to in-process ingest bus")
@@ -1282,6 +1362,15 @@ func main() {
 		dataAgentHub = gateway.NewAgentHub(nil)
 		go dataAgentHub.Run()
 	}
+
+	// ─── Data-independent health monitor ───
+	// FIX: healthManager.Update() was previously called ONLY inside processCandle,
+	// which stops running when market data stops. So a silent agent feed was never
+	// re-evaluated — staleness stayed invisible (no alert, no recovery nudge),
+	// exactly the "signals silently stop for an hour" failure. This ticker runs
+	// independently of data flow, alerts via ntfy on stale/critical data, and
+	// nudges connected agents (REQUEST_SNAPSHOT) to resend a fresh snapshot.
+	go startHealthMonitor(healthManager, staleChecker, agentHub, dataAgentHub, agentProvider, notifMgr, enqueueNotification)
 
 	// ─── Proactive License Validation ───
 	// Server-side: validates licenses for connected agents using agent_user_bindings
