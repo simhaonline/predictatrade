@@ -32,10 +32,12 @@ import { ComplianceInterceptor } from './common/interceptors/compliance.intercep
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    // Global rate limiting: 60 requests per minute per IP.
-    // Auth endpoints have stricter per-route overrides below.
+    // Global rate limiting: 300 requests per minute per IP (5/sec).
+    // Interactive dashboards poll market/subscription data; 60/min was too
+    // low and caused 429 storms on /auth/refresh and /subscriptions/entitlements.
+    // Mutating/auth endpoints keep stricter per-route overrides below.
     ThrottlerModule.forRoot([
-      { ttl: 60_000, limit: 60 },
+      { ttl: 60_000, limit: 300 },
     ]),
     DatabaseModule,
     GlobalJwtModule,

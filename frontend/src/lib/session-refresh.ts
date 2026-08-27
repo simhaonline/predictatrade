@@ -13,7 +13,9 @@ import { setAccessToken } from './auth';
  */
 
 const baseURL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== 'undefined' ? '/api/v1' : 'http://localhost:3000/api/v1');
 
 let inFlight: Promise<string | null> | null = null;
 
