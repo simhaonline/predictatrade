@@ -197,6 +197,17 @@ nano nginx/sites-available/live.predictatrade.com.conf
 docker compose restart nginx
 ```
 
+> **⚠ Rate-limit changes require a full container RESTART, not just a reload.**
+> `limit_req_zone` shared-memory zones are created at nginx **startup**; a `reload`
+> (`nginx -s reload`) keeps the old zones. If you change `nginx/snippets/rate-limit.conf`
+> (e.g. auth/api/general/ws rates) you MUST restart the container for the new limits
+> to take effect:
+> ```bash
+> docker compose --env-file infra/env/.env restart nginx
+> # verify: docker exec pat-nginx nginx -T 2>/dev/null | grep limit_req_zone
+> ```
+> See `docs/reports/REMEDIATION_REPORT_2026-08-28.md` §7.6.
+
 ---
 
 ## Step 8 — Grafana & Monitoring

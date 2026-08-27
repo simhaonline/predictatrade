@@ -146,3 +146,59 @@ All **code/security/integrity launch-blockers** identified in the macroscopic au
 ---
 
 *Remediation complete in source. Live signal flow dependent on operator action O-1 (Windows Agent reconnect).*
+
+---
+
+## 7. Post-Remediation Incident — Dashboard Login Failure, 429 Storm & React #418 (2026-08-28, follow-up session)
+
+After the audit remediation (§1–6) was committed and the stack rebuilt, the live
+dashboard remained unusable: users could not log in/out and the browser console
+showed a `React error #418` hydration crash plus an `/auth/refresh` 429 storm.
+
+### 7.1 Symptoms
+- `error.log` (browser console capture): `auth/refresh` → 429; `subscriptions/entitlements` → 401;
+  `React error #418` (args[]=text) with a `postMessage`/`unstable_scheduleCallback` spin.
+- nginx `auth` zone was `2 r/s burst 5`; control global throttle was `60/min`.
+- Edits initially "didn't take" because nginx was only **reloaded, not restarted**.
+
+### 7.2 Root Causes
+1. **nginx rate-limit too tight + reload-not-restart gotcha.** `limit_req_zone` shared-memory
+   zones are created at container **startup**; `nginx -s reload` does NOT recreate them. The
+   raised limits only applied after a full container restart. The `2 r/s` `auth` zone 429'd
+   logins and refreshes.
+2. **Client-side refresh storm / login↔logout bounce.** A throttled `/auth/refresh` (429) was
+   retried without backoff, exhausting the refresh throttle (20/min); because the interceptor
+   force-cleared the token + dispatched `pat:logout` on *any* refresh failure, users were bounced
+   in a login↔logout loop.
+3. **React #418 hydration mismatch.** `MarketHeader` rendered `formatBrokerTime()` (which calls
+   `Date.now()`) during SSR, so the server-rendered clock text differed from the client's on
+   hydration, throwing #418 and crashing the dashboard.
+
+### 7.3 Fixes & Commits
+- `e484004` — Raised nginx `auth=20r/s burst=40`, `api=30r/s`, `general=60r/s`, `ws=10r/s`
+  (`nginx/snippets/rate-limit.conf` + `nginx/sites-available/api.predictatrade.com.conf`);
+  **restarted** nginx container (reload alone is insufficient — see §7.6).
+- `dccad04` — Raised control global API throttle 60→300/min; corrected `session-refresh.ts`
+  baseURL (`/api/v1` → `https://api.predictatrade.com/api/v1`).
+- `e9cef27` — Added 10s refresh backoff in `session-refresh.ts` (export `getLastRefreshErrorStatus()`);
+  interceptor no longer force-logs-out on 429 (only on 401).
+- `6d8d7a2` — Gated `MarketHeader` broker clock behind a `mounted` flag (stable placeholder until
+  mounted) to eliminate the #418 SSR/client text mismatch.
+
+### 7.4 Verification
+- `curl` sanity: `POST /auth/login` (bad creds) → 401 (not 429); `POST /auth/refresh` (dummy) → 400
+  validation (not 429); `GET /subscriptions/entitlements` (no auth) → 401.
+- `nginx -T` confirms active zones at new rates.
+- `npx tsc --noEmit` clean; frontend rebuilt & healthy.
+- Storm volume dropped from thousands of 429s to none; #418 eliminated by mount-gating.
+
+### 7.5 Status
+PASS for the incident (login/logout + dashboard hydration restored, assuming operator hard-refresh
+to clear cached bundle). Outstanding operator items unchanged: O-1 Windows MT5 Agent reconnect,
+O-2 JWT rotation, O-3 tar CVE, O-4 MQL recompile.
+
+### 7.6 Operational Notes (for future)
+- **nginx rate-limit changes require a container RESTART, not reload** (`limit_req_zone` is startup-only).
+- Refresh failure 429 must NOT force logout; use backoff to avoid throttle exhaustion.
+- Any `Date.now()` / `new Date()` / `Math.random()` in render breaks SSR hydration (#418) — gate
+  behind mount or use `suppressHydrationWarning`.
