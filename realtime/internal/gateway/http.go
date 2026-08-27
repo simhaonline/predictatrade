@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"context"
+	"sync"
+
 	"github.com/predictatrade/realtime/pkg/news"
 	"encoding/json"
 	"fmt"
@@ -38,6 +40,7 @@ type HTTPServer struct {
 	engTracker *engstatus.Tracker
 	mux       *http.ServeMux
 	server    *http.Server
+	serverMu  sync.Mutex
 }
 
 func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool; BrokerOffsetHours() int }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine, newsEngine *news.RiskEngine, engTracker *engstatus.Tracker) *HTTPServer {
@@ -124,19 +127,25 @@ func (h *HTTPServer) handleEnginesStatus(w http.ResponseWriter, r *http.Request)
 
 func (h *HTTPServer) Start(host string, port int) error {
 	addr := fmt.Sprintf("%s:%d", host, port)
-	h.server = &http.Server{
+	srv := &http.Server{
 		Addr:         addr,
 		Handler:      h.mux,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
-	return h.server.ListenAndServe()
+	h.serverMu.Lock()
+	h.server = srv
+	h.serverMu.Unlock()
+	return srv.ListenAndServe()
 }
 
 func (h *HTTPServer) Shutdown(ctx context.Context) error {
-	if h.server != nil {
-		return h.server.Shutdown(ctx)
+	h.serverMu.Lock()
+	srv := h.server
+	h.serverMu.Unlock()
+	if srv != nil {
+		return srv.Shutdown(ctx)
 	}
 	return nil
 }

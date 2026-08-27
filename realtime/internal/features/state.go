@@ -345,6 +345,56 @@ func (sm *StateManager) Update(symbol string, update func(*MarketState)) {
 	update(s)
 }
 
+// Clone returns a deep copy of the MarketState that is safe for concurrent reads
+// by callers of Get/GetAll. The StateManager mutates the live state under its
+// lock (via Update); returning a snapshot prevents readers (e.g. processCandle)
+// from racing with writers on shared fields such as state.Session, state.Candles
+// and the per-struct slice/map fields below.
+func (s *MarketState) Clone() *MarketState {
+	clone := *s
+
+	// Maps (shared + mutated by Update) — deep copy.
+	if s.Candles != nil {
+		clone.Candles = make(map[types.Timeframe]*types.Candle, len(s.Candles))
+		for k, v := range s.Candles {
+			clone.Candles[k] = v
+		}
+	}
+	if s.FeatureReadiness != nil {
+		clone.FeatureReadiness = make(map[string]FeatureReadiness, len(s.FeatureReadiness))
+		for k, v := range s.FeatureReadiness {
+			clone.FeatureReadiness[k] = v
+		}
+	}
+
+	// Slices embedded in value sub-structs — reassign fresh backing arrays so a
+	// producer append/replace on the live state cannot race with a reader.
+	clone.Structure.SwingHighs = append([]decimal.Decimal(nil), s.Structure.SwingHighs...)
+	clone.Structure.SwingLows = append([]decimal.Decimal(nil), s.Structure.SwingLows...)
+	clone.Liquidity.Pools = append([]LiquidityPool(nil), s.Liquidity.Pools...)
+	clone.Liquidity.RecentSweeps = append([]SweepEvent(nil), s.Liquidity.RecentSweeps...)
+	clone.FVG.FVGs = append([]FVGZone(nil), s.FVG.FVGs...)
+	clone.FVG.IFVGs = append([]FVGZone(nil), s.FVG.IFVGs...)
+	clone.FVG.OrderBlocks = append([]OrderBlock(nil), s.FVG.OrderBlocks...)
+	clone.FVG.Breakers = append([]OrderBlock(nil), s.FVG.Breakers...)
+	if s.MTF.States != nil {
+		clone.MTF.States = make(map[types.Timeframe]int, len(s.MTF.States))
+		for k, v := range s.MTF.States {
+			clone.MTF.States[k] = v
+		}
+	}
+	if s.Fibonacci.Levels != nil {
+		clone.Fibonacci.Levels = make(map[string]decimal.Decimal, len(s.Fibonacci.Levels))
+		for k, v := range s.Fibonacci.Levels {
+			clone.Fibonacci.Levels[k] = v
+		}
+	}
+
+	// PTB is an opaque snapshot pointer replaced wholesale by the producer
+	// (never mutated in place), so sharing by reference is safe for readers.
+	return &clone
+}
+
 func (sm *StateManager) Get(symbol string) *MarketState {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -352,7 +402,7 @@ func (sm *StateManager) Get(symbol string) *MarketState {
 	if !ok {
 		return &MarketState{Symbol: symbol, Candles: make(map[types.Timeframe]*types.Candle)}
 	}
-	return s
+	return s.Clone()
 }
 
 func (sm *StateManager) GetAll() []*MarketState {
@@ -361,17 +411,10 @@ func (sm *StateManager) GetAll() []*MarketState {
 	var result []*MarketState
 	for _, s := range sm.states {
 		// Clone to prevent concurrent map iteration/write during JSON marshal
-		clone := *s
-		// Deep-copy map fields that are iterated during JSON marshal
-		if s.Candles != nil {
-			clone.Candles = make(map[types.Timeframe]*types.Candle, len(s.Candles))
-			for k, v := range s.Candles {
-				clone.Candles[k] = v
-			}
-		}
+		clone := s.Clone()
 		// PTB is interface{} — nil it out for safe marshaling
 		clone.PTB = nil
-		result = append(result, &clone)
+		result = append(result, clone)
 	}
 	return result
 }
