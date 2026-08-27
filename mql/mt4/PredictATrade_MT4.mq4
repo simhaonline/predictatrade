@@ -1239,51 +1239,74 @@ void UpdateCapitalProtection()
             g_dailyPnL += OrderProfit() + OrderSwap() + OrderCommission();
     }
 
+    // Daily loss % is measured against the balance at the start of the broker
+    // day. Derive it from realized P&L so it is correct even if the EA is
+    // attached/restarted mid-day (the captured baseline would otherwise be the
+    // already-reduced balance and overstate the loss %).
+    double curBal = AccountBalance();
+    double dayOpenBalance = curBal - g_dailyPnL;
+    if(dayOpenBalance <= 0) dayOpenBalance = curBal; // deposit/withdrawal guard
+    g_dayStartBalance = dayOpenBalance;
     double lossPct = 0;
-    if(g_dayStartBalance > 0)
-        lossPct = (g_dailyPnL / g_dayStartBalance) * 100;
+    if(dayOpenBalance > 0)
+        lossPct = (g_dailyPnL / dayOpenBalance) * 100;
 
     double effSoftHalt = WarningLossPct;
     double effHardHalt = MaxDailyLossPct;
     double effWarning  = WarningLossPct;
-    double minAbsLoss   = 1.0;
-    if(AccountBalance() < 100)
+    if(curBal < 100)
     {
         effSoftHalt = WarningLossPct * 3.5;
         effHardHalt = MaxDailyLossPct * 3.5;
         effWarning  = WarningLossPct * 3.5;
-        minAbsLoss   = 3.0;
     }
-    else if(AccountBalance() < 200)
+    else if(curBal < 200)
     {
         effSoftHalt = WarningLossPct * 2.0;
         effHardHalt = MaxDailyLossPct * 2.0;
         effWarning  = WarningLossPct * 2.0;
-        minAbsLoss   = 2.0;
     }
 
-    if(g_dailyPnL > -minAbsLoss)
-        return;
-
-    if(lossPct <= -effWarning && !g_tradingBlocked)
+    // RECOVERY: if the daily loss is no longer beyond the soft halt, clear the
+    // block so a recovered/healthy account is not stuck blocked for the day.
+    // (Previously g_tradingBlocked was set true but never re-evaluated, so a
+    // single early-in-the-day loss kept trading blocked even after recovery.)
+    if(lossPct > -effSoftHalt)
     {
-        string warnMsg = "CAPITAL_WARNING|{";
-        warnMsg += "\"daily_pnl\":" + DoubleToString(g_dailyPnL, 2);
-        warnMsg += ",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2);
-        warnMsg += ",\"max_loss_pct\":" + DoubleToString(MaxDailyLossPct, 1);
-        warnMsg += ",\"balance\":" + DoubleToString(AccountBalance(), 2);
-        warnMsg += ",\"action\":\"WARNED\"";
-        warnMsg += "}";
-        PAT_Append(PAT_TICK_FILE, warnMsg + "\n");
-        Print("CAPITAL WARNING: daily P&L=", g_dailyPnL, " (", lossPct, "%)");
+        if(g_tradingBlocked)
+        {
+            g_tradingBlocked = false;
+            Print("CAPITAL PROTECTION (RECOVER): daily loss recovered to ", lossPct, "% — trading re-enabled");
+            string recMsg = "CAPITAL_PROTECTION|{";
+            recMsg += "\"event_type\":\"RECOVER\"";
+            recMsg += ",\"daily_pnl\":" + DoubleToString(g_dailyPnL, 2);
+            recMsg += ",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2);
+            recMsg += ",\"action\":\"RESUMED\"";
+            recMsg += "}";
+            PAT_Append(PAT_TICK_FILE, recMsg + "\n");
+        }
     }
-
-    if(lossPct <= -effSoftHalt && !g_tradingBlocked)
+    else
     {
-        g_tradingBlocked = true;
-        Print("*** CAPITAL PROTECTION (SOFT): Daily loss ", lossPct, "% — new entries blocked ***");
-        string softMsg = "CAPITAL_PROTECTION|{\"event_type\":\"SOFT_HALT\",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + ",\"action\":\"BLOCKED_NEW_ENTRIES_ONLY\"}";
-        PAT_Append(PAT_TICK_FILE, softMsg + "\n");
+        if(lossPct <= -effWarning && !g_tradingBlocked)
+        {
+            string warnMsg = "CAPITAL_WARNING|{";
+            warnMsg += "\"daily_pnl\":" + DoubleToString(g_dailyPnL, 2);
+            warnMsg += ",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2);
+            warnMsg += ",\"max_loss_pct\":" + DoubleToString(MaxDailyLossPct, 1);
+            warnMsg += ",\"balance\":" + DoubleToString(curBal, 2);
+            warnMsg += ",\"action\":\"WARNED\"";
+            warnMsg += "}";
+            PAT_Append(PAT_TICK_FILE, warnMsg + "\n");
+            Print("CAPITAL WARNING: daily P&L=", g_dailyPnL, " (", lossPct, "%)");
+        }
+        if(lossPct <= -effSoftHalt && !g_tradingBlocked)
+        {
+            g_tradingBlocked = true;
+            Print("*** CAPITAL PROTECTION (SOFT): Daily loss ", lossPct, "% — new entries blocked ***");
+            string softMsg = "CAPITAL_PROTECTION|{\"event_type\":\"SOFT_HALT\",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + ",\"action\":\"BLOCKED_NEW_ENTRIES_ONLY\"}";
+            PAT_Append(PAT_TICK_FILE, softMsg + "\n");
+        }
     }
     if(lossPct <= -effHardHalt && !g_hardHaltTriggered)
     {
@@ -1294,7 +1317,7 @@ void UpdateCapitalProtection()
         blockMsg += "\"event_type\":\"DAILY_LOSS_LIMIT_HIT\"";
         blockMsg += ",\"daily_pnl\":" + DoubleToString(g_dailyPnL, 2);
         blockMsg += ",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2);
-        blockMsg += ",\"balance\":" + DoubleToString(AccountBalance(), 2);
+        blockMsg += ",\"balance\":" + DoubleToString(curBal, 2);
         blockMsg += ",\"action\":\"BLOCKED_NEW_TRADES\"";
         blockMsg += "}";
         PAT_Append(PAT_TICK_FILE, blockMsg + "\n");
