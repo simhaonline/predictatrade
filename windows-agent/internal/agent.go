@@ -238,7 +238,13 @@ func (a *Agent) Start() error {
 	// Record startup metadata for the local status page.
 	a.statusMu.Lock()
 	a.startedAt = time.Now()
-	a.backendName = a.config.LiveWSURL
+	// The data (Master Node) role connects to the dedicated data WS; the exec
+	// (Client) role connects to the live/exec WS. Show the correct one.
+	if a.mode == "data" {
+		a.backendName = a.config.DataWSURL
+	} else {
+		a.backendName = a.config.LiveWSURL
+	}
 	a.statusMu.Unlock()
 
 	// Startup diagnostics (helps Windows Service / Defender triage).

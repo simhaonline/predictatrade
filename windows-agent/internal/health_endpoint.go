@@ -102,6 +102,8 @@ func renderStatusHTML(s AgentStatus) string {
 	uptime := time.Duration(s.UptimeSeconds) * time.Second
 	uptimeStr := uptime.Truncate(time.Second).String()
 
+	isMaster := s.Mode == "data"
+
 	serverBadge := badge(s.BackendConnected, "CONNECTED", "OFFLINE")
 	mt4 := badge(s.MT4Connected, "MT4 CONNECTED", "MT4 OFFLINE")
 	mt5 := badge(s.MT5Connected, "MT5 CONNECTED", "MT5 OFFLINE")
@@ -121,6 +123,12 @@ func renderStatusHTML(s AgentStatus) string {
 			licClass = "warn"
 			licText = s.LicenseStatus
 		}
+	}
+	// A Master Node (data role) is purely a market-data source and requires NO
+	// trading license, so never show it as "LICENSE PENDING".
+	if isMaster {
+		licClass = "warn"
+		licText = "N/A · DATA NODE"
 	}
 	licBadge := fmt.Sprintf(`<span class="badge %s">LICENSE %s</span>`, licClass, html.EscapeString(licText))
 	planText := html.EscapeString(s.LicensePlan)
@@ -146,7 +154,6 @@ func renderStatusHTML(s AgentStatus) string {
 	}
 
 	// Role-specific cards.
-	isMaster := s.Mode == "data"
 	var cards string
 	if isMaster {
 		roleTitle := "Master Node (Data · Broker TF)"
@@ -155,7 +162,8 @@ func renderStatusHTML(s AgentStatus) string {
 				rowHTML("License", licBadge)+
 				rowHTML("Plan", planText))
 		deliveryCard := cardHTML("CANDLE DELIVERY → Engine",
-			rowHTML("Backend data WS", serverBadge)+
+			rowHTML("Backend URL", html.EscapeString(s.BackendURL))+
+				rowHTML("Backend data WS", serverBadge)+
 				rowHTML("Candles delivered", fmt.Sprintf("%d", s.CandlesDelivered))+
 				rowHTML("Last candle", html.EscapeString(s.LastCandleDelivered))+
 				rowHTML("Clock drift", fmt.Sprintf(`<span class="badge %s">%s</span>`, driftClass, driftStr)))
@@ -168,7 +176,8 @@ func renderStatusHTML(s AgentStatus) string {
 				rowHTML("License", licBadge)+
 				rowHTML("Plan", planText))
 		deliveryCard := cardHTML("SIGNAL DELIVERY → EA",
-			rowHTML("Backend exec WS", serverBadge)+
+			rowHTML("Backend URL", html.EscapeString(s.BackendURL))+
+				rowHTML("Backend exec WS", serverBadge)+
 				rowHTML("Signals delivered", fmt.Sprintf("%d", s.SignalsDelivered))+
 				rowHTML("Last signal", html.EscapeString(s.LastSignalDelivered)))
 		cards = connCard + deliveryCard
