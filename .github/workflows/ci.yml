@@ -21,7 +21,6 @@ jobs:
         run: go test -count=1 -timeout=300s ./...
       - name: Go tests (race detector)
         run: go test -race -count=1 -timeout=300s ./...
-        continue-on-error: true
       - run: go build -o bin/realtime-engine ./cmd/realtime-engine
 
   nestjs:

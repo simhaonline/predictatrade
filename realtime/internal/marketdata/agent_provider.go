@@ -295,6 +295,31 @@ type AgentProvider struct {
 	// only log a transition per agent.
 	capitalStateMu   sync.Mutex
 	lastCapitalState map[string]string
+
+	// ── Ingest bulkhead (production hardening) ──
+	// Per-agent message rate limiting + quarantine so a single misbehaving,
+	// laggy, or flooding EA cannot consume shared engine resources or starve
+	// other clients (defense-in-depth on top of the immutable-snapshot
+	// StateManager and per-client account-state isolation).
+	guardMu              sync.Mutex
+	agentMsgCount        map[string]int
+	agentWindowStart     map[string]time.Time
+	agentQuarantinedUntil map[string]time.Time
+
+	// Redundant-message de-duplication: identical repeated messages of low-value
+	// types (CAPITAL_WARNING / CAPITAL_PROTECTION) are dropped before processing
+	// so a per-tick emitter cannot flood the engine. State-change detection is
+	// preserved because the signature includes the full message body.
+	agentLastSig map[string]map[string]string
+
+	// Single-writer market-state merge. MARKET_SNAPSHOT merges into the shared
+	// MarketState through one coalescing goroutine instead of one writer per
+	// agent connection. This removes the N-writer contention / race class on the
+	// shared MarketState (see features.StateManager.Get snapshot clone) regardless
+	// of how many agents stream snapshots.
+	snapshotPendingMu sync.Mutex
+	snapshotPending   map[string]*MarketSnapshot
+	snapshotStop      chan struct{}
 }
 
 // SetConfiguredOffset overrides auto-detection with an explicit broker UTC
@@ -475,13 +500,24 @@ func (p *AgentProvider) SetExecutionAckFn(fn func(agentID string, data []byte)) 
 }
 
 func NewAgentProvider() *AgentProvider {
-	return &AgentProvider{
+	p := &AgentProvider{
 		name:      "MT5_AGENT",
 		agents:    make(map[string]chan *AgentTickMessage),
 		tickChan:  make(chan *types.Tick, 4096),
 		stopChan:  make(chan struct{}),
 		validator: NewTickValidator(),
+
+		agentMsgCount:         make(map[string]int),
+		agentWindowStart:      make(map[string]time.Time),
+		agentQuarantinedUntil: make(map[string]time.Time),
+		agentLastSig:          make(map[string]map[string]string),
+
+		snapshotPending: make(map[string]*MarketSnapshot),
+		snapshotStop:    make(chan struct{}),
 	}
+	// Single-writer market-state merge loop (see field docs above).
+	go p.snapshotMergeLoop()
+	return p
 }
 
 func (p *AgentProvider) Name() string { return p.name }
@@ -585,6 +621,97 @@ func normalizeSymbol(s string) string {
 	return s
 }
 
+// ── Ingest bulkhead constants (production hardening) ──
+const (
+	// maxAgentMsgsPerWindow is the max messages an agent may send per
+	// agentRateWindow before being quarantined. Generous for normal
+	// high-frequency tick feeds; catches pathological floods.
+	maxAgentMsgsPerWindow = 5000
+	agentRateWindow       = time.Second
+	agentQuarantinePeriod = 60 * time.Second
+
+	// redundantMsgTypes are de-duplicated: identical repeated messages of these
+	// types are dropped before processing (state-change detection preserved via
+	// the full-body signature).
+	redundantMsgTypes = "CAPITAL_WARNING,CAPITAL_PROTECTION"
+)
+
+// ingestGuard enforces the per-agent bulkhead: rate limiting, quarantine, and
+// redundant-message de-duplication. It returns true if the message should be
+// processed. A false return means the message was dropped (quarantined or a
+// redundant duplicate) and must not be processed further.
+func (p *AgentProvider) ingestGuard(agentID, msgType string, data []byte) bool {
+	p.guardMu.Lock()
+	defer p.guardMu.Unlock()
+
+	now := time.Now()
+
+	// Quarantine: drop everything from a quarantined agent until it expires.
+	if until, ok := p.agentQuarantinedUntil[agentID]; ok && now.Before(until) {
+		return false
+	}
+
+	// Rate limit (per-agent sliding window).
+	if start, ok := p.agentWindowStart[agentID]; !ok || now.Sub(start) > agentRateWindow {
+		p.agentWindowStart[agentID] = now
+		p.agentMsgCount[agentID] = 0
+	}
+	p.agentMsgCount[agentID]++
+	if p.agentMsgCount[agentID] > maxAgentMsgsPerWindow {
+		p.agentQuarantinedUntil[agentID] = now.Add(agentQuarantinePeriod)
+		log.Printf("[AGENT-BULKHEAD] agent=%s quarantined for %s — message rate exceeded (%d in %s)",
+			agentID, agentQuarantinePeriod, p.agentMsgCount[agentID], agentRateWindow)
+		return false
+	}
+
+	// Redundant de-duplication for low-value repeated message types.
+	for _, rt := range strings.Split(redundantMsgTypes, ",") {
+		if msgType != rt {
+			continue
+		}
+		if p.agentLastSig[agentID] == nil {
+			p.agentLastSig[agentID] = make(map[string]string)
+		}
+		sig := string(data)
+		if prev, ok := p.agentLastSig[agentID][msgType]; ok && prev == sig {
+			return false // identical repeated message — drop before processing
+		}
+		p.agentLastSig[agentID][msgType] = sig
+		break
+	}
+
+	return true
+}
+
+// snapshotMergeLoop is the single writer that merges MARKET_SNAPSHOT data into
+// the shared MarketState. Snapshots are coalesced per symbol, so concurrent
+// agent connections never write the shared MarketState directly — eliminating
+// the N-writer contention / race class regardless of client count.
+func (p *AgentProvider) snapshotMergeLoop() {
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-p.snapshotStop:
+			return
+		case <-ticker.C:
+			p.snapshotPendingMu.Lock()
+			pending := p.snapshotPending
+			p.snapshotPending = make(map[string]*MarketSnapshot)
+			p.snapshotPendingMu.Unlock()
+			for sym, snap := range pending {
+				if p.stateMgr != nil {
+					p.stateMgr.Update(sym, func(stateRaw any) {
+						if p.mergeSnapshotFn != nil {
+							p.mergeSnapshotFn(stateRaw, snap)
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
 // HandleAgentMessage processes a raw JSON message from a Windows Agent WebSocket connection.
 // It detects the message type and routes accordingly:
 //   - "TICK" / "MASTER_TICK" → tick processing pipeline
@@ -609,6 +736,12 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		if err := json.Unmarshal(data, &tickCheck); err == nil && tickCheck.Bid > 0 && tickCheck.Ask > 0 {
 			msgType = "MASTER_TICK" // Treat as master tick
 		}
+	}
+
+	// Ingest bulkhead: per-agent rate limit, quarantine, and redundant-message
+	// de-duplication. Drop messages that fail the guard before any processing.
+	if !p.ingestGuard(agentID, msgType, data) {
+		return
 	}
 
 	switch msgType {
@@ -685,16 +818,13 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		// CRITICAL: Merge authoritative MT5 indicators and bars into MarketState
 		// The Master Node EA computes all 14 indicators natively in MT5.
 		// These are AUTHORITATIVE values — do not use locally computed approximations.
+		// Merged through the single-writer coalescing loop (see snapshotMergeLoop)
+		// to avoid N concurrent writers onto the shared MarketState.
 		if p.stateMgr != nil {
-			p.stateMgr.Update(normalizeSymbol(snapshot.Symbol), func(stateRaw any) {
-				// Type-assert to *features.MarketState via reflection-free approach
-				// Since stateMgr uses a func(any) update callback, we need a concrete type
-				// The actual type is *features.MarketState but we can't import it here
-				// Instead we use a helper that the main loop provides
-				if mergeFn := p.mergeSnapshotFn; mergeFn != nil {
-					mergeFn(stateRaw, &snapshot)
-				}
-			})
+			snapCopy := snapshot
+			p.snapshotPendingMu.Lock()
+			p.snapshotPending[normalizeSymbol(snapshot.Symbol)] = &snapCopy
+			p.snapshotPendingMu.Unlock()
 		}
 
 		// CRITICAL: Sync per-TF broker CopyRates bars into the engine candle
