@@ -28,59 +28,56 @@ Open in browser: `http://127.0.0.1:9000`
 
 | Item | Location |
 |------|----------|
-| Agent binary | `C:\PredictATrade\XAUUSD\pat-agent.exe` |
+| Client Agent binary | `C:\PredictATrade\XAUUSD\pat-agent.exe` |
+| Master Node binary | `C:\PredictATrade\XAUUSD\pat-master.exe` |
 | Config file | `C:\PredictATrade\XAUUSD\settings.json` |
 | Support scripts | `C:\PredictATrade\XAUUSD\health-check.ps1`, `status.ps1`, `notify.ps1` |
 | Log files | `C:\PredictATrade\XAUUSD\logs\` |
-| Agent logs (service mode) | `C:\ProgramData\PredictATrade\logs\agent.log` |
+| Client agent logs (service mode) | `C:\ProgramData\PredictATrade\logs\agent.log` |
+| Master agent logs (service mode) | `C:\ProgramData\PredictATrade\logs\master_agent.log` |
 | Device identity | `C:\ProgramData\PredictATrade\device.key` |
-| Windows Service | `pat-agent` (auto-start, auto-restart on crash) |
+| Windows Service (Client) | `pat-agent-client` (auto-start, auto-restart on crash) |
+| Windows Service (Master) | `pat-agent-master` (auto-start, auto-restart on crash) |
 | Scheduled Task | `PredictATradeHealthCheck` (runs every 1 min) |
 | Event Log Source | `pat-agent` (Application log) |
-| Defender Exclusion | `C:\PredictATrade` folder + `pat-agent.exe` process |
+| Defender Exclusion | `C:\PredictATrade` folder + agent binaries |
 
 ## Windows Service
 
-The agent runs as a **native Windows Service** (not NSSM). It communicates directly with the Windows Service Control Manager using `golang.org/x/sys/windows/svc`.
+Each role runs as a **native Windows Service** (not NSSM). It communicates directly with the Windows Service Control Manager using `golang.org/x/sys/windows/svc`.
 
-| Property | Value |
-|----------|-------|
-| Service name | `pat-agent` |
-| Display name | Predict-A-Trade XAUUSD Agent |
-| Start type | Automatic |
-| Recovery | Restart after 5s, 10s, 30s (3 attempts, reset every 24h) |
-| Runs as | LocalSystem |
+| Role | Service name | Display name | Health port |
+|------|--------------|--------------|-------------|
+| Client Agent | `pat-agent-client` | Predict-A-Trade XAUUSD Client Agent | 9000 |
+| Master Node | `pat-agent-master` | Predict-A-Trade XAUUSD Master Node | 9001 |
+
+Both services: Start type = Automatic; Recovery = restart after 5s/10s/30s (3 attempts, reset every 24h); Run as LocalSystem.
 
 ### Service Commands
 ```powershell
-# Check status
-Get-Service pat-agent
+# Client Agent
+Get-Service pat-agent-client
+Start-Service pat-agent-client
+Stop-Service pat-agent-client
+Restart-Service pat-agent-client
 
-# Start
-Start-Service pat-agent
-
-# Stop
-Stop-Service pat-agent
-
-# Restart
-Restart-Service pat-agent
-
-# View in Task Manager
-# Task Manager → Services tab → pat-agent
+# Master Node
+Get-Service pat-agent-master
+Start-Service pat-agent-master
+Stop-Service pat-agent-master
+Restart-Service pat-agent-master
 ```
 
 ## Health Endpoint
 
-The agent serves a local-only HTTP status page on `http://127.0.0.1:9000`.
+Each role serves a local-only HTTP status page:
 
-| URL | Returns |
-|-----|---------|
-| `http://127.0.0.1:9000/` | HTML status dashboard (auto-refreshing every 5s) |
-| `http://127.0.0.1:9000/status` | Same HTML dashboard |
-| `http://127.0.0.1:9000/health` | JSON health check (200 OK = healthy) |
-| `http://127.0.0.1:9000/api/status` | Full JSON status snapshot |
+| Role | Base URL |
+|------|----------|
+| Client Agent | `http://127.0.0.1:9000` |
+| Master Node | `http://127.0.0.1:9001` |
 
-The port can be changed with environment variable `PAT_HEALTH_PORT=9001`.
+Each supports `/`, `/status` (HTML dashboard, auto-refreshing), `/health` (JSON health check, 200 OK = healthy), and `/api/status` (full JSON snapshot). The port can be overridden with `PAT_HEALTH_PORT`.
 
 ## MetaTrader Setup
 
@@ -101,6 +98,7 @@ The port can be changed with environment variable `PAT_HEALTH_PORT=9001`.
 |---------|----------|
 | v1.08 | TRADE_RESULT reporting, wrong-side SL rejection, watchdog, partial TP1/TP2/3 |
 | v1.09 | + CLOSE_POSITION handler, EMERGENCY_STOP handler, KILL_SWITCH handler, position SL in snapshot |
+| v1.10 | `AutoExecute` now defaults to **false** (signal-only). New `BypassDailyLossBlock` EA input bypasses the soft daily-loss guard (hard halt remains non-bypassable). Client terminal logs emit `STATUS` / `SIGNAL RECEIVED` / `CAPITAL` lines in broker/server time; license strategy detail omitted |
 
 ## Configuration
 
@@ -134,16 +132,16 @@ The `settings.json` file in the install directory contains:
 ## Troubleshooting
 
 ### Service won't start
-1. Check log file: `C:\ProgramData\PredictATrade\logs\agent.log`
+1. Check log file: `C:\ProgramData\PredictATrade\logs\agent.log` (client) or `master_agent.log` (master)
 2. Check Windows Event Viewer → Application → Source: `pat-agent`
-3. Try running manually: Open Command Prompt → `C:\PredictATrade\XAUUSD\pat-agent.exe`
-4. Check if port 9000 is in use: `netstat -an | findstr :9000`
+3. Try running manually: Open Command Prompt → `C:\PredictATrade\XAUUSD\pat-agent.exe` (or `pat-master.exe`)
+4. Check if the health port is in use: `netstat -an | findstr :9000` (client) or `:9001` (master)
 5. Check Windows Defender: Security → Protection history → look for blocked items
 
 ### Health endpoint not responding
-1. Verify service is running: `Get-Service pat-agent`
-2. Check if port 9000 is in use by another process
-3. Try different port: set `PAT_HEALTH_PORT=9001` environment variable
+1. Verify service is running: `Get-Service pat-agent-client` (or `pat-agent-master`)
+2. Check if the port is in use by another process
+3. Try a different port: set `PAT_HEALTH_PORT` environment variable
 4. Check agent log: `C:\ProgramData\PredictATrade\logs\agent.log`
 
 ### No data feed from MetaTrader
@@ -151,7 +149,7 @@ The `settings.json` file in the install directory contains:
 2. Check EA is enabled (smiley face in top-right of chart)
 3. Verify IPC files exist in MetaQuotes Common\Files folder (look for `PAT_ticks.txt`)
 4. Check MetaTrader Journal tab for EA errors
-5. Restart the agent service: `Restart-Service pat-agent`
+5. Restart the Master service: `Restart-Service pat-agent-master`
 
 ### No signals received
 1. Verify Execution EA is attached with correct license key
@@ -183,14 +181,16 @@ The agent supports server-side commands for capital protection:
 | `EMERGENCY_STOP` | Capital protection triggered | Closes ALL PAT positions + halts |
 | `KILL_SWITCH` | Security incident | Closes all + stops EA + disconnects |
 
+> **EA-side daily-loss guard:** the Execution EA also enforces its own client-side guard — a **soft** limit blocks new entries only (recovers intraday) and is bypassable via the `BypassDailyLossBlock` EA input, while a **hard** limit (`MaxDailyLossPct`) closes all positions and is **never** bypassable. See the [Windows Agent Guide](docs/guides/WINDOWS_AGENT.md) for details.
+
 ## Auto-Update
 
-The agent checks for updates every hour by downloading `update-manifest.json` from the server. If a new version is available, it:
-1. Downloads the new `pat-agent.exe`
+The agent checks for updates every hour by downloading the role-specific `update-manifest.json` from the server. If a new version is available, it:
+1. Downloads the role binary (`pat-agent.exe` for the Client, `pat-master.exe` for the Master Node)
 2. Verifies SHA256 checksum
 3. Stops the service, swaps the binary, restarts
 
-Manual update: just re-run the install command — it handles updates automatically.
+Manual update: just re-run the role install command — it handles updates automatically.
 
 ## Build (for developers)
 

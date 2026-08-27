@@ -167,7 +167,7 @@ Get-Service pat-agent-master     # master
 | `status.ps1` | Status report (role-aware via `-Mode`). |
 | `health-check.ps1` | Hang/crash monitor (role-aware via `-Mode`); used by Scheduled Task. |
 | `pat-agent.exe` | Client Agent binary. |
-| `pat-master.exe` | Master Node binary (identical build to `pat-agent.exe`). |
+| `pat-master.exe` | Master Node binary (separate build from the distinct `cmd/master` entrypoint). |
 | `notify.ps1` | Multi-channel notification dispatcher. |
 | `settings.json` | Config template (notification + health params). |
 | `install.bat` | Batch wrapper for double-click install. |

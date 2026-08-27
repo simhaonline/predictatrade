@@ -56,6 +56,8 @@ The broker server runs in GMT+3 (standard XAUUSD FX broker time, no DST). All se
 
 **Capital-Loss Protection (5%):** New `SeedCapitalProtection` gate enforces a fail-closed daily loss cap of 5% of account equity. Engine computes account-size-aware position sizing (`SuggestedLot`, `RiskDollars`, `RiskPctOfEquity`, `SLDistancePoints`) and annotates every signal with these metrics.
 
+**Client EA daily-loss guard (separate from server gates):** The Execution EA enforces its own client-side guard independent of the server risk gates above — a **soft** limit (`WarningLossPct`) blocks new entries only and recovers intraday (day boundary = broker/server day; day-open balance derived from realized P&L so re-attaching mid-day does not overstate the loss), and a **hard** limit (`MaxDailyLossPct`) closes all positions as a non-bypassable emergency backstop. The soft limit can be bypassed by the operator via the `BypassDailyLossBlock` EA input. `AutoExecute` now defaults to **false** (signal-only). See the [Windows Agent Guide](../guides/WINDOWS_AGENT.md).
+
 **Gate State Isolation:** All 16 gates now maintain per-(strategy, timeframe) state to prevent cross-strategy contamination. Each strategy+timeframe pair has independent gate tracking.
 
 **Operator Edge-Arming:** Gates can be armed by operator for specific strategies, enabling broker-position authorization for live EXECUTABLE delivery. `ExecutionPermission` gate now supports per-strategy operator override.

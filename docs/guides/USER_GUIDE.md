@@ -210,18 +210,34 @@ The Windows Agent installs the MQL EA automatically. Manual steps:
 5. Enable "Allow Automated Trading" in MT4/MT5
 
 ### Agent Features
-- **Auto-trade mode:** EA executes signals automatically (configurable)
-- **Manual mode:** Agent shows signals, you place trades manually
-- **Risk controls:** Max lot size, max spread, daily loss cap
-- **Capital protection:** EA auto-closes all on daily loss limit breach
-- **SL enforcement:** Server verifies stop losses are set correctly
-- **Emergency commands:** CLOSE_POSITION, EMERGENCY_STOP, KILL_SWITCH from server
+- **Auto-trade mode:** when `AutoExecute` is enabled, the EA executes received signals automatically. **Default is `false` (signal-only)** — the EA displays signals and you place trades manually.
+- **Manual mode:** with `AutoExecute=false`, the agent shows signals and you place trades manually.
+- **Risk controls:** max lot size, max spread, and an EA-side daily-loss guard.
+- **Capital protection (EA-side daily-loss guard):** a **soft** limit blocks only *new* entries (and recovers intraday if the loss recedes); a **hard** limit closes *all* positions as an emergency backstop. The soft limit can be bypassed by the operator via the `BypassDailyLossBlock` EA input; the hard limit is never bypassable.
+- **SL enforcement:** Server verifies stop losses are set correctly.
+- **Emergency commands:** CLOSE_POSITION, EMERGENCY_STOP, KILL_SWITCH from server.
 
-### Safety Features (mandatory, cannot be disabled)
+### Execution EA Input Parameters
+| Input | Default | Description |
+|-------|:-------:|-------------|
+| `AutoExecute` | **false** | When `true`, the EA auto-executes received signals. Default `false` = **signal-only** (display signals; you place trades manually). |
+| `ExecuteCandidates` | false | When `true` (and `AutoExecute=true`), candidate signals are also executed as real trades. |
+| `BypassDailyLossBlock` | false | When `true`, the EA keeps trading past the **soft** daily-loss limit (new entries allowed). The **hard** halt at `MaxDailyLossPct` is **never** bypassed. Use with caution. |
+
+### Client Terminal Logs (MT4/MT5 Experts + `error.log`)
+The EA writes human-readable, prefixed lines to the terminal **Experts** log and to `error.log` in the MetaQuotes `Common\Files` folder. All times are **broker/server time** (not UTC):
+- `[Predict-A-Trade] STATUS: Access Granted | License: ACTIVE | Subscription: ELITE` — printed once when license state changes.
+- `[Predict-A-Trade] SIGNAL RECEIVED | Symbol: XAUUSD | Type: BUY | Price: … | Lot: …` — every signal received.
+- `[Predict-A-Trade] CAPITAL | dayOpenBal: … | dailyPnL: … | lossPct: … | status: BLOCKED/RESUMED …` — daily-loss guard state.
+- `[Predict-A-Trade] CAPITAL DEAL #n | date(Broker): … | profit: … | swap: … | commission: …` — each PAT/XAUUSD deal counted as "today" when the block triggers (use to verify which deals feed the daily loss).
+- License *strategy* detail is intentionally omitted from these terminal logs.
+
+### Safety Features (mostly mandatory; the EA-side soft daily-loss guard is operator-bypassable)
 | Feature | Behaviour |
 |---------|-----------|
 | Server-side SL | Server verifies SL is set; closes position if missing |
-| Max daily loss | EA closes all positions if daily loss cap hit |
+| Daily-loss guard (soft) | EA blocks new entries after the soft daily-loss limit; recovers intraday if loss recedes. Bypassable via `BypassDailyLossBlock`. |
+| Daily-loss halt (hard) | At `MaxDailyLossPct` the EA closes **all** positions. Emergency backstop — **never** bypassable. |
 | Max spread gate | Signals blocked if spread exceeds limit |
 | Slippage guard | Post-fill slippage check, reports violations |
 | Margin check | OrderCalcMargin before every order |

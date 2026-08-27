@@ -48,3 +48,5 @@ Validates SL/TP/lot against broker symbol metadata (min stop, min freeze, max sp
 - Gate failures produce distinct status (never masked as NO-TRADE)
 - Engine liveness tracking distinguishes DEGRADED from NO-TRADE
 - Gate state is isolated per (strategy, timeframe) — no cross-contamination
+
+> **Distinction — server gates vs. client EA guard:** The gates above are enforced by the **Go real-time engine** (server-side). The MetaTrader **Execution EA** additionally enforces its own client-side daily-loss guard, which is independent of these gates: a **soft** limit (`WarningLossPct`) blocks new entries only and recovers intraday (bypassable via the `BypassDailyLossBlock` EA input), while a **hard** limit (`MaxDailyLossPct`) closes all positions and is never bypassable. `AutoExecute` defaults to **false** (signal-only). See the [Windows Agent Guide](../guides/WINDOWS_AGENT.md).

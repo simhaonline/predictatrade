@@ -56,6 +56,26 @@ The thin role wrappers (`client/install.ps1`, `master/install.ps1`) download the
 
 > The EA can be on **any chart timeframe** (M1/M5/M15/H1…). Execution is by symbol + price levels, not chart timeframe, so a client chart on M15 still executes an M5 signal correctly.
 
+#### Execution EA input parameters
+| Input | Default | Description |
+|-------|:-------:|-------------|
+| `AutoExecute` | **false** | When `true`, the EA auto-executes received signals. Default `false` = **signal-only** (display signals; you place trades manually). |
+| `ExecuteCandidates` | false | When `true` (and `AutoExecute=true`), candidate signals are also executed as real trades. |
+| `BypassDailyLossBlock` | false | When `true`, the EA keeps trading past the **soft** daily-loss limit. The **hard** halt at `MaxDailyLossPct` is **never** bypassed. Use with caution. |
+
+#### EA-side daily-loss guard (capital protection)
+The Execution EA enforces its own daily-loss guard, independent of the server-side risk gates:
+- **Soft limit (`WarningLossPct`)** — blocks only *new* entries; it re-evaluates every tick and **recovers** (unblocks) intraday if the daily loss recedes below the limit. The day boundary is the **broker/server day** (not UTC), and the day-open balance is derived from realized P&L so an EA re-attach mid-day does not overstate the loss.
+- **Hard limit (`MaxDailyLossPct`)** — closes **all** positions as an emergency backstop. This is **never** bypassable, even with `BypassDailyLossBlock=true`.
+
+#### Client terminal logs
+The EA writes prefixed lines to the MT4/MT5 **Experts** log and to `error.log` in the MetaQuotes `Common\Files` folder (all times are **broker/server time**, not UTC):
+- `[Predict-A-Trade] STATUS: Access Granted | License: ACTIVE | Subscription: ELITE` (printed only when license state changes)
+- `[Predict-A-Trade] SIGNAL RECEIVED | Symbol: XAUUSD | Type: BUY | Price: … | Lot: …`
+- `[Predict-A-Trade] CAPITAL | dayOpenBal: … | dailyPnL: … | lossPct: … | status: BLOCKED/RESUMED …`
+- `[Predict-A-Trade] CAPITAL DEAL #n | date(Broker): … | profit: … | swap: … | commission: …` (each deal counted as "today" when the block triggers — use to verify which deals feed the daily loss)
+- License *strategy* detail is intentionally omitted from these terminal logs.
+
 ---
 
 ## 2. Update
@@ -150,7 +170,7 @@ The download server serves `windows-agent/deploy/` at `https://downloads.predict
 | `status.ps1` | Status report (role-aware via `-Mode`). |
 | `health-check.ps1` | Hang/crash monitor (role-aware via `-Mode`); used by Scheduled Task. |
 | `pat-agent.exe` | Client Agent binary. |
-| `pat-master.exe` | Master Node binary (identical build to `pat-agent.exe`). |
+| `pat-master.exe` | Master Node binary (separate build from the distinct `cmd/master` entrypoint). |
 | `notify.ps1` | Multi-channel notification dispatcher. |
 | `settings.json` | Config template (notification + health params). |
 | `install.bat` | Batch wrapper for double-click install. |
@@ -166,7 +186,8 @@ The download server serves `windows-agent/deploy/` at `https://downloads.predict
 | Feature | Behaviour |
 |---------|-----------|
 | Server-side SL | Server verifies SL is set; closes position if missing |
-| Max daily loss | EA closes all positions if daily loss cap hit |
+| Daily-loss guard (soft) | EA blocks new entries after the soft daily-loss limit; recovers intraday. Bypassable via `BypassDailyLossBlock`. |
+| Daily-loss halt (hard) | At `MaxDailyLossPct` the EA closes all positions. Emergency backstop — never bypassable. |
 | Max spread gate | Signals blocked if spread exceeds limit |
 | Slippage guard | Post-fill slippage check, reports violations |
 | Margin check | OrderCalcMargin before every order |

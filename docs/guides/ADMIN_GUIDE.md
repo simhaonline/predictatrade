@@ -115,6 +115,7 @@ Active plans: FREE, STANDARD ($99/mo), PRO ($299/mo), ELITE ($699/mo)
 - Agent commands: disconnect, emergency stop, kill switch
 - Live agent status visible via `/api/v1/agents/status` and admin dashboard
 - **EA Diagnostics (v1.16.x):** TRADE-CONFIG startup diagnostic confirms AutoExecute/ExecuteCandidates/algo-trading flags. SIGNAL-EXEC-CHECK reveals execution decision per signal — traces swap/triple-swap vetoes, duplicate ID filtering, license status, and all silent veto reasons
+- **EA defaults & capital protection:** `AutoExecute` now defaults to **false** (signal-only — the EA displays signals; operators must opt in to auto-trade). The Execution EA enforces a client-side daily-loss guard: a **soft** limit blocks new entries only (recovers intraday, bypassable via the `BypassDailyLossBlock` EA input) and a **hard** limit (`MaxDailyLossPct`) closes all positions and is **never** bypassable. Client terminal logs (`error.log` / Experts) emit `STATUS`, `SIGNAL RECEIVED`, and `CAPITAL` lines (all times broker/server time, not UTC); license *strategy* detail is intentionally omitted.
 
 ---
 
