@@ -201,14 +201,22 @@ cd /srv/predictatrade/xauusd
 ```
 
 This produces:
-- `windows-agent/bin/pat-agent.exe` — the binary
-- `windows-agent/deploy/pat-agent.exe` — copy for nginx serving
-- `windows-agent/deploy/version.txt` — version number
-- `windows-agent/deploy/update-manifest.json` — checksum + metadata
+- `windows-agent/bin/pat-agent.exe` — Client binary (execution)
+- `windows-agent/bin/pat-master.exe` — Master Node binary (data-only)
+- `windows-agent/deploy/client/pat-agent.exe` — Client copy for nginx serving
+- `windows-agent/deploy/master/pat-master.exe` — Master Node copy for nginx serving
+- `windows-agent/deploy/version.txt` — shared version number
+- `windows-agent/deploy/update-manifest.json` — Client checksum + metadata
+- `windows-agent/deploy/master/update-manifest.json` — Master Node checksum + metadata
+
+The two roles ship as **separate binaries** built from distinct entrypoints
+(`cmd/client` and `cmd/master`); the role is fixed by the binary, not a runtime
+flag. See `docs/guides/WINDOWS_AGENT.md` for install/update/uninstall details.
 
 ### Build flags
 ```
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o pat-agent.exe ./cmd/agent/
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o pat-agent.exe ./cmd/client/
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o pat-master.exe ./cmd/master/
 ```
 
 No `.syso` manifest file is used — the binary is a plain Go executable. The Windows Service protocol is handled by `golang.org/x/sys/windows/svc` in `internal/service.go`.
@@ -229,14 +237,18 @@ MetaTrader 4/5 Terminal
     MetaQuotes Common\Files (IPC)
               │
               ▼
-    Windows Agent (pat-agent.exe)
-    ├── reads IPC files from EA
-    ├── forwards ticks to Go RT engine via WebSocket
-    ├── receives signals from Go RT engine
-    ├── writes signals to IPC for EA
-    ├── serves health endpoint on :9000
-    ├── auto-updates from download server
-    └── runs as native Windows Service
+    Windows Agent (TWO separate binaries)
+    ├── Master Node (pat-master.exe, data-only)
+    │     ├── reads IPC ticks/candles from Master Node EA
+    │     ├── forwards ticks to Go RT engine (data WS, port 13091)
+    │     ├── serves health endpoint on :9001
+    │     └── never executes — ignores all execution server messages
+    └── Client Agent (pat-agent.exe, execution)
+          ├── reads IPC from Execution EA + writes signals to IPC
+          ├── receives signals from Go RT engine (exec WS, port 13081)
+          ├── forwards CLOSE_POSITION/EMERGENCY_STOP/KILL_SWITCH to EA
+          ├── serves health endpoint on :9000
+          └── auto-updates from download server (role-specific manifest)
               │
               ▼
     Go Real-Time Engine (server)
@@ -259,6 +271,7 @@ MetaTrader 4/5 Terminal
 | v1.2.23 | Aug 25 | Remove .syso manifest (was causing App Control block) |
 | v1.2.24 | Aug 25 | Use native Windows Service (svc.Run) instead of NSSM |
 | v1.2.25 | Aug 25 | Fix sc.exe path quoting + file logging in service mode |
+| v1.2.32 | Aug 27 | Split into two separate binaries: Client (`pat-agent.exe`, `cmd/client`) and Master Node (`pat-master.exe`, `cmd/master`). Role fixed by binary; no runtime `--mode`. Distinct `deploy/client` + `deploy/master` artifacts with per-role update manifests. |
 
 ## Support
 
