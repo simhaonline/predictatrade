@@ -35,6 +35,7 @@
 
 // ─── Signal/Execution inputs ───
 input bool    AutoExecute    = false;   // SIGNAL_ONLY=true by default (display only). Set true to auto-trade.
+input bool    BypassDailyLossBlock = false; // Allow new trades even after the soft daily-loss limit is hit. Hard halt (close-all at MaxDailyLossPct) is NEVER bypassed.
 input string  LicenseKey     = "";
 input string  ChartTimeframe = "M1";    // Chart/timeframe this EA instance trades (M1/M5/H1/...)
 
@@ -1298,6 +1299,14 @@ void UpdateCapitalProtection()
         effWarning  = WarningLossPct * 2.0;
     }
 
+    // Client override: if BypassDailyLossBlock is enabled, never keep the soft
+    // block active (immediate unblock when the operator toggles it on).
+    if(BypassDailyLossBlock && g_tradingBlocked)
+    {
+        g_tradingBlocked = false;
+        Print("CAPITAL PROTECTION: soft daily-loss block BYPASSED by client input — trading re-enabled");
+    }
+
     // RECOVERY: if the daily loss is no longer beyond the soft halt, clear the
     // block so a recovered/healthy account is not stuck blocked for the day.
     // (Previously g_tradingBlocked was set true but never re-evaluated, so a
@@ -1332,7 +1341,7 @@ void UpdateCapitalProtection()
             PAT_Append(PAT_TICK_FILE, warnMsg + "\n");
             Print("CAPITAL WARNING: daily P&L=", g_dailyPnL, " (", lossPct, "%)");
         }
-        if(lossPct <= -effSoftHalt && !g_tradingBlocked)
+        if(!BypassDailyLossBlock && lossPct <= -effSoftHalt && !g_tradingBlocked)
         {
             g_tradingBlocked = true;
             Print("*** CAPITAL PROTECTION (SOFT): Daily loss ", lossPct, "% — new entries blocked ***");
@@ -2075,6 +2084,7 @@ void UpdatePanel()
     p += "Time:     " + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\n";
     p += "Slip rejects: " + IntegerToString(g_slippageRejects) + "\n";
     p += "Daily P&L: " + DoubleToString(g_dailyPnL, 2) + "\n";
+    if(BypassDailyLossBlock) p += "DailyLoss guard: BYPASSED (client override)\n";
     if(g_tradingBlocked) p += "*** TRADING BLOCKED (daily loss) ***\n";
     if(g_equityHalted)   p += "*** HALTED: EQUITY FLOOR ***\n";
     if(AvoidSwapCharges)
