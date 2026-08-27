@@ -102,6 +102,9 @@ services:
       # equity (demo/paper). Lets risk-sizing gates pass so entitled+authorized
       # signals become executable. Ignored when a real broker equity is present.
       - PAT_PAPER_EQUITY=10000
+      # Optional: uncomment to decouple inbound agent data from the signal engine
+      # via NATS (the `nats` service above must be running).
+      # - NATS_URL=nats://nats:4222
     extra_hosts:
       # Host Ollama AI proxy (sentiment) — iptables restricts 11434 to docker nets
       - "host.docker.internal:host-gateway"
@@ -295,6 +298,23 @@ services:
     volumes:
       - pat-ntfy:/var/lib/ntfy
       - ./infra/ntfy/server.yml:/etc/ntfy/server.yml:ro
+    networks:
+      - pat-net
+    restart: always
+
+  # NATS — optional ingest/signal decoupling backbone. The realtime engine
+  # defaults to an in-process DirectBus (no NATS). To fully decouple
+  # data-collection from the signal engine (enables a separate ingest service),
+  # set NATS_URL=nats://nats:4222 on the `realtime` service (and it will
+  # activate automatically; the engine falls back to in-process on connect
+  # failure, so this service is safe to leave running regardless).
+  nats:
+    image: nats:2.10-alpine
+    container_name: pat-nats
+    command: ["--jetstream", "--http_port", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
     networks:
       - pat-net
     restart: always

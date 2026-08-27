@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/predictatrade/realtime/pkg/bus"
 )
 
 // AgentDataProvider is implemented by marketdata.AgentProvider.
@@ -53,6 +54,19 @@ type AgentHub struct {
 	// strategy filtering based on license allowed_strategies.
 	// Returns true if the agent is allowed to receive signals for the given strategy.
 	strategyFilter func(agentID, strategyID string) bool
+
+	// Risk check — set by main.go to enforce PER-CLIENT risk isolation at
+	// signal delivery. It reads the receiving agent's own account state so one
+	// client's blown/over-exposed account can never contaminate another's
+	// executable signals. Fail-open: nil check (or a nil-returning func) means
+	// all clients pass.
+	riskCheckFn func(agentID string) bool
+
+	// Ingest bus — decouples data-collection (inbound agent messages) from the
+	// signal engine. Default is a DirectBus (in-process, same as before). When
+	// NATS is configured, the publisher enqueues and a subscriber dispatches.
+	ingestBus bus.IngestBus
+	ingestSub bus.IngestSubscriber
 
 	// Live connection-state callbacks — set by main.go so the engine can
 	// publish authoritative agent connect/disconnect/terminal-link state into
@@ -126,6 +140,28 @@ func (h *AgentHub) SetStrategyFilter(filter func(agentID, strategyID string) boo
 	h.strategyFilter = filter
 }
 
+// SetRiskCheck sets the per-client risk filter applied at signal delivery.
+// It must read the receiving agent's OWN account/risk state and return true
+// if that client may receive EXECUTABLE signals. It is intentionally
+// fail-open: an unset check (or a nil receiver) allows all clients, so this
+// can never introduce a global signal blackout.
+func (h *AgentHub) SetRiskCheck(fn func(agentID string) bool) {
+	h.riskCheckFn = fn
+}
+
+// SetIngestBus configures the inbound message transport. Passing a DirectBus
+// preserves the original in-process behavior; passing a NatsBus decouples
+// ingestion from processing.
+func (h *AgentHub) SetIngestBus(b bus.IngestBus) {
+	h.ingestBus = b
+}
+
+// SetIngestSubscriber configures the consumer side (NATS only). When set, Run
+// starts a dispatcher that feeds inbound messages to the engine handler.
+func (h *AgentHub) SetIngestSubscriber(s bus.IngestSubscriber) {
+	h.ingestSub = s
+}
+
 // SetOnConnect registers a callback fired when an agent connection is registered.
 func (h *AgentHub) SetOnConnect(fn func(agentID string)) { h.onConnect = fn }
 
@@ -136,6 +172,14 @@ func (h *AgentHub) SetOnDisconnect(fn func(agentID string)) { h.onDisconnect = f
 func (h *AgentHub) SetOnTerminals(fn func(agentID string, mt4, mt5 bool)) { h.onTerminals = fn }
 
 func (h *AgentHub) Run() {
+	// If a NATS (or other external) subscriber is configured, start the
+	// dispatcher that feeds inbound messages to the engine handler. The
+	// DirectBus path needs no subscriber (Publish dispatches in-process).
+	if h.ingestSub != nil {
+		go func() {
+			_ = h.ingestSub.Subscribe(h.provider.HandleAgentMessage)
+		}()
+	}
 	for {
 		select {
 		case agent := <-h.register:
@@ -280,6 +324,15 @@ func (h *AgentHub) SendFilteredSignalToAgents(eventID, streamID, eventType, prio
 			skipped++
 			continue
 		}
+		// Per-client risk isolation: a client whose own account has no buying
+		// power must not receive executable signals. This is evaluated on the
+		// RECEIVING agent's own account state and is fail-open, so one client's
+		// blown/over-exposed account can never contaminate another client's
+		// signals or cause a global blackout.
+		if h.riskCheckFn != nil && !h.riskCheckFn(agentID) {
+			skipped++
+			continue
+		}
 		select {
 		case agent.send <- data:
 			sent++
@@ -407,9 +460,17 @@ func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) 
 					h.updateAgentTerminals(agentID, typeCheck.MT4Connected, typeCheck.MT5Connected)
 				}
 			}
-			if h.provider != nil {
-				h.provider.HandleAgentMessage(agentID, data)
+		// Route inbound agent message through the ingest bus. Default is the
+		// in-process DirectBus (behavior identical to the previous direct call);
+		// when NATS is configured the message is enqueued and dispatched by the
+		// subscriber, decoupling data-collection from the signal engine.
+		if h.ingestBus != nil {
+			if err := h.ingestBus.Publish(agentID, data); err != nil {
+				log.Printf("[AGENT-WS] ingest publish error: %v", err)
 			}
+		} else if h.provider != nil {
+			h.provider.HandleAgentMessage(agentID, data)
+		}
 			ack, _ := json.Marshal(map[string]interface{}{
 				"type": "ACK", "agentId": agentID, "timestamp": time.Now().UTC(),
 			})

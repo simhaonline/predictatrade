@@ -33,6 +33,7 @@ import (
 	"github.com/predictatrade/realtime/internal/hedging"
 	"github.com/predictatrade/realtime/internal/marketdata"
 	"github.com/predictatrade/realtime/internal/observability"
+	"github.com/predictatrade/realtime/pkg/bus"
 	"github.com/predictatrade/realtime/internal/ptb"
 	"github.com/predictatrade/realtime/internal/reconciliation"
 	"github.com/predictatrade/realtime/internal/recovery"
@@ -292,6 +293,25 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHu
 			Int("agents_connected", agentHub.AgentCount()).
 			Msg("Signal broadcast to Windows Agents for MT4/MT5 delivery")
 	}
+}
+
+// newIngestBus builds the inbound-agent message transport. Default is the
+// in-process DirectBus, which dispatches messages to the engine handler
+// synchronously — identical to the pre-NATS behavior. When NATS_URL is set,
+// a NatsBus is used so data-collection is fully decoupled from the signal
+// engine (and a separate ingest service can be introduced without touching the
+// engine). On NATS connect failure it safely falls back to the DirectBus.
+func newIngestBus(provider *marketdata.AgentProvider) (bus.IngestBus, bus.IngestSubscriber) {
+	if url := os.Getenv("NATS_URL"); url != "" {
+		nb, err := bus.NewNatsBus(url, "pat.ingest.agent")
+		if err != nil {
+			observability.Log.Error().Err(err).Msg("NATS_URL set but connect failed; falling back to in-process ingest bus")
+			return bus.NewDirectBus(provider.HandleAgentMessage), nil
+		}
+		observability.Log.Info().Str("url", url).Msg("Ingest bus: NATS (data-collection decoupled from signal engine)")
+		return nb, nb
+	}
+	return bus.NewDirectBus(provider.HandleAgentMessage), nil
 }
 
 func main() {
@@ -1058,7 +1078,8 @@ func main() {
 	// P1-001: Wire agent connectivity to hydrate safety-critical gates.
 	// When a MARKET_SNAPSHOT arrives with account_info, hydrate exposure/margin gates
 	// from live broker account data — replaces the dead hydrateBrokerAccountState function.
-	agentProvider.SetBrokerAccountHydrateFn(func(account *marketdata.SnapshotAccount, positions *marketdata.SnapshotPositions) {
+	agentProvider.SetBrokerAccountHydrateFn(func(agentID string, account *marketdata.SnapshotAccount, positions *marketdata.SnapshotPositions) {
+		_ = agentID // per-client account state is recorded by AgentProvider.RecordAgentAccount
 		now := time.Now().UTC()
 
 		// Cache the snapshot for capital-protection gates + sizing annotations.
@@ -1185,6 +1206,10 @@ func main() {
 
 	// Agent hub for Windows MT5 Agent connections (receives real tick data)
 	var agentHub *gateway.AgentHub
+	// Ingest/signal decoupling seam handles (in-process by default; NATS if
+	// NATS_URL set). Declared here so both the exec hub and data hub share them.
+	var ingestBus bus.IngestBus
+	var ingestSub bus.IngestSubscriber
 	if isAgentProvider {
 		agentHub = gateway.NewAgentHub(agentProvider)
 		globalAgentHub = agentHub
@@ -1200,6 +1225,18 @@ func main() {
 			}
 			return allowed
 		})
+		// Per-client risk isolation at delivery: only deliver executable signals
+		// to clients whose OWN account has buying power. Fail-open by design.
+		agentHub.SetRiskCheck(agentProvider.AgentAccountOK)
+
+		// Ingest/signal decoupling seam. Default = in-process DirectBus
+		// (identical to the previous direct call). If NATS_URL is set, inbound
+		// agent messages are enqueued on NATS and dispatched by a subscriber,
+		// fully decoupling data-collection from the signal engine and enabling a
+		// separate ingest service (see AGENTS scale plan).
+		ingestBus, ingestSub = newIngestBus(agentProvider)
+		agentHub.SetIngestBus(ingestBus)
+		agentHub.SetIngestSubscriber(ingestSub)
 		// Publish live terminal-link state (MT4/MT5) reported by the agent's
 		// heartbeat into the control-plane device_activations rows.
 		agentHub.SetOnTerminals(func(agentID string, mt4, mt5 bool) {
@@ -1224,6 +1261,7 @@ func main() {
 	var dataAgentHub *gateway.AgentHub
 	if isAgentProvider {
 		dataAgentHub = gateway.NewAgentHub(agentProvider)
+		dataAgentHub.SetIngestBus(ingestBus)
 		go dataAgentHub.Run()
 		dataMux := http.NewServeMux()
 		dataMux.HandleFunc("/ws/v1/data", func(w http.ResponseWriter, r *http.Request) {

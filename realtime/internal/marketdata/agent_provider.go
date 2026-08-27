@@ -260,7 +260,9 @@ type AgentProvider struct {
 	// BrokerAccountHydrateFn — called when a snapshot with account_info arrives.
 	// This callback hydrates safety-critical gates (exposure, margin, execution)
 	// from live broker account data. Set by main.go to avoid import cycle.
-	brokerAccountHydrateFn func(account *SnapshotAccount, positions *SnapshotPositions)
+	// agentID is provided so hydration is tracked PER CLIENT (no global
+	// account-driven gate that could contaminate other clients).
+	brokerAccountHydrateFn func(agentID string, account *SnapshotAccount, positions *SnapshotPositions)
 
 	// AgentConnectFn — called when an agent connects or sends heartbeat.
 	// This hydrates the execution permit gate (terminal connected = PASS).
@@ -320,6 +322,24 @@ type AgentProvider struct {
 	snapshotPendingMu sync.Mutex
 	snapshotPending   map[string]*MarketSnapshot
 	snapshotStop      chan struct{}
+
+	// Per-agent account state (production hardening). Each client's broker
+	// account is tracked individually so risk gating can be evaluated per
+	// receiving client at signal-delivery time. This guarantees one client's
+	// blown/over-exposed account can NEVER block or contaminate another
+	// client's executable signals (no shared global account-driven gate).
+	agentAccMu    sync.Mutex
+	agentAccounts map[string]*agentAccountState
+}
+
+// agentAccountState caches one client's latest broker account snapshot.
+type agentAccountState struct {
+	known          bool
+	equity         float64
+	freeMargin     float64
+	leverage       float64
+	totalPositions int
+	updatedAt      time.Time
 }
 
 // SetConfiguredOffset overrides auto-detection with an explicit broker UTC
@@ -469,8 +489,63 @@ func (p *AgentProvider) SetCandleSyncFn(fn func(symbol string, bars map[string]S
 
 // SetBrokerAccountHydrateFn sets the callback that hydrates safety-critical gates
 // from live broker account data when a MARKET_SNAPSHOT with account_info arrives.
-func (p *AgentProvider) SetBrokerAccountHydrateFn(fn func(account *SnapshotAccount, positions *SnapshotPositions)) {
+// agentID is supplied so hydration is tracked per client.
+func (p *AgentProvider) SetBrokerAccountHydrateFn(fn func(agentID string, account *SnapshotAccount, positions *SnapshotPositions)) {
 	p.brokerAccountHydrateFn = fn
+}
+
+// RecordAgentAccount stores one client's latest broker account snapshot in the
+// per-agent registry. This is the per-client isolation primitive: risk gating
+// later reads the receiving agent's own account instead of a shared global one.
+func (p *AgentProvider) RecordAgentAccount(agentID string, account *SnapshotAccount, positions *SnapshotPositions) {
+	if account == nil {
+		return
+	}
+	p.agentAccMu.Lock()
+	if p.agentAccounts == nil {
+		p.agentAccounts = make(map[string]*agentAccountState)
+	}
+	st := p.agentAccounts[agentID]
+	if st == nil {
+		st = &agentAccountState{}
+		p.agentAccounts[agentID] = st
+	}
+	st.known = true
+	st.equity = account.Equity
+	st.freeMargin = account.FreeMargin
+	if account.Leverage > 0 {
+		st.leverage = float64(account.Leverage)
+	}
+	if positions != nil {
+		st.totalPositions = int(positions.TotalPositions)
+	}
+	st.updatedAt = time.Now().UTC()
+	p.agentAccMu.Unlock()
+}
+
+// AgentAccountOK reports whether a given client may receive EXECUTABLE signals
+// based solely on that client's own account. It is fail-open: an agent with no
+// known/remote account state is allowed (preserving current behavior); only a
+// client whose own account is KNOWN and has no buying power (free margin <= 0)
+// or is stale is isolated. This guarantees one client's blown account never
+// blocks another's signals.
+func (p *AgentProvider) AgentAccountOK(agentID string) bool {
+	p.agentAccMu.Lock()
+	st, ok := p.agentAccounts[agentID]
+	p.agentAccMu.Unlock()
+	if !ok {
+		return true
+	}
+	p.agentAccMu.Lock()
+	stale := time.Since(st.updatedAt) > 60*time.Second
+	p.agentAccMu.Unlock()
+	if stale {
+		return true // fail-open on stale data
+	}
+	if st.freeMargin <= 0 {
+		return false
+	}
+	return true
 }
 
 // SetAgentConnectFn sets the callback that hydrates the execution permit gate
@@ -805,13 +880,20 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 			}
 		}
 
+		// Track this client's account state individually (per-client risk
+		// isolation) so a blown/over-exposed account can never contaminate
+		// another client's signals.
+		if snapshot.AccountInfo.Balance > 0 || snapshot.AccountInfo.Equity > 0 {
+			p.RecordAgentAccount(agentID, &snapshot.AccountInfo, &snapshot.Positions)
+		}
+
 		// Hydrate safety-critical gates from live broker account data (P1-001).
 		// When the Windows Agent sends account_info with the snapshot, the
 		// exposure and margin gates are hydrated from real broker state.
 		if p.brokerAccountHydrateFn != nil {
 			// Only hydrate if we have meaningful account data (balance > 0 means a real account is connected)
 			if snapshot.AccountInfo.Balance > 0 || snapshot.AccountInfo.Equity > 0 {
-				p.brokerAccountHydrateFn(&snapshot.AccountInfo, &snapshot.Positions)
+				p.brokerAccountHydrateFn(agentID, &snapshot.AccountInfo, &snapshot.Positions)
 			}
 		}
 
