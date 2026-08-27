@@ -27,6 +27,7 @@
   - [Whitepaper](reports/WHITEPAPER.md)
   - [PhD Thesis](reports/PHD_THESIS.md)
   - [UI/UX Audit Report](reports/UI_UX_AUDIT_REPORT.md)
+  - [Macroscopic Audit Report](reports/MACROSCOPIC_AUDIT_REPORT.md)
 
 - **Links**
   - [GitHub](https://github.com/simhaonline/predictatrade)

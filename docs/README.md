@@ -25,6 +25,7 @@ Welcome to the official documentation for Predict-A-Trade — a production-grade
 | [Whitepaper](reports/WHITEPAPER.md) | 12-section technical whitepaper |
 | [PhD Thesis](reports/PHD_THESIS.md) | 9-chapter academic thesis |
 | [UI/UX Audit Report](reports/UI_UX_AUDIT_REPORT.md) | Dashboard accessibility, UX, visual, performance audit |
+| [Macroscopic Audit Report](reports/MACROSCOPIC_AUDIT_REPORT.md) | System-wide codebase + database audit |
 
 ## Key Metrics
 
