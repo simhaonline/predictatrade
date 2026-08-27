@@ -22,20 +22,31 @@ param(
 $BaseUrl     = "https://downloads.predictatrade.com/windows-agent"
 $InstallDir  = "C:\PredictATrade\XAUUSD"
 
+# Build the correct engine WebSocket URL for a given host/port/path.
+#  - Public host (domain):  wss://host/path   (TLS terminated by nginx on 443,
+#    which proxies /ws/v1/data -> pat-realtime:13091 and /ws/v1/agent -> :13081)
+#  - Local host (localhost / IP): ws://host:port/path  (direct plaintext engine)
+function Resolve-EngineWsUrl {
+    param([string]$EngineHost, [int]$Port, [string]$Path)
+    $isLocal = ($EngineHost -match '^(localhost|127\.0\.0\.1|::1)$') -or ($EngineHost -match '^\d{1,3}(\.\d{1,3}){3}$')
+    if ($isLocal) { return "ws://${EngineHost}:${Port}${Path}" }
+    return "wss://${EngineHost}${Path}"
+}
+
 # Mode-specific identity (separate Windows services & ports so a Client and a
 # Master Node can run side-by-side on the same machine without conflict).
 if ($Mode -eq "master") {
     $ServiceName  = "pat-agent-master"
     $AgentMode    = "data"
     $EngineEnvVar = "PAT_DATA_WS_URL"
-    $EngineWsUrl  = "wss://$EngineHost:13091/ws/v1/data"
+    $EngineWsUrl  = Resolve-EngineWsUrl -EngineHost $EngineHost -Port 13091 -Path "/ws/v1/data"
     $RoleLabel    = "Master Node (data-only)"
 } else {
     $Mode         = "client"
     $ServiceName  = "pat-agent-client"
     $AgentMode    = "exec"
-    $EngineEnvVar = "PAT_SERVER_URL"
-    $EngineWsUrl  = "wss://$EngineHost:13081/ws"
+    $EngineEnvVar = "PAT_LIVE_WS_URL"
+    $EngineWsUrl  = Resolve-EngineWsUrl -EngineHost $EngineHost -Port 13081 -Path "/ws/v1/agent"
     $RoleLabel    = "Client Agent (execution)"
 }
 $AgentExe    = if ($Mode -eq "master") { "pat-master.exe" } else { "pat-agent.exe" }
@@ -64,7 +75,7 @@ if (-not $isAdmin) {
 # ─── NOW RUNNING AS ADMIN ───
 Write-Host ""
 Write-Host "=========================================="
-Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.31"
+Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.32"
 Write-Host "=========================================="
 Write-Host ""
 

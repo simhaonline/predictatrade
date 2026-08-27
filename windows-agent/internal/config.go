@@ -1,6 +1,10 @@
 package agent
 
-import "os"
+import (
+	"log"
+	"net/url"
+	"os"
+)
 
 type Config struct {
 	LiveWSURL      string
@@ -25,15 +29,15 @@ type Config struct {
 }
 
 func LoadConfig() *Config {
-	liveWS := getEnv("PAT_LIVE_WS_URL", "wss://live.predictatrade.com/ws/v1/agent")
-	dataWS := getEnv("PAT_DATA_WS_URL", "wss://api.predictatrade.com/ws/v1/data")
+	liveWS := resolveWSURL("PAT_LIVE_WS_URL", "wss://live.predictatrade.com/ws/v1/agent")
+	dataWS := resolveWSURL("PAT_DATA_WS_URL", "wss://live.predictatrade.com/ws/v1/data")
 	apiURL := getEnv("PAT_API_URL", "https://api.predictatrade.com/api/v1")
 	mode := getEnv("PAT_AGENT_MODE", "exec")
 	dataDir := getEnv("PAT_DATA_DIR", "C:\\ProgramData\\PredictATrade")
 
 	if os.Getenv("PAT_DEV_MODE") == "1" {
-		liveWS = getEnv("PAT_SERVER_URL", "ws://127.0.0.1:13081/ws")
-		dataWS = getEnv("PAT_DATA_WS_URL", "ws://127.0.0.1:13091/ws/v1/data")
+		liveWS = resolveWSURL("PAT_LIVE_WS_URL", "ws://127.0.0.1:13081/ws")
+		dataWS = resolveWSURL("PAT_DATA_WS_URL", "ws://127.0.0.1:13091/ws/v1/data")
 		apiURL = getEnv("PAT_API_URL", "http://127.0.0.1:13080/api/v1")
 		dataDir = getEnv("PAT_DATA_DIR", "/tmp/predictatrade")
 	}
@@ -62,4 +66,22 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// resolveWSURL reads a WebSocket URL env var and validates it is usable:
+// scheme must be ws:// or wss:// and the host must be non-empty. A broken value
+// such as "wss:///ws/v1/data" (empty host) or a typo would otherwise be used
+// verbatim and the agent would fail to connect with no clear reason. In that
+// case we log a warning and fall back to the safe default.
+func resolveWSURL(key, fallback string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	u, err := url.Parse(v)
+	if err != nil || (u.Scheme != "wss" && u.Scheme != "ws") || u.Host == "" {
+		log.Printf("[config] WARN: %s=%q is not a valid ws/wss URL (missing scheme or host) — using fallback %q", key, v, fallback)
+		return fallback
+	}
+	return v
 }
