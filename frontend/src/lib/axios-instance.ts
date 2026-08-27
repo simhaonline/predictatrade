@@ -1,6 +1,6 @@
 import axios, { AxiosError, AxiosHeaders, InternalAxiosRequestConfig } from 'axios';
 import { getAccessToken, clearAccessToken } from './auth';
-import { refreshSession } from './session-refresh';
+import { refreshSession, getLastRefreshErrorStatus } from './session-refresh';
 
 export const customInstance = axios.create({
   baseURL:
@@ -51,7 +51,18 @@ customInstance.interceptors.response.use(
         return customInstance(originalRequest);
       }
 
-      // Refresh failed: clear auth and dispatch logout event
+      // Refresh failed. Distinguish a transient rate-limit (429) from a real
+      // auth failure. On 429 we must NOT clear the token / force a logout —
+      // doing so during a rate-limit storm bounced users out of their session
+      // in a login<->logout loop. The existing token may still be valid; we
+      // simply let the original request fail and retry later.
+      const refreshStatus = getLastRefreshErrorStatus();
+      if (refreshStatus === 429) {
+        return Promise.reject(error);
+      }
+
+      // Refresh failed for real (e.g. invalid/expired refresh token): clear
+      // auth and dispatch logout event.
       clearAccessToken();
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('pat:logout'));

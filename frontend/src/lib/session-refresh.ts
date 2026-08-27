@@ -19,7 +19,23 @@ const baseURL =
 
 let inFlight: Promise<string | null> | null = null;
 
+/**
+ * Backoff guard: after a failed/throttled refresh, do not hammer
+ * /auth/refresh. A rapid refresh storm (e.g. many concurrent 401s during a
+ * rate-limit window) previously exhausted the refresh throttle and produced an
+ * infinite 429 loop that bounced users out of their session. We cap refresh
+ * attempts to at most one per REFRESH_BACKOFF_MS while in a failed state.
+ */
+const REFRESH_BACKOFF_MS = 10_000;
+let lastRefreshAttempt = 0;
+let lastRefreshErrorStatus: number | null = null;
+
+export function getLastRefreshErrorStatus(): number | null {
+  return lastRefreshErrorStatus;
+}
+
 async function performRefresh(): Promise<string | null> {
+  lastRefreshErrorStatus = null;
   try {
     const res = await axios.post<{ accessToken?: string }>(
       `${baseURL}/auth/refresh`,
@@ -29,7 +45,9 @@ async function performRefresh(): Promise<string | null> {
     const token = res.data?.accessToken ?? null;
     if (token) setAccessToken(token);
     return token;
-  } catch {
+  } catch (e: unknown) {
+    const status = (e as { response?: { status?: number } })?.response?.status ?? null;
+    lastRefreshErrorStatus = status;
     return null;
   }
 }
@@ -40,6 +58,12 @@ type LockManager = {
 
 export function refreshSession(): Promise<string | null> {
   if (inFlight) return inFlight;
+
+  // Backoff: if a recent attempt failed, don't immediately re-hammer the endpoint.
+  const now = Date.now();
+  if (lastRefreshErrorStatus !== null && now - lastRefreshAttempt < REFRESH_BACKOFF_MS) {
+    return Promise.resolve(null);
+  }
 
   const run = (): Promise<string | null> => {
     // Serialize across tabs of the same origin when the API is available.
@@ -53,6 +77,7 @@ export function refreshSession(): Promise<string | null> {
   };
 
   inFlight = run().finally(() => {
+    lastRefreshAttempt = Date.now();
     inFlight = null;
   });
   return inFlight;
