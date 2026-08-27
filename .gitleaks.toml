@@ -4,31 +4,21 @@
 [extend]
 useDefault = true
 
-# Allowlist: known development-only test fixtures and non-secret patterns
+# Allowlist: known development-only test fixtures and non-secret patterns.
 # These are intentionally excluded from secret scanning because they are
 # development/local-test credentials that are NOT used in production.
+# Gitleaks v8 expects one allowlist table, not repeated [[allowlist]] arrays.
 
-[[allowlist]]
-description = "Known development-only database password used in test fixtures"
-regex = '''pat_local_dev_only'''
-
-[[allowlist]]
-description = "Test files with known insecure password fixtures for security validation tests"
+[allowlist]
+description = "Known development-only fixtures and non-secret templates"
+regexes = [
+  '''pat_local_dev_only''',
+]
 paths = [
   '''realtime/internal/config/config_test\.go''',
   '''control/src/common/__tests__/security-validation\.spec\.ts''',
-]
-
-[[allowlist]]
-description = "Infrastructure env example files (non-secret templates)"
-paths = [
   '''infra/env/.*\.env\.example''',
   '''mcp\.env\.example''',
-]
-
-[[allowlist]]
-description = "Database URL in scripts uses env var with empty fallback"
-paths = [
   '''scripts/verify_math_parity\.py''',
   '''scripts/train_ml_model\.py''',
 ]

@@ -2652,6 +2652,67 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 					}
 					sig.StrategyConfigVersion = "1.15.0"
 
+					// ─── Run hard gates on the advisory candidate so the dashboard
+					// Gate / Risk Decision / Executable columns are populated (they were
+					// N/A because the candidate path never evaluated gates). Advisory
+					// candidates stay fail-closed: Executable is false unless the operator
+					// has explicitly permitted execution downstream.
+					{
+						// These gating inputs are computed in the executable branch; the
+						// advisory-candidate branch must derive them locally (fail-closed).
+						candBS := broker.Get()
+						spreadNow, _ := mergedState.Spread.Float64()
+						candRoundTripCost := decimal.NewFromFloat(spreadNow + cfg.SlippageCostPoints + cfg.CommissionCostPoints)
+						candEntitlement := gates.ResolveEntitlementState(gateRegistry)
+						candDecision := engine.Decide(sigengine.DecisionInput{
+							StrategyID: strat.ID(), Direction: advDir, Timeframe: candle.Timeframe,
+							RawScore: sig.RawScore, LongScore: sig.LongScore, ShortScore: sig.ShortScore,
+							Tick: mergedState.LastTick, Regime: mergedState.Regime.Current, ATR: mergedState.Indicators.ATR,
+							Session: mergedState.Session.CurrentSession, SessionAllowed: sessionAllowed,
+							NewsRisk: mergedState.Session.NewsRisk, Evidence: stratResult.Evidence,
+							EntryPrice: sig.EntryPrice, StopLoss: sig.StopLoss, TP1: sig.TP1, TP2: sig.TP2, TP3: sig.TP3,
+							DecisionReasons: sig.ReasonCodes, MicroTP: stratResult.MicroTP, PartialClosePct: stratResult.PartialClosePct,
+							EdgeScore: stratResult.EdgeScore, ExpectedValue: stratResult.ExpectedValue, IsLossCandidate: stratResult.IsLossCandidate,
+							EntryGatePassed: stratResult.EntryGatePassed,
+							RoundTripCost: candRoundTripCost,
+							CurrentExposure: func() float64 {
+								es, _ := gateRegistry.GetState(types.GateExposure)
+								if v, ok := es.Value.(float64); ok {
+									return v
+								}
+								return 0
+							}(), MaxExposure: 5.0,
+							EntitlementOK: candEntitlement.EntitlementOK, LicenseActive: candEntitlement.LicenseActive, ExecutionPermitted: candEntitlement.ExecutionPermitted,
+							AccountEquity: candBS.Equity, AccountFreeMargin: candBS.FreeMargin, AccountLeverage: candBS.Leverage,
+							SymbolTickValue: candBS.TickValue, SymbolTickSize: candBS.TickSize, LotStep: candBS.LotStep, LotMin: candBS.LotMin,
+							RequestedLot: cfg.BaseLots[string(strat.ID())], PositionsKnown: candBS.PositionsKnown,
+							OpenBuyPositions: candBS.BuyCount, OpenSellPositions: candBS.SellCount,
+							BrokerDigits: int32(cfg.BrokerDigits),
+							StructuralLow: func() float64 {
+								if len(mergedState.Structure.SwingLows) > 0 {
+									v, _ := mergedState.Structure.SwingLows[len(mergedState.Structure.SwingLows)-1].Float64()
+									return v
+								}
+								return 0
+							}(),
+							StructuralHigh: func() float64 {
+								if len(mergedState.Structure.SwingHighs) > 0 {
+									v, _ := mergedState.Structure.SwingHighs[len(mergedState.Structure.SwingHighs)-1].Float64()
+									return v
+								}
+								return 0
+							}(),
+						})
+						if candDecision.Signal != nil {
+							sig.GateResults = candDecision.Signal.GateResults
+						}
+						sig.AiVerification = aiVerificationStatus(cfg)
+						sig.RiskDecision = riskDecisionText(candDecision)
+						// Advisory by design: candidates are not auto-executed unless the
+						// operator has explicitly enabled candidate execution downstream.
+						sig.Executable = false
+					}
+
 					broadcastSignalToAll(wsHub, agentHub, sig)
 					if persister != nil {
 						go func(s *types.Signal) {
@@ -3189,6 +3250,11 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				decision.Signal.GrossRRTP2 = computeRR(stratResult.EntryPrice, stratResult.StopLoss, stratResult.TP2)
 				decision.Signal.GrossRRTP3 = computeRR(stratResult.EntryPrice, stratResult.StopLoss, stratResult.TP3)
 			}
+			// Populate the dashboard's verification / risk / executable columns
+			// (these were previously N/A because they were never set).
+			decision.Signal.AiVerification = aiVerificationStatus(cfg)
+			decision.Signal.RiskDecision = riskDecisionText(decision)
+			decision.Signal.Executable = decision.AllGatesPass && entitlementState.ExecutionPermitted
 			reconciler.RecordSignal(decision.Signal)
 			broadcastSignalToAll(wsHub, agentHub, decision.Signal)
 			if engTracker != nil {
@@ -4025,6 +4091,10 @@ func createNoTradeSignal(result strategy.StrategyResult, calibratedProb decimal.
 		IsTransitionCandidate: result.IsTransitionCandidate,
 		// Dominance (prompt.md Section 23)
 		Dominance: result.Dominance,
+		// Verification / risk columns (previously N/A on NO-TRADE signals).
+		AiVerification: "DISABLED — ollama off (no AI verification)",
+		RiskDecision:  "NO-TRADE — gates not evaluated",
+		Executable:    false,
 	}
 	// Set provenance state
 	if types.IsLiveDataSource(types.DataSourceType(sourceMode)) {
@@ -4035,6 +4105,29 @@ func createNoTradeSignal(result strategy.StrategyResult, calibratedProb decimal.
 		sig.ProvenanceState = types.ProvenanceUnverified
 	}
 	return sig
+}
+
+// aiVerificationStatus reports the AI/LLM verification status for a signal.
+// Ollama is disabled by default; we never fabricate a verification result.
+func aiVerificationStatus(cfg *config.Config) string {
+	if cfg != nil && cfg.OllamaEnabled {
+		return "ENABLED — ollama " + cfg.OllamaModel
+	}
+	return "DISABLED — ollama off (no AI verification)"
+}
+
+// riskDecisionText summarises the hard-gate evaluation result for the dashboard.
+func riskDecisionText(d sigengine.DecisionResult) string {
+	if len(d.GateResults) == 0 {
+		return "NONE — no hard gates evaluated"
+	}
+	if d.AllGatesPass {
+		return "PASS — all hard gates clear"
+	}
+	if d.FirstVeto != nil {
+		return "VETO — " + string(d.FirstVeto.GateID)
+	}
+	return "DEGRADED — advisory (non-critical gate)"
 }
 
 func computeRR(entry, sl, tp decimal.Decimal) decimal.Decimal {

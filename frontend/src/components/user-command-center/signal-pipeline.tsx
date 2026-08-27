@@ -16,14 +16,6 @@ interface EngineSignal {
 }
 
 export function SignalPipeline() {
-  // Server-authoritative allowed strategies (entitlements from control plane)
-  const { data: entitlements } = useQuery<{ selected_strategies?: string[] }>({
-    queryKey: ["user-entitlements-pipeline"],
-    queryFn: async () => (await customInstance.get("/subscriptions/entitlements")).data,
-  });
-  const allowedStrategies: string[] = Array.isArray(entitlements?.selected_strategies)
-    ? entitlements!.selected_strategies!
-    : [];
   const ws = getGlobalWs();
 
   const { data: engineData, refetch } = useQuery<{ signals: EngineSignal[] }>({
@@ -49,14 +41,11 @@ export function SignalPipeline() {
 
   // REST is the single source of truth — always fresh, never frozen.
   const restSignals = (engineData?.signals ?? []).filter(s => s.Direction !== "NO-TRADE").slice(0, 10);
-  // Fail-closed subscription gating: once entitlements are resolved, only the
-  // user's entitled strategies are shown. While still loading, show all to
-  // avoid flicker; once resolved with no entitlements, show none (no loophole).
-  const displaySignals = entitlements === undefined
-    ? restSignals
-    : allowedStrategies.length > 0
-      ? restSignals.filter(s => allowedStrategies.includes(s.StrategyID))
-      : [];
+  // Entitlement enforcement is authoritative server-side (realtime /signals
+  // already filters by the user's allowed strategies via the gate registry).
+  // The client must NOT re-filter by subscription.selected_strategies, which
+  // previously hid entitled strategies (e.g. only ULTRA_SCALPING showed).
+  const displaySignals = restSignals;
 
   const dirColor = (dir: string): string => {
     if (dir === "BUY") return "text-pat-success";

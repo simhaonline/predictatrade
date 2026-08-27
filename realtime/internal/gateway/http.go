@@ -198,6 +198,11 @@ func (h *HTTPServer) handleSignals(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Optional strategy filter (?strategy=MARNIE_FIB). When provided we bypass
+	// the Valkey cache (it is not strategy-scoped) and query the database
+	// directly so a user can inspect any single strategy's signals.
+	strategyFilter := strings.TrimSpace(r.URL.Query().Get("strategy"))
+
 	// Plan/entitlement enforcement. Admin sees everything. Authenticated
 	// non-admin is restricted to their entitled strategies. Unauthenticated
 	// is restricted to advisory-only (handled below).
@@ -205,7 +210,7 @@ func (h *HTTPServer) handleSignals(w http.ResponseWriter, r *http.Request) {
 
 	// Valkey cache is not strategy-scoped per user, so only use it when no
 	// per-user plan filtering is required.
-	if h.valkeyCache != nil && !needsPlanFilter {
+	if h.valkeyCache != nil && !needsPlanFilter && strategyFilter == "" {
 		if data, err := h.valkeyCache.GetLatestSignals(); err == nil && len(data) > 0 {
 			if authenticated {
 				w.Write(data)
@@ -229,7 +234,7 @@ func (h *HTTPServer) handleSignals(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	signals, err := h.persister.GetRecentSignals(ctx, limit)
+	signals, err := h.persister.GetRecentSignals(ctx, limit, strategyFilter)
 	if err != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})

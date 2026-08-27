@@ -101,13 +101,14 @@ func (p *Persister) SaveSignal(ctx context.Context, s *types.Signal) error {
 			strategy_version, feature_version, risk_profile_version, regime_version,
 			gross_rr_tp1, gross_rr_tp2, gross_rr_tp3,
 			net_rr_tp1, net_rr_tp2, net_rr_tp3,
-			expected_cost, executable, failed_production_reason
+			expected_cost, executable, failed_production_reason,
+			ai_verification, risk_decision
 		) VALUES (
 			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
 			$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,
 			$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,
 			$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,
-			$74,$75,$76,$77,$78,$79,$80,$81,$82
+			$74,$75,$76,$77,$78,$79,$80,$81,$82,$83,$84
 		)
 		ON CONFLICT (id, created_at) DO UPDATE SET
 			status = EXCLUDED.status,
@@ -141,6 +142,7 @@ func (p *Persister) SaveSignal(ctx context.Context, s *types.Signal) error {
 		s.GrossRRTP1.String(), s.GrossRRTP2.String(), s.GrossRRTP3.String(),
 		s.NetRRTP1.String(), s.NetRRTP2.String(), s.NetRRTP3.String(),
 		s.ExpectedCost.String(), s.Executable, s.FailedProductionReason,
+		s.AiVerification, s.RiskDecision,
 	)
 	if err != nil {
 		// SOW Section 13: canonical idempotency — duplicate signal for same
@@ -192,8 +194,8 @@ func (p *Persister) GetRecentCandles(ctx context.Context, symbol string, tf stri
 }
 
 // GetRecentSignals retrieves recent signals.
-func (p *Persister) GetRecentSignals(ctx context.Context, limit int) ([]*types.Signal, error) {
-	rows, err := p.db.QueryContext(ctx, `
+func (p *Persister) GetRecentSignals(ctx context.Context, limit int, strategy string) ([]*types.Signal, error) {
+	query := `
 		SELECT id, symbol, strategy_id, direction, grade, raw_score, long_score, short_score,
 			calibrated_probability, entry_price, stop_loss, tp1, tp2, tp3,
 			regime, session, news_risk, timeframe, status, created_at, expires_at,
@@ -201,9 +203,17 @@ func (p *Persister) GetRecentSignals(ctx context.Context, limit int) ([]*types.S
 			market_time, detected_at, signal_class, candidate_threshold, trade_threshold,
 			entry_type, exit_price, exit_reason, closed_at, realized_pnl, realized_r,
 			gross_rr_tp1, gross_rr_tp2, gross_rr_tp3,
-			executable, failed_production_reason
-		FROM trading.signals ORDER BY created_at DESC LIMIT $1
-	`, limit)
+			executable, failed_production_reason, ai_verification, risk_decision
+		FROM trading.signals`
+	args := []interface{}{limit}
+	if strategy != "" {
+		query += " WHERE strategy_id = $2"
+		args = []interface{}{limit, strategy}
+		query += " ORDER BY created_at DESC LIMIT $1"
+	} else {
+		query += " ORDER BY created_at DESC LIMIT $1"
+	}
+	rows, err := p.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -216,6 +226,7 @@ func (p *Persister) GetRecentSignals(ctx context.Context, limit int) ([]*types.S
 		var strategyID, direction, grade, regime, status, timeframe string
 		var signalClass, entryType, exitReason string
 		var candidateThreshold, tradeThreshold, exitPriceStr, realizedPnLStr, realizedRStr string
+		var aiVerificationStr, riskDecisionStr string
 		var grossRR1Str, grossRR2Str, grossRR3Str string
 		var reasonCodesJSON, evidenceJSON, gateJSON []byte
 		err := rows.Scan(&s.ID, &s.Symbol, &strategyID, &direction, &grade,
@@ -225,7 +236,7 @@ func (p *Persister) GetRecentSignals(ctx context.Context, limit int) ([]*types.S
 			&s.MarketTime, &s.DetectedAt, &signalClass, &candidateThreshold, &tradeThreshold,
 			&entryType, &exitPriceStr, &exitReason, &s.ClosedAt, &realizedPnLStr, &realizedRStr,
 			&grossRR1Str, &grossRR2Str, &grossRR3Str,
-			&s.Executable, &s.FailedProductionReason)
+			&s.Executable, &s.FailedProductionReason, &aiVerificationStr, &riskDecisionStr)
 		if err != nil {
 			continue
 		}
@@ -265,6 +276,8 @@ func (p *Persister) GetRecentSignals(ctx context.Context, limit int) ([]*types.S
 		if len(gateJSON) > 0 {
 			json.Unmarshal(gateJSON, &s.GateResults)
 		}
+		s.AiVerification = aiVerificationStr
+		s.RiskDecision = riskDecisionStr
 		signals = append(signals, s)
 	}
 	return signals, nil

@@ -380,6 +380,12 @@ type Signal struct {
 	ReasonCodes           []NoTradeReason
 	Evidence              []EvidenceContribution
 	GateResults           []GateEvaluation
+	// AiVerification records the AI/LLM verification outcome for the signal.
+	// Empty/"DISABLED" when Ollama is off (the default). Never fabricated.
+	AiVerification string
+	// RiskDecision is a human-readable summary of the hard-gate evaluation
+	// outcome (PASS / VETO / DEGRADED / NONE) for the dashboard.
+	RiskDecision string
 	CreatedAt             time.Time
 	ExpiresAt             time.Time
 	ExitProfileID         string

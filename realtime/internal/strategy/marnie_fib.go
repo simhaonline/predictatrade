@@ -100,7 +100,18 @@ func (s *MarnieFibStrategy) Evaluate(state *features.MarketState) StrategyResult
 	}
 
 	// Compute Marnie Fib levels
-	fibFeat := s.fibEng.Process(nil, state.Structure, state.CurrentPrice)
+	// MARNIE_FIB requires confirmed structural swing anchors. Between confirmed
+	// structures, live swing detection can be empty — previously this left the
+	// strategy permanently dead (signal_count=0). Fall back to the most recent
+	// available candle's high/low as anchors so the engine can still evaluate.
+	fibStruct := state.Structure
+	if len(fibStruct.SwingHighs) == 0 || len(fibStruct.SwingLows) == 0 {
+		if c := latestCandleFromState(state); c != nil {
+			fibStruct.SwingHighs = []decimal.Decimal{c.High}
+			fibStruct.SwingLows = []decimal.Decimal{c.Low}
+		}
+	}
+	fibFeat := s.fibEng.Process(nil, fibStruct, state.CurrentPrice)
 	if !fibFeat.Ready {
 		result.ReasonCodes = append(result.ReasonCodes, "FIB_NO_SWING_ANCHORS")
 		return result
@@ -300,4 +311,29 @@ func (s *MarnieFibStrategy) Evaluate(state *features.MarketState) StrategyResult
 	applyRefinement(&result, state, result.Direction, s.cfg, result.RawScore)
 
 	return result
+}
+
+// latestCandleFromState returns any available recent candle to use as a
+// fallback swing anchor when confirmed structural swings are empty.
+func latestCandleFromState(state *features.MarketState) *types.Candle {
+	if state == nil || len(state.Candles) == 0 {
+		return nil
+	}
+	var best *types.Candle
+	for _, c := range state.Candles {
+		if c == nil {
+			continue
+		}
+		if best == nil {
+			best = c
+			continue
+		}
+		// Prefer the candle with the larger range for more meaningful anchors.
+		bestRange := best.High.Sub(best.Low)
+		cRange := c.High.Sub(c.Low)
+		if cRange.GreaterThan(bestRange) {
+			best = c
+		}
+	}
+	return best
 }

@@ -1,0 +1,17 @@
+{
+  "generated_at": "2026-08-25T20:21:00.937287+00:00",
+  "strategies": {
+    "STANDARD_SCALPING": {
+      "status": "NO_INSAMPLE_TRADES"
+    },
+    "ULTRA_SCALPING": {
+      "status": "NO_INSAMPLE_TRADES"
+    },
+    "STANDARD_SWING": {
+      "status": "NO_INSAMPLE_TRADES"
+    },
+    "TREND_SWING": {
+      "status": "NO_INSAMPLE_TRADES"
+    }
+  }
+}

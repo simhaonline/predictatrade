@@ -169,6 +169,8 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 			EdgeScore:        input.EdgeScore,
 			ExpectedValue:    input.ExpectedValue,
 			IsLossCandidate:  input.IsLossCandidate,
+			AiVerification: "DISABLED — ollama off",
+			RiskDecision: "NO-TRADE (strategy) — gates not evaluated",
 			CreatedAt:   time.Now().UTC(),
 			ExpiresAt:   time.Now().UTC().Add(time.Minute * 15),
 		}

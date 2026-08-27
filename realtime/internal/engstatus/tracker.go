@@ -88,7 +88,14 @@ func (t *Tracker) RecordEvaluation(id types.StrategyID, tf types.Timeframe, mark
 		s.Regime = regime
 		s.DataQuality = dataQuality
 		s.EvaluationCount++
-		s.DataAgeSeconds = now.Sub(marketTime).Seconds()
+		// Data-age reflects how stale the engine's last TRADEABLE candidate is
+		// (more meaningful for monitoring dead strategies than raw bar age).
+		// Falls back to bar-open age when no candidate has ever been produced.
+		if !s.LastCandidate.IsZero() {
+			s.DataAgeSeconds = now.Sub(s.LastCandidate).Seconds()
+		} else {
+			s.DataAgeSeconds = now.Sub(marketTime).Seconds()
+		}
 		s.CurrentRejectionReasons = rejectionReasons
 		s.CurrentThreshold = threshold
 		switch decision {
