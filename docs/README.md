@@ -24,6 +24,7 @@ Welcome to the official documentation for Predict-A-Trade — a production-grade
 | [Windows Agent Guide](guides/WINDOWS_AGENT.md) | Client Agent + Master Node roles, install/update/uninstall, health endpoints |
 | [Whitepaper](reports/WHITEPAPER.md) | 12-section technical whitepaper |
 | [PhD Thesis](reports/PHD_THESIS.md) | 9-chapter academic thesis |
+| [UI/UX Audit Report](reports/UI_UX_AUDIT_REPORT.md) | Dashboard accessibility, UX, visual, performance audit |
 
 ## Key Metrics
 

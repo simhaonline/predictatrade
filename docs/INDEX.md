@@ -30,3 +30,4 @@
 ### Reports
 - [Whitepaper](reports/WHITEPAPER.md) — Technical whitepaper: architecture, risk, AI governance, commercial model
 - [PhD Thesis](reports/PHD_THESIS.md) — Academic thesis: 9 chapters, literature review, formal contributions
+- [UI/UX Audit Report](reports/UI_UX_AUDIT_REPORT.md) — Dashboard accessibility, UX, visual-consistency, and performance audit (41 findings)
