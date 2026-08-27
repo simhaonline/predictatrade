@@ -102,6 +102,15 @@ services:
       # equity (demo/paper). Lets risk-sizing gates pass so entitled+authorized
       # signals become executable. Ignored when a real broker equity is present.
       - PAT_PAPER_EQUITY=10000
+      # Demo/paper position caps. In production these are enforced against REAL
+      # broker open positions reported by the Client Agent. Here (no broker
+      # position feed yet) the gate falls back to a TTL-issued-signal counter, so
+      # the defaults (1/2/1) saturate instantly and veto every signal. Raised for
+      # the demo so EXECUTABLE signals can flow until the Client Agent forwards
+      # account_info + positions (see Master EA snapshot).
+      - MAX_PER_STRATEGY_POSITIONS=6
+      - MAX_TOTAL_POSITIONS=12
+      - MAX_SAME_DIRECTION_POSITIONS=3
       # Optional: uncomment to decouple inbound agent data from the signal engine
       # via NATS (the `nats` service above must be running).
       # - NATS_URL=nats://nats:4222
