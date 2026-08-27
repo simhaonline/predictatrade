@@ -3,14 +3,14 @@
   "strategy": "TREND_SWING",
   "target": "TP1_HIT_BEFORE_SL",
   "exit_profile": "DEFAULT",
-  "oos_auc": 0.6707047064777328,
-  "n_samples": 1639,
+  "oos_auc": 0.4042277167277167,
+  "n_samples": 1633,
   "method": "logistic",
   "params": {
-    "a": 6.377343798466049,
-    "b": -5.330036841564157
+    "a": 0.0,
+    "b": -2.3436867686795977
   },
-  "trained_at": "2026-08-27T20:27:13.399723+00:00",
+  "trained_at": "2026-08-27T20:50:57.384956+00:00",
   "monotonic_bins": [],
   "x_scale": 100.0,
   "x_clip": [
@@ -18,12 +18,12 @@
     100
   ],
   "meta": {
-    "win_rate": 0.1452104942037828,
-    "n_unresolved": 19,
-    "n_train": 1147,
-    "n_test": 492,
+    "win_rate": 0.08756889161053276,
+    "n_unresolved": 26,
+    "n_train": 1143,
+    "n_test": 490,
     "monotonic_inc": true,
-    "p_at_score0": 0.0048205413727864885,
-    "p_at_score100": 0.7402574257629672
+    "p_at_score0": 0.08756889161053275,
+    "p_at_score100": 0.08756889161053275
   }
 }

@@ -98,3 +98,6 @@ Screenshot_*.png
 
 # Runtime-generated live calibration retrains (regenerated hourly by the engine)
 realtime/calibration/calibration_*_live.json
+
+# Client broker statement (PII: contains account number) — keep local only
+report.xlsx

@@ -117,6 +117,17 @@ type StrategyConfig struct {
 	ATRMultiplierTP1  float64
 	ATRMultiplierTP2  float64
 	ATRMultiplierTP3  float64
+	// MinSLATRFloor enforces a hard floor on the SL distance as a multiple of
+	// ATR, independent of ATRMultiplierSL. Guards against noise-tight stops when
+	// the volatility estimate (ATR) is understated vs the real execution market
+	// (e.g. compressed market-data feed). Must be >= 0; 0 disables the floor.
+	MinSLATRFloor    float64
+	// VolatilityScale compensates for a market-data feed that understates true
+	// volatility (e.g. compressed OHLC high/low). It scales the ATR used for
+	// SL/TP sizing uniformly, so the risk:reward geometry is preserved while the
+	// absolute stop distance tracks the real execution market. Default 1.0 = no
+	// scaling. Must be > 0 when set.
+	VolatilityScale  float64
 	MaxSpreadPips     float64
 	MaxSlippagePoints int   // per-strategy max slippage in points (prompt.md Section 4.2)
 	MinADX            float64
@@ -189,6 +200,12 @@ func computeEntrySLTP(state *features.MarketState, direction types.Direction, cf
 	}
 	entry = state.CurrentPrice
 	atr := state.Indicators.ATR
+	// VolatilityScale compensates for an understated volatility feed: scale the
+	// ATR used for SL/TP sizing so the absolute stop distance tracks the real
+	// execution market while preserving the risk:reward geometry.
+	if cfg.VolatilityScale > 0 {
+		atr = atr.Mul(decimal.NewFromFloat(cfg.VolatilityScale))
+	}
 
 	// ─── PRIORITY: Check database exit profile (percentage mode) FIRST ───
 	// This is the authoritative SL/TP source. ATR multipliers are only a fallback.
@@ -212,7 +229,35 @@ func computeEntrySLTP(state *features.MarketState, direction types.Direction, cf
 		tp2 = entry.Sub(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2)))
 		tp3 = entry.Sub(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP3)))
 	}
+	sl = enforceSLDirection(direction, entry, sl, atr, cfg, decimal.Zero)
 	return
+}
+
+// enforceSLDirection guarantees the stop loss is on the correct side of entry for
+// the trade direction and is at least a minimum distance away. A SL on the wrong
+// side (e.g. a BUY stop placed ABOVE entry) provides no downside protection and
+// is a placement defect — this corrects it defensively so a misconfigured exit
+// profile or downstream inversion can never produce a non-protective stop.
+// minSL = max(ATRMultiplierSL, MinSLATRFloor) × ATR.
+func enforceSLDirection(direction types.Direction, entry, sl, atr decimal.Decimal, cfg StrategyConfig, halfSpread decimal.Decimal) decimal.Decimal {
+	minSL := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL))
+	if cfg.MinSLATRFloor > 0 {
+		floor := atr.Mul(decimal.NewFromFloat(cfg.MinSLATRFloor))
+		if floor.GreaterThan(minSL) {
+			minSL = floor
+		}
+	}
+	if direction == types.DirectionBuy {
+		if sl.GreaterThanOrEqual(entry) || entry.Sub(sl).Abs().LessThan(minSL) {
+			return entry.Sub(minSL).Sub(halfSpread)
+		}
+		return sl
+	}
+	// SELL
+	if sl.LessThanOrEqual(entry) || sl.Sub(entry).Abs().LessThan(minSL) {
+		return entry.Add(minSL).Add(halfSpread)
+	}
+	return sl
 }
 
 
@@ -342,6 +387,7 @@ func computeStructuralSLTP(state *features.MarketState, direction types.Directio
 			tp3 = entry.Sub(atrTP3Sell)
 		}
 	}
+	sl = enforceSLDirection(direction, entry, sl, atr, cfg, halfSpread)
 	return
 }
 
@@ -676,6 +722,7 @@ func NewStandardScalping() *StandardScalping {
 		StrategyID: types.StrategyStandardScalping,
 		MinConfluence: 65, MinMTFAlignment: 40,
 		ATRMultiplierSL: 1.5, ATRMultiplierTP1: 2.5, ATRMultiplierTP2: 4.0, ATRMultiplierTP3: 6.0,
+		MinSLATRFloor: 0.0, VolatilityScale: 2.0, // provisional: widen stops for understated feed; calibrate from client real ATR
 		MaxSpreadPips: 2.5, MaxSlippagePoints: 10, MinADX: 20, MinRR: 2.0,
 		ExpiryMinutes: 10, CooldownMinutes: 15,
 		DecisionTFs: []types.Timeframe{types.TFM1, types.TFM5},
@@ -881,6 +928,7 @@ func NewUltraScalping() *UltraScalping {
 		StrategyID: types.StrategyUltraScalping,
 		MinConfluence: 65, MinMTFAlignment: 50,
 		ATRMultiplierSL: 1.0, ATRMultiplierTP1: 1.5, ATRMultiplierTP2: 2.5, ATRMultiplierTP3: 4.0,
+		MinSLATRFloor: 0.0, VolatilityScale: 2.0, // provisional: widen stops for understated feed; calibrate from client real ATR
 		MaxSpreadPips: 1.5, MaxSlippagePoints: 5, MinADX: 25, MinRR: 2.0,
 		ExpiryMinutes: 3, CooldownMinutes: 5,
 		DecisionTFs: []types.Timeframe{types.TFM1},
@@ -1094,6 +1142,7 @@ func NewStandardSwing() *StandardSwing {
 		StrategyID: types.StrategyStandardSwing,
 		MinConfluence: 55, MinMTFAlignment: 30,
 		ATRMultiplierSL: 2.0, ATRMultiplierTP1: 3.0, ATRMultiplierTP2: 5.0, ATRMultiplierTP3: 8.0,
+		MinSLATRFloor: 0.0, VolatilityScale: 2.0, // provisional: widen stops for understated feed; calibrate from client real ATR
 		MaxSpreadPips: 4.0, MaxSlippagePoints: 20, MinADX: 20, MinRR: 2.0,
 		ExpiryMinutes: 60, CooldownMinutes: 120,
 		DecisionTFs: []types.Timeframe{types.TFM15, types.TFM30, types.TFH1},
@@ -1335,6 +1384,7 @@ func NewTrendSwing() *TrendSwing {
 		StrategyID: types.StrategyTrendSwing,
 		MinConfluence: 50, MinMTFAlignment: 25,
 		ATRMultiplierSL: 2.5, ATRMultiplierTP1: 4.0, ATRMultiplierTP2: 6.5, ATRMultiplierTP3: 10.0,
+		MinSLATRFloor: 0.0, VolatilityScale: 2.0, // provisional: widen stops for understated feed; calibrate from client real ATR
 		MaxSpreadPips: 5.0, MaxSlippagePoints: 30, MinADX: 20, MinRR: 2.0,
 		ExpiryMinutes: 240, CooldownMinutes: 360,
 		DecisionTFs: []types.Timeframe{types.TFH1, types.TFH4},

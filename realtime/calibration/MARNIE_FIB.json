@@ -3,14 +3,14 @@
   "strategy": "MARNIE_FIB",
   "target": "TP1_HIT_BEFORE_SL",
   "exit_profile": "DEFAULT",
-  "oos_auc": 0.3097165991902834,
-  "n_samples": 169,
+  "oos_auc": 0.1705426356589147,
+  "n_samples": 180,
   "method": "logistic",
   "params": {
-    "a": 4.076436036610934,
-    "b": -1.208185396365108
+    "a": 2.66340833007941,
+    "b": -0.7600594441073671
   },
-  "trained_at": "2026-08-27T20:27:13.404302+00:00",
+  "trained_at": "2026-08-27T20:50:57.392442+00:00",
   "monotonic_bins": [],
   "x_scale": 100.0,
   "x_clip": [
@@ -18,12 +18,12 @@
     100
   ],
   "meta": {
-    "win_rate": 0.44970414201183434,
-    "n_unresolved": 17,
-    "n_train": 118,
-    "n_test": 51,
+    "win_rate": 0.43333333333333335,
+    "n_unresolved": 49,
+    "n_train": 125,
+    "n_test": 55,
     "monotonic_inc": true,
-    "p_at_score0": 0.23002228162982036,
-    "p_at_score100": 0.9462544502855046
+    "p_at_score0": 0.318633360391021,
+    "p_at_score100": 0.870270084136058
   }
 }

@@ -3,14 +3,14 @@
   "strategy": "STANDARD_SCALPING",
   "target": "TP1_HIT_BEFORE_SL",
   "exit_profile": "DEFAULT",
-  "oos_auc": 0.4747895898083543,
-  "n_samples": 4805,
+  "oos_auc": 0.5792862398822664,
+  "n_samples": 4723,
   "method": "logistic",
   "params": {
-    "a": 0.9269430627949324,
-    "b": -2.440318494086417
+    "a": 0.0,
+    "b": -0.8694771076856331
   },
-  "trained_at": "2026-08-27T20:27:13.348098+00:00",
+  "trained_at": "2026-08-27T20:50:57.298149+00:00",
   "monotonic_bins": [],
   "x_scale": 100.0,
   "x_clip": [
@@ -18,12 +18,12 @@
     100
   ],
   "meta": {
-    "win_rate": 0.14193548387096774,
-    "n_unresolved": 59,
-    "n_train": 3363,
-    "n_test": 1442,
+    "win_rate": 0.29536311666313786,
+    "n_unresolved": 190,
+    "n_train": 3306,
+    "n_test": 1417,
     "monotonic_inc": true,
-    "p_at_score0": 0.08014942789784911,
-    "p_at_score100": 0.18043909305210956
+    "p_at_score0": 0.29536311666313786,
+    "p_at_score100": 0.29536311666313786
   }
 }

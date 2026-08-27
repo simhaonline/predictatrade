@@ -3,14 +3,14 @@
   "strategy": "STANDARD_SWING",
   "target": "TP1_HIT_BEFORE_SL",
   "exit_profile": "DEFAULT",
-  "oos_auc": 0.6264601876484821,
-  "n_samples": 2498,
+  "oos_auc": 0.5583102428027991,
+  "n_samples": 2444,
   "method": "logistic",
   "params": {
-    "a": 10.606241396273223,
-    "b": -6.836685806863659
+    "a": 2.845674098527143,
+    "b": -2.014475402208252
   },
-  "trained_at": "2026-08-27T20:27:13.388209+00:00",
+  "trained_at": "2026-08-27T20:50:57.365424+00:00",
   "monotonic_bins": [],
   "x_scale": 100.0,
   "x_clip": [
@@ -18,12 +18,12 @@
     100
   ],
   "meta": {
-    "win_rate": 0.22257806244995998,
-    "n_unresolved": 4,
-    "n_train": 1748,
-    "n_test": 750,
+    "win_rate": 0.338379705400982,
+    "n_unresolved": 29,
+    "n_train": 1710,
+    "n_test": 734,
     "monotonic_inc": true,
-    "p_at_score0": 0.0010725043119329362,
-    "p_at_score100": 0.9774575703587888
+    "p_at_score0": 0.11769145552820147,
+    "p_at_score100": 0.696608328184463
   }
 }
