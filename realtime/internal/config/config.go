@@ -21,6 +21,12 @@ type Config struct {
 	HTTPHost string
 	HTTPPort int
 	WSPort   int
+	// Dedicated listener for the data-only Master Node agent. Kept on a
+	// separate port so data-collection uptime/accuracy is monitored
+	// independently from execution-agent health (SOW: separation of concerns).
+	AgentDataPort int
+	// Public WS URL the Master Node (data) agent should connect to.
+	AgentDataWSURL string
 
 	// Market data
 	ProviderMode string
@@ -177,6 +183,8 @@ func Default() *Config {
 		ValkeyAddr:      getEnv("VALKEY_ADDR", "127.0.0.1:6379"),
 		HTTPHost:        getEnv("HTTP_HOST", "127.0.0.1"),
 		HTTPPort:        getEnvInt("HTTP_PORT", 13081),
+		AgentDataPort:   getEnvInt("AGENT_DATA_PORT", 13091),
+		AgentDataWSURL:  getEnv("AGENT_DATA_WS_URL", "ws://127.0.0.1:13091/ws/v1/data"),
 		WSPort:          getEnvInt("WS_PORT", 13081),
 		ProviderMode:    getEnv("PROVIDER_MODE", "agent"),
 		ReplayFile:      getEnv("REPLAY_FILE", ""),

@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"math"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -1050,6 +1051,36 @@ func main() {
 		go agentHub.Run()
 	}
 
+	// ─── Dedicated data-only Master Node (data) agent hub ───
+	// Same marketdata provider (snapshots ingested identically) but a SEPARATE
+	// listener + agent set. Signal delivery (broadcastSignalToAll /
+	// SendFilteredSignalToAgents) uses the exec hub ONLY, so a data agent can
+	// never receive or execute an order — it is purely a market-data source.
+	// This isolates data-collection uptime/accuracy from execution health.
+	var dataAgentHub *gateway.AgentHub
+	if isAgentProvider {
+		dataAgentHub = gateway.NewAgentHub(agentProvider)
+		go dataAgentHub.Run()
+		dataMux := http.NewServeMux()
+		dataMux.HandleFunc("/ws/v1/data", func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("role") != "data" {
+				http.Error(w, "data-agent endpoint requires role=data", http.StatusForbidden)
+				return
+			}
+			dataAgentHub.HandleAgentWebSocket(w, r)
+		})
+		go func() {
+			addr := fmt.Sprintf("%s:%d", cfg.HTTPHost, cfg.AgentDataPort)
+			log.Info().Str("addr", addr).Msg("Data Agent HTTP server starting")
+			if err := http.ListenAndServe(addr, dataMux); err != nil {
+				log.Error().Err(err).Str("addr", addr).Msg("Data Agent HTTP server failed")
+			}
+		}()
+	} else {
+		dataAgentHub = gateway.NewAgentHub(nil)
+		go dataAgentHub.Run()
+	}
+
 	// ─── Proactive License Validation ───
 	// Server-side: validates licenses for connected agents using agent_user_bindings
 	// table and sends LICENSE_STATUS via WebSocket. No Windows Agent changes needed.
@@ -1642,6 +1673,7 @@ func main() {
 	}
 
 	httpServer := gateway.NewHTTPServer(wsHub, persister, stateMgr, agentHub, agentProvider, valkeyCache, xmEngine, newsRiskEngine, engTracker)
+	httpServer.DataAgentHub = dataAgentHub
 	go func() {
 		addr := fmt.Sprintf("%s:%d", cfg.HTTPHost, cfg.HTTPPort)
 		log.Info().Str("addr", addr).Msg("HTTP server starting")
@@ -1731,10 +1763,12 @@ func main() {
 					agentStatus := gateway.AgentStatus{
 						AgentsConnected:     agentHub.AgentCount(),
 						MasterNodeConnected: agentProvider.HasConnectedAgents(),
+						DataAgentsConnected: dataAgentHub.AgentCount(),
 						SnapshotCount:       agentProvider.GetSnapshotCount(),
 						Timestamp:           time.Now().UTC(),
 					}
 					wsHub.BroadcastAgentStatus(agentStatus)
+					observability.DataAgentConnected.Set(float64(dataAgentHub.AgentCount()))
 					if valkeyCache != nil {
 						valkeyCache.SetAgentStatus(agentStatus)
 					}

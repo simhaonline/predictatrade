@@ -454,6 +454,7 @@ func (h *WebSocketHub) BroadcastMarketSnapshot(snapshot interface{}) {
 type AgentStatus struct {
 	AgentsConnected      int   `json:"agents_connected"`
 	MasterNodeConnected  bool  `json:"master_node_connected"`
+	DataAgentsConnected  int   `json:"data_agents_connected"`
 	SnapshotCount        uint64 `json:"snapshot_count"`
 	LastSnapshotTime     *time.Time `json:"last_snapshot_time,omitempty"`
 	Timestamp            time.Time `json:"timestamp"`

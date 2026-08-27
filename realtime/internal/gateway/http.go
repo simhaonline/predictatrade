@@ -30,6 +30,7 @@ type HTTPServer struct {
 	persister *marketdata.Persister
 	states    *features.StateManager
 	agentHub  *AgentHub
+	DataAgentHub *AgentHub
 	agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool }
 	valkeyCache *cache.ValkeyCache
 	crossMarketEngine *crossmarket.Engine
@@ -837,9 +838,14 @@ func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) 
 	if agentsConnected > 0 && !masterNodeConnected {
 		masterNodeConnected = true
 	}
+	dataAgentCount := 0
+	if h.DataAgentHub != nil {
+		dataAgentCount = h.DataAgentHub.AgentCount()
+	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"agents_connected":      agentsConnected,
 		"master_node_connected": masterNodeConnected,
+		"data_agents_connected": dataAgentCount,
 		"snapshot_count":        snapshotCount,
 		"mt4_connected":        h.agentHub.MT4ConnectedCount(),
 		"mt5_connected":        h.agentHub.MT5ConnectedCount(),

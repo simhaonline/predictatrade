@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"io"
 	"log"
 	"os"
@@ -35,6 +36,14 @@ func main() {
 	log.Println("Predict-A-Trade Windows Agent v" + agent.AgentVersion + " starting...")
 
 	config := agent.LoadConfig()
+	// Allow CLI override of the agent role: --mode=data (data-only Master Node)
+	// or --mode=exec (default, order execution).
+	modeFlag := flag.String("mode", "", "agent mode: 'data' (Master Node, data-only) or 'exec' (default, execution)")
+	flag.Parse()
+	if *modeFlag == "data" || *modeFlag == "exec" {
+		config.Mode = *modeFlag
+	}
+	log.Printf("Agent mode: %s", config.Mode)
 	a := agent.NewAgent(config)
 
 	// Always run in interactive mode. NSSM wraps the process as a Windows

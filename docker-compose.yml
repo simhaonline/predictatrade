@@ -95,11 +95,15 @@ services:
       - JWT_SECRET=lyFoqwbIPuflF/6PjNtrZXCM1wXGVfYJhj7ZxDAWKYA=
       - HTTP_PORT=13081
       - WS_PORT=13081
+      # Dedicated listener for the data-only Master Node agent (separate from
+      # the execution-agent listener so data-collection uptime is isolated).
+      - AGENT_DATA_PORT=13091
     extra_hosts:
       # Host Ollama AI proxy (sentiment) — iptables restricts 11434 to docker nets
       - "host.docker.internal:host-gateway"
     ports:
       - "13081:13081"
+      - "13091:13091"
     depends_on:
       postgres:
         condition: service_healthy

@@ -54,6 +54,13 @@ var (
 		Help: "Current WebSocket connections",
 	})
 
+	// Data-only Master Node (data) agent connected gauge. Monitors
+	// data-collection uptime independently from execution-agent health.
+	DataAgentConnected = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "pat_data_agent_connected",
+		Help: "Number of connected data-only Master Node agents",
+	})
+
 	WSMessagesSent = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "pat_websocket_messages_sent_total",
 		Help: "Total WebSocket messages sent",

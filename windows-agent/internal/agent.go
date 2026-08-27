@@ -35,6 +35,7 @@ func logf(format string, args ...any) {
 
 type Agent struct {
 	config           *Config
+	mode             string // "exec" (default) or "data" — data mode never executes orders
 	deviceID         string
 	deviceKey        *ecdsa.PrivateKey
 	mu               sync.Mutex
@@ -103,6 +104,7 @@ type HeartbeatData struct {
 func NewAgent(config *Config) *Agent {
 	return &Agent{
 		config:           config,
+		mode:             config.Mode,
 		deviceID:         uuid.New().String(),
 		stopChan:         make(chan struct{}),
 		signals:          make(chan *SignalEvent, 100),
@@ -684,8 +686,15 @@ func (a *Agent) connectLoop() {
 }
 
 func (a *Agent) connect() error {
-	url := a.config.LiveWSURL + "?agentId=" + a.deviceID + "&agentVersion=" + AgentVersion
-	log.Printf("Connecting to %s", url)
+	// Data-only agents connect to the dedicated data endpoint and advertise
+	// role=data; execution agents use the exec endpoint with role=exec. This
+	// lets the server isolate data collection from order execution.
+	wsURL := a.config.LiveWSURL
+	if a.mode == "data" {
+		wsURL = a.config.DataWSURL
+	}
+	url := wsURL + "?agentId=" + a.deviceID + "&agentVersion=" + AgentVersion + "&role=" + a.mode
+	log.Printf("Connecting to %s (mode=%s)", url, a.mode)
 
 	// CRITICAL: Use a custom dialer that forces HTTP/1.1 via TLS ALPN.
 	// The default dialer allows HTTP/2 negotiation, but HTTP/2 does NOT
@@ -762,6 +771,17 @@ func (a *Agent) connect() error {
 		}
 
 		// Handle signal events
+		if a.mode != "exec" {
+			// Data-only agent: never processes execution commands (SIGNAL,
+			// CLOSE_POSITION, EMERGENCY_STOP, KILL_SWITCH, LICENSE_STATUS are
+			// execution concerns). It only forwards market snapshots, which are
+			// sent by the EA via the pipe and handled independently. This is a
+			// hard fail-closed boundary — a data agent cannot trade.
+			if event.Type != "" {
+				log.Printf("DATA mode: ignoring server message type=%s", event.Type)
+			}
+			continue
+		}
 		if event.Type == "SIGNAL" {
 			// Idempotency check
 			if a.processedSignals[event.EventID] {
