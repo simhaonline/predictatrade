@@ -34,7 +34,7 @@
 #property strict
 
 // ─── Signal/Execution inputs ───
-input bool    AutoExecute    = true;
+input bool    AutoExecute    = false;   // SIGNAL_ONLY=true by default (display only). Set true to auto-trade.
 input string  LicenseKey     = "";
 input string  ChartTimeframe = "M1";    // Chart/timeframe this EA instance trades (M1/M5/H1/...)
 
@@ -1821,6 +1821,11 @@ void HandleSignal(string json)
 void HandleLicenseResponse(string json)
 {
     string oldStatus = g_licenseStatus;
+    string oldPlan   = g_licensePlan;
+    string oldAuth   = g_authStatus;
+    string oldDevice = g_deviceStatus;
+    string oldSess   = g_sessionStatus;
+    string oldTrade  = g_tradingStatus;
     g_licenseStatus = ExtractJSONString(json, "status");
     g_licensePlan   = ExtractJSONString(json, "plan");
     g_authStatus    = ExtractJSONString(json, "auth");
@@ -1848,13 +1853,21 @@ void HandleLicenseResponse(string json)
         g_allowedStrategies = cleaned;
     }
 
-    if(oldStatus != g_licenseStatus)
+    // Only log when the license state actually changes — the agent re-sends
+    // license responses on every heartbeat, so an unconditional log would spam
+    // the terminal every few seconds.
+    bool licChanged = (oldStatus != g_licenseStatus) || (oldPlan != g_licensePlan)
+                     || (oldAuth != g_authStatus) || (oldDevice != g_deviceStatus)
+                     || (oldSess != g_sessionStatus) || (oldTrade != g_tradingStatus);
+    if(licChanged)
+    {
         Print("License status: ", oldStatus, " -> ", g_licenseStatus,
               " Plan:", g_licensePlan);
 
-    // Client MT terminal log — record license/access status.
-    string access = (g_licenseStatus == "ACTIVE") ? "Access Granted" : "Access Denied";
-    PAT_LogLine("STATUS: " + access + " | License: " + g_licenseStatus + " | Subscription: " + g_licensePlan);
+        // Client MT terminal log — record license/access status.
+        string access = (g_licenseStatus == "ACTIVE") ? "Access Granted" : "Access Denied";
+        PAT_LogLine("STATUS: " + access + " | License: " + g_licenseStatus + " | Subscription: " + g_licensePlan);
+    }
 }
 
 //+------------------------------------------------------------------+
