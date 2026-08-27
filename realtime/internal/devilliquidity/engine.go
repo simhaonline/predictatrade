@@ -78,6 +78,12 @@ type Engine struct {
 	atrEMA    map[string]float64
 	prevClose map[string]float64
 
+	// liveness / observability stats
+	candlesProcessed int64
+	marksCreated     int64
+	lastCandleTime   time.Time
+	symbolsSeen      map[string]int
+
 	// event sink
 	onEvent func(DevilEvent)
 
@@ -189,6 +195,12 @@ func (e *Engine) ProcessCandle(c *CandleInput) error {
 	if !e.enabled {
 		return nil
 	}
+	e.candlesProcessed++
+	e.lastCandleTime = c.Time
+	if e.symbolsSeen == nil {
+		e.symbolsSeen = make(map[string]int)
+	}
+	e.symbolsSeen[c.Symbol]++
 	k := e.key(c.Symbol, c.Timeframe)
 	o, h, l, cl := decF(c.Open), decF(c.High), decF(c.Low), decF(c.Close)
 	rng := h - l
@@ -341,6 +353,7 @@ func (e *Engine) createMark(c *CandleInput, dir MarkDirection, o, h, l, cl, rng,
 		UpdatedAt:      now,
 	}
 	e.marks[m.ID] = m
+	e.marksCreated++
 	e.persistMark(m)
 	e.emit(DevilEvent{
 		MarkID: m.ID, Symbol: m.Symbol, Timeframe: m.Timeframe,
@@ -553,6 +566,32 @@ func (e *Engine) transition(m *DevilMark, to MarkState, price float64, etype str
 func (e *Engine) emit(ev DevilEvent) {
 	if e.onEvent != nil {
 		e.onEvent(ev)
+	}
+}
+
+// EngineStats reports liveness/observability counters.
+type EngineStats struct {
+	CandlesProcessed int64     `json:"candles_processed"`
+	MarksCreated     int64     `json:"marks_created"`
+	Active           int       `json:"active_marks"`
+	LastCandleTime   time.Time `json:"last_candle_time"`
+	SymbolsSeen      []string  `json:"symbols_seen"`
+}
+
+// Stats returns a snapshot of engine activity.
+func (e *Engine) Stats() EngineStats {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	syms := make([]string, 0, len(e.symbolsSeen))
+	for s := range e.symbolsSeen {
+		syms = append(syms, s)
+	}
+	return EngineStats{
+		CandlesProcessed: e.candlesProcessed,
+		MarksCreated:     e.marksCreated,
+		Active:           len(e.marks),
+		LastCandleTime:   e.lastCandleTime,
+		SymbolsSeen:      syms,
 	}
 }
 

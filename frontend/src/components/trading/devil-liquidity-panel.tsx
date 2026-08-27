@@ -29,6 +29,13 @@ interface DevilResponse {
   enabled: boolean;
   count: number;
   marks: DevilMark[];
+  stats: {
+    candles_processed: number;
+    marks_created: number;
+    active_marks: number;
+    last_candle_time: string;
+    symbols_seen: string[];
+  };
 }
 
 export function DevilLiquidityPanel({ title = "Devil Liquidity / Devil's Mark Engine" }: { title?: string }) {
@@ -59,13 +66,27 @@ export function DevilLiquidityPanel({ title = "Devil Liquidity / Devil's Mark En
         </button>
       </div>
 
-      <div className="flex items-center gap-3 text-xs">
+      <div className="flex flex-wrap items-center gap-3 text-xs">
         <span className="px-2 py-1 rounded bg-pat-bg-surface-secondary border border-pat-border">
           Engine: {data?.enabled ? <span className="text-pat-success">ENABLED</span> : <span className="text-pat-text-muted">OFFLINE</span>}
         </span>
         <span className="px-2 py-1 rounded bg-pat-bg-surface-secondary border border-pat-border">
           Active marks: {data?.count ?? 0}
         </span>
+        <span className="px-2 py-1 rounded bg-pat-bg-surface-secondary border border-pat-border">
+          Candles processed: {data?.stats?.candles_processed ?? 0}
+        </span>
+        <span className="px-2 py-1 rounded bg-pat-bg-surface-secondary border border-pat-border">
+          Marks created: {data?.stats?.marks_created ?? 0}
+        </span>
+        <span className="px-2 py-1 rounded bg-pat-bg-surface-secondary border border-pat-border">
+          Symbols: {(data?.stats?.symbols_seen ?? []).join(", ") || "—"}
+        </span>
+        {data?.stats?.last_candle_time && (
+          <span className="px-2 py-1 rounded bg-pat-bg-surface-secondary border border-pat-border">
+            Last candle: {new Date(data.stats.last_candle_time).toLocaleTimeString()}
+          </span>
+        )}
       </div>
 
       {isLoading ? (

@@ -1161,6 +1161,7 @@ func (h *HTTPServer) handleDevilLiquidityMarks(w http.ResponseWriter, r *http.Re
 		Enabled bool                    `json:"enabled"`
 		Count   int                     `json:"count"`
 		Marks   []*devilliquidity.DevilMark `json:"marks"`
+		Stats   devilliquidity.EngineStats `json:"stats"`
 	}
 	out := resp{Enabled: false, Marks: []*devilliquidity.DevilMark{}}
 	if eng == nil {
@@ -1168,6 +1169,7 @@ func (h *HTTPServer) handleDevilLiquidityMarks(w http.ResponseWriter, r *http.Re
 		return
 	}
 	out.Enabled = true
+	out.Stats = eng.Stats()
 	marks := eng.ActiveMarks()
 	if len(marks) == 0 {
 		// Fallback: try DB-backed recent marks (e.g. after restart).
