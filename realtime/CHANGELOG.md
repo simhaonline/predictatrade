@@ -1,5 +1,33 @@
 # Predict-A-Trade Changelog
 
+## v1.17.2 (27 August 2026) — CRITICAL: Master Node snapshot delivery (IPC truncation race)
+### Problem
+- The Go engine received `MASTER_TICK` from the Master Node EA but **never** a
+  `MARKET_SNAPSHOT` (or `MASTER_INIT`). Verified live: `snapshot_count:0`,
+  `last_snapshot_at:0`, market bars served from stale DB (~6h old) while ticks
+  flowed. Signals were therefore evaluated on stale/absent market state and the
+  live data feed was effectively dead despite agents being "connected".
+- Root cause: `MasterAppend()` in the Master Node EA opened the IPC file with
+  `FILE_WRITE`, which **truncates**. Because `MASTER_TICK` is written on every
+  tick (far more often than the throttled `MARKET_SNAPSHOT`), each snapshot was
+  clobbered by the next tick write before the Windows Agent's 5ms read loop could
+  drain it. The one-time `MASTER_INIT` was also clobbered by the first tick.
+- Confirmed the engine side is correct: a simulated Master Node delivering
+  `MARKET_SNAPSHOT` over WS is accepted instantly (`snapshot_count` climbs,
+  `data_health` → HEALTHY, `last_snapshot_at` updates, zero unmarshal errors).
+
+### Fix
+- **EA (MT4 + MT5 Master Node):** `MasterAppend()` now opens the IPC file
+  `FILE_READ|FILE_WRITE` and `FileSeek(..., SEEK_END)` so it truly appends. Ticks
+  and snapshots now coexist in `PAT_master_data.txt` until the Windows Agent
+  reads and clears them — snapshots are no longer lost to the truncation race.
+- **Engine observability:** added a production-safe `log` on `MARKET_SNAPSHOT`
+  unmarshal failure (the exact silent-failure class that hid this bug).
+
+### Verification
+- Engine accepts snapshots end-to-end (simulated) → `data_health:HEALTHY`.
+- Requires recompile + re-attach of the MT4/MT5 Master Node EAs for live flow.
+
 ## v1.17.1 (27 August 2026) — Silent Data-Feed Detection + Auto-Recovery
 ### Problem
 - After a Windows Agent / EA restart, the live market-data (MARKET_SNAPSHOT) feed

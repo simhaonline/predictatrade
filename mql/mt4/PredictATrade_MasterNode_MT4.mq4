@@ -660,15 +660,22 @@ void MasterWrite(string content)
     Print("FileOpen WRITE failed after 3 retries: ", PAT_MASTER_FILE, " error=", GetLastError());
 }
 
-void MasterAppend(string content)
+ void MasterAppend(string content)
 {
-    // Write directly — no read-append-write (prevents race condition with Windows Agent)
+    // Append (do NOT truncate). The Windows Agent polls PAT_master_data.txt every
+    // ~5ms, reads ALL lines and clears the file. Because MASTER_TICK is written on
+    // every tick while MARKET_SNAPSHOT / MASTER_INIT are written less often, a
+    // truncating write would clobber the snapshot before the agent can read it —
+    // which made the engine receive ticks but never snapshots (silent data feed).
+    // Opening read+write and seeking to the end lets ticks AND snapshots coexist
+    // in the file until the agent drains them.
     int retry = 0;
     while(retry < 3)
     {
-        int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+        int h = FileOpen(PAT_MASTER_FILE, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
         if(h != -1)
         {
+            FileSeek(h, 0, SEEK_END);
             FileWriteString(h, content);
             FileClose(h);
             return;
@@ -676,6 +683,7 @@ void MasterAppend(string content)
         retry++;
         Sleep(5);
     }
+    Print("FileOpen APPEND failed after 3 retries: ", PAT_MASTER_FILE, " error=", GetLastError());
 }
 
 //+------------------------------------------------------------------+

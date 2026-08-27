@@ -875,6 +875,11 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		// Process as comprehensive market snapshot from Master Node
 		var snapshot MarketSnapshot
 		if err := json.Unmarshal(data, &snapshot); err != nil {
+			raw := data
+			if len(raw) > 200 {
+				raw = raw[:200]
+			}
+			log.Printf("[marketdata] MARKET_SNAPSHOT unmarshal failed (agent=%s): %v — payload snippet: %s", agentID, err, string(raw))
 			return
 		}
 		p.snapshotMu.Lock()
