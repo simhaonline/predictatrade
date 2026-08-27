@@ -98,9 +98,11 @@ func (e *Engine) DecideWithAdvanced(input AdvancedDecisionInput, adv *AdvancedMa
 		if !allowed {
 			result.BlockedByAdvanced = true
 			result.AdvancedBlockReason = string(blockReason)
-			// Convert to BLOCKED signal
+			// Convert to BLOCKED signal — fail closed: never deliver to the EA.
 			result.Signal.Direction = "BLOCKED"
 			result.Signal.Grade = "BLOCKED"
+			result.Signal.Executable = false
+			result.AllGatesPass = false
 			result.NoTradeReasons = append(result.NoTradeReasons, "RECOVERY_BLOCKED")
 			return result
 		}
@@ -140,8 +142,11 @@ func (e *Engine) DecideWithAdvanced(input AdvancedDecisionInput, adv *AdvancedMa
 				if rlDec.Action == rl.ActionNoTrade && mode == rl.RLFilterOnly {
 					result.BlockedByAdvanced = true
 					result.AdvancedBlockReason = "RL_FILTER_VETO"
+					// Convert to BLOCKED signal — fail closed: never deliver to the EA.
 					result.Signal.Direction = "BLOCKED"
 					result.Signal.Grade = "BLOCKED"
+					result.Signal.Executable = false
+					result.AllGatesPass = false
 					return result
 				}
 			}

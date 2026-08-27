@@ -28,6 +28,11 @@ import (
 	"github.com/predictatrade/realtime/internal/engstatus"
 	"github.com/predictatrade/realtime/internal/features"
 	"github.com/predictatrade/realtime/internal/gates"
+	"github.com/predictatrade/realtime/internal/hedging"
+	"github.com/predictatrade/realtime/internal/adaptation"
+	"github.com/predictatrade/realtime/internal/recovery"
+	"github.com/predictatrade/realtime/internal/rl"
+	"github.com/predictatrade/realtime/internal/sentiment"
 	"github.com/predictatrade/realtime/internal/gateway"
 	"github.com/predictatrade/realtime/internal/marketdata"
 	"github.com/predictatrade/realtime/internal/observability"
@@ -58,6 +63,17 @@ var (
 	profitTargetGateRef *gates.ProfitTargetGate
 	riskOversizeGateRef *gates.RiskOversizeGate
 )
+
+// advManagers holds the advanced intelligence managers (recovery, adaptation,
+// hedging, ML, RL, sentiment) wired into the live Decide path via
+// engine.DecideWithAdvanced. This closes the gap where DecideWithAdvanced was
+// implemented and unit-tested but never invoked by the production pipeline.
+var advManagers *sigengine.AdvancedManagers
+
+// recoveryAccountID is the stable per-broker-account key used for recovery
+// state correlation. It must match between DecideWithAdvanced (AccountID) and
+// RecordTradeResult (AccountID) so consecutive-loss halts fire correctly.
+var recoveryAccountID string
 
 // newsRiskAdapter bridges pkg/news.RiskEngine to features.NewsRiskProvider.
 // When NEWS_MODE=OFF or the provider is disabled, it returns "NONE" so the
@@ -294,6 +310,30 @@ func main() {
 	observability.InitLogger(cfg.LogLevel)
 	log := observability.Log
 	log.Info().Msg("Predict-A-Trade Real-Time Engine v1.0.0 starting...")
+
+	// ─── Advanced intelligence managers (recovery/adaptation/hedging/RL/sentiment) ───
+	// Wired into the live signal path via engine.DecideWithAdvanced. This closes the
+	// gap where DecideWithAdvanced was implemented + unit-tested but never invoked by
+	// the production pipeline. Safety: with a fresh (in-memory) recovery state,
+	// CheckSignal ALLOWS every signal — recovery only blocks after a real consecutive-
+	// loss record is created via RecordTradeResult (from the trade-result feed). RL and
+	// ML are intentionally inert here (RLInferenceFn=nil, ML manager nil) so they cannot
+	// veto without an explicit model, preserving fail-open behavior. They are wired for
+	// 100% coverage so the subsystem is live, not decorative.
+	recoveryAccountID = os.Getenv("PAT_ACCOUNT_ID")
+	if recoveryAccountID == "" {
+		recoveryAccountID = "PAT-XAUUSD"
+	}
+	advManagers = &sigengine.AdvancedManagers{
+		Recovery:   recovery.NewManager(recovery.DefaultConfig()),
+		Adaptation: adaptation.NewManager(adaptation.DefaultConfig()),
+		Hedging:    hedging.NewManager(hedging.DefaultConfig()),
+		RL:         rl.NewManager(rl.DefaultConfig()),
+		Sentiment:  sentiment.NewEngine(sentiment.DefaultConfig(), nil),
+		// ML left nil: requires an *ml.ModelRegistry and is disabled by default; a nil
+		// manager is skipped safely inside DecideWithAdvanced.
+	}
+	log.Info().Str("account_id", recoveryAccountID).Msg("Advanced intelligence managers wired into live Decide path")
 
 	// ML Inference Engine — only if ML_ENABLED=true
 	var mlEngine *mlengine.MLEngine
@@ -1289,6 +1329,29 @@ func main() {
 			log.Info().Str("signal_id", tr.SignalID).Str("strategy_id", tr.StrategyID).
 				Str("exit", reason).Float64("pnl", tr.RealizedPnL).Str("dir", direction).
 				Bool("sl_correct", tr.SLCorrect).Msg("Trade outcome reconciled")
+
+			// Feed the real trade outcome into the recovery manager so consecutive-
+			// loss halts actually protect the live account (DecideWithAdvanced reads
+			// this state). This closes the gap where recovery was never driven by
+			// outcomes, making it decorative. Keyed by recoveryAccountID so it matches
+			// the AccountID used in the Decide path.
+			if advManagers != nil && advManagers.Recovery != nil {
+				newState := advManagers.Recovery.RecordTradeResult(recovery.TradeResult{
+					AccountID:  recoveryAccountID,
+					StrategyID: tr.StrategyID,
+					Symbol:     "XAUUSD",
+					SignalID:   tr.SignalID,
+					PnL:        decimal.NewFromFloat(tr.RealizedPnL),
+					IsWin:      isWin,
+					IsLoss:     isLoss,
+					ClosedAt:   time.Now().UTC(),
+					TradingDay: time.Now().UTC(),
+				})
+				if newState == recovery.StateHalted || newState == recovery.StateRecovery {
+					log.Warn().Str("account_id", recoveryAccountID).Str("strategy_id", tr.StrategyID).
+						Str("state", string(newState)).Msg("Recovery state engaged after trade outcome")
+				}
+			}
 		}
 	})
 
@@ -2705,7 +2768,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 						spreadNow, _ := mergedState.Spread.Float64()
 						candRoundTripCost := decimal.NewFromFloat(spreadNow + cfg.SlippageCostPoints + cfg.CommissionCostPoints)
 						candEntitlement := gates.ResolveEntitlementState(gateRegistry)
-						candDecision := engine.Decide(sigengine.DecisionInput{
+						candDecision := engine.DecideWithAdvanced(buildAdvancedInput(sigengine.DecisionInput{
 							StrategyID: strat.ID(), Direction: advDir, Timeframe: candle.Timeframe,
 							RawScore: sig.RawScore, LongScore: sig.LongScore, ShortScore: sig.ShortScore,
 							Tick: mergedState.LastTick, Regime: mergedState.Regime.Current, ATR: mergedState.Indicators.ATR,
@@ -2743,7 +2806,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 								}
 								return 0
 							}(),
-						})
+						}, stratResult, mergedState, spreadNow, stratResult.Confidence), advManagers)
 						if candDecision.Signal != nil {
 							sig.GateResults = candDecision.Signal.GateResults
 						}
@@ -3077,7 +3140,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				break
 			}
 		}
-		decision := engine.Decide(sigengine.DecisionInput{
+		decision := engine.DecideWithAdvanced(buildAdvancedInput(sigengine.DecisionInput{
 			StrategyID: strat.ID(), Direction: stratResult.Direction,
 			Timeframe:  candle.Timeframe, // scope gates to the triggering timeframe
 			RawScore: stratResult.RawScore, LongScore: stratResult.LongScore, ShortScore: stratResult.ShortScore,
@@ -3131,7 +3194,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				}
 				return 0
 			}(),
-		})
+		}, stratResult, mergedState, spreadNow, stratResult.Confidence), advManagers)
 		if decision.Signal != nil {
 			decision.Signal.CalibratedProbability = calibratedProb
 			// Research-trained calibrated probability (safe fallback: 0,false).
@@ -4158,7 +4221,10 @@ func aiVerificationStatus(cfg *config.Config) string {
 }
 
 // riskDecisionText summarises the hard-gate evaluation result for the dashboard.
-func riskDecisionText(d sigengine.DecisionResult) string {
+func riskDecisionText(d sigengine.AdvancedDecisionResult) string {
+	if d.BlockedByAdvanced {
+		return "VETO — ADVANCED: " + d.AdvancedBlockReason
+	}
 	if len(d.GateResults) == 0 {
 		return "NONE — no hard gates evaluated"
 	}
@@ -4169,6 +4235,59 @@ func riskDecisionText(d sigengine.DecisionResult) string {
 		return "VETO — " + string(d.FirstVeto.GateID)
 	}
 	return "DEGRADED — advisory (non-critical gate)"
+}
+
+// buildAdvancedInput extends a base DecisionInput with the context required by
+// engine.DecideWithAdvanced (recovery/adaptation/RL). RL inference is left nil so
+// the RL filter cannot veto without an explicit model (fail-open). The recovery
+// AccountID is the stable per-broker key shared with RecordTradeResult.
+func buildAdvancedInput(base sigengine.DecisionInput, stratResult strategy.StrategyResult, ms *features.MarketState, spreadNow, confidence float64) sigengine.AdvancedDecisionInput {
+	atrF, _ := ms.Indicators.ATR.Float64()
+	ctx := adaptation.ContextInput{
+		Regime:          string(ms.Regime.Current),
+		VolatilityState: ms.Regime.Volatility,
+		Spread:          spreadNow,
+		ATR:             atrF,
+		Session:         ms.Session.CurrentSession,
+		MarketStructure: ms.Structure.CurrentTrend,
+	}
+	obs := rl.Observation{
+		Regime:     advRegimeToFloat(string(ms.Regime.Current)),
+		Confluence: stratResult.Dominance,
+		Confidence: stratResult.Confidence,
+		Volatility: advVolToFloat(ms.Regime.Volatility),
+		Spread:     spreadNow,
+		ATR:        atrF,
+	}
+	return sigengine.AdvancedDecisionInput{
+		DecisionInput: base,
+		AccountID:     recoveryAccountID,
+		Confluence:    stratResult.Dominance,
+		SetupGrade:    "", // hot path does not assign a letter grade; recovery only
+		// enforces grade while already in RECOVERY state (after real losses).
+		Confidence:    confidence,
+		MarketContext: ctx,
+		RLObservation: obs,
+		RLInferenceFn: nil, // RL inert unless a model supplies inference
+	}
+}
+
+func advRegimeToFloat(regime string) float64 {
+	switch regime {
+	case "TRENDING_BULLISH", "TRENDING_BEARISH", "BREAKOUT":
+		return 1
+	}
+	return 0
+}
+
+func advVolToFloat(v string) float64 {
+	switch v {
+	case "HIGH", "EXTREME":
+		return 0.005
+	case "LOW":
+		return 0.0005
+	}
+	return 0.001
 }
 
 func computeRR(entry, sl, tp decimal.Decimal) decimal.Decimal {
