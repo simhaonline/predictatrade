@@ -82,23 +82,39 @@ GOTOOLCHAIN=go1.23.0 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath 
   -o "$BIN_PATH" ./cmd/agent/ || fatal "Build failed"
 log "Binary built: $BIN_PATH ($(du -h "$BIN_PATH" | cut -f1))"
 
-# DISABLED: # ─── Step 3b: Code-sign the binary with Authenticode (osslsigncode) ───
-# DISABLED: CERT_PFX="$AGENT_DIR/certs/pat-code-sign.pfx"
-# DISABLED: CERT_PASS="pat-local-dev"
-# DISABLED: if [[ -f "$CERT_PFX" ]] && which osslsigncode >/dev/null 2>&1; then
-# DISABLED:     log "Code-signing binary with Authenticode..."
-# DISABLED:     SIGNED_BIN="$BIN_PATH.signed"
-# DISABLED:     if osslsigncode sign -pkcs12 "$CERT_PFX" -pass "$CERT_PASS"         -t http://timestamp.digicert.com         -in "$BIN_PATH" -out "$SIGNED_BIN" 2>&1 | grep -q "Succeeded"; then
-# DISABLED:         mv "$SIGNED_BIN" "$BIN_PATH"
-# DISABLED:         log "Binary code-signed with Authenticode ✓"
-# DISABLED:     else
-# DISABLED:         log "WARN: Code signing failed — binary will be unsigned"
-# DISABLED:         rm -f "$SIGNED_BIN"
-# DISABLED:     fi
-# DISABLED: else
-# DISABLED:     log "WARN: No code signing certificate or osslsigncode — binary will be unsigned"
-# DISABLED: fi
-# DISABLED: 
+# ─── Step 3b: Code-sign the binary with Authenticode (osslsigncode) ───
+# The repo ships a self-signed Predict-A-Trade code-signing cert
+# (certs/pat-code-sign.pfx). Signing the PE makes Windows Defender / SmartScreen
+# treat it as a known, signed binary instead of an unsigned download. The
+# install.ps1 also imports the matching root (pat-code-sign.crt) into the
+# Trusted Root store so the self-signed signature is fully trusted on the box.
+# Signing is intentionally non-fatal: if the cert or tool is missing the build
+# still succeeds (just unsigned).
+CERT_PFX="$AGENT_DIR/certs/pat-code-sign.pfx"
+CERT_PASS="pat-local-dev"
+if [[ -f "$CERT_PFX" ]] && which osslsigncode >/dev/null 2>&1; then
+    log "Code-signing binary with Authenticode..."
+    SIGNED_BIN="$BIN_PATH.signed"
+    if osslsigncode sign -pkcs12 "$CERT_PFX" -pass "$CERT_PASS" -in "$BIN_PATH" -out "$SIGNED_BIN" 2>&1 | grep -q "Succeeded"; then
+        mv "$SIGNED_BIN" "$BIN_PATH"
+        log "Binary code-signed with Authenticode (self-signed) ✓"
+    else
+        log "WARN: Code signing failed — binary will be unsigned"
+        rm -f "$SIGNED_BIN"
+    fi
+else
+    log "WARN: No code signing certificate or osslsigncode — binary will be unsigned"
+fi
+
+# ─── Step 3c: Publish the PUBLIC code-signing cert ───
+# install.ps1 imports this into the Trusted Root store so the self-signed
+# Authenticode signature is trusted by Windows Defender / SmartScreen. Only the
+# public .crt is published — never the .pfx / .key.
+if [[ -f "$AGENT_DIR/certs/pat-code-sign.crt" ]]; then
+    cp "$AGENT_DIR/certs/pat-code-sign.crt" "$DEPLOY_DIR/pat-code-sign.crt"
+    log "Published public code-signing cert → $DEPLOY_DIR/pat-code-sign.crt"
+fi
+
 # ─── Step 4: Copy a standalone deployment binary ───
 # The Nginx container mounts deploy/ only. A symlink to ../bin is therefore
 # broken inside the container and produces a public 404 for pat-agent.exe.

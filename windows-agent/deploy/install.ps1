@@ -145,6 +145,32 @@ try {
     exit 1
 }
 
+# ── [5b] Trust the Predict-A-Trade self-signed code-signing root ──
+# The agent is Authenticode-signed with certs/pat-code-sign.pfx. Importing the
+# matching PUBLIC root (pat-code-sign.crt) into the machine Trusted Root store
+# makes Windows Defender / SmartScreen accept the signed binary instead of
+# flagging it. This is the proper fix — no Defender exclusions or hacks needed.
+# Non-fatal: if it fails, the agent still runs (SmartScreen may warn once).
+try {
+    $certUrl  = "$BaseUrl/pat-code-sign.crt"
+    $certPath = Join-Path $InstallDir "pat-code-sign.crt"
+    Invoke-WebRequest -Uri $certUrl -OutFile $certPath -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
+    $cert   = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($certPath)
+    $store  = New-Object System.Security.Cryptography.X509Certificates.X509Store("Root", "LocalMachine")
+    $store.Open("ReadWrite")
+    $exists = $store.Certificates | Where-Object { $_.Thumbprint -eq $cert.Thumbprint }
+    if (-not $exists) {
+        $store.Add($cert)
+        Write-Host "  OK: Trusted Predict-A-Trade code-signing root (Defender/SmartScreen)"
+    } else {
+        Write-Host "  OK: Code-signing root already trusted"
+    }
+    $store.Close()
+} catch {
+    Write-Host "  WARN: Could not import code-signing root: $_"
+    Write-Host "  (Agent still runs — SmartScreen may warn on first launch; allow it once.)"
+}
+
 # Step 6: Download NSSM (service manager — wraps the agent as a Windows service)
 Write-Host "[6/9] Downloading NSSM (service manager)..."
 $is64bit = [Environment]::Is64BitOperatingSystem
