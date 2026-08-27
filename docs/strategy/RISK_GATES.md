@@ -1,5 +1,5 @@
 # Risk Gates
-## v1.16.0 — 26 August 2026
+## v1.17.0 — 27 August 2026
 
 ### Gate Pipeline (16 gates, ordered execution)
 
@@ -21,6 +21,24 @@
 |14 | MaxDailyTrades | Frequency | Fail-closed. |
 |15 | RegimeFilter | Market | Advisory. |
 |16 | ProfitTarget | Capital | Fail-closed. |
+
+### Key Changes (v1.17.x)
+
+**Per-Client Risk Isolation at Signal Delivery:**
+Beyond the server-side 16-gate pipeline (which evaluates signal-worthiness at
+generation time), signal **delivery** now enforces a per-receiving-client account
+check (`AgentHub.SetRiskCheck` → `AgentProvider.AgentAccountOK`). This isolates
+clients: an executable signal is forwarded to a given Windows Agent only if that
+agent's OWN broker account has free margin > 0. A client whose account is blown
+or over-exposed is skipped individually — it cannot suppress signals for any
+other client. The check is fail-open: an agent with no known/remote account
+state, or whose last snapshot is >60s stale, is allowed (preserving default
+behavior). This closes the "one client's bad account blocks everyone" risk class
+at the delivery boundary.
+
+> Note: account-state tracking is now per-agent (`AgentProvider` registry); the
+> global `broker` equity still influences **lot sizing** for all clients and will
+> be made per-client in the next sub-phase.
 
 ### Key Changes (v1.16.x)
 

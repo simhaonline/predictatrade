@@ -1,5 +1,38 @@
 # Predict-A-Trade Changelog
 
+## v1.17.0 (27 August 2026) — Per-Client Risk Isolation + Ingest/Signal Decoupling
+### New Features
+- **Per-client risk isolation at signal delivery** (`AgentHub.SetRiskCheck` +
+  `AgentProvider.AgentAccountOK`): executable signals are delivered only to
+  clients whose OWN broker account has buying power. A blown/over-exposed client
+  is isolated and can never block or contaminate another client's signals. The
+  check is **fail-open** (unknown/stale account → allowed), so it cannot cause a
+  global blackout.
+- **Per-agent account registry** in `AgentProvider`: each client's broker account
+  is tracked individually (no shared global account-driven gate). `agentID` is now
+  threaded through `BrokerAccountHydrateFn`.
+- **Ingest/signal decoupling seam** (`pkg/bus`): inbound Windows-Agent messages
+  route through an abstract `IngestBus`. Default is `DirectBus` (in-process,
+  identical to the prior direct call). `NatsBus` activates when `NATS_URL` is set,
+  enqueuing messages on NATS which a subscriber dispatches to the engine — fully
+  decoupling data-collection from the signal engine and enabling a separate ingest
+  service. On NATS connect failure it falls back to in-process (safe no-op).
+- **`pat-nats` service** added to `docker-compose.yml` (`nats:2.10-alpine`,
+  JetStream enabled). Off by default; enable by setting
+  `NATS_URL=nats://nats:4222` on the `realtime` service.
+
+### Tests
+- Per-client isolation unit tests (incl. stale fail-open) in
+  `marketdata/agent_provider_account_test.go`.
+- `pkg/bus` dispatch + NATS round-trip tests (round-trip skips when no NATS).
+- All touched packages pass `go test -race`.
+
+### Known follow-up (next sub-phase)
+- Global `broker` equity still drives **lot sizing** for all clients. Per-client
+  SIZING at delivery (built on the new per-agent registry) remains the next step.
+- NATS path is verified by tests + fallback; a staging soak is recommended
+  before enabling `NATS_URL` in production.
+
 ## v1.16.0 (26 August 2026) — P2 Activation + Production Readiness Audit
 ### New Features
 - P2-001: Session ORB features ACTIVE — Asian/London/NY opening range computation, breakout detection, SESSION_ORB evidence pillar

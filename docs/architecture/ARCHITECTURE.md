@@ -1,5 +1,5 @@
 # Predict-A-Trade Architecture
-## v1.16.0 — 26 August 2026
+## v1.17.0 — 27 August 2026
 
 ### Signal Flow
 
@@ -7,6 +7,9 @@
 EXTERNAL SOURCES (MT5, TwelveData, FMP, Ollama, News)
                     |
                     v
+Windows Agents (WS :13081 / data :13091)
+                    |
+                    v  (IngestBus: DirectBus in-process, or NatsBus when NATS_URL set)
 Go REALTIME ENGINE (:13081)
   Market Ingest -> Feature Registry (42 ind) -> Strategy Engines (5)
                                                     |
@@ -14,12 +17,21 @@ Go REALTIME ENGINE (:13081)
                                           Signal Engine + 16 Gates
                                           (deterministic, fail-closed)
                                                     |
-                               TimescaleDB + Valkey + WebSocket
+                               TimescaleDB + Valkey + WebSocket (per-client risk filter)
                                     |              |            |
                                     v              v            v
                             Next.js :13082  NestJS :13080  Windows/MQL
                             (Frontend)     (IAM/Billing)  (Execution)
 ```
+
+> **Ingest/signal decoupling (v1.17.0):** inbound agent messages travel through
+> an `IngestBus` abstraction (`realtime/pkg/bus`). The default `DirectBus` calls
+> the engine handler in-process (identical to the pre-NATS path). When
+> `NATS_URL` is set on the `realtime` service, a `NatsBus` enqueues messages on
+> the `pat-nats` service and a subscriber dispatches them to the same engine
+> handler — isolating data-collection throughput from signal processing and
+> allowing a dedicated ingest service later. Connection failure falls back to
+> in-process automatically.
 
 ### Timezone Model
 The broker server runs in GMT+3 (standard XAUUSD FX broker time, no DST). All session classification, ORB ranges, and hour-of-day logic use broker-local time via `BrokerLocation()`, configurable through `BROKER_TIMEZONE` environment variable. Absolute instants are stored as TIMESTAMPTZ (UTC) in Postgres; only hour-of-day logic converts to broker time.
@@ -34,7 +46,7 @@ The broker server runs in GMT+3 (standard XAUUSD FX broker time, no DST). All se
 | Python Research | research/ | Backtesting, calibration | Live tick dependency |
 | MQL Edge | mql/ | Order execution | Primary intelligence |
 
-### Services (11 total)
+### Services (11 LIVE + 1 OPT-IN)
 
 | Service | Port | Tech | Status |
 |---------|:----:|------|:------:|
@@ -49,6 +61,25 @@ The broker server runs in GMT+3 (standard XAUUSD FX broker time, no DST). All se
 | Grafana | 3001 | Dashboards | LIVE |
 | ntfy | 8091 | Alerts | LIVE |
 | Nginx | 80/443 | Reverse proxy | LIVE |
+| NATS | 4222/8222 | Ingest bus (optional) | OPT-IN (`NATS_URL`) |
+
+### Recent Architectural Changes (v1.17.x)
+
+**Per-Client Risk Isolation at Delivery:** Signal delivery now applies a
+per-receiving-client risk check (`AgentHub.SetRiskCheck` →
+`AgentProvider.AgentAccountOK`). Executable signals are sent only to clients
+whose OWN broker account reports free margin > 0. A client with a blown account
+is isolated — it can never block or contaminate another client's signals. The
+check is fail-open (unknown or >60s-stale account state → allowed), and each
+client's account is tracked individually in a per-agent registry, so there is no
+shared global account-driven gate.
+
+**Ingest/Signal Decoupling Seam:** The Windows-Agent inbound path uses the
+`pkg/bus` abstraction. `DirectBus` (default) preserves the original in-process
+behavior; `NatsBus` (when `NATS_URL` is set) routes inbound messages through the
+`pat-nats` service, decoupling the data-collection plane from the signal engine.
+A separate ingest service can later subscribe to / publish on the same subject
+without changing the engine.
 
 ### Recent Architectural Changes (v1.16.x)
 
