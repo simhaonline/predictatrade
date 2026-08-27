@@ -159,8 +159,9 @@ int           g_signalsFiltered = 0;
 double        g_dailyPnL       = 0;
 double        g_dayStartBalance = 0;
 datetime      g_currentDay    = 0;
-bool          g_tradingBlocked = false;
-bool          g_hardHaltTriggered = false;
+ bool          g_tradingBlocked = false;
+ bool          g_capitalWarnActive = false;  // edge-trigger for CAPITAL_WARNING emission
+ bool          g_hardHaltTriggered = false;
 int           g_slippageRejects = 0;
 bool          g_equityHalted   = false;
 int           g_magicSeq       = 0;
@@ -2018,6 +2019,7 @@ void UpdateCapitalProtection()
         if(g_tradingBlocked)
         {
             g_tradingBlocked = false;
+            g_capitalWarnActive = false;  // allow a fresh warning next time we re-enter the band
             Print("CAPITAL PROTECTION (RECOVER): daily loss recovered to ", lossPct, "% — trading re-enabled");
             string recMsg = "CAPITAL_PROTECTION|{\"event_type\":\"RECOVER\",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + ",\"action\":\"RESUMED\"}";
             PAT_Append(PAT_TICK_FILE, recMsg + "\n");
@@ -2026,11 +2028,24 @@ void UpdateCapitalProtection()
     }
     else
     {
+        // Edge-triggered CAPITAL_WARNING: emit only on the transition into the
+        // warning band (not on every tick). The EA otherwise appends the warning
+        // on every tick while the account sits at/below the threshold, which
+        // floods the agent → engine path. Reset when the account recovers above
+        // the warning threshold so a fresh warning can fire later.
         if(lossPct <= -effWarning && !g_tradingBlocked)
         {
-            string warnMsg = "CAPITAL_WARNING|{\"daily_pnl\":" + DoubleToString(g_dailyPnL, 2)
-                           + ",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + "}";
-            PAT_Append(PAT_TICK_FILE, warnMsg + "\n");
+            if(!g_capitalWarnActive)
+            {
+                g_capitalWarnActive = true;
+                string warnMsg = "CAPITAL_WARNING|{\"daily_pnl\":" + DoubleToString(g_dailyPnL, 2)
+                               + ",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + "}";
+                PAT_Append(PAT_TICK_FILE, warnMsg + "\n");
+            }
+        }
+        else
+        {
+            g_capitalWarnActive = false;
         }
         if(!BypassDailyLossBlock && lossPct <= -effSoftHalt && !g_tradingBlocked)
         {

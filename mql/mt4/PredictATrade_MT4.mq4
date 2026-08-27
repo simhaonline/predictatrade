@@ -150,8 +150,9 @@ int     g_signalsFiltered  = 0;
 double  g_dailyPnL       = 0;
 double  g_dayStartBalance = 0;
 datetime g_currentDay    = 0;
-bool    g_tradingBlocked = false;
-bool    g_hardHaltTriggered = false;
+ bool    g_tradingBlocked = false;
+ bool    g_capitalWarnActive = false;  // edge-trigger for CAPITAL_WARNING emission
+ bool    g_hardHaltTriggered = false;
 int     g_slippageRejects = 0;
 // Execution safety state
 bool    g_equityHalted   = false;
@@ -1316,6 +1317,7 @@ void UpdateCapitalProtection()
         if(g_tradingBlocked)
         {
             g_tradingBlocked = false;
+            g_capitalWarnActive = false;  // allow a fresh warning next time we re-enter the band
             Print("CAPITAL PROTECTION (RECOVER): daily loss recovered to ", lossPct, "% — trading re-enabled");
             string recMsg = "CAPITAL_PROTECTION|{";
             recMsg += "\"event_type\":\"RECOVER\"";
@@ -1329,17 +1331,28 @@ void UpdateCapitalProtection()
     }
     else
     {
+        // Edge-triggered CAPITAL_WARNING: emit only on the transition into the
+        // warning band (not on every tick). Resets when the account recovers
+        // above the warning threshold so a fresh warning can fire later.
         if(lossPct <= -effWarning && !g_tradingBlocked)
         {
-            string warnMsg = "CAPITAL_WARNING|{";
-            warnMsg += "\"daily_pnl\":" + DoubleToString(g_dailyPnL, 2);
-            warnMsg += ",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2);
-            warnMsg += ",\"max_loss_pct\":" + DoubleToString(MaxDailyLossPct, 1);
-            warnMsg += ",\"balance\":" + DoubleToString(curBal, 2);
-            warnMsg += ",\"action\":\"WARNED\"";
-            warnMsg += "}";
-            PAT_Append(PAT_TICK_FILE, warnMsg + "\n");
-            Print("CAPITAL WARNING: daily P&L=", g_dailyPnL, " (", lossPct, "%)");
+            if(!g_capitalWarnActive)
+            {
+                g_capitalWarnActive = true;
+                string warnMsg = "CAPITAL_WARNING|{";
+                warnMsg += "\"daily_pnl\":" + DoubleToString(g_dailyPnL, 2);
+                warnMsg += ",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2);
+                warnMsg += ",\"max_loss_pct\":" + DoubleToString(MaxDailyLossPct, 1);
+                warnMsg += ",\"balance\":" + DoubleToString(curBal, 2);
+                warnMsg += ",\"action\":\"WARNED\"";
+                warnMsg += "}";
+                PAT_Append(PAT_TICK_FILE, warnMsg + "\n");
+                Print("CAPITAL WARNING: daily P&L=", g_dailyPnL, " (", lossPct, "%)");
+            }
+        }
+        else
+        {
+            g_capitalWarnActive = false;
         }
         if(!BypassDailyLossBlock && lossPct <= -effSoftHalt && !g_tradingBlocked)
         {

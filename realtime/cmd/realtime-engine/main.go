@@ -1105,7 +1105,7 @@ func main() {
 			Quality:       types.QualityAuthoritative,
 		})
 
-		observability.Log.Info().
+		observability.Log.Debug().
 			Float64("balance", account.Balance).
 			Float64("equity", account.Equity).
 			Float64("free_margin", freeMargin).

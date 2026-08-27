@@ -288,6 +288,13 @@ type AgentProvider struct {
 	masterOffset   atomic.Int32 // authoritative offset reported by Master Node
 	offsetMu       sync.Mutex
 	offsetSamples  map[int]int
+
+	// Capital-protection log de-duplication. The EA emits CAPITAL_WARNING /
+	// CAPITAL_PROTECTION on every tick while the account sits in the triggered
+	// state, which would otherwise flood the logs every few milliseconds. We
+	// only log a transition per agent.
+	capitalStateMu   sync.Mutex
+	lastCapitalState map[string]string
 }
 
 // SetConfiguredOffset overrides auto-detection with an explicit broker UTC
@@ -319,8 +326,13 @@ func (p *AgentProvider) ObserveMasterOffset(hours int) {
 	if p.cfgOffset != 0 {
 		return // operator override always wins
 	}
+	prev := int(p.masterOffset.Load())
 	p.masterOffset.Store(int32(hours))
-	log.Printf("[marketdata] broker UTC offset set from Master Node live time = %d (candles align to broker sessions)", hours)
+	// Log only on first observation or change — the Master Node sends this on
+	// every tick, so logging unconditionally would flood the log every few ms.
+	if prev != hours {
+		log.Printf("[marketdata] broker UTC offset set from Master Node live time = %d (candles align to broker sessions)", hours)
+	}
 }
 
 // BrokerNow returns the current time in the broker's session timezone, collected
@@ -770,12 +782,36 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		log.Printf("[AGENT] Slippage event from %s: type=%s", agentID, msgType)
 
 	case "CAPITAL_WARNING":
-		// NEW v1.07: Capital protection warning (3% loss)
-		log.Printf("[AGENT] CAPITAL WARNING from %s: type=%s", agentID, msgType)
+		// NEW v1.07: Capital protection warning (3% loss). De-duplicated:
+		// the EA emits this on every tick while in the warning state.
+		p.capitalStateMu.Lock()
+		if p.lastCapitalState == nil {
+			p.lastCapitalState = make(map[string]string)
+		}
+		prev := p.lastCapitalState[agentID]
+		p.capitalStateMu.Unlock()
+		if prev != "CAPITAL_WARNING" {
+			log.Printf("[AGENT] CAPITAL WARNING from %s: type=%s", agentID, msgType)
+			p.capitalStateMu.Lock()
+			p.lastCapitalState[agentID] = "CAPITAL_WARNING"
+			p.capitalStateMu.Unlock()
+		}
 
 	case "CAPITAL_PROTECTION":
-		// NEW v1.07: Capital protection triggered (5% loss) — trading blocked
-		log.Printf("[AGENT] CAPITAL PROTECTION from %s: type=%s", agentID, msgType)
+		// NEW v1.07: Capital protection triggered (5% loss) — trading blocked.
+		// De-duplicated the same way as CAPITAL_WARNING.
+		p.capitalStateMu.Lock()
+		if p.lastCapitalState == nil {
+			p.lastCapitalState = make(map[string]string)
+		}
+		prev := p.lastCapitalState[agentID]
+		p.capitalStateMu.Unlock()
+		if prev != "CAPITAL_PROTECTION" {
+			log.Printf("[AGENT] CAPITAL PROTECTION from %s: type=%s", agentID, msgType)
+			p.capitalStateMu.Lock()
+			p.lastCapitalState[agentID] = "CAPITAL_PROTECTION"
+			p.capitalStateMu.Unlock()
+		}
 
 	case "EXECUTION_ACK":
 		// EA sends EXECUTION_ACK after placing an order — contains the actual
