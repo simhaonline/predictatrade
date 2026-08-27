@@ -71,11 +71,17 @@ type Config struct {
 	// qualified (backtest/walk-forward calibration on file) to emit EXECUTABLE
 	// signals. Empty by default — nothing is armed unless the operator lists it.
 	// Arming only takes effect when LiveTradingAuthorized is also true.
-	EdgeArmedStrategies []string
-	MaxMarginUsagePct         float64            // MAX_MARGIN_USAGE_PCT of free margin
-	CostToTP1MaxPct           float64            // COST_TO_TP1_MAX_PCT for scalping strategies
-	SlippageCostPoints        float64            // SLIPPAGE_COST_POINTS (price units) added to round-trip cost
-	CommissionCostPoints      float64            // COMMISSION_COST_POINTS (price units) added to round-trip cost
+	EdgeArmedStrategies  []string
+	MaxMarginUsagePct    float64 // MAX_MARGIN_USAGE_PCT of free margin
+	CostToTP1MaxPct      float64 // COST_TO_TP1_MAX_PCT for scalping strategies
+	SlippageCostPoints   float64 // SLIPPAGE_COST_POINTS (price units) added to round-trip cost
+	CommissionCostPoints float64 // COMMISSION_COST_POINTS (price units) added to round-trip cost
+	// PaperEquity is a fallback account equity used ONLY when the connected broker
+	// does not report a live equity (e.g. demo/paper/shadow environments). It lets
+	// the risk-sizing gates compute a valid lot size instead of failing closed on
+	// equity<=0, so entitled + authorized signals can become executable. In
+	// production with a real broker equity, this value is ignored.
+	PaperEquity float64 // PAT_PAPER_EQUITY
 	// MinATRByTimeframe lets operators set a different minimum ATR per decision
 	// timeframe (e.g. M1 needs a far smaller floor than H4). Loaded as JSON from
 	// MIN_ATR_BY_TIMEFRAME, e.g. {"M1":8,"M5":15,"H1":60,"H4":200}. The gate
@@ -216,18 +222,19 @@ func Default() *Config {
 			"TREND_SWING":       getEnvFloat("BASE_LOT_TREND_SWING", 0.01),
 			"MARNIE_FIB":        getEnvFloat("BASE_LOT_MARNIE_FIB", 0.01),
 		},
-		EdgeMinProfitFactor:  getEnvFloat("EDGE_MIN_PROFIT_FACTOR", 1.2),
-		EdgeMinExpectancyR:   getEnvFloat("EDGE_MIN_EXPECTANCY_R", 0.2),
-		EdgeMinSampleSize:    getEnvInt("EDGE_MIN_SAMPLE_SIZE", 50),
+		EdgeMinProfitFactor:       getEnvFloat("EDGE_MIN_PROFIT_FACTOR", 1.2),
+		EdgeMinExpectancyR:        getEnvFloat("EDGE_MIN_EXPECTANCY_R", 0.2),
+		EdgeMinSampleSize:         getEnvInt("EDGE_MIN_SAMPLE_SIZE", 50),
 		EdgeNegativeMinSampleSize: getEnvInt("EDGE_NEGATIVE_MIN_SAMPLE_SIZE", 10),
-		EdgeLookbackTrades:   getEnvInt("EDGE_LOOKBACK_TRADES", 50),
-		LiveTradingAuthorized: getEnvBool("LIVE_TRADING_AUTHORIZED", false),
-		EdgeArmedStrategies:   splitComma(getEnv("EDGE_ARMED_STRATEGIES", "")),
-		MaxMarginUsagePct:    getEnvFloat("MAX_MARGIN_USAGE_PCT", 30.0),
-		CostToTP1MaxPct:      getEnvFloat("COST_TO_TP1_MAX_PCT", 0.30),
-		SlippageCostPoints:   getEnvFloat("SLIPPAGE_COST_POINTS", 0.10),
-		CommissionCostPoints: getEnvFloat("COMMISSION_COST_POINTS", 0.06),
-		MinATRByTimeframe:    getEnvFloatMapJSON("MIN_ATR_BY_TIMEFRAME"),
+		EdgeLookbackTrades:        getEnvInt("EDGE_LOOKBACK_TRADES", 50),
+		LiveTradingAuthorized:     getEnvBool("LIVE_TRADING_AUTHORIZED", false),
+		EdgeArmedStrategies:       splitComma(getEnv("EDGE_ARMED_STRATEGIES", "")),
+		MaxMarginUsagePct:         getEnvFloat("MAX_MARGIN_USAGE_PCT", 30.0),
+		CostToTP1MaxPct:           getEnvFloat("COST_TO_TP1_MAX_PCT", 0.30),
+		SlippageCostPoints:        getEnvFloat("SLIPPAGE_COST_POINTS", 0.10),
+		CommissionCostPoints:      getEnvFloat("COMMISSION_COST_POINTS", 0.06),
+		PaperEquity:               getEnvFloat("PAT_PAPER_EQUITY", 0),
+		MinATRByTimeframe:         getEnvFloatMapJSON("MIN_ATR_BY_TIMEFRAME"),
 		// P0-001: Broker symbol validation — zero means "no constraint" (gate degrades, not vetoes)
 		BrokerMinStopPoints:   getEnvFloat("BROKER_MIN_STOP_POINTS", 0),
 		BrokerMinFreezePoints: getEnvFloat("BROKER_MIN_FREEZE_POINTS", 0),
@@ -235,8 +242,8 @@ func Default() *Config {
 		BrokerMaxLot:          getEnvFloat("BROKER_MAX_LOT", 0),
 		BrokerLotStep:         getEnvFloat("BROKER_LOT_STEP", 0.01),
 		BrokerDigits:          getEnvInt("BROKER_DIGITS", 2),
-		AllowedOrigins:       strings.Split(getEnv("ALLOWED_ORIGINS", "https://platform.predictatrade.com,https://predictatrade.com"), ","),
-		LogLevel:             getEnv("LOG_LEVEL", "info"),
+		AllowedOrigins:        strings.Split(getEnv("ALLOWED_ORIGINS", "https://platform.predictatrade.com,https://predictatrade.com"), ","),
+		LogLevel:              getEnv("LOG_LEVEL", "info"),
 
 		// Cross-Market Macro Engine
 		CrossMarketMode:    getEnv("CROSS_MARKET_MODE", "shadow"),

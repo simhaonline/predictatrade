@@ -131,6 +131,28 @@ func (g *RiskOversizeGate) Evaluate(input GateInput, state GateState) GateEvalua
 	sizing := risk.ComputeSizing(input.AccountEquity, g.MaxRiskPerTradePct,
 		input.EntryPrice, input.StopLoss, input.RequestedLot, econ)
 	if sizing.VetoOversize {
+		// Size DOWN to the per-trade risk budget instead of blocking the signal,
+		// so entitled + authorized signals still execute at a safe size. Only the
+		// EA-minimum-lot undersize case below still hard-blocks (truly untradeable).
+		maxRisk := input.AccountEquity * g.MaxRiskPerTradePct / 100.0
+		slDist := math.Abs(input.EntryPrice - input.StopLoss)
+		if slDist > 0 && input.LotStep > 0 {
+			riskPerLot := risk.RiskDollars(1.0, slDist, econ)
+			if riskPerLot > 0 {
+				safe := maxRisk / riskPerLot
+				step := input.LotStep
+				safe = math.Floor(safe/step) * step
+				if safe < input.LotMin {
+					safe = input.LotMin
+				}
+				if safe > 0 {
+					eval.SafeLot = safe
+					eval.Result = types.GatePass
+					eval.ReasonCodes = []string{ReasonRiskOversize + "_SIZED_DOWN"}
+					return eval
+				}
+			}
+		}
 		eval.Result = types.GateVeto
 		eval.ReasonCodes = []string{ReasonRiskOversize}
 		return eval
@@ -426,8 +448,8 @@ type EdgeValidationGate struct {
 	// for that strategy without requiring live closed-trade history, breaking the
 	// bootstrap deadlock where nothing can ever prove an edge because nothing has
 	// yet executed.
-	mu     sync.RWMutex
-	armed  map[types.StrategyID]bool
+	mu    sync.RWMutex
+	armed map[types.StrategyID]bool
 }
 
 func (g *EdgeValidationGate) ID() types.GateID { return types.GateEdgeValidation }

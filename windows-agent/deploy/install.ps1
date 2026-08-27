@@ -7,13 +7,38 @@
     Usage: irm https://downloads.predictatrade.com/windows-agent/install.ps1 | iex
 #>
 
+# ─── Parameters ───
+#   -Mode client  → Client Agent (execution). Connects to engine exec port 13081.
+#   -Mode master  → Master Node (data-only). Connects to engine data port 13091.
+# Both install the SAME pat-agent.exe binary; only the role/port differ.
+[CmdletBinding()]
+param(
+    [ValidateSet("client","master")][string]$Mode = "client",
+    [string]$EngineHost = "live.predictatrade.com"
+)
+
 # ─── Config ───
 $BaseUrl     = "https://downloads.predictatrade.com/windows-agent"
 $InstallDir  = "C:\PredictATrade\XAUUSD"
-$ServiceName = "pat-agent"
-$EventSource = "pat-agent"
-$TaskName    = "PredictATradeHealthCheck"
+
+# Mode-specific identity (separate Windows services & ports so a Client and a
+# Master Node can run side-by-side on the same machine without conflict).
+if ($Mode -eq "master") {
+    $ServiceName  = "pat-agent-master"
+    $AgentMode    = "data"
+    $EngineEnvVar = "PAT_DATA_WS_URL"
+    $EngineWsUrl  = "wss://$EngineHost:13091/ws/v1/data"
+    $RoleLabel    = "Master Node (data-only)"
+} else {
+    $Mode         = "client"
+    $ServiceName  = "pat-agent-client"
+    $AgentMode    = "exec"
+    $EngineEnvVar = "PAT_SERVER_URL"
+    $EngineWsUrl  = "wss://$EngineHost:13081/ws"
+    $RoleLabel    = "Client Agent (execution)"
+}
 $AgentExe    = "pat-agent.exe"
+$AgentArgs   = "--mode=$AgentMode"
 $NssmExe     = "nssm.exe"
 
 # ─── Self-elevation ───
@@ -24,7 +49,7 @@ if (-not $isAdmin) {
     try {
         $scriptContent = Invoke-WebRequest -Uri "$BaseUrl/install.ps1" -UseBasicParsing -TimeoutSec 30 | Select-Object -ExpandProperty Content
         Set-Content -Path $tempScript -Value $scriptContent -Encoding UTF8
-        $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy","Bypass","-NoProfile","-File","`"$tempScript`"" -Verb RunAs -Wait -PassThru
+        $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy","Bypass","-NoProfile","-File","`"$tempScript`"","-Mode",$Mode,"-EngineHost",$EngineHost -Verb RunAs -Wait -PassThru
         exit $p.ExitCode
     } catch {
         Write-Host "[install] ERROR: Elevation failed: $_"
@@ -52,6 +77,11 @@ if (-not (Test-Path $InstallDir)) { New-Item -ItemType Directory -Path $InstallD
 $logsDir = Join-Path $InstallDir "logs"
 if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
 Write-Host "  OK: $InstallDir"
+
+# Step 2b: Persist the engine WebSocket URL for this role as a machine-level
+# environment variable (the agent reads PAT_SERVER_URL / PAT_DATA_WS_URL).
+[Environment]::SetEnvironmentVariable($EngineEnvVar, $EngineWsUrl, "Machine") | Out-Null
+Write-Host "  OK: Engine URL ($RoleLabel) = $EngineWsUrl"
 
 # Step 3: Stop existing service if running
 Write-Host "[3/9] Stopping existing service if running..."
@@ -176,7 +206,7 @@ $stderrLog = Join-Path $logsDir "stderr.log"
 # Method 1: Try NSSM (best — handles crashes, logs, auto-restart)
 if (-not $serviceCreated -and $nssmDownloaded -and (Test-Path $nssmDest)) {
     Write-Host "  Trying NSSM service..."
-    $installResult = & $nssmDest install $ServiceName $agentPath 2>&1
+    $installResult = & $nssmDest install $ServiceName $agentPath $AgentArgs 2>&1
     if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq $null) {
         & $nssmDest set $ServiceName AppDirectory $InstallDir 2>&1 | Out-Null
         & $nssmDest set $ServiceName AppStdout $stdoutLog 2>&1 | Out-Null
@@ -199,7 +229,7 @@ if (-not $serviceCreated -and $nssmDownloaded -and (Test-Path $nssmDest)) {
 # Method 2: Try sc.exe (basic Windows service)
 if (-not $serviceCreated) {
     Write-Host "  Trying sc.exe service..."
-    $scResult = sc.exe create $ServiceName binPath= "`"$agentPath`"" start= auto 2>&1
+    $scResult = sc.exe create $ServiceName binPath= "`"$agentPath`" $AgentArgs" start= auto 2>&1
     if ($LASTEXITCODE -eq 0) {
         sc.exe description $ServiceName "Predict-A-Trade XAUUSD Windows Agent" 2>&1 | Out-Null
         sc.exe failure $ServiceName reset= 60 actions= restart/5000 2>&1 | Out-Null
@@ -295,6 +325,7 @@ Write-Host "=========================================="
 Write-Host "  Installation Complete! v$serverVersion"
 Write-Host "=========================================="
 Write-Host "  Service:     $ServiceName"
+Write-Host "  Role:        $RoleLabel"
 Write-Host "  Status:      $(if ($serviceRunning) { 'Running ✓' } else { 'Check logs above' })"
 Write-Host "  Install Dir: $InstallDir"
 Write-Host "  Health:      http://127.0.0.1:9000"

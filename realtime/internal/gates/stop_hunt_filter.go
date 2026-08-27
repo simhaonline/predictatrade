@@ -53,11 +53,15 @@ func (g *StopHuntFilterGate) Evaluate(input GateInput, state GateState) GateEval
 
 	// For BUY: check distance to structural low (below entry)
 	// For SELL: check distance to structural high (above entry)
-	// We check both — if price is too close to either, it's a trap
+	// We check both — if price is too close to either, it's a trap.
+	// Advisory (operator-authorized): record the stop-hunt risk but DO NOT block
+	// the signal. Valid XAUUSD pullback entries often sit near structure; blocking
+	// them all was vetoing the majority of profitable signals. The assessment is
+	// still shown on the dashboard via ReasonCodes.
 	if swingLow > 0 {
 		distToLow := input.EntryPrice - swingLow
 		if distToLow > 0 && distToLow < threshold {
-			eval.Result = types.GateVeto
+			eval.Result = types.GatePass
 			eval.ReasonCodes = []string{string(types.NTStructuralStopHunt)}
 			return eval
 		}
@@ -66,7 +70,7 @@ func (g *StopHuntFilterGate) Evaluate(input GateInput, state GateState) GateEval
 	if swingHigh > 0 {
 		distToHigh := swingHigh - input.EntryPrice
 		if distToHigh > 0 && distToHigh < threshold {
-			eval.Result = types.GateVeto
+			eval.Result = types.GatePass
 			eval.ReasonCodes = []string{string(types.NTStructuralStopHunt)}
 			return eval
 		}

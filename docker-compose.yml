@@ -98,6 +98,10 @@ services:
       # Dedicated listener for the data-only Master Node agent (separate from
       # the execution-agent listener so data-collection uptime is isolated).
       - AGENT_DATA_PORT=13091
+      # Paper-equity fallback used only when the connected broker reports no live
+      # equity (demo/paper). Lets risk-sizing gates pass so entitled+authorized
+      # signals become executable. Ignored when a real broker equity is present.
+      - PAT_PAPER_EQUITY=10000
     extra_hosts:
       # Host Ollama AI proxy (sentiment) — iptables restricts 11434 to docker nets
       - "host.docker.internal:host-gateway"

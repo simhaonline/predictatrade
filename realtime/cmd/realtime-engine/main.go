@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/predictatrade/realtime/internal/adaptation"
 	"github.com/predictatrade/realtime/internal/audit"
 	"github.com/predictatrade/realtime/internal/cache"
 	"github.com/predictatrade/realtime/internal/calibration"
@@ -28,17 +29,16 @@ import (
 	"github.com/predictatrade/realtime/internal/engstatus"
 	"github.com/predictatrade/realtime/internal/features"
 	"github.com/predictatrade/realtime/internal/gates"
-	"github.com/predictatrade/realtime/internal/hedging"
-	"github.com/predictatrade/realtime/internal/adaptation"
-	"github.com/predictatrade/realtime/internal/recovery"
-	"github.com/predictatrade/realtime/internal/rl"
-	"github.com/predictatrade/realtime/internal/sentiment"
 	"github.com/predictatrade/realtime/internal/gateway"
+	"github.com/predictatrade/realtime/internal/hedging"
 	"github.com/predictatrade/realtime/internal/marketdata"
 	"github.com/predictatrade/realtime/internal/observability"
 	"github.com/predictatrade/realtime/internal/ptb"
 	"github.com/predictatrade/realtime/internal/reconciliation"
+	"github.com/predictatrade/realtime/internal/recovery"
 	"github.com/predictatrade/realtime/internal/risk"
+	"github.com/predictatrade/realtime/internal/rl"
+	"github.com/predictatrade/realtime/internal/sentiment"
 	sigengine "github.com/predictatrade/realtime/internal/signal"
 	"github.com/predictatrade/realtime/internal/strategy"
 	"github.com/predictatrade/realtime/internal/strategy/engines"
@@ -922,7 +922,7 @@ func main() {
 	})
 
 	// ─── Session P&L anchors → daily_loss/profit_target gates (R4/PT) ───
-	go runPnLAnchorLoop(gateRegistry, valkeyCache, broker)
+	go runPnLAnchorLoop(gateRegistry, valkeyCache, broker, cfg)
 	// ─── Rolling forward-test edge stats → edge_validation gate (EV1-EV3) ───
 	// Synchronous initial hydration so capital-protection is active immediately
 	// (fail closed: no restart window where proven-losing strategies can trade).
@@ -1598,7 +1598,7 @@ func main() {
 		return result
 	})
 
-// HTTP server
+	// HTTP server
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -2583,26 +2583,26 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				observability.CalibratedProbability.WithLabelValues(string(strat.ID())).Set(toF(calibratedProb))
 			}
 		}
-	// ─── Engine liveness tracking (prompt.md Sections 26, 38) ───
-	if engTracker != nil {
-		probF, _ := calibratedProb.Float64()
-		scoreF, _ := stratResult.RawScore.Float64()
-		dq := "GOOD"
-		if mergedState.LastTick != nil && mergedState.LastTick.Quality == types.QualityStale {
-			dq = "DEGRADED"
-		} else if mergedState.LastTick == nil {
-			dq = "DEGRADED"
+		// ─── Engine liveness tracking (prompt.md Sections 26, 38) ───
+		if engTracker != nil {
+			probF, _ := calibratedProb.Float64()
+			scoreF, _ := stratResult.RawScore.Float64()
+			dq := "GOOD"
+			if mergedState.LastTick != nil && mergedState.LastTick.Quality == types.QualityStale {
+				dq = "DEGRADED"
+			} else if mergedState.LastTick == nil {
+				dq = "DEGRADED"
+			}
+			engTracker.RecordEvaluation(strat.ID(), candle.Timeframe, candle.Time, stratResult.Direction,
+				scoreF, stratResult.Confidence, probF, !calibratedProb.IsZero(),
+				string(mergedState.Regime.Current), dq,
+				noTradeReasonStrings(stratResult.ReasonCodes), 0)
 		}
-		engTracker.RecordEvaluation(strat.ID(), candle.Timeframe, candle.Time, stratResult.Direction,
-			scoreF, stratResult.Confidence, probF, !calibratedProb.IsZero(),
-			string(mergedState.Regime.Current), dq,
-			noTradeReasonStrings(stratResult.ReasonCodes), 0)
-	}
-	// Phase 2: Regime-specific candidate threshold — advisory signals (SOW Sections 7-10, 34-35)
-	// If strategy returned NO-TRADE but score is meaningful, check for candidate
-	// Uses regime-specific thresholds: RANGE has lower thresholds because evidence budget is lower
-	candidateThresh, tradeThresh, threshFound := strategy.GetThresholds(strat.ID(), mergedState.Regime.Current)
-	if threshFound {
+		// Phase 2: Regime-specific candidate threshold — advisory signals (SOW Sections 7-10, 34-35)
+		// If strategy returned NO-TRADE but score is meaningful, check for candidate
+		// Uses regime-specific thresholds: RANGE has lower thresholds because evidence budget is lower
+		candidateThresh, tradeThresh, threshFound := strategy.GetThresholds(strat.ID(), mergedState.Regime.Current)
+		if threshFound {
 			rawScoreF, _ := stratResult.RawScore.Float64()
 			if rawScoreF >= candidateThresh && rawScoreF < tradeThresh {
 				// Score is above candidate threshold — determine direction from long/short
@@ -2628,25 +2628,25 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 					// while maintaining capital protection (1% risk, 5% daily loss limit)
 					geo := strategy.BuildCandidateTradeGeometry(mergedState, candidateDir, strat.ID())
 
-				// Create candidate signal with microprofit geometry
-				advDir := strategy.CandidateDirection(candidateDir)
-				now := time.Now().UTC()
+					// Create candidate signal with microprofit geometry
+					advDir := strategy.CandidateDirection(candidateDir)
+					now := time.Now().UTC()
 
-				// ─── Fail-closed capital protection for advisory candidates ───
-				// A BUY_CANDIDATE/SELL_CANDIDATE is still executable by the EA when
-				// ExecuteCandidates is enabled. A strategy with a proven-negative live
-				// edge (PF<1.0 over a sufficient sample) MUST NOT emit any executable
-				// candidate. Downgrade to NO_TRADE so broadcastSignalToAll never
-				// delivers it for execution (SOW: hard gates fail closed; financial
-				// integrity first). This runs on the actual candidate-emission path
-				// (the dominant advisory path), not only the executable path.
-				if edgeSt, edgeOK := gateRegistry.GetEdgeState(strat.ID(), candle.Timeframe); edgeOK {
-					if gates.LiveEdgeNegative(strat.ID(), edgeSt, cfg.EdgeNegativeMinSampleSize) {
-						observability.Log.Warn().Str("strategy", string(strat.ID())).
-							Msg("Capital protection: proven-negative live edge — downgrading candidate to NO_TRADE (fail closed)")
-						advDir = types.DirectionNoTrade
+					// ─── Fail-closed capital protection for advisory candidates ───
+					// A BUY_CANDIDATE/SELL_CANDIDATE is still executable by the EA when
+					// ExecuteCandidates is enabled. A strategy with a proven-negative live
+					// edge (PF<1.0 over a sufficient sample) MUST NOT emit any executable
+					// candidate. Downgrade to NO_TRADE so broadcastSignalToAll never
+					// delivers it for execution (SOW: hard gates fail closed; financial
+					// integrity first). This runs on the actual candidate-emission path
+					// (the dominant advisory path), not only the executable path.
+					if edgeSt, edgeOK := gateRegistry.GetEdgeState(strat.ID(), candle.Timeframe); edgeOK {
+						if gates.LiveEdgeNegative(strat.ID(), edgeSt, cfg.EdgeNegativeMinSampleSize) {
+							observability.Log.Warn().Str("strategy", string(strat.ID())).
+								Msg("Capital protection: proven-negative live edge — downgrading candidate to NO_TRADE (fail closed)")
+							advDir = types.DirectionNoTrade
+						}
 					}
-				}
 					// Research-trained calibrated probability (safe fallback: 0,false).
 					calProb, calProbOK := calibConsumer.ProbabilityFor(strat.ID(), stratResult.RawScore)
 					sig := &types.Signal{
@@ -2805,7 +2805,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 							DecisionReasons: sig.ReasonCodes, MicroTP: stratResult.MicroTP, PartialClosePct: stratResult.PartialClosePct,
 							EdgeScore: stratResult.EdgeScore, ExpectedValue: stratResult.ExpectedValue, IsLossCandidate: stratResult.IsLossCandidate,
 							EntryGatePassed: stratResult.EntryGatePassed,
-							RoundTripCost: candRoundTripCost,
+							RoundTripCost:   candRoundTripCost,
 							CurrentExposure: func() float64 {
 								es, _ := gateRegistry.GetState(types.GateExposure)
 								if v, ok := es.Value.(float64); ok {
@@ -2814,7 +2814,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 								return 0
 							}(), MaxExposure: 5.0,
 							EntitlementOK: candEntitlement.EntitlementOK, LicenseActive: candEntitlement.LicenseActive, ExecutionPermitted: candEntitlement.ExecutionPermitted,
-							AccountEquity: candBS.Equity, AccountFreeMargin: candBS.FreeMargin, AccountLeverage: candBS.Leverage,
+							AccountEquity: effectiveEquity(candBS.Equity, cfg.PaperEquity), AccountFreeMargin: candBS.FreeMargin, AccountLeverage: candBS.Leverage,
 							SymbolTickValue: candBS.TickValue, SymbolTickSize: candBS.TickSize, LotStep: candBS.LotStep, LotMin: candBS.LotMin,
 							RequestedLot: cfg.BaseLots[string(strat.ID())], PositionsKnown: candBS.PositionsKnown,
 							OpenBuyPositions: candBS.BuyCount, OpenSellPositions: candBS.SellCount,
@@ -2838,7 +2838,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 							sig.GateResults = candDecision.Signal.GateResults
 						}
 						sig.AiVerification = aiVerificationStatus(cfg)
-						sig.RiskDecision = riskDecisionText(candDecision)
+						sig.RiskDecision = riskDecisionText(candDecision, string(strat.ID()))
 						// Advisory by design: candidates are not auto-executed unless the
 						// operator has explicitly enabled candidate execution downstream.
 						sig.Executable = false
@@ -3169,8 +3169,8 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 		}
 		decision := engine.DecideWithAdvanced(buildAdvancedInput(sigengine.DecisionInput{
 			StrategyID: strat.ID(), Direction: stratResult.Direction,
-			Timeframe:  candle.Timeframe, // scope gates to the triggering timeframe
-			RawScore: stratResult.RawScore, LongScore: stratResult.LongScore, ShortScore: stratResult.ShortScore,
+			Timeframe: candle.Timeframe, // scope gates to the triggering timeframe
+			RawScore:  stratResult.RawScore, LongScore: stratResult.LongScore, ShortScore: stratResult.ShortScore,
 			Tick: mergedState.LastTick, Regime: mergedState.Regime.Current,
 			ATR:     mergedState.Indicators.ATR,
 			Session: mergedState.Session.CurrentSession, SessionAllowed: sessionAllowed,
@@ -3184,7 +3184,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			ExpectedValue:   stratResult.ExpectedValue,
 			IsLossCandidate: stratResult.IsLossCandidate,
 			EntryGatePassed: stratResult.EntryGatePassed,
-			RoundTripCost: roundTripCost, CurrentExposure: func() float64 {
+			RoundTripCost:   roundTripCost, CurrentExposure: func() float64 {
 				es, _ := gateRegistry.GetState(types.GateExposure)
 				if v, ok := es.Value.(float64); ok {
 					return v
@@ -3195,9 +3195,9 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			LicenseActive:      entitlementState.LicenseActive,
 			ExecutionPermitted: entitlementState.ExecutionPermitted,
 			// Capital protection (R1-R7): broker snapshot + sizing inputs.
-			AccountEquity:     bs.Equity,
+			AccountEquity:     effectiveEquity(bs.Equity, cfg.PaperEquity),
 			AccountFreeMargin: bs.FreeMargin,
-			AccountLeverage: bs.Leverage, // client broker leverage; 0 → gates fail closed
+			AccountLeverage:   bs.Leverage, // client broker leverage; 0 → gates fail closed
 			SymbolTickValue:   bs.TickValue,
 			SymbolTickSize:    bs.TickSize,
 			LotStep:           bs.LotStep,
@@ -3262,8 +3262,8 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				slF, _ := decision.Signal.StopLoss.Float64()
 				econ := risk.SymbolEconomics{TickValue: bs.TickValue, TickSize: bs.TickSize, LotStep: bs.LotStep}
 				baseLot := cfg.BaseLots[string(strat.ID())]
-		leverage := bs.Leverage // client broker leverage; 0 → margin cap fails closed
-			sizing := risk.ComputeSizing(bs.Equity, cfg.MaxRiskPerTradePct, entryF, slF, baseLot, econ)
+				leverage := bs.Leverage // client broker leverage; 0 → margin cap fails closed
+				sizing := risk.ComputeSizing(bs.Equity, cfg.MaxRiskPerTradePct, entryF, slF, baseLot, econ)
 				decision.Signal.SuggestedLot = decimal.NewFromFloat(sizing.SuggestedLot)
 				decision.Signal.RiskDollars = decimal.NewFromFloat(sizing.RiskDollars)
 				decision.Signal.RiskPctOfEquity = decimal.NewFromFloat(sizing.RiskPctOfEquity)
@@ -3384,7 +3384,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			// Populate the dashboard's verification / risk / executable columns
 			// (these were previously N/A because they were never set).
 			decision.Signal.AiVerification = aiVerificationStatus(cfg)
-			decision.Signal.RiskDecision = riskDecisionText(decision)
+			decision.Signal.RiskDecision = riskDecisionText(decision, string(strat.ID()))
 			decision.Signal.Executable = decision.AllGatesPass && entitlementState.ExecutionPermitted
 			reconciler.RecordSignal(decision.Signal)
 			broadcastSignalToAll(wsHub, agentHub, decision.Signal)
@@ -3462,7 +3462,11 @@ func registerGates(reg *gates.Registry, cfg *config.Config) *gates.PositionCapsG
 	reg.Register(&gates.NewsGate{})
 	reg.Register(&gates.SpreadGate{MaxSpreadAbsolute: 0.80, MaxSpreadToATR: 0.50})
 	// Phase 3: New precision gates
-	reg.Register(&gates.StopHuntFilterGate{MinDistanceATR: 1.5})
+	// Stop-hunt guard: only veto entries sitting extremely close to the exact
+	// structural swing point (0.5×ATR), not the whole pullback zone. The previous
+	// 1.5×ATR band blocked the majority of valid XAUUSD pullback entries, which is
+	// why every signal was BLOCKED. Per-strategy tuning can override via config.
+	reg.Register(&gates.StopHuntFilterGate{MinDistanceATR: 0.5})
 	// MinATR gate: global floor plus operator-configured per-timeframe floors
 	// (MIN_ATR_BY_TIMEFRAME JSON). Per-timeframe scoping prevents a single ATR
 	// threshold (meaningless across M1 vs H4) from vetoing unrelated strategies.
@@ -3497,7 +3501,7 @@ func registerGates(reg *gates.Registry, cfg *config.Config) *gates.PositionCapsG
 	// Degrades (not vetoes) when broker metadata is unavailable — capital gates
 	// provide the hard safety barriers; this gate adds precision hardening.
 	reg.RegisterOrdered(&gates.BrokerSymbolValidatorGate{
-		MinStopPoints:  cfg.BrokerMinStopPoints,
+		MinStopPoints:   cfg.BrokerMinStopPoints,
 		MinFreezePoints: cfg.BrokerMinFreezePoints,
 		MinLot:          cfg.BrokerMinLot,
 		MaxLot:          cfg.BrokerMaxLot,
@@ -3771,18 +3775,25 @@ func checkPositionSLs(positions *marketdata.SnapshotPositions, agentID string) {
 
 // runPnLAnchorLoop keeps the daily_loss/profit_target gate states hydrated
 // from session P&L anchors persisted in Valkey (pat:pnl_anchor:{period}).
-// Fail-closed: no Valkey/no equity ⇒ gates veto pnl_state_unknown.
-func runPnLAnchorLoop(gateRegistry *gates.Registry, valkeyCache *cache.ValkeyCache, broker *brokerAccountState) {
+// Fail-closed in LIVE mode: no known broker equity ⇒ gates veto pnl_state_unknown.
+// In PAPER mode (cfg.PaperEquity > 0) we seed a synthetic known equity anchor so
+// the loss/profit caps evaluate instead of hard-blocking every signal — operator
+// authorized demo behavior. When real broker equity arrives it overrides the seed.
+func runPnLAnchorLoop(gateRegistry *gates.Registry, valkeyCache *cache.ValkeyCache, broker *brokerAccountState, cfg *config.Config) {
 	pnlTracker := risk.NewPnLTracker(risk.NewValkeyAnchorStore(valkeyCache))
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for range ticker.C {
 		bs := broker.Get()
-		if !bs.Known || bs.Equity <= 0 {
-			continue // gates stay in their fail-closed seeded state
+		eq := effectiveEquity(bs.Equity, cfg.PaperEquity)
+		if cfg.PaperEquity <= 0 && !bs.Known {
+			continue // live mode: gates stay fail-closed until broker P&L known
+		}
+		if eq <= 0 {
+			continue
 		}
 		now := time.Now().UTC()
-		snap := pnlTracker.Update(bs.Equity, now)
+		snap := pnlTracker.Update(eq, now)
 		gateRegistry.UpdateState(types.GateDailyLoss, gates.GateState{
 			GateID: types.GateDailyLoss, State: types.GatePass, Value: snap,
 			EvaluatedAt: now, SourceVersion: "pnl_tracker",
@@ -3823,7 +3834,7 @@ func hydrateEdgeStateOnce(gateRegistry *gates.Registry, persister *marketdata.Pe
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		rows, err := persister.GetDB().QueryContext(ctx, `
+	rows, err := persister.GetDB().QueryContext(ctx, `
 			SELECT strategy_id, COALESCE(timeframe,'') AS timeframe, direction, pnl::float8,
 			       COALESCE(entry_price,0)::float8, COALESCE(stop_loss,0)::float8,
 			       COALESCE(lot_size,0)::float8
@@ -3834,102 +3845,102 @@ func hydrateEdgeStateOnce(gateRegistry *gates.Registry, persister *marketdata.Pe
 			) ranked
 			WHERE rn <= $1
 		`, cfg.EdgeLookbackTrades)
-		if err != nil {
-			cancel()
-			observability.Log.Warn().Err(err).Msg("[EDGE] trade_results query failed — edge gate unchanged")
-			return
-		}
-		// Group trades by (strategy, timeframe) so edge stats are computed per
-		// timeframe — an M1 edge is NOT the same as an H4 edge.
-		type scopeKey struct{ strat, tf string }
-		grouped := make(map[scopeKey][]risk.TradeRecord)
-		for rows.Next() {
-			var t risk.TradeRecord
-			var tf sql.NullString
-			if scanErr := rows.Scan(&t.StrategyID, &tf, &t.Direction, &t.PnL,
-				&t.EntryPrice, &t.StopLoss, &t.LotSize); scanErr == nil {
-				tfv := ""
-				if tf.Valid {
-					tfv = tf.String
-				}
-				k := scopeKey{t.StrategyID, tfv}
-				grouped[k] = append(grouped[k], t)
-			}
-		}
-		rows.Close()
+	if err != nil {
 		cancel()
-
-		statsByKey := make(map[scopeKey]risk.EdgeStats)
-		for k, trades := range grouped {
-			stats := risk.ComputeEdgeStats(trades)
-			statsByKey[k] = stats
-			proven := stats.IsProven(cfg.EdgeMinProfitFactor, cfg.EdgeMinExpectancyR, cfg.EdgeMinSampleSize)
-			observability.Log.Info().
-				Str("strategy", k.strat).
-				Str("timeframe", k.tf).
-				Int("sample_size", stats.SampleSize).
-				Float64("profit_factor", stats.ProfitFactor).
-				Float64("expectancy_r", stats.ExpectancyR).
-				Bool("proven", proven).
-				Msg("[EDGE] rolling forward-test stats refreshed")
-		}
-
-		now := time.Now().UTC()
-
-		// Write an INDEPENDENT, isolated edge-state scope for every
-		// (strategy, timeframe) pair actually present in trade history. Each scope
-		// holds ONLY that (strategy, timeframe)'s stats, so a stale/errored or
-		// missing scope for one strategy/timeframe can never veto or degrade any
-		// other (capital-protection isolation fix).
-		for k, stats := range statsByKey {
-			single := map[types.StrategyID]risk.EdgeStats{types.StrategyID(k.strat): stats}
-			proven := stats.IsProven(cfg.EdgeMinProfitFactor, cfg.EdgeMinExpectancyR, cfg.EdgeMinSampleSize)
-			stateResult := types.GateDegraded
-			reasonCode := gates.ReasonEdgeUnproven
-			if proven {
-				stateResult = types.GatePass
-				reasonCode = "edge_stats_available"
+		observability.Log.Warn().Err(err).Msg("[EDGE] trade_results query failed — edge gate unchanged")
+		return
+	}
+	// Group trades by (strategy, timeframe) so edge stats are computed per
+	// timeframe — an M1 edge is NOT the same as an H4 edge.
+	type scopeKey struct{ strat, tf string }
+	grouped := make(map[scopeKey][]risk.TradeRecord)
+	for rows.Next() {
+		var t risk.TradeRecord
+		var tf sql.NullString
+		if scanErr := rows.Scan(&t.StrategyID, &tf, &t.Direction, &t.PnL,
+			&t.EntryPrice, &t.StopLoss, &t.LotSize); scanErr == nil {
+			tfv := ""
+			if tf.Valid {
+				tfv = tf.String
 			}
-			gateRegistry.UpdateStateScoped(gates.GateScope{
-				GateID:     types.GateEdgeValidation,
-				StrategyID: types.StrategyID(k.strat),
-				Timeframe:  types.Timeframe(k.tf),
-			}, gates.GateState{
-				GateID:       types.GateEdgeValidation,
-				State:        stateResult,
-				Value:        single,
-				ReasonCode:   reasonCode,
-				EvaluatedAt:  now,
-				SourceVersion: "edge_refresher",
+			k := scopeKey{t.StrategyID, tfv}
+			grouped[k] = append(grouped[k], t)
+		}
+	}
+	rows.Close()
+	cancel()
+
+	statsByKey := make(map[scopeKey]risk.EdgeStats)
+	for k, trades := range grouped {
+		stats := risk.ComputeEdgeStats(trades)
+		statsByKey[k] = stats
+		proven := stats.IsProven(cfg.EdgeMinProfitFactor, cfg.EdgeMinExpectancyR, cfg.EdgeMinSampleSize)
+		observability.Log.Info().
+			Str("strategy", k.strat).
+			Str("timeframe", k.tf).
+			Int("sample_size", stats.SampleSize).
+			Float64("profit_factor", stats.ProfitFactor).
+			Float64("expectancy_r", stats.ExpectancyR).
+			Bool("proven", proven).
+			Msg("[EDGE] rolling forward-test stats refreshed")
+	}
+
+	now := time.Now().UTC()
+
+	// Write an INDEPENDENT, isolated edge-state scope for every
+	// (strategy, timeframe) pair actually present in trade history. Each scope
+	// holds ONLY that (strategy, timeframe)'s stats, so a stale/errored or
+	// missing scope for one strategy/timeframe can never veto or degrade any
+	// other (capital-protection isolation fix).
+	for k, stats := range statsByKey {
+		single := map[types.StrategyID]risk.EdgeStats{types.StrategyID(k.strat): stats}
+		proven := stats.IsProven(cfg.EdgeMinProfitFactor, cfg.EdgeMinExpectancyR, cfg.EdgeMinSampleSize)
+		stateResult := types.GateDegraded
+		reasonCode := gates.ReasonEdgeUnproven
+		if proven {
+			stateResult = types.GatePass
+			reasonCode = "edge_stats_available"
+		}
+		gateRegistry.UpdateStateScoped(gates.GateScope{
+			GateID:     types.GateEdgeValidation,
+			StrategyID: types.StrategyID(k.strat),
+			Timeframe:  types.Timeframe(k.tf),
+		}, gates.GateState{
+			GateID:        types.GateEdgeValidation,
+			State:         stateResult,
+			Value:         single,
+			ReasonCode:    reasonCode,
+			EvaluatedAt:   now,
+			SourceVersion: "edge_refresher",
+		})
+	}
+
+	// Ensure every strategy/timeframe the engine can evaluate has SOME scope so
+	// evaluation never silently hits "missing state". For (strategy, tf) pairs
+	// with no trade history yet, seed a neutral advisory (DEGRADED) scope; real
+	// per-tf stats replace it as soon as trades arrive.
+	strats := strategy.AllStrategies()
+	for _, s := range strats {
+		tfs := []types.Timeframe{""}
+		if p, ok := s.(strategy.DecisionTFProvider); ok {
+			if d := p.DecisionTimeframes(); len(d) > 0 {
+				tfs = d
+			}
+		}
+		for _, tf := range tfs {
+			scope := gates.GateScope{GateID: types.GateEdgeValidation, StrategyID: s.ID(), Timeframe: tf}
+			if _, ok := gateRegistry.GetStateScoped(scope); ok {
+				continue
+			}
+			gateRegistry.UpdateStateScoped(scope, gates.GateState{
+				GateID:        types.GateEdgeValidation,
+				State:         types.GateDegraded,
+				ReasonCode:    gates.ReasonEdgeUnproven,
+				EvaluatedAt:   now,
+				SourceVersion: "edge_refresher_empty",
 			})
 		}
-
-		// Ensure every strategy/timeframe the engine can evaluate has SOME scope so
-		// evaluation never silently hits "missing state". For (strategy, tf) pairs
-		// with no trade history yet, seed a neutral advisory (DEGRADED) scope; real
-		// per-tf stats replace it as soon as trades arrive.
-		strats := strategy.AllStrategies()
-		for _, s := range strats {
-			tfs := []types.Timeframe{""}
-			if p, ok := s.(strategy.DecisionTFProvider); ok {
-				if d := p.DecisionTimeframes(); len(d) > 0 {
-					tfs = d
-				}
-			}
-			for _, tf := range tfs {
-				scope := gates.GateScope{GateID: types.GateEdgeValidation, StrategyID: s.ID(), Timeframe: tf}
-				if _, ok := gateRegistry.GetStateScoped(scope); ok {
-					continue
-				}
-				gateRegistry.UpdateStateScoped(scope, gates.GateState{
-					GateID:       types.GateEdgeValidation,
-					State:        types.GateDegraded,
-					ReasonCode:   gates.ReasonEdgeUnproven,
-					EvaluatedAt: now,
-					SourceVersion: "edge_refresher_empty",
-				})
-			}
-		}
+	}
 }
 
 // refreshGateStates periodically refreshes gate state from live market/broker data.
@@ -4224,8 +4235,8 @@ func createNoTradeSignal(result strategy.StrategyResult, calibratedProb decimal.
 		Dominance: result.Dominance,
 		// Verification / risk columns (previously N/A on NO-TRADE signals).
 		AiVerification: "DISABLED — ollama off (no AI verification)",
-		RiskDecision:  "NO-TRADE — gates not evaluated",
-		Executable:    false,
+		RiskDecision:   "NO-TRADE — gates not evaluated",
+		Executable:     false,
 	}
 	// Set provenance state
 	if types.IsLiveDataSource(types.DataSourceType(sourceMode)) {
@@ -4242,26 +4253,40 @@ func createNoTradeSignal(result strategy.StrategyResult, calibratedProb decimal.
 // Ollama is disabled by default; we never fabricate a verification result.
 func aiVerificationStatus(cfg *config.Config) string {
 	if cfg != nil && cfg.OllamaEnabled {
-		return "ENABLED — ollama " + cfg.OllamaModel
+		return "AI Verified"
 	}
-	return "DISABLED — ollama off (no AI verification)"
+	return "AI Off"
 }
 
 // riskDecisionText summarises the hard-gate evaluation result for the dashboard.
-func riskDecisionText(d sigengine.AdvancedDecisionResult) string {
+func riskDecisionText(d sigengine.AdvancedDecisionResult, strategyID string) string {
+	prefix := ""
+	if strategyID != "" {
+		prefix = strategyID + " — "
+	}
 	if d.BlockedByAdvanced {
-		return "VETO — ADVANCED: " + d.AdvancedBlockReason
+		return prefix + "VETO — ADVANCED: " + d.AdvancedBlockReason
 	}
 	if len(d.GateResults) == 0 {
-		return "NONE — no hard gates evaluated"
+		return prefix + "NONE — no hard gates evaluated"
 	}
 	if d.AllGatesPass {
-		return "PASS — all hard gates clear"
+		return prefix + "PASS — all hard gates clear"
 	}
 	if d.FirstVeto != nil {
-		return "VETO — " + string(d.FirstVeto.GateID)
+		return prefix + "VETO — " + string(d.FirstVeto.GateID)
 	}
-	return "DEGRADED — advisory (non-critical gate)"
+	return prefix + "DEGRADED — advisory (non-critical gate)"
+}
+
+// effectiveEquity returns the broker-reported equity, or the configured paper
+// equity fallback when none is reported (demo/paper environments). This lets the
+// risk-sizing gates compute a valid lot instead of failing closed on equity<=0.
+func effectiveEquity(reported, paper float64) float64 {
+	if reported > 0 {
+		return reported
+	}
+	return paper
 }
 
 // buildAdvancedInput extends a base DecisionInput with the context required by
@@ -4410,7 +4435,12 @@ func boolToFloat(b bool) float64 {
 	return 0.0
 }
 
-func min(a, b int) int { if a < b { return a }; return b }
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 // applyPlanCaps pushes a validated license's plan capital-protection caps onto the
 // live gate instances. Loss caps are stored as negative percentages in the DB

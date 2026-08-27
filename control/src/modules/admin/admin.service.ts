@@ -957,23 +957,26 @@ export class AdminService {
    * when no resolved signals exist (never fabricates accuracy).
    */
   async getSignalAccuracy() {
+    // Accuracy is computed from the real executed-trade outcome ledger
+    // (trading.trade_results), which carries per-trade win/loss + realized P&L.
+    // trading.signals is only the signal emission log and is rarely closed, so
+    // it cannot be the source of truth for win-rate.
     const q = await this.pool.query(`
       SELECT
         strategy_id,
         count(*) AS total,
-        count(*) FILTER (WHERE closed_at IS NOT NULL) AS resolved,
-        count(*) FILTER (WHERE closed_at IS NOT NULL AND realized_pnl > 0) AS wins,
-        count(*) FILTER (WHERE closed_at IS NOT NULL AND realized_pnl < 0) AS losses,
-        COALESCE(SUM(realized_pnl), 0) AS total_pnl,
-        COALESCE(AVG(realized_pnl) FILTER (WHERE closed_at IS NOT NULL), 0) AS avg_pnl
-      FROM trading.signals
+        count(*) FILTER (WHERE is_win) AS wins,
+        count(*) FILTER (WHERE is_loss) AS losses,
+        COALESCE(SUM(pnl), 0) AS total_pnl,
+        COALESCE(AVG(pnl) FILTER (WHERE is_win OR is_loss), 0) AS avg_pnl
+      FROM trading.trade_results
       GROUP BY strategy_id
     `);
     const strategies = q.rows.map((r) => {
       const total = Number(r.total);
-      const resolved = Number(r.resolved);
       const wins = Number(r.wins);
       const losses = Number(r.losses);
+      const resolved = wins + losses;
       const winRate = resolved > 0 ? (wins / resolved) * 100 : null;
       return {
         strategyId: r.strategy_id,

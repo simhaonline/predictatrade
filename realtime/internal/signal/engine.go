@@ -77,12 +77,12 @@ type DecisionInput struct {
 	// ─── Refinement (prompt.md): micro profit-taking + profitability ───
 	// Propagated from the strategy evaluation so the delivery layer can
 	// eliminate loss-making candidates and surface micro profit-taking.
-	MicroTP          decimal.Decimal
-	PartialClosePct  float64
-	EdgeScore        float64
-	ExpectedValue    float64
-	IsLossCandidate  bool
-	EntryGatePassed  bool
+	MicroTP         decimal.Decimal
+	PartialClosePct float64
+	EdgeScore       float64
+	ExpectedValue   float64
+	IsLossCandidate bool
+	EntryGatePassed bool
 
 	// Timeframe is the decision timeframe of the triggering candle. It scopes
 	// all strategy/timeframe-sensitive gates (ATR, structural, edge) so they are
@@ -145,34 +145,34 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 			grade = types.GradeBlocked
 		}
 		result.Signal = &types.Signal{
-			ID:          uuid.New().String(),
-			Symbol:      types.SymbolXAUUSD,
-			StrategyID:  input.StrategyID,
-			Direction:   direction,
-			Grade:       grade,
-			Status:      types.SignalDetected,
-			RawScore:    input.RawScore,
-			LongScore:   input.LongScore,
-			ShortScore:  input.ShortScore,
-			EntryPrice:  input.EntryPrice,
-			StopLoss:    input.StopLoss,
-			TP1:         input.TP1,
-			TP2:         input.TP2,
-			TP3:         input.TP3,
-			Regime:      input.Regime,
-			Session:     input.Session,
-			NewsRisk:    input.NewsRisk,
-			ReasonCodes: result.NoTradeReasons,
-			Evidence:    input.Evidence,
-			MicroTP:          input.MicroTP,
-			PartialClosePct:  input.PartialClosePct,
-			EdgeScore:        input.EdgeScore,
-			ExpectedValue:    input.ExpectedValue,
-			IsLossCandidate:  input.IsLossCandidate,
-			AiVerification: "DISABLED — ollama off",
-			RiskDecision: "NO-TRADE (strategy) — gates not evaluated",
-			CreatedAt:   time.Now().UTC(),
-			ExpiresAt:   time.Now().UTC().Add(time.Minute * 15),
+			ID:              uuid.New().String(),
+			Symbol:          types.SymbolXAUUSD,
+			StrategyID:      input.StrategyID,
+			Direction:       direction,
+			Grade:           grade,
+			Status:          types.SignalDetected,
+			RawScore:        input.RawScore,
+			LongScore:       input.LongScore,
+			ShortScore:      input.ShortScore,
+			EntryPrice:      input.EntryPrice,
+			StopLoss:        input.StopLoss,
+			TP1:             input.TP1,
+			TP2:             input.TP2,
+			TP3:             input.TP3,
+			Regime:          input.Regime,
+			Session:         input.Session,
+			NewsRisk:        input.NewsRisk,
+			ReasonCodes:     result.NoTradeReasons,
+			Evidence:        input.Evidence,
+			MicroTP:         input.MicroTP,
+			PartialClosePct: input.PartialClosePct,
+			EdgeScore:       input.EdgeScore,
+			ExpectedValue:   input.ExpectedValue,
+			IsLossCandidate: input.IsLossCandidate,
+			AiVerification:  "DISABLED — ollama off",
+			RiskDecision:    "NO-TRADE (strategy) — gates not evaluated",
+			CreatedAt:       time.Now().UTC(),
+			ExpiresAt:       time.Now().UTC().Add(time.Minute * 15),
 		}
 		return result
 	}
@@ -245,6 +245,15 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 	result.GateResults = gateEvals
 	result.FirstVeto = firstVeto
 
+	// Capture any size-down lot proposed by the risk gates (e.g. RiskOversizeGate)
+	// so the executable signal carries a broker-compliant, budget-safe lot.
+	safeLot := 0.0
+	for _, ge := range gateEvals {
+		if ge.SafeLot > safeLot {
+			safeLot = ge.SafeLot
+		}
+	}
+
 	// Step 4: Final decision
 	if !allPass {
 		if firstVeto != nil {
@@ -260,34 +269,34 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 				result.NoTradeReasons = append(result.NoTradeReasons, types.NoTradeReason(rc))
 			}
 			result.Signal = &types.Signal{
-				ID:          uuid.New().String(),
-				Symbol:      types.SymbolXAUUSD,
-				StrategyID:  input.StrategyID,
-				Direction:   direction, // preserve thesis (prompt.md §17): BUY/SELL/candidate
-				Grade:       types.GradeBlocked,
-				Executable:  false, // fail closed: never delivered to EA for execution
-				Status:      types.SignalDetected,
-				RawScore:    input.RawScore,
-				LongScore:   input.LongScore,
-				ShortScore:  input.ShortScore,
-				EntryPrice:  input.EntryPrice,
-				StopLoss:    input.StopLoss,
-				TP1:         input.TP1,
-				TP2:         input.TP2,
-				TP3:         input.TP3,
-				Regime:      input.Regime,
-				Session:     input.Session,
-				NewsRisk:    input.NewsRisk,
-				ReasonCodes: result.NoTradeReasons,
-				Evidence:    input.Evidence,
-				GateResults: convertGateEvals(gateEvals),
-				MicroTP:          input.MicroTP,
-				PartialClosePct:  input.PartialClosePct,
-				EdgeScore:        input.EdgeScore,
-				ExpectedValue:    input.ExpectedValue,
-				IsLossCandidate:  input.IsLossCandidate,
-				CreatedAt:   time.Now().UTC(),
-				ExpiresAt:   time.Now().UTC().Add(time.Minute * 15),
+				ID:              uuid.New().String(),
+				Symbol:          types.SymbolXAUUSD,
+				StrategyID:      input.StrategyID,
+				Direction:       direction, // preserve thesis (prompt.md §17): BUY/SELL/candidate
+				Grade:           types.GradeBlocked,
+				Executable:      false, // fail closed: never delivered to EA for execution
+				Status:          types.SignalDetected,
+				RawScore:        input.RawScore,
+				LongScore:       input.LongScore,
+				ShortScore:      input.ShortScore,
+				EntryPrice:      input.EntryPrice,
+				StopLoss:        input.StopLoss,
+				TP1:             input.TP1,
+				TP2:             input.TP2,
+				TP3:             input.TP3,
+				Regime:          input.Regime,
+				Session:         input.Session,
+				NewsRisk:        input.NewsRisk,
+				ReasonCodes:     result.NoTradeReasons,
+				Evidence:        input.Evidence,
+				GateResults:     convertGateEvals(gateEvals),
+				MicroTP:         input.MicroTP,
+				PartialClosePct: input.PartialClosePct,
+				EdgeScore:       input.EdgeScore,
+				ExpectedValue:   input.ExpectedValue,
+				IsLossCandidate: input.IsLossCandidate,
+				CreatedAt:       time.Now().UTC(),
+				ExpiresAt:       time.Now().UTC().Add(time.Minute * 15),
 			}
 			return result
 		}
@@ -296,34 +305,34 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 			// Executable BUY/SELL: preserve prior fail-closed NO-TRADE behavior.
 			result.NoTradeReasons = append(result.NoTradeReasons, types.NTGateDegraded)
 			result.Signal = &types.Signal{
-				ID:          uuid.New().String(),
-				Symbol:      types.SymbolXAUUSD,
-				StrategyID:  input.StrategyID,
-				Direction:   types.DirectionNoTrade, // fail closed: never executable
-				Grade:       types.GradeBlocked,
-				Executable:  false,
-				Status:      types.SignalDetected,
-				RawScore:    input.RawScore,
-				LongScore:   input.LongScore,
-				ShortScore:  input.ShortScore,
-				EntryPrice:  input.EntryPrice,
-				StopLoss:    input.StopLoss,
-				TP1:         input.TP1,
-				TP2:         input.TP2,
-				TP3:         input.TP3,
-				Regime:      input.Regime,
-				Session:     input.Session,
-				NewsRisk:    input.NewsRisk,
-				ReasonCodes: result.NoTradeReasons,
-				Evidence:    input.Evidence,
-				GateResults: convertGateEvals(gateEvals),
-				MicroTP:          input.MicroTP,
-				PartialClosePct:  input.PartialClosePct,
-				EdgeScore:        input.EdgeScore,
-				ExpectedValue:    input.ExpectedValue,
-				IsLossCandidate:  input.IsLossCandidate,
-				CreatedAt:   time.Now().UTC(),
-				ExpiresAt:   time.Now().UTC().Add(time.Minute * 15),
+				ID:              uuid.New().String(),
+				Symbol:          types.SymbolXAUUSD,
+				StrategyID:      input.StrategyID,
+				Direction:       types.DirectionNoTrade, // fail closed: never executable
+				Grade:           types.GradeBlocked,
+				Executable:      false,
+				Status:          types.SignalDetected,
+				RawScore:        input.RawScore,
+				LongScore:       input.LongScore,
+				ShortScore:      input.ShortScore,
+				EntryPrice:      input.EntryPrice,
+				StopLoss:        input.StopLoss,
+				TP1:             input.TP1,
+				TP2:             input.TP2,
+				TP3:             input.TP3,
+				Regime:          input.Regime,
+				Session:         input.Session,
+				NewsRisk:        input.NewsRisk,
+				ReasonCodes:     result.NoTradeReasons,
+				Evidence:        input.Evidence,
+				GateResults:     convertGateEvals(gateEvals),
+				MicroTP:         input.MicroTP,
+				PartialClosePct: input.PartialClosePct,
+				EdgeScore:       input.EdgeScore,
+				ExpectedValue:   input.ExpectedValue,
+				IsLossCandidate: input.IsLossCandidate,
+				CreatedAt:       time.Now().UTC(),
+				ExpiresAt:       time.Now().UTC().Add(time.Minute * 15),
 			}
 			return result
 		}
@@ -336,6 +345,11 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 	grossRR1 := decimal.Zero
 	if !input.StopLoss.IsZero() {
 		grossRR1 = input.TP1.Sub(input.EntryPrice).Abs().Div(input.EntryPrice.Sub(input.StopLoss).Abs())
+	}
+
+	suggestedLot := input.RequestedLot
+	if safeLot > 0 {
+		suggestedLot = safeLot
 	}
 
 	result.Signal = &types.Signal{
@@ -355,6 +369,7 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 		TP3:          input.TP3,
 		GrossRRTP1:   grossRR1,
 		ExpectedCost: input.RoundTripCost,
+		SuggestedLot: decimal.NewFromFloat(suggestedLot),
 		Regime:       input.Regime,
 		Session:      input.Session,
 		NewsRisk:     input.NewsRisk,
@@ -390,6 +405,7 @@ func convertGateEvals(evals []gates.GateEvaluation) []types.GateEvaluation {
 			EvaluatedAt:  e.EvaluatedAt,
 			FreshnessMs:  e.FreshnessMs,
 			StateVersion: e.StateVersion,
+			SafeLot:      e.SafeLot,
 		}
 	}
 	return result

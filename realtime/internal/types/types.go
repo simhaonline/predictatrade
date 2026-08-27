@@ -303,18 +303,18 @@ const (
 	NTDataStale              NoTradeReason = "NT_DATA_STALE"
 	NTBrokerConstraint       NoTradeReason = "NT_BROKER_CONSTRAINT"
 	NTCalibrationUnavailable NoTradeReason = "NT_CALIBRATION_UNAVAILABLE"
-	NTDirectionNoTrade      NoTradeReason = "NT_DIRECTION_NO_TRADE"
-	NTDirectionWait         NoTradeReason = "NT_DIRECTION_WAIT"
-	NTDirectionError        NoTradeReason = "NT_DIRECTION_ERROR"
-	NTDirectionBlocked      NoTradeReason = "NT_DIRECTION_BLOCKED"
-	NTHTFBearishVeto        NoTradeReason = "HTF_BEARISH_VETO"
-	NTHTFBullishVeto        NoTradeReason = "HTF_BULLISH_VETO"
+	NTDirectionNoTrade       NoTradeReason = "NT_DIRECTION_NO_TRADE"
+	NTDirectionWait          NoTradeReason = "NT_DIRECTION_WAIT"
+	NTDirectionError         NoTradeReason = "NT_DIRECTION_ERROR"
+	NTDirectionBlocked       NoTradeReason = "NT_DIRECTION_BLOCKED"
+	NTHTFBearishVeto         NoTradeReason = "HTF_BEARISH_VETO"
+	NTHTFBullishVeto         NoTradeReason = "HTF_BULLISH_VETO"
 
 	// Profitability / entry-gate rejection reasons (prompt.md refinement).
 	// Used to eliminate loss-making candidates before signal delivery.
 	NTEntryGateRejected   NoTradeReason = "ENTRY_GATE_REJECTED"
 	NTNegativeExpectancy  NoTradeReason = "NEGATIVE_EXPECTANCY"
-	NTMicroTPUnprofitable  NoTradeReason = "MICRO_TP_UNPROFITABLE"
+	NTMicroTPUnprofitable NoTradeReason = "MICRO_TP_UNPROFITABLE"
 )
 
 // EvidenceContribution represents a single pillar's contribution to a signal score (SOW Section 12C.3).
@@ -385,11 +385,11 @@ type Signal struct {
 	AiVerification string
 	// RiskDecision is a human-readable summary of the hard-gate evaluation
 	// outcome (PASS / VETO / DEGRADED / NONE) for the dashboard.
-	RiskDecision string
-	CreatedAt             time.Time
-	ExpiresAt             time.Time
-	ExitProfileID         string
-	GatePolicyVersion     string
+	RiskDecision      string
+	CreatedAt         time.Time
+	ExpiresAt         time.Time
+	ExitProfileID     string
+	GatePolicyVersion string
 
 	// Phase 2: Versioning (SOW Section 33)
 	RegimeEngineVersion string
@@ -443,8 +443,8 @@ type Signal struct {
 	QualityGrade SignalGrade
 
 	// Expectancy metrics computed from calibrated probabilities and costs
-	ExpectancyR      decimal.Decimal // EV_R = (P_win * AvgWinR) - (P_loss * AvgLossR) - CostR
-	ExpectancyScore  float64         // 0-100 scale for sorting/quality
+	ExpectancyR     decimal.Decimal // EV_R = (P_win * AvgWinR) - (P_loss * AvgLossR) - CostR
+	ExpectancyScore float64         // 0-100 scale for sorting/quality
 
 	// Rejection diagnostics (prompt.md Sections 17-18)
 	PrimaryRejectionReason string   // machine-readable: LOW_EXPECTANCY, etc.
@@ -540,6 +540,11 @@ type GateEvaluation struct {
 	EvaluatedAt  time.Time  `json:"evaluated_at"`
 	FreshnessMs  int64      `json:"freshness_ms"`
 	StateVersion string     `json:"state_version"`
+	// SafeLot is the broker-compliant lot size that keeps per-trade risk within
+	// the budget when the requested lot would exceed it. The engine applies it
+	// (size-down) instead of blocking the signal, so entitled+authorized signals
+	// still execute at a safe size. Zero means "use requested lot".
+	SafeLot float64 `json:"safe_lot,omitempty"`
 }
 
 // Capability represents a data feed capability (SOW Section 6A.1).

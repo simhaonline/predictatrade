@@ -47,8 +47,8 @@ type Gate interface {
 
 // GateInput is the snapshot provided to each gate evaluation.
 type GateInput struct {
-	Tick               *types.Tick
-	StrategyID         types.StrategyID
+	Tick       *types.Tick
+	StrategyID types.StrategyID
 	// Timeframe is the decision timeframe of the triggering candle. Gate state is
 	// resolved per (StrategyID, Timeframe) so timeframe-specific metrics (ATR,
 	// structural levels, edge stats) are never conflated across timeframes.
@@ -93,8 +93,8 @@ type GateInput struct {
 	// Refinement (prompt.md): strategy-computed profitability flags.
 	// These are set by the signal engine from the strategy evaluation so the
 	// delivery layer can eliminate loss-making candidates.
-	EntryGatePassed  bool // strategy's unique entry gate passed
-	IsLossCandidate  bool // strategy flagged this candidate as negative-EV
+	EntryGatePassed bool // strategy's unique entry gate passed
+	IsLossCandidate bool // strategy flagged this candidate as negative-EV
 	// RefinementProvided is true only when the signal engine actually populated
 	// the refinement flags. When false (e.g. direct GateInput construction in
 	// tests or legacy paths), the gate falls back to its own EV computation and
@@ -110,6 +110,10 @@ type GateEvaluation struct {
 	EvaluatedAt  time.Time        `json:"evaluated_at"`
 	FreshnessMs  int64            `json:"freshness_ms"`
 	StateVersion string           `json:"state_version"`
+	// SafeLot is the broker-compliant lot size that keeps per-trade risk within
+	// the budget when the requested lot would exceed it. The engine applies it
+	// (size-down) instead of blocking. Zero means "use requested lot".
+	SafeLot float64 `json:"safe_lot,omitempty"`
 }
 
 // Registry holds all registered gates and their cached state.
@@ -121,7 +125,7 @@ type Registry struct {
 	// (empty StrategyID/Timeframe). All other gates are resolved per
 	// (StrategyID, Timeframe) so strategy/timeframe state stays isolated.
 	globalGates map[types.GateID]bool
-	order  []types.GateID // short-circuit order (SOW Section 131.4)
+	order       []types.GateID // short-circuit order (SOW Section 131.4)
 }
 
 // NewRegistry creates a gate registry with the canonical short-circuit ordering.
@@ -282,26 +286,26 @@ func (r *Registry) EvaluateAll(input GateInput) (allPass bool, evaluations []Gat
 			state, stateExists = r.GetStateScoped(GateScope{GateID: gateID})
 		}
 
-	if !stateExists {
-		// No cached state for this scope after the full fallback chain. Fail
-		// CLOSED for this (gate, strategy, timeframe) scope. Because state is now
-		// scoped per (strategy, timeframe), this veto isolates a single strategy's
-		// missing data and cannot cascade to unrelated strategies or timeframes —
-		// which is the core fix for the old central-gate "block everything" risk.
-		eval := GateEvaluation{
-			GateID:      gateID,
-			Result:      types.GateUnknown,
-			ReasonCodes: []string{"GATE_NOT_INITIALIZED"},
-			EvaluatedAt: time.Now(),
+		if !stateExists {
+			// No cached state for this scope after the full fallback chain. Fail
+			// CLOSED for this (gate, strategy, timeframe) scope. Because state is now
+			// scoped per (strategy, timeframe), this veto isolates a single strategy's
+			// missing data and cannot cascade to unrelated strategies or timeframes —
+			// which is the core fix for the old central-gate "block everything" risk.
+			eval := GateEvaluation{
+				GateID:      gateID,
+				Result:      types.GateUnknown,
+				ReasonCodes: []string{"GATE_NOT_INITIALIZED"},
+				EvaluatedAt: time.Now(),
+			}
+			evaluations = append(evaluations, eval)
+			allPass = false
+			if firstVeto == nil {
+				v := eval
+				firstVeto = &v
+			}
+			continue
 		}
-		evaluations = append(evaluations, eval)
-		allPass = false
-		if firstVeto == nil {
-			v := eval
-			firstVeto = &v
-		}
-		continue
-	}
 
 		// Check freshness (SOW Section 131.7)
 		// Stale gate state: fail closed for risk-critical gates,
