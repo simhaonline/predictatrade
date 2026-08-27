@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/predictatrade/realtime/internal/recovery"
 	"github.com/predictatrade/realtime/internal/types"
 	"github.com/shopspring/decimal"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -831,4 +832,108 @@ func (p *Persister) SaveSignalSafe(ctx context.Context, s *types.Signal) error {
 		}
 	}
 	return p.SaveSignal(ctx, s)
+}
+
+// ─── Recovery state persistence (so loss-recovery halts survive engine restarts) ───
+
+func nullTime(t time.Time) sql.NullTime {
+	return sql.NullTime{Time: t, Valid: !t.IsZero()}
+}
+
+func mustDec(s sql.NullString) decimal.Decimal {
+	if s.Valid && s.String != "" {
+		if d, err := decimal.NewFromString(s.String); err == nil {
+			return d
+		}
+	}
+	return decimal.Zero
+}
+
+// SaveRecoveryState upserts a per-account+strategy recovery state machine record.
+// The UNIQUE(account_id, strategy_id, symbol, trading_day) constraint makes this
+// idempotent across restarts.
+func (p *Persister) SaveRecoveryState(ctx context.Context, rec recovery.StateRecord) error {
+	_, err := p.db.ExecContext(ctx, `
+		INSERT INTO trading.recovery_states
+			(account_id, strategy_id, symbol, state, consecutive_losses, daily_loss_count,
+			 daily_loss_percent, daily_pnl, starting_equity, recovery_trades_taken, recovery_wins,
+			 cooldown_until, halt_until, halt_reason, last_trade_at, last_loss_at, last_close_event_id, trading_day)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+		ON CONFLICT (account_id, strategy_id, symbol, trading_day)
+		DO UPDATE SET
+			state=EXCLUDED.state,
+			consecutive_losses=EXCLUDED.consecutive_losses,
+			daily_loss_count=EXCLUDED.daily_loss_count,
+			daily_loss_percent=EXCLUDED.daily_loss_percent,
+			daily_pnl=EXCLUDED.daily_pnl,
+			starting_equity=EXCLUDED.starting_equity,
+			recovery_trades_taken=EXCLUDED.recovery_trades_taken,
+			recovery_wins=EXCLUDED.recovery_wins,
+			cooldown_until=EXCLUDED.cooldown_until,
+			halt_until=EXCLUDED.halt_until,
+			halt_reason=EXCLUDED.halt_reason,
+			last_trade_at=EXCLUDED.last_trade_at,
+			last_loss_at=EXCLUDED.last_loss_at,
+			last_close_event_id=EXCLUDED.last_close_event_id,
+			updated_at=now()`,
+		rec.Key.AccountID, rec.Key.StrategyID, rec.Key.Symbol, string(rec.State),
+		rec.ConsecutiveLosses, rec.DailyLossCount, rec.DailyLossPercent, rec.DailyPnL.String(), rec.StartingEquity.String(),
+		rec.RecoveryTradesTaken, rec.RecoveryWins,
+		nullTime(rec.CooldownUntil), nullTime(rec.HaltUntil), rec.HaltReason,
+		nullTime(rec.LastTradeAt), nullTime(rec.LastLossAt), rec.LastCloseEventID, rec.TradingDay,
+	)
+	return err
+}
+
+// LoadRecoveryStates reads all persisted recovery state records for restoration
+// on engine startup.
+func (p *Persister) LoadRecoveryStates(ctx context.Context) ([]recovery.StateRecord, error) {
+	rows, err := p.db.QueryContext(ctx, `
+		SELECT account_id, strategy_id, symbol, state, consecutive_losses, daily_loss_count,
+		       daily_loss_percent, daily_pnl, starting_equity, recovery_trades_taken, recovery_wins,
+		       cooldown_until, halt_until, halt_reason, last_trade_at, last_loss_at, last_close_event_id, trading_day
+		FROM trading.recovery_states`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []recovery.StateRecord
+	for rows.Next() {
+		var (
+			accountID, strategyID, symbol, state, haltReason, lastCloseEventID sql.NullString
+			dlp, dpnl, seq                                                          sql.NullString
+			consLoss, dailyLossCount, recTrades, recWins                           int
+			cooldown, halt, lastTrade, lastLoss, tradingDay                        sql.NullTime
+		)
+		if err := rows.Scan(
+			&accountID, &strategyID, &symbol, &state, &consLoss, &dailyLossCount,
+			&dlp, &dpnl, &seq, &recTrades, &recWins,
+			&cooldown, &halt, &haltReason, &lastTrade, &lastLoss, &lastCloseEventID, &tradingDay,
+		); err != nil {
+			return nil, err
+		}
+		r := recovery.StateRecord{
+			Key:                recovery.AccountStrategyKey{AccountID: accountID.String, StrategyID: strategyID.String, Symbol: symbol.String},
+			State:              recovery.RecoveryState(state.String),
+			ConsecutiveLosses:  consLoss,
+			DailyLossCount:     dailyLossCount,
+			RecoveryTradesTaken: recTrades,
+			RecoveryWins:       recWins,
+			CooldownUntil:      cooldown.Time,
+			HaltUntil:          halt.Time,
+			HaltReason:         haltReason.String,
+			LastTradeAt:        lastTrade.Time,
+			LastLossAt:         lastLoss.Time,
+			LastCloseEventID:   lastCloseEventID.String,
+			TradingDay:         tradingDay.Time,
+		}
+		if f, err := strconv.ParseFloat(dlp.String, 64); err == nil {
+			r.DailyLossPercent = f
+		}
+		r.DailyPnL = mustDec(dpnl)
+		r.StartingEquity = mustDec(seq)
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }

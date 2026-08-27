@@ -425,6 +425,20 @@ func main() {
 			log.Info().Msg("Database connected")
 			globalPersister = persister
 			defer persister.Close()
+
+			// Restore recovery state machine records so loss-recovery halts survive
+			// engine restarts (the live Decide path reads this state). Failures are
+			// non-fatal: the engine starts fresh rather than refusing to start.
+			if advManagers != nil && advManagers.Recovery != nil {
+				if recs, lerr := persister.LoadRecoveryStates(context.Background()); lerr == nil {
+					if len(recs) > 0 {
+						advManagers.Recovery.RestoreStates(recs)
+						log.Info().Int("count", len(recs)).Msg("Restored recovery states from DB")
+					}
+				} else {
+					log.Warn().Err(lerr).Msg("Failed to load recovery states (starting fresh)")
+				}
+			}
 		}
 	}
 
@@ -1350,6 +1364,19 @@ func main() {
 				if newState == recovery.StateHalted || newState == recovery.StateRecovery {
 					log.Warn().Str("account_id", recoveryAccountID).Str("strategy_id", tr.StrategyID).
 						Str("state", string(newState)).Msg("Recovery state engaged after trade outcome")
+				}
+				// Persist the updated recovery state so the halt survives an engine
+				// restart (idempotent UPSERT on account+strategy+trading_day).
+				if rec := advManagers.Recovery.GetStateRecord(recovery.AccountStrategyKey{
+					AccountID: recoveryAccountID, StrategyID: tr.StrategyID, Symbol: "XAUUSD",
+				}); rec != nil && persister != nil {
+					go func(r recovery.StateRecord) {
+						c, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+						defer cancel()
+						if serr := persister.SaveRecoveryState(c, r); serr != nil {
+							log.Warn().Err(serr).Msg("recovery state persist failed")
+						}
+					}(*rec)
 				}
 			}
 		}
