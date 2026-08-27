@@ -1213,6 +1213,34 @@ void CheckSlippage(int ticket, string direction, double requestedPrice)
 }
 
 //+------------------------------------------------------------------+
+//| Log each PAT/XAUUSD closed order counted as "today" so the trader |
+//| can verify whether a prior-day close is leaking into the daily    |
+//| loss calc.                                                        |
+//+------------------------------------------------------------------+
+void PAT_LogDailyLossDeals()
+{
+   int today = TimeDay(TimeCurrent()) + TimeMonth(TimeCurrent()) * 100 + TimeYear(TimeCurrent()) * 10000;
+   int n = 0;
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(OrderSymbol() != g_symbol) continue;
+      if(!PAT_IsPatMagic(OrderMagicNumber())) continue;
+      datetime closeTime = OrderCloseTime();
+      if(closeTime == 0) continue; // still open
+      int dy = TimeDay(closeTime) + TimeMonth(closeTime) * 100 + TimeYear(closeTime) * 10000;
+      if(dy != today) continue;
+      n++;
+      PAT_LogLine("CAPITAL DEAL #" + IntegerToString(n)
+                  + " | date(UTC): " + TimeToString(closeTime, TIME_DATE)
+                  + " | profit: " + DoubleToString(OrderProfit(), 2)
+                  + " | swap: " + DoubleToString(OrderSwap(), 2)
+                  + " | commission: " + DoubleToString(OrderCommission(), 2));
+   }
+   if(n == 0) PAT_LogLine("CAPITAL DEAL: none counted as today");
+}
+
+//+------------------------------------------------------------------+
 //| CAPITAL PROTECTION                                                |
 //+------------------------------------------------------------------+
 void UpdateCapitalProtection()
@@ -1311,6 +1339,7 @@ void UpdateCapitalProtection()
             string softMsg = "CAPITAL_PROTECTION|{\"event_type\":\"SOFT_HALT\",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + ",\"action\":\"BLOCKED_NEW_ENTRIES_ONLY\"}";
             PAT_Append(PAT_TICK_FILE, softMsg + "\n");
             PAT_LogLine("CAPITAL | dayOpenBal: " + DoubleToString(dayOpenBalance, 2) + " | dailyPnL: " + DoubleToString(g_dailyPnL, 2) + " | lossPct: " + DoubleToString(lossPct, 2) + " | status: BLOCKED (daily loss)");
+            PAT_LogDailyLossDeals();
         }
     }
     if(lossPct <= -effHardHalt && !g_hardHaltTriggered)
@@ -1327,6 +1356,7 @@ void UpdateCapitalProtection()
         blockMsg += "}";
         PAT_Append(PAT_TICK_FILE, blockMsg + "\n");
         PAT_LogLine("CAPITAL | dayOpenBal: " + DoubleToString(dayOpenBalance, 2) + " | dailyPnL: " + DoubleToString(g_dailyPnL, 2) + " | lossPct: " + DoubleToString(lossPct, 2) + " | status: HARD HALT (closing all)");
+        PAT_LogDailyLossDeals();
 
         if(EmergencyCloseAll)
             CloseAllPatPositions("EMERGENCY_CAPITAL_PROTECTION");
@@ -1816,12 +1846,11 @@ void HandleLicenseResponse(string json)
         StringReplace(cleaned, "\"", "");
         StringReplace(cleaned, " ", "");
         g_allowedStrategies = cleaned;
-        Print("License strategies from server: ", g_allowedStrategies);
     }
 
     if(oldStatus != g_licenseStatus)
         Print("License status: ", oldStatus, " -> ", g_licenseStatus,
-              " Plan:", g_licensePlan, " Strategies:", g_allowedStrategies);
+              " Plan:", g_licensePlan);
 
     // Client MT terminal log — record license/access status.
     string access = (g_licenseStatus == "ACTIVE") ? "Access Granted" : "Access Denied";

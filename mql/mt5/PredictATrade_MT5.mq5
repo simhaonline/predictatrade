@@ -1656,13 +1656,12 @@ void HandleLicenseResponse(string json)
         StringReplace(cleaned, "\"", "");
         StringReplace(cleaned, " ", "");
         g_allowedStrategies = cleaned;
-        Print("License strategies from server: ", g_allowedStrategies);
     }
 
     if(oldStatus != g_licenseStatus)
     {
         Print("License status changed: ", oldStatus, " → ", g_licenseStatus,
-              " Plan:", g_licensePlan, " Strategies: ", g_allowedStrategies);
+              " Plan:", g_licensePlan);
     }
 
     // Client MT terminal log — record license/access status.
@@ -1896,6 +1895,41 @@ void CheckSlippage(ulong ticket, string direction, double requestedPrice)
 }
 
 //+------------------------------------------------------------------+
+//| Log each PAT/XAUUSD deal that is being counted as "today" so the  |
+//| trader can verify whether a prior-day close is leaking into the   |
+//| daily-loss calc.                                                  |
+//+------------------------------------------------------------------+
+void PAT_LogDailyLossDeals()
+{
+   MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
+   datetime today = (datetime)(dt.year * 10000 + dt.mon * 100 + dt.day);
+   HistorySelect(TimeCurrent() - 172800, TimeCurrent() + 60);
+   int deals = HistoryDealsTotal();
+   int n = 0;
+   for(int i = 0; i < deals; i++)
+   {
+      ulong t = HistoryDealGetTicket(i);
+      if(t == 0) continue;
+      if(HistoryDealGetString(t, DEAL_SYMBOL) != g_symbol) continue;
+      if(!PAT_IsPatMagic(HistoryDealGetInteger(t, DEAL_MAGIC))) continue;
+      datetime dtt = (datetime)HistoryDealGetInteger(t, DEAL_TIME);
+      MqlDateTime ddt; TimeToStruct(dtt, ddt);
+      datetime dd = (datetime)(ddt.year * 10000 + ddt.mon * 100 + ddt.day);
+      if(dd != today) continue;
+      n++;
+      double p = HistoryDealGetDouble(t, DEAL_PROFIT);
+      double s = HistoryDealGetDouble(t, DEAL_SWAP);
+      double c = HistoryDealGetDouble(t, DEAL_COMMISSION);
+      PAT_LogLine("CAPITAL DEAL #" + IntegerToString(n)
+                  + " | date(UTC): " + TimeToString(dtt, TIME_DATE)
+                  + " | profit: " + DoubleToString(p, 2)
+                  + " | swap: " + DoubleToString(s, 2)
+                  + " | commission: " + DoubleToString(c, 2));
+   }
+   if(n == 0) PAT_LogLine("CAPITAL DEAL: none counted as today");
+}
+
+//+------------------------------------------------------------------+
 //| CAPITAL PROTECTION                                                |
 //+------------------------------------------------------------------+
 void UpdateCapitalProtection()
@@ -1986,6 +2020,7 @@ void UpdateCapitalProtection()
             string softMsg = "CAPITAL_PROTECTION|{\"event_type\":\"SOFT_HALT\",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + ",\"action\":\"BLOCKED_NEW_ENTRIES_ONLY\"}";
             PAT_Append(PAT_TICK_FILE, softMsg + "\n");
             PAT_LogLine("CAPITAL | dayOpenBal: " + DoubleToString(dayOpenBalance, 2) + " | dailyPnL: " + DoubleToString(g_dailyPnL, 2) + " | lossPct: " + DoubleToString(lossPct, 2) + " | status: BLOCKED (daily loss)");
+            PAT_LogDailyLossDeals();
         }
     }
         if(lossPct <= -effHardHalt && !g_hardHaltTriggered)
@@ -1995,6 +2030,7 @@ void UpdateCapitalProtection()
             string hardMsg = "CAPITAL_PROTECTION|{\"event_type\":\"HARD_HALT\",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + ",\"action\":\"EMERGENCY_CLOSE_ALL\"}";
             PAT_Append(PAT_TICK_FILE, hardMsg + "\n");
             PAT_LogLine("CAPITAL | dayOpenBal: " + DoubleToString(dayOpenBalance, 2) + " | dailyPnL: " + DoubleToString(g_dailyPnL, 2) + " | lossPct: " + DoubleToString(lossPct, 2) + " | status: HARD HALT (closing all)");
+            PAT_LogDailyLossDeals();
             if(EmergencyCloseAll)
                 CloseAllPatPositions("EMERGENCY_CAPITAL_PROTECTION");
         }
