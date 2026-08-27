@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import { getGlobalWs, type WsMessage, type MarketDataEvent, type FeedStatus } from "@/lib/websocket";
 import { rafBatch } from "@/lib/performance";
-import { useServerTime, formatServerTime, formatDrift } from "@/lib/use-server-time";
+import { useServerTime, formatBrokerTime, formatDrift } from "@/lib/use-server-time";
 
 interface MarketState {
   Regime?: { Current?: string; Volatility?: string; Confidence?: number };
@@ -24,7 +24,7 @@ export function MarketHeader() {
   const [lastUpdate, setLastUpdate] = useState<number>(0);
   const [clockTick, setClockTick] = useState<number>(0);
   const ws = getGlobalWs();
-  const { driftMs, driftWarning, driftCritical } = useServerTime();
+  const { driftMs, driftWarning, driftCritical, brokerOffset, brokerTimeMode } = useServerTime();
 
   // Update clock display every second
   useEffect(() => {
@@ -148,9 +148,9 @@ export function MarketHeader() {
           </div>
         ))}
         <div className="ml-auto flex items-center gap-2">
-          {/* Server-authoritative UTC clock */}
-          <span className="text-[10px] font-mono tabular-nums text-pat-text-secondary">
-            {formatServerTime(driftMs)}
+          {/* Engine-authoritative clock — Broker TF (collected live from Master Node), not UTC */}
+          <span className="text-[10px] font-mono tabular-nums text-pat-text-secondary" title={brokerTimeMode === "BROKER_ALIGNED" ? "Engine time aligned to broker session timezone" : "Engine time UTC-aligned"}>
+            {formatBrokerTime(driftMs, brokerOffset)}
           </span>
           {driftCritical ? (
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-pat-danger/10 text-pat-danger border border-pat-danger/20 font-semibold" title="Clock drift > 2min — check NTP sync on all machines">

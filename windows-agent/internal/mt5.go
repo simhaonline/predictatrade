@@ -11,10 +11,14 @@ type MT5Tick struct {
 	Bid       float64   `json:"bid"`        // real MT5 bid
 	Ask       float64   `json:"ask"`        // real MT5 ask
 	Volume    int64     `json:"volume"`     // real MT5 tick volume
-	Timestamp string `json:"timestamp"`  // MT5 server time
+	Timestamp string    `json:"timestamp"`  // MT5 server time
 	Source    string    `json:"source"`     // "MT5" or "MT4"
 	Broker    string    `json:"broker"`     // broker name
 	Account   string    `json:"account"`    // MT5 account number
+	// BrokerOffset is the broker UTC offset in hours, reported live by the
+	// Master Node (TimeGMTOffset). Forwarded verbatim so the engine can align
+	// candles to broker session TF rather than UTC.
+	BrokerOffset int `json:"broker_offset"`
 }
 
 // MT5Heartbeat is sent periodically to keep connection alive.

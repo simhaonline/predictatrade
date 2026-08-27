@@ -1349,6 +1349,9 @@ void SendTickToAgent()
     msg += ",\"broker\":\"" + AccountCompany() + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";
     msg += ",\"license_key\":\"" + LicenseKey + "\"";
+    // Broker session timezone — collected live so the engine works on Broker TF
+    // (not UTC). TimeGMTOffset() returns the broker's GMT offset in seconds.
+    msg += ",\"broker_offset\":" + IntegerToString(TimeGMTOffset() / 3600);
     msg += "}\n";
 
     PAT_Append(PAT_TICK_FILE, msg);

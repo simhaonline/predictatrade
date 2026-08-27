@@ -9,8 +9,9 @@
  * the MT5 terminal and the dashboard can cause incorrect signal timing,
  * stale data misjudgment, and wrong session/news gate evaluation.
  *
- * SOW: "Internal time truth is UTC" — the frontend must display
- * server-authoritative UTC time, not browser local time.
+ * The engine runs on the BROKER session timezone (collected live from the
+ * Master Node), not UTC — see broker_offset / time_mode in the snapshot API.
+ * The frontend surfaces the authoritative broker-local time, not browser time.
  */
 
 import { useEffect, useState, useCallback } from "react";
@@ -27,6 +28,10 @@ interface ServerTimeState {
   driftCritical: boolean;
   /** ISO string of the last server time sync */
   lastSync: string;
+  /** Active broker UTC offset in hours (engine runs on Broker TF, not UTC). 0 = UTC-aligned. */
+  brokerOffset: number;
+  /** Engine time-alignment mode: "BROKER_ALIGNED" or "UTC_ALIGNED". */
+  brokerTimeMode: string;
 }
 
 const DRIFT_WARNING_MS = 30_000; // 30 seconds
@@ -36,6 +41,7 @@ const SYNC_INTERVAL_MS = 30_000; // 30 seconds
 export function useServerTime() {
   const [state, setState] = useState<ServerTimeState>(() => ({
       serverTimeMs: Date.now(), driftMs: 0, driftWarning: false, driftCritical: false, lastSync: "",
+      brokerOffset: 0, brokerTimeMode: "UTC_ALIGNED",
     }));
 
   const syncTime = useCallback(async () => {
@@ -53,12 +59,18 @@ export function useServerTime() {
           // midpoint between request send and response receive
           const browserMid = (browserBefore + browserAfter) / 2;
           const drift = serverMs - browserMid;
+          const brokerOffset = Number(resp.data?.broker_offset) || 0;
+          const brokerTimeMode = typeof resp.data?.time_mode === "string"
+            ? resp.data.time_mode
+            : (brokerOffset !== 0 ? "BROKER_ALIGNED" : "UTC_ALIGNED");
           setState({
             serverTimeMs: serverMs,
             driftMs: drift,
             driftWarning: Math.abs(drift) > DRIFT_WARNING_MS,
             driftCritical: Math.abs(drift) > DRIFT_CRITICAL_MS,
             lastSync: new Date().toISOString(),
+            brokerOffset,
+            brokerTimeMode,
           });
         }
       }
@@ -86,6 +98,7 @@ export function getServerTimeMs(driftMs: number): number {
 
 /**
  * formatServerTime — Format server time as HH:mm:ss UTC.
+ * Deprecated label: the engine now runs on Broker TF; prefer formatBrokerTime.
  */
 export function formatServerTime(driftMs: number): string {
   const serverMs = Date.now() + driftMs;
@@ -96,6 +109,33 @@ export function formatServerTime(driftMs: number): string {
     second: "2-digit",
     hour12: false,
   }) + " UTC";
+}
+
+/**
+ * formatBrokerTime — Format the engine's authoritative time in the broker
+ * session timezone. When brokerOffset is 0 it falls back to UTC. The label
+ * reflects the actual alignment mode so the dashboard shows Broker TF, not UTC.
+ */
+export function formatBrokerTime(driftMs: number, brokerOffset: number): string {
+  const serverMs = Date.now() + driftMs;
+  const utc = new Date(serverMs);
+  if (brokerOffset === 0) {
+    return utc.toLocaleTimeString("en-GB", {
+      timeZone: "UTC",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }) + " UTC";
+  }
+  const label = `UTC${brokerOffset > 0 ? "+" : ""}${brokerOffset}`;
+  return utc.toLocaleTimeString("en-GB", {
+    timeZone: "UTC",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }) + ` (${label})`;
 }
 
 /**

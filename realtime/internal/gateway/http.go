@@ -31,7 +31,7 @@ type HTTPServer struct {
 	states    *features.StateManager
 	agentHub  *AgentHub
 	DataAgentHub *AgentHub
-	agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool }
+	agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool; BrokerOffsetHours() int }
 	valkeyCache *cache.ValkeyCache
 	crossMarketEngine *crossmarket.Engine
 	newsEngine *news.RiskEngine
@@ -40,7 +40,7 @@ type HTTPServer struct {
 	server    *http.Server
 }
 
-func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine, newsEngine *news.RiskEngine, engTracker *engstatus.Tracker) *HTTPServer {
+func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool; BrokerOffsetHours() int }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine, newsEngine *news.RiskEngine, engTracker *engstatus.Tracker) *HTTPServer {
 	h := &HTTPServer{
 		agentHub: agentHub,
 		agentProvider: agentProvider,
@@ -142,16 +142,31 @@ func (h *HTTPServer) Shutdown(ctx context.Context) error {
 }
 
 func (h *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
+	brokerOff := 0
+	if h.agentProvider != nil {
+		brokerOff = h.agentProvider.BrokerOffsetHours()
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":     "ok",
-		"timestamp":  time.Now().UTC().Format(time.RFC3339),
-		"server_time": time.Now().UTC().Format(time.RFC3339),
-		"service":    "realtime-engine",
-		"version":    "1.0.0",
+		"status":        "ok",
+		"timestamp":     time.Now().UTC().Format(time.RFC3339),
+		"server_time":   time.Now().UTC().Format(time.RFC3339),
+		"broker_offset": brokerOff,
+		"broker_time":   time.Now().UTC().Add(time.Duration(brokerOff) * time.Hour).Format(time.RFC3339),
+		"time_mode":     timeModeLabel(brokerOff),
+		"service":       "realtime-engine",
+		"version":       "1.0.0",
 		"ws_clients":    h.hub.ClientCount(),
-		"agents":       h.agentHub.AgentCount(),
+		"agents":        h.agentHub.AgentCount(),
 	})
+}
+
+// timeModeLabel returns the engine's active time-alignment mode for API clients.
+func timeModeLabel(brokerOff int) string {
+	if brokerOff != 0 {
+		return "BROKER_ALIGNED"
+	}
+	return "UTC_ALIGNED"
 }
 
 func (h *HTTPServer) handleReady(w http.ResponseWriter, r *http.Request) {
@@ -686,6 +701,16 @@ func (h *HTTPServer) handleMarketSnapshot(w http.ResponseWriter, r *http.Request
 		response["indicators"] = indMap
 		// Always include authoritative server time for frontend clock sync
 		response["server_time"] = time.Now().UTC().Format(time.RFC3339)
+		// Broker session timezone: the engine runs on Broker TF, not UTC. Expose
+		// the active offset so the dashboard can display broker-local time.
+		brokerOff := h.agentProvider.BrokerOffsetHours()
+		response["broker_offset"] = brokerOff
+		response["broker_time"] = time.Now().UTC().Add(time.Duration(brokerOff) * time.Hour).Format(time.RFC3339)
+		if brokerOff != 0 {
+			response["time_mode"] = "BROKER_ALIGNED"
+		} else {
+			response["time_mode"] = "UTC_ALIGNED"
+		}
 	} else if engineState != nil && engineState.Indicators.ATR.GreaterThan(decimal.Zero) {
 		// No MT5 snapshot — return locally-computed indicators only
 		localMap := h.buildIndicatorMap(&engineState.Indicators)
