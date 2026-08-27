@@ -2,7 +2,7 @@ import {
   IconDashboard, IconChartLine, IconChartBar, IconDeviceDesktop, IconBolt,
   IconFileAnalytics, IconTestPipe, IconUsers, IconCreditCard, IconSettings,
   IconShieldLock, IconBell, IconLifebuoy, IconWallet, IconCertificate,
-  IconHistory,
+  IconHistory, IconDroplet,
 } from '@tabler/icons-react';
 
 export interface NavItem {
@@ -21,6 +21,7 @@ export const userNavigation: NavItem[] = [
   { label: 'Strategy Preferences', href: '/dashboard/strategies', icon: IconBolt, section: 'Trading' },
   { label: 'Trading Reports', href: '/dashboard/trading-reports', icon: IconFileAnalytics, section: 'Trading' },
   { label: 'Backtest', href: '/dashboard/backtest', icon: IconTestPipe, section: 'Trading' },
+  { label: 'Devil Liquidity', href: '/dashboard/devil-liquidity', icon: IconDroplet, section: 'Trading' },
 
   // ── Growth ──
   { label: 'Referral & Earnings', href: '/dashboard/referrals', icon: IconUsers, section: 'Growth' },

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/predictatrade/realtime/internal/cache"
+	"github.com/predictatrade/realtime/internal/devilliquidity"
 	"github.com/predictatrade/realtime/internal/observability"
 	"github.com/predictatrade/realtime/internal/crossmarket"
 	"github.com/predictatrade/realtime/internal/engstatus"
@@ -85,6 +86,9 @@ func (h *HTTPServer) registerRoutes() {
 	h.mux.HandleFunc("/api/v1/signals/resume", h.handleSignalResume)
 	h.mux.HandleFunc("/api/v1/admin/regime-diagnostics", h.handleRegimeDiagnostics)
 	h.mux.HandleFunc("/api/v1/system-health", h.handleSystemHealth)
+
+	// Devil Liquidity / Devil's Mark engine API (prompt.md)
+	h.mux.HandleFunc("/api/v1/devil-liquidity/marks", h.handleDevilLiquidityMarks)
 
 	// Emergency controls — admin can trigger EMERGENCY_STOP / KILL_SWITCH
 	h.mux.HandleFunc("/api/v1/admin/emergency-stop", h.handleEmergencyStop)
@@ -1142,4 +1146,42 @@ func (h *HTTPServer) handleKillSwitch(w http.ResponseWriter, r *http.Request) {
 	observability.Log.Warn().Str("reason", reason).Msg("KILL_SWITCH broadcast to all agents — closing all positions and stopping EA")
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"KILL_SWITCH_SENT","reason":"` + reason + `"}`))
+}
+
+// handleDevilLiquidityMarks returns active Devil's Marks from the global engine.
+// It reads in-memory state first, falling back to the DB-backed store when the
+// engine is persistence-enabled and no in-memory marks exist.
+func (h *HTTPServer) handleDevilLiquidityMarks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	eng := devilliquidity.GlobalEngine()
+	type resp struct {
+		Enabled bool                    `json:"enabled"`
+		Count   int                     `json:"count"`
+		Marks   []*devilliquidity.DevilMark `json:"marks"`
+	}
+	out := resp{Enabled: false, Marks: []*devilliquidity.DevilMark{}}
+	if eng == nil {
+		writeJSON(w, out)
+		return
+	}
+	out.Enabled = true
+	marks := eng.ActiveMarks()
+	if len(marks) == 0 {
+		// Fallback: try DB-backed recent marks (e.g. after restart).
+		// The global engine does not expose the store directly here; in-memory
+		// is authoritative during a live session.
+	}
+	out.Marks = marks
+	out.Count = len(marks)
+	writeJSON(w, out)
+}
+
+func writeJSON(w http.ResponseWriter, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }

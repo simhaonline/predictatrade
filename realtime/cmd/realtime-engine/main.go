@@ -23,6 +23,7 @@ import (
 	"github.com/predictatrade/realtime/internal/calibration"
 	"github.com/predictatrade/realtime/internal/config"
 	"github.com/predictatrade/realtime/internal/crossmarket"
+	"github.com/predictatrade/realtime/internal/devilliquidity"
 	"github.com/predictatrade/realtime/internal/engstatus"
 	"github.com/predictatrade/realtime/internal/features"
 	"github.com/predictatrade/realtime/internal/gates"
@@ -811,6 +812,18 @@ func main() {
 	validator := marketdata.NewTickValidator()
 	staleDetector := marketdata.NewStaleDetector(10 * time.Second)
 	aggregator := marketdata.NewAggregator()
+
+	// ─── Devil Liquidity / Devil's Mark engine (prompt.md) ───
+	devilStore, devilStoreErr := devilliquidity.NewStore(cfg.DBURL)
+	if devilStoreErr != nil {
+		log.Warn().Err(devilStoreErr).Msg("devil liquidity persistence disabled (non-fatal)")
+	}
+	devilEngine := devilliquidity.NewEngine(cfg.DBURL, devilliquidity.DefaultConfig())
+	if devilStore != nil {
+		devilEngine.AttachStore(devilStore)
+	}
+	devilliquidity.SetGlobalEngine(devilEngine)
+	log.Info().Bool("store_enabled", devilStore != nil).Msg("devil liquidity engine initialized")
 
 	// Risk gates — seeded conservatively (fail-closed for safety-critical gates)
 	gateRegistry := gates.NewRegistry()
@@ -1818,6 +1831,23 @@ func main() {
 				processCandle(candle, featureReg, stateMgr, strategies, engine, mlEngine, ollamaClient, healthManager, staleChecker,
 					calibConsumer, reconciler, wsHub, agentHub, persister, gateRegistry,
 					cooldownMgr, dupChecker, ptbEngine, auditLogger, xmEngine, xmPersister, xmValidation, engTracker, cfg, posCaps, broker)
+
+				// Devil Liquidity: feed every completed candle into the engine.
+				if candle.IsClosed && devilEngine != nil {
+					devilEngine.Ingest(&devilliquidity.CandleInput{
+						Symbol:     candle.Symbol,
+						Timeframe:  string(candle.Timeframe),
+						Time:       candle.Time,
+						Open:       candle.Open,
+						High:       candle.High,
+						Low:        candle.Low,
+						Close:      candle.Close,
+						Volume:     candle.Volume,
+						IsClosed:   candle.IsClosed,
+						Digits:     0,
+						FeedSource: candle.Source,
+					})
+				}
 			}
 		}
 	}()
