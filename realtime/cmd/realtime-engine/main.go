@@ -587,18 +587,31 @@ func main() {
 			state.Session.IsOverlap = snapshot.Session.IsOverlap
 			state.Session.IsWeekend = snapshot.Session.IsWeekend
 
-			// Merge bars into candles map
+			// ─── Per-TF broker bar sync into MarketState ───
+			// Update the live in-progress candle per TF using the broker bar's
+			// EXACT open time (converted to UTC by the EA). Candle emission /
+			// closed-bar persistence is handled by candleSyncFn so engine candles
+			// match MT5 exactly.
 			for tfName, bar := range snapshot.Bars {
 				tf := types.Timeframe(tfName)
-				candle := &types.Candle{
-					Symbol: snapshot.Symbol, Timeframe: tf,
-					Open: decimal.NewFromFloat(bar.Open), High: decimal.NewFromFloat(bar.High),
-					Low: decimal.NewFromFloat(bar.Low), Close: decimal.NewFromFloat(bar.Close),
-					Volume: bar.Volume, Source: snapshot.Source,
-					Quality: types.CandleComplete, IsClosed: false,
-					Time: time.Now().UTC(),
+				t, err := time.Parse(time.RFC3339, bar.Time)
+				if err != nil {
+					continue
 				}
-				state.Candles[tf] = candle
+				state.Candles[tf] = &types.Candle{
+					Symbol:    snapshot.Symbol,
+					Timeframe: tf,
+					Time:      t,
+					Open:      decimal.NewFromFloat(bar.Open),
+					High:      decimal.NewFromFloat(bar.High),
+					Low:       decimal.NewFromFloat(bar.Low),
+					Close:     decimal.NewFromFloat(bar.Close),
+					Volume:    bar.Volume,
+					Source:    snapshot.Source,
+					Quality:   types.CandlePartial,
+					IsClosed:  false,
+					Alignment: types.AlignmentBroker,
+				}
 			}
 
 			// Update current price from snapshot tick
@@ -881,6 +894,68 @@ func main() {
 	validator := marketdata.NewTickValidator()
 	staleDetector := marketdata.NewStaleDetector(10 * time.Second)
 	aggregator := marketdata.NewAggregator(agentProvider.BrokerOffsetHours)
+
+	// ─── Per-TF broker CopyRates sync ───
+	// The Master Node sends authoritative broker bars (CopyRates) for every
+	// timeframe. Ingest them verbatim so the engine's candles match MT5 exactly.
+	// The aggregator is switched to external-candle mode (no tick re-aggregation
+	// drift) and each closed bar is persisted exactly once.
+	var candleSyncMu sync.Mutex
+	lastClosedBarTime := make(map[types.Timeframe]time.Time)
+	agentProvider.SetCandleSyncFn(func(symbol string, bars map[string]marketdata.SnapshotBar, source string) {
+		aggregator.UseExternalCandles()
+		for tfName, bar := range bars {
+			tf := types.Timeframe(tfName)
+			t, err := time.Parse(time.RFC3339, bar.Time)
+			if err != nil {
+				continue
+			}
+			// Current (in-progress) bar — drives live indicators + WS feed.
+			cur := &types.Candle{
+				Symbol:    symbol,
+				Timeframe: tf,
+				Time:      t,
+				Open:      decimal.NewFromFloat(bar.Open),
+				High:      decimal.NewFromFloat(bar.High),
+				Low:       decimal.NewFromFloat(bar.Low),
+				Close:     decimal.NewFromFloat(bar.Close),
+				Volume:    bar.Volume,
+				Source:    source,
+				Quality:   types.CandlePartial,
+				IsClosed:  false,
+				Alignment: types.AlignmentBroker,
+			}
+			aggregator.PushExternalCandle(cur)
+
+			// Previous (closed) bar — push exactly once when it rolls so the
+			// final OHLC is persisted as a closed candle. The SaveCandle upsert
+			// makes the occasional concurrent duplicate harmless.
+			prevTime := t.Add(-marketdata.TimeframeDuration(tf))
+			candleSyncMu.Lock()
+			changed := lastClosedBarTime[tf] != prevTime
+			if changed {
+				lastClosedBarTime[tf] = prevTime
+			}
+			candleSyncMu.Unlock()
+			if changed {
+				prev := &types.Candle{
+					Symbol:    symbol,
+					Timeframe: tf,
+					Time:      prevTime,
+					Open:      decimal.NewFromFloat(bar.PrevOpen),
+					High:      decimal.NewFromFloat(bar.PrevHigh),
+					Low:       decimal.NewFromFloat(bar.PrevLow),
+					Close:     decimal.NewFromFloat(bar.PrevClose),
+					Volume:    bar.PrevVolume,
+					Source:    source,
+					Quality:   types.CandleComplete,
+					IsClosed:  true,
+					Alignment: types.AlignmentBroker,
+				}
+				aggregator.PushExternalCandle(prev)
+			}
+		}
+	})
 
 	// Re-align historical candles (H4/D1/W1/MN) to the broker's session
 	// boundaries once the broker UTC offset is known. Idempotent — safe to

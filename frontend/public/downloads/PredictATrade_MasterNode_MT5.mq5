@@ -48,9 +48,11 @@ input int     NotifyCooldownSec    = 300;    // Min seconds between repeated not
 #define PAT_HEARTBEAT    "PAT_heartbeat.txt"
 
 //=== Timeframes for multi-TF bar data ===
-#define TF_COUNT 7
-ENUM_TIMEFRAMES g_timeframes[TF_COUNT] = {PERIOD_M1, PERIOD_M5, PERIOD_M15, PERIOD_H1, PERIOD_H4, PERIOD_D1, PERIOD_W1};
-string g_tfNames[TF_COUNT] = {"M1", "M5", "M15", "H1", "H4", "D1", "W1"};
+// Per-TF broker CopyRates sync: the engine ingests these bars directly so its
+// candles match MT5 exactly (no tick-re-aggregation drift).
+#define TF_COUNT 9
+ENUM_TIMEFRAMES g_timeframes[TF_COUNT] = {PERIOD_M1, PERIOD_M5, PERIOD_M15, PERIOD_M30, PERIOD_H1, PERIOD_H4, PERIOD_D1, PERIOD_W1, PERIOD_MN1};
+string g_tfNames[TF_COUNT] = {"M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1", "MN1"};
 
 //=== Indicator Handles ===
 int g_hRSI       = INVALID_HANDLE;

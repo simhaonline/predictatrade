@@ -47,9 +47,11 @@ input int     NotifyCooldownSec    = 300;    // Min seconds between repeated not
 #define PAT_HEARTBEAT    "PAT_heartbeat.txt"
 
 //=== Timeframes for multi-TF bar data ===
-#define TF_COUNT 7
-int g_timeframes[TF_COUNT] = {PERIOD_M1, PERIOD_M5, PERIOD_M15, PERIOD_H1, PERIOD_H4, PERIOD_D1, PERIOD_W1};
-string g_tfNames[TF_COUNT] = {"M1", "M5", "M15", "H1", "H4", "D1", "W1"};
+// Per-TF broker CopyRates sync: the engine ingests these bars directly so its
+// candles match MT5 exactly (no tick-re-aggregation drift).
+#define TF_COUNT 9
+int g_timeframes[TF_COUNT] = {PERIOD_M1, PERIOD_M5, PERIOD_M15, PERIOD_M30, PERIOD_H1, PERIOD_H4, PERIOD_D1, PERIOD_W1, PERIOD_MN1};
+string g_tfNames[TF_COUNT] = {"M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1", "MN1"};
 
 //=== Global State ===
 string  g_symbol;
@@ -381,7 +383,9 @@ string GetBarJSON(int timeframe)
     s += ",\"low\":" + DoubleToStr(iLow(g_symbol, timeframe, 0), 5);
     s += ",\"close\":" + DoubleToStr(iClose(g_symbol, timeframe, 0), 5);
     s += ",\"volume\":" + IntegerToString((long)iVolume(g_symbol, timeframe, 0));
-    s += ",\"time\":\"" + FormatISO8601UTC(TimeGMT()) + "\"";
+    // Use the actual broker bar open time (iTime) converted to UTC so the
+    // engine candle time matches MT5 exactly (not the current wall-clock time).
+    s += ",\"time\":\"" + FormatISO8601UTC((datetime)((long)iTime(g_symbol, timeframe, 0) - (long)TimeCurrent() + (long)TimeGMT())) + "\"";
 
     // Previous closed bar
     s += ",\"prev_open\":" + DoubleToStr(iOpen(g_symbol, timeframe, 1), 5);

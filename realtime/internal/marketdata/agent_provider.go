@@ -252,6 +252,11 @@ type AgentProvider struct {
 	// Merge function — set by main.go to avoid import cycle
 	mergeSnapshotFn func(any, *MarketSnapshot)
 
+	// CandleSyncFn — set by main.go. Called on every MARKET_SNAPSHOT with the
+	// authoritative per-TF broker CopyRates bars so the engine can sync its
+	// candles to MT5 exactly (separate from indicator merge to avoid cycles).
+	candleSyncFn func(symbol string, bars map[string]SnapshotBar, source string)
+
 	// BrokerAccountHydrateFn — called when a snapshot with account_info arrives.
 	// This callback hydrates safety-critical gates (exposure, margin, execution)
 	// from live broker account data. Set by main.go to avoid import cycle.
@@ -417,6 +422,12 @@ func (p *AgentProvider) SetStateManager(sm StateUpdater) {
 // This avoids import cycle between marketdata and features packages.
 func (p *AgentProvider) SetMergeFunction(fn func(any, *MarketSnapshot)) {
 	p.mergeSnapshotFn = fn
+}
+
+// SetCandleSyncFn sets the callback that syncs per-TF broker CopyRates bars
+// into the engine candle pipeline so candles match MT5 exactly.
+func (p *AgentProvider) SetCandleSyncFn(fn func(symbol string, bars map[string]SnapshotBar, source string)) {
+	p.candleSyncFn = fn
 }
 
 // SetBrokerAccountHydrateFn sets the callback that hydrates safety-critical gates
@@ -672,6 +683,12 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 					mergeFn(stateRaw, &snapshot)
 				}
 			})
+		}
+
+		// CRITICAL: Sync per-TF broker CopyRates bars into the engine candle
+		// pipeline so candles match MT5 exactly (broker bar sync, not indicator merge).
+		if p.candleSyncFn != nil && len(snapshot.Bars) > 0 {
+			p.candleSyncFn(normalizeSymbol(snapshot.Symbol), snapshot.Bars, snapshot.Source)
 		}
 
 		// CRITICAL: Also create a tick from the snapshot's tick data

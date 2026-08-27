@@ -22,6 +22,16 @@ type Aggregator struct {
 	// offsetFunc returns the broker UTC offset in hours (+3 = UTC+3). The
 	// Master Node supplies this (auto-detected from live ticks or via config).
 	offsetFunc func() int
+	// externalCandles, when true, means broker CopyRates bars synced from the
+	// Master Node are the authoritative candle source. The aggregator then stops
+	// emitting tick-built candles so engine candles match MT5 exactly.
+	externalCandles bool
+}
+
+// TimeframeDuration returns the duration of a timeframe. Exported so callers
+// (e.g. broker bar sync) can compute previous-bar boundaries.
+func TimeframeDuration(tf types.Timeframe) time.Duration {
+	return timeframeDuration(tf)
 }
 
 type candleBuilder struct {
@@ -56,9 +66,34 @@ func NewAggregator(offsetFunc func() int) *Aggregator {
 
 func (a *Aggregator) CandleChannel() <-chan *types.Candle { return a.candleChan }
 
+// UseExternalCandles switches the aggregator to external (broker CopyRates)
+// candle mode: tick-built candle emission is suppressed so the engine uses the
+// Master Node's per-TF broker bars verbatim (exact MT5 match). Idempotent.
+func (a *Aggregator) UseExternalCandles() {
+	a.mu.Lock()
+	a.externalCandles = true
+	a.mu.Unlock()
+}
+
+// PushExternalCandle injects an externally-sourced (broker CopyRates) candle
+// into the candle pipeline so it flows to persistence, WebSocket and strategy
+// evaluation exactly as received from MT5.
+func (a *Aggregator) PushExternalCandle(c *types.Candle) {
+	select {
+	case a.candleChan <- c:
+	default:
+	}
+}
+
 // ProcessTick ingests a tick and updates all timeframe candle builders.
 func (a *Aggregator) ProcessTick(tick *types.Tick) {
+	// When broker CopyRates sync is active, the Master Node supplies authoritative
+	// candles; skip tick re-aggregation entirely so engine candles match MT5 exactly.
 	a.mu.Lock()
+	if a.externalCandles {
+		a.mu.Unlock()
+		return
+	}
 	defer a.mu.Unlock()
 
 	symbol := tick.Symbol
@@ -136,6 +171,12 @@ func (a *Aggregator) FlushClosedCandles(ctx context.Context) {
 			return
 		case <-ticker.C:
 			a.mu.Lock()
+			// External (broker CopyRates) mode: the Master Node is authoritative
+			// for candle completion; do not emit tick-based candles.
+			if a.externalCandles {
+				a.mu.Unlock()
+				continue
+			}
 			off := a.offsetFunc()
 			// "now" expressed in the broker session timezone.
 			brokerNow := time.Now().UTC().Add(time.Duration(off) * time.Hour)
