@@ -763,6 +763,36 @@ func (pm *PipeManager) processMasterMessage(line string) {
 		}
 		tick.Type = "MASTER_TICK" // Ensure type field is set for Go RT routing
 		log.Printf("Master tick: %s bid=%.5f ask=%.5f", tick.Symbol, tick.Bid, tick.Ask)
+
+		// Auto-register terminal from MASTER_TICK so the agent dashboard
+		// reports MT4/MT5 as connected. Without this, the Master Node agent
+		// shows MT5 OFFLINE even though the EA is running and sending data.
+		// This mirrors the auto-registration in the TICK case of processMessage.
+		if tick.Account != "" {
+			clientType := "MT5"
+			if src := strings.ToUpper(tick.Source); src == "MT4" {
+				clientType = "MT4"
+			}
+			terminalKey := clientType + ":" + tick.Account
+			pm.mu.Lock()
+			if existing := pm.terminals[terminalKey]; existing == nil {
+				pm.terminals[terminalKey] = &TerminalInfo{
+					ClientType: clientType, Account: tick.Account,
+					Broker: tick.Broker, Symbol: tick.Symbol,
+					ConnectedAt: time.Now(),
+				}
+				pm.mu.Unlock()
+				log.Printf("Terminal auto-registered from master tick: %s account=%s broker=%s", clientType, tick.Account, tick.Broker)
+				if pm.onTerminalConnect != nil {
+					go pm.onTerminalConnect(*pm.terminals[terminalKey])
+				}
+			} else {
+				existing.Broker = tick.Broker
+				existing.Symbol = tick.Symbol
+				pm.mu.Unlock()
+			}
+		}
+
 		if pm.onTick != nil {
 			pm.onTick(tick)
 		}
@@ -781,6 +811,37 @@ func (pm *PipeManager) processMasterMessage(line string) {
 
 	case "MASTER_INIT":
 		log.Printf("Master Node init: %s", payload)
+		// Parse init message to auto-register terminal
+		var initMsg struct {
+			Platform string `json:"platform"`
+			Account  string `json:"account"`
+			Broker   string `json:"broker"`
+			Symbol   string `json:"symbol"`
+		}
+		if json.Unmarshal([]byte(payload), &initMsg) == nil && initMsg.Account != "" {
+			clientType := "MT5"
+			if strings.ToUpper(initMsg.Platform) == "MT4" {
+				clientType = "MT4"
+			}
+			terminalKey := clientType + ":" + initMsg.Account
+			pm.mu.Lock()
+			if existing := pm.terminals[terminalKey]; existing == nil {
+				pm.terminals[terminalKey] = &TerminalInfo{
+					ClientType: clientType, Account: initMsg.Account,
+					Broker: initMsg.Broker, Symbol: initMsg.Symbol,
+					ConnectedAt: time.Now(),
+				}
+				pm.mu.Unlock()
+				log.Printf("Terminal auto-registered from master init: %s account=%s", clientType, initMsg.Account)
+				if pm.onTerminalConnect != nil {
+					go pm.onTerminalConnect(*pm.terminals[terminalKey])
+				}
+			} else {
+				existing.Broker = initMsg.Broker
+				existing.Symbol = initMsg.Symbol
+				pm.mu.Unlock()
+			}
+		}
 		// Inject the control-plane device id so the engine can correlate this
 		// live agent to a dashboard-visible device row (licensing.devices.id).
 		forward := []byte(payload)

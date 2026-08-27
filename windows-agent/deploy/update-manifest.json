@@ -1,8 +1,8 @@
 {
-    "version": "1.2.32",
+    "version": "1.2.33",
     "download_url": "https://downloads.predictatrade.com/windows-agent/pat-agent.exe",
-    "checksum": "ed3a4b476951b0c46ef53b530fc73687a2456f53ed9851df15131084b5d7dbd0",
+    "checksum": "5017a6a87047ecac2027ecec48f7a081ed783c514c32d05b3975ae6bf024649e",
     "min_version": "1.0.0",
-    "release_notes": "v1.2.32 — FIX: MT client connection. The agent now discovers and uses the user's real MetaQuotes Common\Files folder so it meets the EA (which uses MQL FILE_COMMON and never needed to change). Agent auto-removes orphaned IPC files from older versions, so subscribers only need to update the agent — no EA recompile required.",
-    "timestamp": "2026-08-27T11:12:47Z"
+    "release_notes": "v1.2.33 — fix: auto-register terminal from MASTER_TICK/MASTER_INIT so dashboard shows MT5 connected",
+    "timestamp": "2026-08-27T11:51:37Z"
 }
