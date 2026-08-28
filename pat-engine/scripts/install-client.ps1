@@ -3,7 +3,7 @@
 # all agent feeds, so a single client agent per terminal is the only install path.
 param(
     [string]$EngineHost = "localhost",
-    [int]$GatewayPort   = 8080,
+    [int]$GatewayPort   = 80,
     [string]$GatewayUrl = "",
     [string]$BaseUrl    = "",
     [string]$LicenseKey = "",

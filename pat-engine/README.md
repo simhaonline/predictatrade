@@ -207,19 +207,19 @@ remote one-liner. Build the exe once, copy `dist/pat-windows-agent.exe` + `scrip
 to the trading machine, then run **one** command as Administrator:
 
 ```powershell
-# Gateway on the same Windows box (localhost:8080):
+# Gateway on the same Windows box (localhost, nginx on :80):
 .\install-client.ps1 -EngineHost localhost -LicenseKey "PAT1-XXXX-XXXX-XXXX-XXXX-XXXX-XX"
 # Separate server (its domain / LAN IP; engine gateway must be reachable):
 .\install-client.ps1 -EngineHost api.predictatrade.com -LicenseKey "PAT1-XXXX-XXXX-XXXX-XXXX-XXXX-XX"
 ```
 
-The installer writes the agent's `GATEWAY` env to `http://<EngineHost>:8080/bar` and
+The installer writes the agent's `GATEWAY` env to `http://<EngineHost>:80/bar` and
 installs the `pat-agent-client` service. Verify with `Get-Service pat-agent-client`
 (*Running*). Uninstall: `.\uninstall-windows-agent.ps1`.
 
 `install-client.ps1` wraps `install-windows-agent.ps1`, installs the `pat-agent-client`
 service using the local `pat-windows-agent.exe`, deploys the client EA, writes
-`PAT_license.txt`, and sets the `GATEWAY` machine env to `http://<EngineHost>:8080/bar`.
+`PAT_license.txt`, and sets the `GATEWAY` machine env to `http://<EngineHost>:80/bar`.
 Verify with `Get-Service pat-agent-client` (should be *Running*). Uninstall:
 `.\uninstall-windows-agent.ps1`.
 
@@ -255,7 +255,7 @@ deploys the client EA into every detected MT4/MT5 `Experts` folder, writes
 `PAT_license.txt` (`status:ACTIVE`) into the MT common `Files` folder, and starts the
 service `pat-agent-client`. Verify: `Get-Service pat-agent-client` shows *Running*, and the
 agent's `GATEWAY` env (`[Environment]::GetEnvironmentVariable("GATEWAY","Machine")`) equals
-`http://<engine-host>:8080/bar`.
+`http://<engine-host>:80/bar`.
 Uninstall: `.\uninstall-windows-agent.ps1`.
 
 **4. License key.** Mint a short activation code and paste it into the EA's `LicenseKey`

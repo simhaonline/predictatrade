@@ -17,7 +17,7 @@
 [CmdletBinding()]
 param(
     [string]$EngineHost = "localhost",
-    [int]$GatewayPort   = 8080,
+    [int]$GatewayPort   = 80,
     [string]$GatewayUrl = "",          # direct override; if set, EngineHost/Port ignored
     [string]$BaseUrl    = "",          # if set, download pat-windows-agent.exe from here
     [string]$AgentPath  = "",          # local exe path (default: next to this script / dist/)
