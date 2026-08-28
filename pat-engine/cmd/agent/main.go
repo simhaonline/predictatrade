@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"pat-engine/internal/agentlib"
@@ -28,6 +29,17 @@ func main() {
 	if api != "" {
 		activate(api, fp)
 		go heartbeat(api, fp)
+	}
+
+	// Signal bridge: the gateway writes the EA's PAT_signals.txt on the engine
+	// host; for a remote MT terminal the agent must mirror the latest signal into
+	// the local MT common Files folder the EA reads. Poll /signal and write it.
+	signalFile := os.Getenv("SIGNAL_FILE")
+	if signalFile != "" {
+		base := strings.TrimSuffix(url, "/candles")
+		go pollSignals(base, signalFile, fp.DeviceID)
+	} else {
+		fmt.Println("SIGNAL_FILE not set — agent will feed bars but NOT deliver signals to the EA")
 	}
 
 	var bars []backtest.Bar
@@ -75,6 +87,31 @@ func activate(api string, fp agentlib.Fingerprint) {
 	}
 	resp.Body.Close()
 	fmt.Println("device activated:", fp.DeviceID)
+}
+
+func pollSignals(base, file, deviceID string) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	ticker := time.NewTicker(1 * time.Second)
+	last := ""
+	for range ticker.C {
+		resp, err := client.Get(base + "/signal")
+		if err != nil {
+			continue
+		}
+		buf := new(bytes.Buffer)
+		buf.ReadFrom(resp.Body)
+		resp.Body.Close()
+		line := strings.TrimSpace(buf.String())
+		if line == "" || line == last {
+			continue
+		}
+		if err := os.WriteFile(file, []byte(line+"\n"), 0o644); err != nil {
+			fmt.Println("signal write err:", err)
+			continue
+		}
+		last = line
+		fmt.Printf("signal bridged to %s: %s\n", file, line[:min(len(line), 80)])
+	}
 }
 
 func heartbeat(api string, fp agentlib.Fingerprint) {
