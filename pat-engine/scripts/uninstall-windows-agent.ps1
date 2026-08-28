@@ -1,29 +1,22 @@
 <#
 .SYNOPSIS
-    Predict-A-Trade pat-engine Windows Agent — Uninstaller (role-aware, adapted from
-    the windows-agent reference project). Stops & removes the service(s), kills the
-    agent process(es), removes the role install directories and the cached nssm, and
-    cleans IPC/license files. Always cleans BOTH roles regardless of -Mode (which only
-    affects messaging), so a default uninstall leaves the machine fully clean.
+    Predict-A-Trade pat-engine Windows Agent — Uninstaller (client/execution only).
+.DESCRIPTION
+    Stops & removes the agent service, kills the agent process, removes the install
+    directory and cached nssm, and cleans MetaTrader IPC/license files. The new
+    pat-engine has no separate "master" role, so only the client agent is handled.
 #>
 [CmdletBinding()]
-param(
-    [ValidateSet("client","master","all")][string]$Mode = "client",
-    [switch]$Silent
-)
+param([switch]$Silent)
 
-$InstallRoot = "C:\PredictATrade"
-$DirsToRemove = @(
-    (Join-Path $InstallRoot "Client"),
-    (Join-Path $InstallRoot "Master"),
-    (Join-Path $InstallRoot "XAUUSD")   # legacy single-dir install
-)
-$Services = @("pat-agent-client", "pat-agent-master")
+$InstallDir = "C:\PredictATrade\Agent"
+$LegacyDirs = @($InstallDir, (Join-Path "C:\PredictATrade" "Client"), (Join-Path "C:\PredictATrade" "Master"), (Join-Path "C:\PredictATrade" "XAUUSD"))
+$Services = @("pat-agent-client", "pat-agent-master")   # master only listed for backward-cleanup
 $NssmExe  = "nssm.exe"
 $CommonNssm = Join-Path $env:ProgramData "PredictATrade\nssm.exe"
 
 function Get-RoleNssm {
-    foreach ($d in $DirsToRemove + @((Join-Path $env:ProgramData "PredictATrade"))) {
+    foreach ($d in $LegacyDirs + @((Join-Path $env:ProgramData "PredictATrade"))) {
         $p = Join-Path $d $NssmExe
         if (Test-Path $p) { return $p }
     }
@@ -32,23 +25,16 @@ function Get-RoleNssm {
     return $null
 }
 
-# Self-elevate
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
     $tmp = Join-Path $env:TEMP ("pat_uninstall_" + [guid]::NewGuid().ToString("N") + ".ps1")
-    if ($BaseUrl) {
-        (Invoke-WebRequest -Uri "$BaseUrl/uninstall-windows-agent.ps1" -UseBasicParsing -TimeoutSec 30).Content | Set-Content -Path $tmp -Encoding UTF8
-    } else {
-        Copy-Item $MyInvocation.MyCommand.Path $tmp -Force
-    }
-    $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy","Bypass","-NoProfile","-File","""$tmp""","-Mode",$Mode,"-Silent:`$$Silent" -Verb RunAs -Wait -PassThru
+    Copy-Item $MyInvocation.MyCommand.Path $tmp -Force
+    $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy","Bypass","-NoProfile","-File","""$tmp""","-Silent:`$$Silent" -Verb RunAs -Wait -PassThru
     exit $p.ExitCode
 }
 
-Write-Host "Removing Predict-A-Trade pat-engine agent ($Mode)..."
+Write-Host "Removing Predict-A-Trade pat-engine agent..."
 $nssm = Get-RoleNssm
-
-# 1. Stop + remove services (both roles always)
 foreach ($svc in $Services) {
     $s = Get-Service -Name $svc -ErrorAction SilentlyContinue
     if ($s) {
@@ -59,17 +45,12 @@ foreach ($svc in $Services) {
         } catch { Write-Host "  WARN: could not remove $svc`: $_" }
     }
 }
-
-# 2. Kill any lingering agent process
 Get-Process -Name "pat-windows-agent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Write-Host "  Killed agent process(es)."
 
-# 3. Remove install directories
-foreach ($d in $DirsToRemove) {
+foreach ($d in $LegacyDirs) {
     if (Test-Path $d) { Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue; Write-Host "  Removed $d" }
 }
-
-# 4. Clean MT common Files IPC/license artifacts (best-effort)
 $mtRoot = Join-Path $env:APPDATA "MetaQuotes\Terminal"
 if (Test-Path $mtRoot) {
     foreach ($term in (Get-ChildItem $mtRoot -Directory -ErrorAction SilentlyContinue)) {
@@ -81,9 +62,6 @@ if (Test-Path $mtRoot) {
     }
 }
 Write-Host "  Cleaned MetaTrader IPC/license files (EAs left in place — remove manually if desired)."
-
-# 5. Remove cached nssm
 if (Test-Path $CommonNssm) { Remove-Item $CommonNssm -Force -ErrorAction SilentlyContinue }
-
-Write-Host "Uninstall complete. Remove the MT4/MT5 EAs from each terminal's Experts folder manually."
+Write-Host "Uninstall complete."
 if (-not $Silent) { Read-Host "Press Enter to close" }
