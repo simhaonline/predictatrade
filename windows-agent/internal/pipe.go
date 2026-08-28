@@ -521,8 +521,13 @@ func (pm *PipeManager) processMessage(line string) {
 		}
 		if json.Unmarshal([]byte(payload), &initMsg) == nil && initMsg.LicenseKey != "" {
 			pm.licKey = initMsg.LicenseKey
-			// Do NOT self-approve. Mark pending and validate against the server.
-			pm.licStatus = "PENDING"
+			// Do NOT self-approve. Mark pending only on the first validation
+			// (the pipe starts in PENDING). On subsequent EA re-checks we keep
+			// the last authoritative verdict instead of flipping back to PENDING,
+			// which would make the EA flicker "Access Denied"/"Access Granted".
+			if pm.licStatus == "" {
+				pm.licStatus = "PENDING"
+			}
 			log.Printf("EA init: validating license %s account=%s balance=%.2f equity=%.2f positions=%d",
 				initMsg.LicenseKey, initMsg.Account, initMsg.Balance, initMsg.Equity, initMsg.OpenPos)
 			if pm.onLicense != nil {
@@ -571,9 +576,14 @@ func (pm *PipeManager) processMessage(line string) {
 			return
 		}
 		log.Printf("License check: account=%s broker=%s key=%s", lic.Account, lic.Broker, lic.LicenseKey)
-		// Do NOT self-approve. Mark pending and validate against the server.
+		// Do NOT self-approve. Mark pending only on the first validation so that
+		// repeated EA re-checks don't reset an already-ACTIVE verdict to PENDING
+		// (which caused ACTIVE<->PENDING flicker every ~2s). The authoritative
+		// result from SetLicenseResult still overrides this on success/failure.
 		pm.licKey = lic.LicenseKey
-		pm.licStatus = "PENDING"
+		if pm.licStatus == "" {
+			pm.licStatus = "PENDING"
+		}
 		if pm.onLicense != nil {
 			go pm.onLicense(lic)
 		}

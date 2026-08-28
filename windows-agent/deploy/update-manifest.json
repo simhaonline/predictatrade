@@ -1,8 +1,8 @@
 {
-    "version": "1.2.32",
+    "version": "1.2.33",
     "download_url": "https://downloads.predictatrade.com/windows-agent/client/pat-agent.exe",
-    "checksum": "dcbe00dde6c878e4446647edd05710245684b318afdd66599fb87355f2824587",
+    "checksum": "d234b857c07ce8b00c5597411780059d33e762ad1de04bb97ec7ad4c248360e0",
     "min_version": "1.0.0",
-    "release_notes": "v1.2.32 — Windows Agent (Client). Distinct client binary (pat-agent.exe) and master binary (pat-master.exe) now shipped separately per role.",
-    "timestamp": "2026-08-27T12:20:29Z"
+    "release_notes": "v1.2.33 — Windows Agent (Client). Distinct client binary (pat-agent.exe) and master binary (pat-master.exe) now shipped separately per role.",
+    "timestamp": "2026-08-28T06:03:30Z"
 }
