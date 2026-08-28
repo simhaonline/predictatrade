@@ -41,6 +41,29 @@ function Resolve-EngineWsUrl {
     return "wss://${EngineHost}${Path}"
 }
 
+# Add scoped Windows Defender exclusions for the agent's directories so the
+# UNSIGNED binary is never quarantined/blocked. This MUST run BEFORE the binary is
+# downloaded — adding the exclusion afterwards is too late: Defender has already
+# removed/blocked the file on download. Idempotent and non-fatal (best-effort).
+function Add-DefenderExclusions {
+    $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        Write-Host "  WARN: Not running as Administrator — skipped Defender exclusion."
+        Write-Host "        Re-run the installer as Admin or add a Windows Security exclusion for"
+        Write-Host "        $InstallDir and $env:ProgramData\PredictATrade manually."
+        return
+    }
+    $excl = @($InstallDir, (Join-Path $env:ProgramData 'PredictATrade'))
+    foreach ($p in $excl) {
+        if (-not (Test-Path $p)) { New-Item -ItemType Directory -Path $p -Force | Out-Null }
+        try { Add-MpPreference -ExclusionPath $p -ErrorAction Stop }
+        catch { Write-Host "  WARN: Could not add Defender exclusion for $p`: $_" }
+    }
+    # Also relax SmartScreen/PUA for the agent paths if possible.
+    try { Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction SilentlyContinue } catch {}
+    Write-Host "  OK: Windows Defender exclusions applied (pre-download)."
+}
+
 # Mode-specific identity (separate Windows services & ports so a Client and a
 # Master Node can run side-by-side on the same machine without conflict).
 if ($Mode -eq "master") {
@@ -115,6 +138,11 @@ $logsDir = Join-Path $InstallDir "logs"
 if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
 Write-Host "  OK: $InstallDir"
 
+# Step 2a: Apply Defender exclusions BEFORE downloading the unsigned binary.
+# (If this runs after the download, Defender may have already quarantined it.)
+Write-Host "[2a/9] Applying Windows Defender exclusions (pre-download)..."
+Add-DefenderExclusions
+
 # Step 2b: Persist the engine WebSocket URL for this role as a machine-level
 # environment variable (the agent reads PAT_SERVER_URL / PAT_DATA_WS_URL).
 [Environment]::SetEnvironmentVariable($EngineEnvVar, $EngineWsUrl, "Machine") | Out-Null
@@ -168,26 +196,47 @@ Write-Host "[5/9] Downloading $AgentExe..."
 $agentPath = Join-Path $InstallDir $AgentExe
 try {
     if (Test-Path $agentPath) { Remove-Item $agentPath -Force -ErrorAction SilentlyContinue }
-                Invoke-WebRequest -Uri "$BaseUrl/$RoleDir/$goArch/$AgentExe" -OutFile $agentPath -UseBasicParsing -TimeoutSec 120
+    Invoke-WebRequest -Uri "$BaseUrl/$RoleDir/$goArch/$AgentExe" -OutFile $agentPath -UseBasicParsing -TimeoutSec 120
     Unblock-File -Path $agentPath -ErrorAction SilentlyContinue
 
-    # Check if Defender quarantined the file immediately after download
+    # Defender may have quarantined/removed the unsigned binary on download even
+    # though we added exclusions up front. If the file is missing or empty, try a
+    # few recovery paths instead of silently failing later at service creation.
     if (-not (Test-Path $agentPath) -or (Get-Item $agentPath).Length -lt 1KB) {
-        Write-Host "  WARN: Binary appears quarantined by Defender — attempting restore..."
+        Write-Host "  WARN: Binary missing/too small after download — attempting Defender recovery..."
+
+        # 1) Restore from quarantine if a threat was recorded.
         try {
-            # Try to restore from quarantine
             $threat = Get-MpThreatDetection -ErrorAction SilentlyContinue | Where-Object { $_.Resources -like "*$AgentExe*" } | Select-Object -First 1
             if ($threat) {
                 Remove-MpThreat -ErrorAction SilentlyContinue
                 Start-Sleep -Seconds 2
-                # Re-download after restoring
-    Invoke-WebRequest -Uri "$BaseUrl/$RoleDir/$goArch/$AgentExe" -OutFile $agentPath -UseBasicParsing -TimeoutSec 120
-                Unblock-File -Path $agentPath -ErrorAction SilentlyContinue
-                Write-Host "  OK: Restored and re-downloaded"
             }
-        } catch {
-            Write-Host "  WARN: Could not auto-restore: $_"
-            Write-Host "  Manual fix: Windows Security > Protection history > Allow on device"
+        } catch { Write-Host "  WARN: threat lookup failed: $_" }
+
+        # 2) Re-download regardless of whether a threat was found (covers cases
+        #    where Defender deleted the file without a recoverable detection).
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            try {
+                if (Test-Path $agentPath) { Remove-Item $agentPath -Force -ErrorAction SilentlyContinue }
+                Invoke-WebRequest -Uri "$BaseUrl/$RoleDir/$goArch/$AgentExe" -OutFile $agentPath -UseBasicParsing -TimeoutSec 120
+                Unblock-File -Path $agentPath -ErrorAction SilentlyContinue
+                if ((Test-Path $agentPath) -and (Get-Item $agentPath).Length -ge 1KB) {
+                    Write-Host "  OK: Recovered binary on attempt $attempt"
+                    break
+                }
+            } catch {
+                Write-Host "  WARN: Recovery download attempt $attempt failed: $_"
+                Start-Sleep -Seconds 2
+            }
+        }
+
+        if (-not (Test-Path $agentPath) -or (Get-Item $agentPath).Length -lt 1KB) {
+            Write-Host "  FATAL: Could not obtain a valid $AgentExe (Defender may be blocking it)."
+            Write-Host "  Manual fix: Windows Security > Virus & threat protection > Exclusions >"
+            Write-Host "  Add folder: $InstallDir  (and $env:ProgramData\PredictATrade), then re-run."
+            Read-Host "Press Enter to close"
+            exit 1
         }
     }
 
