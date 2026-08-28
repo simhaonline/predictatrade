@@ -34,11 +34,19 @@ irm https://downloads.predictatrade.com/windows-agent/install-master.ps1 | iex
 
 The installer:
 1. Self-elevates to Administrator (UAC prompt).
-2. Creates `C:\PredictATrade\XAUUSD\` and downloads the role binary
-   (`pat-agent.exe` or `pat-master.exe`).
+2. Creates the role-specific directory and downloads the role binary
+   (`pat-agent.exe` or `pat-master.exe`):
+   - **Client Agent** → `C:\PredictATrade\Client\`
+   - **Master Node** → `C:\PredictATrade\Master\`
+   The two roles live in **separate folders** so a Master Node and a Client
+   Agent can coexist on one device without sharing binaries/settings/logs.
 3. Persists the engine WebSocket URL as a machine environment variable
    (`PAT_SERVER_URL` for client, `PAT_DATA_WS_URL` for master).
-4. Installs the Windows Service (auto-start, restart on crash).
+4. Installs the Windows Service (auto-start, restart on crash) using NSSM. NSSM
+   is **verified/reused** if one already exists on the device (PATH, the cached
+   `C:\ProgramData\PredictATrade\nssm.exe`, or the other role's folder) before
+   any download — so reinstalling/co-installing both roles never clobbers a
+   working nssm.exe.
 5. Verifies the local health endpoint.
 
 ### MetaTrader EA setup
@@ -93,7 +101,18 @@ irm "https://downloads.predictatrade.com/windows-agent/uninstall.ps1?Silent=true
 
 The uninstaller stops and deletes the role's Windows Service, kills the agent
 process, cleans IPC files in the MetaQuotes `Common\Files` folder, removes the
-scheduled-task/event-log source, and (optionally) the install directory.
+scheduled-task/event-log source, and (optionally) the install directory. It ends
+with a **cleanup-verification report** listing any leftover service, process,
+directory, task, event-source, or IPC file.
+
+To independently **prove** the agent is completely gone (after uninstall, or
+before a clean reinstall), run the standalone audit:
+
+```powershell
+irm https://downloads.predictatrade.com/windows-agent/verify-cleanup.ps1 | iex
+```
+
+It exits `0` (PASS) only when no Predict-A-Trade agent remnants are detected.
 
 ---
 
@@ -131,8 +150,8 @@ irm https://downloads.predictatrade.com/windows-agent/status.ps1 | iex   # add -
 
 Or locally:
 ```powershell
-& "C:\PredictATrade\XAUUSD\status.ps1"            # client
-& "C:\PredictATrade\XAUUSD\status.ps1" -Mode master   # master
+& "C:\PredictATrade\Client\status.ps1"            # client
+& "C:\PredictATrade\Master\status.ps1" -Mode master   # master
 ```
 
 Check the Windows Service:
@@ -145,14 +164,20 @@ Get-Service pat-agent-master     # master
 
 ## 5. Install Location
 
-| Item | Path |
-|------|------|
-| Client binary | `C:\PredictATrade\XAUUSD\pat-agent.exe` |
-| Master binary | `C:\PredictATrade\XAUUSD\pat-master.exe` |
-| Config | `C:\PredictATrade\XAUUSD\settings.json` |
-| Logs | `C:\PredictATrade\XAUUSD\logs\` |
-| Service logs | `C:\ProgramData\PredictATrade\logs\agent.log` |
-| Device key | `C:\ProgramData\PredictATrade\device.key` |
+| Item | Client Agent path | Master Node path |
+|------|-------------------|------------------|
+| Binary | `C:\PredictATrade\Client\pat-agent.exe` | `C:\PredictATrade\Master\pat-master.exe` |
+| Config | `C:\PredictATrade\Client\settings.json` | `C:\PredictATrade\Master\settings.json` |
+| Logs | `C:\PredictATrade\Client\logs\` | `C:\PredictATrade\Master\logs\` |
+| Service | `pat-agent-client` | `pat-agent-master` |
+| Health | `http://127.0.0.1:9000/health` | `http://127.0.0.1:9001/health` |
+
+Shared (both roles): `C:\ProgramData\PredictATrade\logs\` (service logs),
+`C:\ProgramData\PredictATrade\device.key`, and a cached `nssm.exe` at
+`C:\ProgramData\PredictATrade\nssm.exe`.
+
+> The legacy single-directory layout (`C:\PredictATrade\XAUUSD`) is **no longer
+> used** and is fully removed by `uninstall.ps1 -Mode all`.
 
 ---
 
@@ -163,14 +188,15 @@ Get-Service pat-agent-master     # master
 | `install.ps1` | Shared installer (role selected via `-Mode client|master`). |
 | `install-client.ps1` | Thin wrapper → installs `pat-agent-client` (exec, port 13081). |
 | `install-master.ps1` | Thin wrapper → installs `pat-agent-master` (data, port 13091). |
-| `uninstall.ps1` | Uninstaller (role-aware via `-Mode client|master|all`). |
+| `uninstall.ps1` | Uninstaller (role-aware via `-Mode client|master|all`); ends with a cleanup-verification report. |
+| `verify-cleanup.ps1` | Standalone, non-destructive audit proving no agent remnants remain (services/processes/dirs/task/event-source/IPC). Run after uninstall. |
 | `status.ps1` | Status report (role-aware via `-Mode`). |
 | `health-check.ps1` | Hang/crash monitor (role-aware via `-Mode`); used by Scheduled Task. |
 | `pat-agent.exe` | Client Agent binary. |
 | `pat-master.exe` | Master Node binary (separate build from the distinct `cmd/master` entrypoint). |
 | `notify.ps1` | Multi-channel notification dispatcher. |
 | `settings.json` | Config template (notification + health params). |
-| `install.bat` | Batch wrapper for double-click install. |
+| `install.bat` | Batch launcher — delegates to `install.ps1 -Mode` (keeps separate dirs + nssm reuse). |
 | `version.txt` | Current version number. |
 | `update-manifest.json` | Version + SHA256 for auto-update. |
 

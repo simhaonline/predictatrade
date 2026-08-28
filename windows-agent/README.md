@@ -26,25 +26,33 @@ Open in browser: `http://127.0.0.1:9000`
 
 ## What Gets Installed
 
-| Item | Location |
-|------|----------|
-| Client Agent binary | `C:\PredictATrade\XAUUSD\pat-agent.exe` |
-| Master Node binary | `C:\PredictATrade\XAUUSD\pat-master.exe` |
-| Config file | `C:\PredictATrade\XAUUSD\settings.json` |
-| Support scripts | `C:\PredictATrade\XAUUSD\health-check.ps1`, `status.ps1`, `notify.ps1` |
-| Log files | `C:\PredictATrade\XAUUSD\logs\` |
-| Client agent logs (service mode) | `C:\ProgramData\PredictATrade\logs\agent.log` |
-| Master agent logs (service mode) | `C:\ProgramData\PredictATrade\logs\master_agent.log` |
-| Device identity | `C:\ProgramData\PredictATrade\device.key` |
-| Windows Service (Client) | `pat-agent-client` (auto-start, auto-restart on crash) |
-| Windows Service (Master) | `pat-agent-master` (auto-start, auto-restart on crash) |
-| Scheduled Task | `PredictATradeHealthCheck` (runs every 1 min) |
-| Event Log Source | `pat-agent` (Application log) |
-| Defender Exclusion | `C:\PredictATrade` folder + agent binaries |
+| Item | Client Agent | Master Node |
+|------|-------------|-------------|
+| Binary | `C:\PredictATrade\Client\pat-agent.exe` | `C:\PredictATrade\Master\pat-master.exe` |
+| Config file | `C:\PredictATrade\Client\settings.json` | `C:\PredictATrade\Master\settings.json` |
+| Support scripts | `C:\PredictATrade\Client\health-check.ps1`, `status.ps1`, `notify.ps1` | `C:\PredictATrade\Master\health-check.ps1`, `status.ps1`, `notify.ps1` |
+| Log files | `C:\PredictATrade\Client\logs\` | `C:\PredictATrade\Master\logs\` |
+| Windows Service | `pat-agent-client` (auto-start, auto-restart on crash) | `pat-agent-master` (auto-start, auto-restart on crash) |
+| Health port | `9000` | `9001` |
+
+Shared (both roles): Client/Master service logs in `C:\ProgramData\PredictATrade\logs\`,
+device identity `C:\ProgramData\PredictATrade\device.key`, and a cached
+`C:\ProgramData\PredictATrade\nssm.exe` (reused across roles). The
+`C:\PredictATrade` parent is the Defender exclusion.
+
+> The two roles install into **separate directories** (`Client` / `Master`) so a
+> Master Node and a Client Agent can run on the same Windows device without
+> sharing binaries, settings, or logs. The legacy `C:\PredictATrade\XAUUSD`
+> layout is no longer used.
 
 ## Windows Service
 
-Each role runs as a **native Windows Service** (not NSSM). It communicates directly with the Windows Service Control Manager using `golang.org/x/sys/windows/svc`.
+Each role runs as a **Windows Service** installed via **NSSM** (the service
+wrapper bundled with the installer). The installer **verifies and reuses** an
+existing `nssm.exe` on the device (PATH, the cached
+`C:\ProgramData\PredictATrade\nssm.exe`, or the other role's folder) before
+downloading, so co-installing Master + Client on one machine never clobbers a
+working nssm.
 
 | Role | Service name | Display name | Health port |
 |------|--------------|--------------|-------------|
@@ -134,7 +142,7 @@ The `settings.json` file in the install directory contains:
 ### Service won't start
 1. Check log file: `C:\ProgramData\PredictATrade\logs\agent.log` (client) or `master_agent.log` (master)
 2. Check Windows Event Viewer → Application → Source: `pat-agent`
-3. Try running manually: Open Command Prompt → `C:\PredictATrade\XAUUSD\pat-agent.exe` (or `pat-master.exe`)
+3. Try running manually: Open Command Prompt → `C:\PredictATrade\Client\pat-agent.exe` (Client) or `C:\PredictATrade\Master\pat-master.exe` (Master)
 4. Check if the health port is in use: `netstat -an | findstr :9000` (client) or `:9001` (master)
 5. Check Windows Defender: Security → Protection history → look for blocked items
 
