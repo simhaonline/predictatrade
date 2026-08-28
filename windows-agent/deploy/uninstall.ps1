@@ -51,7 +51,7 @@ $DirsToRemove = if ($Mode -eq "master") { @($MasterDir, $LegacyDir) }
 
 # Returns an existing nssm.exe from any role dir, the cached common copy, or PATH.
 function Get-RoleNssm {
-    foreach ($d in @($MasterDir, $ClientDir, "C:\ProgramData\PredictATrade")) {
+    foreach ($d in @($MasterDir, $ClientDir, $LegacyDir, "C:\ProgramData\PredictATrade")) {
         $p = Join-Path $d $NssmExe
         if (Test-Path $p) { return $p }
     }
@@ -199,14 +199,13 @@ foreach ($prior in $PriorServiceNames) {
         if (Test-Path $nssmPath) {
             & $nssmPath stop $prior 2>&1 | Out-Null
             & $nssmPath remove $prior confirm 2>&1 | Out-Null
-        } else {
-            Stop-Service -Name $prior -Force -ErrorAction SilentlyContinue
-            sc.exe delete $prior 2>&1 | Out-Null
         }
-        Start-Sleep -Seconds 1
-    } catch {
-        sc.exe delete $prior 2>&1 | Out-Null
-    }
+    } catch {}
+    # Guaranteed removal regardless of how the service was registered.
+    Stop-Service -Name $prior -Force -ErrorAction SilentlyContinue
+    sc.exe stop $prior 2>&1 | Out-Null
+    sc.exe delete $prior 2>&1 | Out-Null
+    Start-Sleep -Seconds 1
 }
 
 # ─── 1. Stop and delete the Windows service(s) ───
@@ -217,38 +216,34 @@ $nssmPath = Get-RoleNssm
 $ServicesToRemove = @("pat-agent-client", "pat-agent-master")
 foreach ($svcName in $ServicesToRemove) {
     $svc = Get-Service -Name $svcName -ErrorAction SilentlyContinue
-    if ($svc) {
-        # Stop the service
-        try {
-            if ($svc.Status -eq "Running") {
-                if (Test-Path $nssmPath) {
-                    & $nssmPath stop $svcName 2>&1 | Out-Null
-                } else {
-                    Stop-Service -Name $svcName -Force -ErrorAction SilentlyContinue
-                }
-                Start-Sleep -Seconds 2
-            }
-            Write-Host "  OK: Service $svcName stopped"
-        } catch {
-            Write-Host "  WARN: Could not stop service $svcName : $_"
-        }
-
-        # Delete the service
-        try {
-            if (Test-Path $nssmPath) {
-                & $nssmPath remove $svcName confirm 2>&1 | Out-Null
-            } else {
-                sc.exe delete $svcName 2>&1 | Out-Null
-            }
-            Start-Sleep -Seconds 1
-            Write-Host "  OK: Service $svcName removed"
-        } catch {
-            # Fallback to sc.exe
-            sc.exe delete $svcName 2>&1 | Out-Null
-            Write-Host "  OK: Service $svcName removed (via sc.exe fallback)"
-        }
-    } else {
+    if (-not $svc) {
         Write-Host "  OK: Service $svcName not found — skipping"
+        continue
+    }
+
+    # Stop the service: try nssm stop, then guarantee with native stop/delete.
+    try {
+        if (Test-Path $nssmPath) { & $nssmPath stop $svcName 2>&1 | Out-Null }
+    } catch {}
+    Stop-Service -Name $svcName -Force -ErrorAction SilentlyContinue
+    sc.exe stop $svcName 2>&1 | Out-Null
+    Start-Sleep -Seconds 2
+
+    # Delete the service. ALWAYS use sc.exe delete as the guaranteed path so the
+    # service is removed whether it was wrapped by NSSM OR registered as a native
+    # Windows service. NSSM remove is attempted first (harmless if not applicable).
+    try {
+        if (Test-Path $nssmPath) { & $nssmPath remove $svcName confirm 2>&1 | Out-Null }
+    } catch {}
+    sc.exe delete $svcName 2>&1 | Out-Null
+    Start-Sleep -Seconds 1
+
+    # Verify the service is actually gone.
+    $still = Get-Service -Name $svcName -ErrorAction SilentlyContinue
+    if ($still) {
+        Write-Host "  WARN: Service $svcName could not be removed (may need a reboot)"
+    } else {
+        Write-Host "  OK: Service $svcName removed"
     }
 }
 
