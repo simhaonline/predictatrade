@@ -171,6 +171,12 @@ Write-Host "  OK: Control API URL = $ApiBaseUrl"
 [Environment]::SetEnvironmentVariable("PAT_SERVICE_NAME", $ServiceName, "Machine") | Out-Null
 Write-Host "  OK: Auto-update service name = $ServiceName"
 
+# Step 2f: Point the agent's log file at THIS role's monitored logs folder so its
+# output lands where the installer/operator look (not the default
+# C:\ProgramData\PredictATrade\logs, which looks "empty" from the outside).
+[Environment]::SetEnvironmentVariable("PAT_LOG_DIR", $logsDir, "Machine") | Out-Null
+Write-Host "  OK: Agent log dir = $logsDir"
+
 # Step 3: Stop existing service if running
 Write-Host "[3/9] Stopping existing service if running..."
 $nssmDest = Join-Path $InstallDir $NssmExe

@@ -16,7 +16,14 @@ import (
 func main() {
 	// Set up file logging FIRST. In Windows Service mode, os.Stderr is nil.
 	// If we can't open a log file, use io.Discard so log writes never panic.
-	logDir := filepath.Join(os.Getenv("PROGRAMDATA"), "PredictATrade", "logs")
+	// The installer sets PAT_LOG_DIR to the role's monitored logs folder
+	// (e.g. C:\PredictATrade\Master\logs) so the agent's log lands exactly
+	// where the installer / operator look — otherwise the log is written to
+	// C:\ProgramData\PredictATrade\logs and appears "empty" to everyone.
+	logDir := os.Getenv("PAT_LOG_DIR")
+	if logDir == "" {
+		logDir = filepath.Join(os.Getenv("PROGRAMDATA"), "PredictATrade", "logs")
+	}
 	os.MkdirAll(logDir, 0755)
 	logFile, err := os.OpenFile(filepath.Join(logDir, "master_agent.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
