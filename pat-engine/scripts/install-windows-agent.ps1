@@ -100,9 +100,16 @@ if (-not (Test-Path $logsDir))   { New-Item -ItemType Directory -Path $logsDir -
 # ─── 3. Persist machine env (agent reads GATEWAY) ───
 Write-Host "[3/7] Saving configuration..."
 [Environment]::SetEnvironmentVariable("GATEWAY", $Gw, "Machine") | Out-Null
+# SIGNAL_FILE points at the MT common Files folder the EA reads (so the agent can
+# bridge gateway /signal -> local PAT_signals.txt). Uses the standard MT common path.
+$mtCommon = Join-Path $env:APPDATA "MetaQuotes\Terminal\Common\Files"
+New-Item -ItemType Directory -Force -Path $mtCommon | Out-Null
+$SigFile = Join-Path $mtCommon "PAT_signals.txt"
+[Environment]::SetEnvironmentVariable("SIGNAL_FILE", $SigFile, "Machine") | Out-Null
 [Environment]::SetEnvironmentVariable("PAT_SERVICE_NAME", $ServiceName, "Machine") | Out-Null
 [Environment]::SetEnvironmentVariable("PAT_LOG_DIR", $logsDir, "Machine") | Out-Null
 Write-Host "  OK: GATEWAY = $Gw"
+Write-Host "  OK: SIGNAL_FILE = $SigFile"
 
 # ─── 4. Acquire the agent binary (download or local) ───
 Write-Host "[4/7] Acquiring $AgentExe..."
@@ -241,6 +248,7 @@ Write-Host "=========================================="
 Write-Host "  Service : $ServiceName"
 Write-Host "  Role    : $RoleLabel"
 Write-Host "  Gateway : $Gw"
+Write-Host "  Signal  : $SigFile (EA common Files)"
 Write-Host "  Install : $InstallDir"
 Write-Host "  Logs    : $logsDir"
 Write-Host ""
