@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"pat-engine/internal/backtest"
+	"pat-engine/internal/license"
 	"pat-engine/internal/provider"
 )
 
@@ -19,6 +20,19 @@ func main() {
 		out = "signals/PAT_signals.txt"
 	}
 	gw := provider.New(nil, out)
+
+	if tok := os.Getenv("PAT_LICENSE"); tok != "" {
+		secret := os.Getenv("PAT_LICENSE_SECRET")
+		if secret == "" {
+			secret = license.DefaultDevSecret
+		}
+		if err := gw.LoadLicense(tok, secret); err != nil {
+			log.Fatalf("invalid PAT_LICENSE: %v", err)
+		}
+		log.Println("license loaded from PAT_LICENSE")
+	} else {
+		log.Println("no PAT_LICENSE set — using DEV license (all strategies allowed)")
+	}
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("OK"))

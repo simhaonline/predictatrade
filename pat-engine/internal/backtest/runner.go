@@ -3,6 +3,7 @@ package backtest
 import (
 	"pat-engine/internal/broker"
 	"pat-engine/internal/config"
+	"pat-engine/internal/license"
 	"pat-engine/internal/signal"
 	"pat-engine/internal/strategy"
 	"pat-engine/internal/types"
@@ -21,8 +22,8 @@ type Result struct {
 }
 
 // RunAll evaluates every strategy on the snapshot series using the live signal
-// pipeline (strategy + broker policy + gates) and simulates outcomes.
-func RunAll(states []*types.MarketState, pol *broker.BrokerPolicy) []Result {
+// pipeline (strategy + broker policy + license + gates) and simulates outcomes.
+func RunAll(states []*types.MarketState, pol *broker.BrokerPolicy, lic *license.License) []Result {
 	cfgs := config.AllDefaults()
 	strats := strategy.All()
 	results := make([]Result, 0, len(strats))
@@ -31,6 +32,13 @@ func RunAll(states []*types.MarketState, pol *broker.BrokerPolicy) []Result {
 	for _, st := range strats {
 		cfg := cfgs[string(st.ID())]
 		r := Result{Strategy: string(st.ID())}
+
+		// Entitlement gate: a license may only narrow what the broker policy allows.
+		if lic != nil && !lic.AllowsStrategy(string(st.ID())) {
+			r.ExcludedBy = "LICENSE_STRATEGY_NOT_ALLOWED"
+			results = append(results, r)
+			continue
+		}
 
 		// Broker-policy eligibility (mirrors live: a no-scalping broker excludes scalpers).
 		if pol != nil {

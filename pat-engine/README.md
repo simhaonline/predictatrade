@@ -90,6 +90,21 @@ BARS_CSV=real_2025.csv go run ./cmd/backtest
 # the MQL EA already reads from FILE_COMMON.
 ```
 
+### License / entitlement gate
+
+The engine enforces `allowed_strategies` server-side (never an EA input). With no
+license set it runs a DEV license allowing all strategies. To enforce real entitlements,
+sign a token in the control plane and pass it:
+
+```bash
+export PAT_LICENSE=<signed-token>
+export PAT_LICENSE_SECRET=<control-plane-secret>   # dev secret used if omitted
+go run ./cmd/gateway
+```
+
+A TREND_SWING-only license will suppress ULTRA/STANDARD_SCALPING even when the broker
+would allow them. See `SCOPE_OF_WORK.md` §4.
+
 ## Testing
 
 ```bash

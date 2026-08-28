@@ -17,6 +17,7 @@ import (
 	"pat-engine/internal/backtest"
 	"pat-engine/internal/broker"
 	"pat-engine/internal/config"
+	"pat-engine/internal/license"
 	"pat-engine/internal/signal"
 	"pat-engine/internal/strategy"
 	"pat-engine/internal/types"
@@ -45,19 +46,34 @@ type Gateway struct {
 	mu       sync.Mutex
 	bars     []backtest.Bar
 	policy   *broker.BrokerPolicy
+	lic      *license.License
 	outPath  string
 	lastID   string
 	lastJSON string
 	seq      int
 }
 
-// New creates a Gateway writing signals to outPath (PAT_signals.txt).
+// New creates a Gateway writing signals to outPath (PAT_signals.txt). It starts with
+// a dev license that allows all strategies; call LoadLicense to enforce real
+// entitlements.
 func New(policy *broker.BrokerPolicy, outPath string) *Gateway {
 	if policy == nil {
 		policy = &broker.BrokerPolicy{Symbol: "XAUUSD", AllowsScalping: true, Digits: 2}
 	}
+	dev, _, _ := license.DevLicense(license.DefaultDevSecret, nil, nil)
 	_ = os.MkdirAll(filepath.Dir(outPath), 0o755)
-	return &Gateway{policy: policy, outPath: outPath}
+	return &Gateway{policy: policy, lic: dev, outPath: outPath}
+}
+
+// LoadLicense parses and installs a signed license token; non-entitled strategies
+// are filtered out of signal selection.
+func (g *Gateway) LoadLicense(token, secret string) error {
+	l, err := license.Parse(token, secret)
+	if err != nil {
+		return err
+	}
+	g.lic = l
+	return nil
 }
 
 // IngestBar adds a bar and, if an executable signal results, writes the signal file.
@@ -106,6 +122,10 @@ func (g *Gateway) bestExecutable(state *types.MarketState) *emit {
 	var best *emit
 	var bestScore float64
 	for _, st := range strats {
+		// Entitlement gate: a license may only narrow what the broker policy allows.
+		if g.lic != nil && !g.lic.AllowsStrategy(string(st.ID())) {
+			continue
+		}
 		cfg := cfgs[string(st.ID())]
 		d := signal.Decide(state, st, cfg, g.policy)
 		if !d.Signal.Executable {
