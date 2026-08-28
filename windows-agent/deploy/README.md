@@ -8,13 +8,12 @@ same machine (or separate machines) without conflict:
 | Role | Purpose | Binary | Windows Service | Engine Port | Engine URL |
 |------|---------|--------|-----------------|-------------|------------|
 | **Client Agent** | Receives signals and **places/Closes XAUUSD orders** (execution). | `pat-agent.exe` | `pat-agent-client` | **13081** (exec) | `wss://<host>:13081/ws` |
+| **Master Node** | Streams market/structure **data only** — never executes. | `pat-master.exe` | `pat-agent-master` | **13091** (data) | `wss://<host>:13091/ws/v1/data` |
 
-> **Master Node role removed.** Data collection now runs in-process in the
-> engine; only the Client Agent is installed. The `pat-master.exe` /
-> `install-master.ps1` artifacts are legacy and must not be used.
-
-The Client Agent ships as a single Go binary (`pat-agent.exe`, built from
-`cmd/client`). The engine host is selected at install time via `-EngineHost`.
+Both roles ship as **separate Go binaries** — `pat-agent.exe` (Client, built
+from `cmd/client`) and `pat-master.exe` (Master Node, built from `cmd/master`).
+The role is fixed by the binary itself (no runtime `--mode` flag). This lets a
+Client and a Master Node run side-by-side on one Windows box.
 
 > Default engine host is `live.predictatrade.com`. To point at a different
 > server, run the installer with `-EngineHost your.host`.
@@ -28,18 +27,21 @@ The Client Agent ships as a single Go binary (`pat-agent.exe`, built from
 irm https://downloads.predictatrade.com/windows-agent/install-client.ps1 | iex
 ```
 
-### Master Node (data-only) — REMOVED
-The Master Node role was removed; data collection now runs in-process in the
-engine. Only the **Client Agent** is installed. (The `install-master.ps1` /
-`pat-master.exe` artifacts are legacy and must not be used.)
+### Master Node (data-only)
+```powershell
+irm https://downloads.predictatrade.com/windows-agent/install-master.ps1 | iex
+```
 
 The installer:
 1. Self-elevates to Administrator (UAC prompt).
-2. Creates the Client Agent directory and downloads the role binary
-   (`pat-agent.exe`):
+2. Creates the role-specific directory and downloads the role binary
+   (`pat-agent.exe` or `pat-master.exe`):
    - **Client Agent** → `C:\PredictATrade\Client\`
+   - **Master Node** → `C:\PredictATrade\Master\`
+   The two roles live in **separate folders** so a Master Node and a Client
+   Agent can coexist on one device without sharing binaries/settings/logs.
 3. Persists the engine WebSocket URL as a machine environment variable
-   (`PAT_SERVER_URL` for client).
+   (`PAT_SERVER_URL` for client, `PAT_DATA_WS_URL` for master).
 4. Installs the Windows Service (auto-start, restart on crash) using NSSM. NSSM
    is **verified/reused** if one already exists on the device (PATH, the cached
    `C:\ProgramData\PredictATrade\nssm.exe`, or the other role's folder) before

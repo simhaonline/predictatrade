@@ -199,6 +199,26 @@ The trade logic lives in the EA (`mql/PredictATrade_MT4.mq4` / `PredictATrade_MT
 > default `<port>` is **8080** (override with the `PORT` env on the gateway). The agent reads
 > this from the `GATEWAY` machine env the installer writes.
 
+#### Quick install (single command)
+
+The new-project agent is installed **locally** from the `pat-engine/scripts/` folder you
+copy to the Windows box — it is **not** fetched from `downloads.predictatrade.com` or any
+remote one-liner. Build the exe once, copy `dist/pat-windows-agent.exe` + `scripts/*.ps1`
+to the trading machine, then run **one** command as Administrator:
+
+```powershell
+# Engine (gateway) on the SAME Windows box:
+.\install-client.ps1 -EngineHost localhost -LicenseKey "PAT1-XXXX-XXXX-XXXX-XXXX-XXXX-XX"
+# Engine on a separate server (its LAN IP / hostname; port 8080 must be reachable):
+.\install-client.ps1 -EngineHost 192.168.1.50 -LicenseKey "PAT1-XXXX-XXXX-XXXX-XXXX-XXXX-XX"
+```
+
+`install-client.ps1` wraps `install-windows-agent.ps1`, installs the `pat-agent-client`
+service using the local `pat-windows-agent.exe`, deploys the client EA, writes
+`PAT_license.txt`, and sets the `GATEWAY` machine env to `http://<EngineHost>:8080/bar`.
+Verify with `Get-Service pat-agent-client` (should be *Running*). Uninstall:
+`.\uninstall-windows-agent.ps1`.
+
 **1. Build the agent .exe** (run on Linux/macOS, then copy `dist/pat-windows-agent.exe`
    to the Windows box next to `scripts/`):
 ```bash
