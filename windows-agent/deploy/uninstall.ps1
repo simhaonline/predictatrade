@@ -29,10 +29,36 @@ param(
 
 # ─── Configuration ───
 $BaseUrl       = "https://downloads.predictatrade.com/windows-agent"
-$InstallDir    = "C:\PredictATrade\XAUUSD"
 $EventSource   = "pat-agent"
 $TaskName      = "PredictATradeHealthCheck"
 $NssmExe       = "nssm.exe"
+
+# Per-role directories (must match install.ps1). A Master Node and a Client Agent
+# now live in SEPARATE folders so they never share binaries/settings/logs, and a
+# reinstall of one role cannot disturb the other.
+$MasterDir = "C:\PredictATrade\Master"
+$ClientDir = "C:\PredictATrade\Client"
+$LegacyDir = "C:\PredictATrade\XAUUSD"   # old single-dir install; always cleaned
+
+# Primary reference dir for shared logic.
+$InstallDir = if ($Mode -eq "master") { $MasterDir } elseif ($Mode -eq "client") { $ClientDir } else { $ClientDir }
+
+# Directories physically removed for this run. The legacy single-dir install is
+# always removed because it is superseded by the per-role directories.
+$DirsToRemove = if ($Mode -eq "master") { @($MasterDir, $LegacyDir) }
+                elseif ($Mode -eq "client") { @($ClientDir, $LegacyDir) }
+                else { @($MasterDir, $ClientDir, $LegacyDir) }
+
+# Returns an existing nssm.exe from any role dir, the cached common copy, or PATH.
+function Get-RoleNssm {
+    foreach ($d in @($MasterDir, $ClientDir, "C:\ProgramData\PredictATrade")) {
+        $p = Join-Path $d $NssmExe
+        if (Test-Path $p) { return $p }
+    }
+    $cmd = Get-Command $NssmExe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    return $null
+}
 
 # Role-specific service + binary names (must match install.ps1).
 if ($Mode -eq "master") {
@@ -156,8 +182,8 @@ try {
 # PredictATradeXAUUSD). Remove them so uninstall fully cleans up and there is
 # no overlap with a future reinstall.
 Write-Host "[uninstall] Checking for stale prior service names..."
-$PriorServiceNames = @("agent", "PredictATradeAgent", "PredictATradeXAUUSD")
-$nssmPath = Join-Path $InstallDir $NssmExe
+$PriorServiceNames = @("agent", "PredictATradeAgent", "PredictATradeXAUUSD", "pat-agent")
+$nssmPath = Get-RoleNssm
 foreach ($prior in $PriorServiceNames) {
     if ($prior -eq $ServiceName) { continue }
     $pSvc = Get-Service -Name $prior -ErrorAction SilentlyContinue
@@ -185,7 +211,7 @@ foreach ($prior in $PriorServiceNames) {
 
 # ─── 1. Stop and delete the Windows service(s) ───
 Write-Host "[uninstall] Stopping and removing service(s)..."
-$nssmPath = Join-Path $InstallDir $NssmExe
+$nssmPath = Get-RoleNssm
 # Always clean up BOTH roles (client + master). Running the default uninstall
 # must not leave a Master Node service running behind.
 $ServicesToRemove = @("pat-agent-client", "pat-agent-master")
@@ -292,29 +318,31 @@ if ($task) {
     Write-Host "  OK: Scheduled Task not found — skipping"
 }
 
-# ─── 3. Remove installation directory ───
+# ─── 3. Remove installation directory(ies) ───
 $keepLogs = $false
 if (-not $Silent) {
     # CLI-based prompt (no GUI popup)
     $response = Read-Host "Do you want to keep log files? (y/n)"
     if ($response -match "^[Yy]") {
         $keepLogs = $true
-        Write-Host "  Logs will be preserved at $(Join-Path $InstallDir 'logs')"
+        Write-Host "  Logs will be preserved under each role's 'logs' folder"
     }
 }
 
-if ($keepLogs) {
-    # Remove everything except the logs directory
-    Write-Host "[uninstall] Removing binaries and scripts (keeping logs)..."
-    Get-ChildItem -Path $InstallDir -Exclude "logs" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-} else {
-    # Remove everything
-    Write-Host "[uninstall] Removing entire installation directory: $InstallDir"
-    if (Test-Path $InstallDir) {
-        Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Host "  OK: Installation directory removed"
+foreach ($dir in $DirsToRemove) {
+    if ($keepLogs) {
+        Write-Host "[uninstall] Removing binaries/scripts in $dir (keeping logs)..."
+        if (Test-Path $dir) {
+            Get-ChildItem -Path $dir -Exclude "logs" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        }
     } else {
-        Write-Host "  OK: Installation directory not found"
+        Write-Host "[uninstall] Removing directory: $dir"
+        if (Test-Path $dir) {
+            Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path $dir) { Write-Host "  WARN: Could not fully remove $dir" } else { Write-Host "  OK: Removed $dir" }
+        } else {
+            Write-Host "  OK: $dir not found"
+        }
     }
 }
 
@@ -346,12 +374,12 @@ Write-Host "=========================================="
 Write-Host "  Uninstall Complete!"
 Write-Host "=========================================="
 if ($keepLogs) {
-    Write-Host "  Logs preserved at: $(Join-Path $InstallDir 'logs')"
+    Write-Host "  Logs preserved under each role's 'logs' folder"
 }
 Write-Host "  Service:     Removed"
 Write-Host "  Health Task:  Removed"
 Write-Host "  Event Log:    Removed"
-Write-Host "  Install Dir:  $(if ($keepLogs) { 'Logs kept' } else { 'Removed' })"
+Write-Host "  Install Dirs: $(($DirsToRemove -join ', '))"
 Write-Host "=========================================="
 Write-Host ""
 Write-Host "  IMPORTANT: The MetaTrader EAs are still running!"
@@ -361,4 +389,30 @@ Write-Host "    2. Right-click the chart -> Expert Advisors -> Remove"
 Write-Host "    3. Repeat for each terminal (Master Node + execution EAs)"
 Write-Host ""
 Write-Host "=========================================="
+
+# ─── Verification: confirm no agent remnants remain ───
+Write-Host ""
+Write-Host "=== Cleanup verification ==="
+$remnants = @()
+foreach ($svc in @("pat-agent-client","pat-agent-master","pat-agent","PredictATradeAgent","PredictATradeXAUUSD","agent")) {
+    if (Get-Service -Name $svc -ErrorAction SilentlyContinue) { $remnants += "Service present: $svc" }
+}
+foreach ($pn in @("pat-agent","pat-master")) {
+    if (Get-Process -Name $pn -ErrorAction SilentlyContinue) { $remnants += "Process running: $pn" }
+}
+foreach ($d in @($MasterDir, $ClientDir, $LegacyDir)) {
+    if (Test-Path $d) { $remnants += "Directory remains: $d" }
+}
+if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) { $remnants += "Scheduled task remains: $TaskName" }
+if ([System.Diagnostics.EventLog]::SourceExists($EventSource)) { $remnants += "Event log source remains: $EventSource" }
+$ipcCommon = "$env:APPDATA\MetaQuotes\Terminal\Common\Files"
+foreach ($f in @("PAT_ticks.txt","PAT_signals.txt","PAT_license.txt","PAT_init.txt","PAT_commands.txt","PAT_heartbeat.txt","PAT_status.txt")) {
+    if (Test-Path (Join-Path $ipcCommon $f)) { $remnants += "IPC file remains: $f" }
+}
+if ($remnants.Count -eq 0) {
+    Write-Host "  PASS: No Predict-A-Trade agent remnants detected."
+} else {
+    Write-Host "  WARN: The following remnants remain (may require manual cleanup or a reboot):"
+    $remnants | ForEach-Object { Write-Host "   - $_" }
+}
 Write-Host ""

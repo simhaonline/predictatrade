@@ -26,7 +26,9 @@ $BaseUrl     = "https://downloads.predictatrade.com/windows-agent"
 # $BaseUrl may be overridden to a role subdir (…/master or …/client) so the
 # role-specific binary is fetched from there; shared assets always come from root.
 $RootUrl     = "https://downloads.predictatrade.com/windows-agent"
-$InstallDir  = "C:\PredictATrade\XAUUSD"
+# Role-specific installation directory so a Master Node and a Client Agent can
+# coexist on the SAME Windows device without sharing binaries, settings, or logs.
+$InstallDir  = if ($Mode -eq "master") { "C:\PredictATrade\Master" } else { "C:\PredictATrade\Client" }
 
 # Build the correct engine WebSocket URL for a given host/port/path.
 #  - Public host (domain):  wss://host/path   (TLS terminated by nginx on 443,
@@ -177,21 +179,52 @@ try {
     Write-Host "  WARN: Could not add Defender exclusion (agent may need a manual allow): $_"
 }
 
-# Step 6: Download NSSM (service manager — wraps the agent as a Windows service)
-Write-Host "[6/9] Downloading NSSM (service manager)..."
+# Step 6: Acquire NSSM (service manager — wraps the agent as a Windows service).
+# Prefer an EXISTING nssm on the device (PATH, cached common copy, or already in
+# this role's dir) so we never overwrite/redeploy a working binary. Re-downloading
+# or clobbering nssm on a device that already runs a Master Node + Client Agent is
+# exactly what previously caused service conflicts when both shared one directory.
+Write-Host "[6/9] Acquiring NSSM (service manager)..."
 $is64bit = [Environment]::Is64BitOperatingSystem
 $nssmArch = if ($is64bit) { "nssm/win64/nssm.exe" } else { "nssm/win32/nssm.exe" }
 $nssmDownloaded = $false
-try {
-    if (Test-Path $nssmDest) { Remove-Item $nssmDest -Force -ErrorAction SilentlyContinue }
-    Invoke-WebRequest -Uri "$RootUrl/$nssmArch" -OutFile $nssmDest -UseBasicParsing -TimeoutSec 60
-    Unblock-File -Path $nssmDest -ErrorAction SilentlyContinue
-    if (Test-Path $nssmDest) {
+
+function Get-ExistingNssm {
+    $cmd = Get-Command nssm.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $common = "C:\ProgramData\PredictATrade\nssm.exe"
+    if (Test-Path $common) { return $common }
+    return $null
+}
+
+$existingNssm = Get-ExistingNssm
+if (Test-Path $nssmDest) {
+    Write-Host "  OK: Existing nssm.exe found in install dir — reusing (no download)."
+    $nssmDownloaded = $true
+} elseif ($existingNssm) {
+    try {
+        Copy-Item -Path $existingNssm -Destination $nssmDest -Force
+        Unblock-File -Path $nssmDest -ErrorAction SilentlyContinue
         $nssmDownloaded = $true
-        Write-Host "  OK: Downloaded nssm.exe"
+        Write-Host "  OK: Reused existing nssm.exe from $existingNssm"
+    } catch {
+        Write-Host "  WARN: Could not copy existing nssm ($existingNssm): $_"
     }
-} catch {
-    Write-Host "  WARN: NSSM download failed: $_"
+}
+if (-not $nssmDownloaded) {
+    try {
+        Invoke-WebRequest -Uri "$RootUrl/$nssmArch" -OutFile $nssmDest -UseBasicParsing -TimeoutSec 60
+        Unblock-File -Path $nssmDest -ErrorAction SilentlyContinue
+        if (Test-Path $nssmDest) {
+            $nssmDownloaded = $true
+            Write-Host "  OK: Downloaded nssm.exe"
+            # Cache a shared copy so the other role / future installs skip the download.
+            try { New-Item -ItemType Directory -Path "C:\ProgramData\PredictATrade" -Force -ErrorAction SilentlyContinue | Out-Null
+                  Copy-Item -Path $nssmDest -Destination "C:\ProgramData\PredictATrade\nssm.exe" -Force -ErrorAction SilentlyContinue } catch {}
+        }
+    } catch {
+        Write-Host "  WARN: NSSM download failed: $_"
+    }
 }
 
 # Step 6b: Download supporting scripts
