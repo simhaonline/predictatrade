@@ -4,14 +4,26 @@ The Windows Agent bridges your MetaTrader 4/5 terminals with the Predict-A-Trade
 
 ## Quick Start
 
-### Install (for subscribers)
+> The Windows Agent is **client-only** (execution role). The Master Node role was
+> removed; data collection now runs in-process. A single command installs, and
+> re-running the same command updates an existing install.
+
+### Install (single command — subscribers)
 ```powershell
-irm https://downloads.predictatrade.com/windows-agent/install.ps1 | iex
+irm https://downloads.predictatrade.com/windows-agent/install-client.ps1 | iex
 ```
+
+### Install (self-hosted engine — point the agent at your own stack)
+```powershell
+$EngineHost="<your-engine-host-or-IP>"; irm https://downloads.predictatrade.com/windows-agent/install-client.ps1 | iex
+```
+Replace `<your-engine-host-or-IP>` with the LAN/IP of your docker stack. The
+installer builds `ws://host:13081` for local/non-TLS hosts and `wss://host/...`
+for TLS domains.
 
 ### Update (same command — detects existing install and updates)
 ```powershell
-irm https://downloads.predictatrade.com/windows-agent/install.ps1 | iex
+irm https://downloads.predictatrade.com/windows-agent/install-client.ps1 | iex
 ```
 
 ### Uninstall
