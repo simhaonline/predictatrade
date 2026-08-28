@@ -12,13 +12,13 @@ import (
 
 // RiskProfile is the trader/account risk mandate. Static config (per user/plan).
 type RiskProfile struct {
-	Equity           float64 // account equity (dynamic, fed from the terminal)
-	FreeMargin       float64
-	RiskPerTradePct  float64 // 1.0 => risk 1% of equity per trade
-	MaxDailyLossPct  float64 // 2.0 => halt at -2% equity drawdown in a day
-	MaxPositions     int     // max open positions total
-	MaxLeverage      float64 // hard ceiling from the plan
-	MinRR            float64 // minimum net reward:risk to allow a trade
+	Equity           float64 `json:"equity"`
+	FreeMargin       float64 `json:"free_margin"`
+	RiskPerTradePct  float64 `json:"risk_per_trade_pct"`
+	MaxDailyLossPct  float64 `json:"max_daily_loss_pct"`
+	MaxPositions     int     `json:"max_positions"`
+	MaxLeverage      float64 `json:"max_leverage"`
+	MinRR            float64 `json:"min_rr"`
 }
 
 // DefaultRisk returns a conservative default (1% risk, 2% daily halt, 1.5x RR).

@@ -25,21 +25,21 @@ const (
 
 // SignalRecord is the audit row for every decision (executable or blocked).
 type SignalRecord struct {
-	ID          string
-	TS          time.Time
-	Symbol      string
-	StrategyID  string
-	Direction   string
-	Entry       float64
-	SL          float64
-	TP1         float64
-	TP2         float64
-	TP3         float64
-	RawScore    float64
-	Grade       string
-	SignalClass string
-	Status      string // EXECUTABLE | BLOCKED
-	Reasons     []string
+	ID          string    `json:"id"`
+	TS          time.Time `json:"ts"`
+	Symbol      string    `json:"symbol"`
+	StrategyID  string    `json:"strategy_id"`
+	Direction   string    `json:"direction"`
+	Entry       float64   `json:"entry"`
+	SL          float64   `json:"sl"`
+	TP1         float64   `json:"tp1"`
+	TP2         float64   `json:"tp2"`
+	TP3         float64   `json:"tp3"`
+	RawScore    float64   `json:"raw_score"`
+	Grade       string    `json:"grade"`
+	SignalClass string    `json:"signal_class"`
+	Status      string    `json:"status"` // EXECUTABLE | BLOCKED
+	Reasons     []string  `json:"reasons"`
 }
 
 // Store wraps Postgres + Valkey with an in-memory fallback.

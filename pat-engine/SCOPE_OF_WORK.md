@@ -171,6 +171,9 @@ Verified manually; the existing `mql/` EAs parse the identical format.
 | Full backend REST API (`/api/v1`: strategies, broker, risk, session, signals, bars, devices, licensing) | `cmd/gateway/main.go` | live smoke (curl) | DONE |
 | Agent hardware fingerprint + telemetry device binding | `internal/agentlib` + `cmd/agent` + `/devices/*` | — | DONE (collector + endpoints) |
 | Web/domain routing (nginx) | `nginx/pat-engine.conf` + compose `pat-engine-nginx` | — | DONE |
+| Real-data backtest replay (XAUUSD 15m, net-R:R gate live) | `internal/backtest` + `cmd/backtest` + MetaTrader loader | gateway/backtest run | DONE (research snapshot; walk-forward/OOS deferred) |
+| Control-plane license issuer + device-bound validation | `cmd/license-issuer` + `/licensing/validate` + `store.GetDevice` | E2E curl (invalid→active) | DONE |
+| Frontend (Next.js) consuming `/api/v1` | `pat-engine/frontend` + nginx `/` route + compose `pat-engine-frontend` | `next build` + render smoke | DONE |
 | Honest packaging (no false claims) | broker/license exclusion + real-data TODO | — | PARTIAL (needs real data) |
 
 ## 12. Next actions

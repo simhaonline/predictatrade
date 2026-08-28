@@ -14,12 +14,12 @@ import (
 
 // Bar is a single OHLC bar with a spread observation.
 type Bar struct {
-	Time   int64
-	Open   float64
-	High   float64
-	Low    float64
-	Close  float64
-	Spread float64
+	Time   int64   `json:"time"`
+	Open   float64 `json:"open"`
+	High   float64 `json:"high"`
+	Low    float64 `json:"low"`
+	Close  float64 `json:"close"`
+	Spread float64 `json:"spread"`
 }
 
 // Generate produces a deterministic synthetic XAUUSD-like series with shifting

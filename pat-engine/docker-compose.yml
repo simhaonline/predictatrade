@@ -56,11 +56,24 @@ services:
     volumes:
       - pat_engine_data:/data
 
+  pat-engine-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pat-engine-frontend
+    depends_on:
+      - pat-engine
+    environment:
+      NEXT_PUBLIC_API_BASE: ""   # same-origin: browser calls /api/v1 via nginx
+    expose:
+      - "3000"
+
   pat-engine-nginx:
     image: nginx:1.27-alpine
     container_name: pat-engine-nginx
     depends_on:
       - pat-engine
+      - pat-engine-frontend
     ports:
       - "80:80"
     volumes:
