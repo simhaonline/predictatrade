@@ -1,6 +1,6 @@
 # Predict-A-Trade XAUUSD — Documentation
 
-> Multi-plane XAUUSD algorithmic trading platform · v1.16.0 · GO (100/100)
+> Multi-plane XAUUSD algorithmic trading platform · v1.17.2 · GO (100/100)
 
 Welcome to the official documentation for Predict-A-Trade — a production-grade XAUUSD trading signal generation platform. Use the sidebar to navigate, or start with the sections below.
 
@@ -26,6 +26,9 @@ Welcome to the official documentation for Predict-A-Trade — a production-grade
 | [PhD Thesis](reports/PHD_THESIS.md) | 9-chapter academic thesis |
 | [UI/UX Audit Report](reports/UI_UX_AUDIT_REPORT.md) | Dashboard accessibility, UX, visual, performance audit |
 | [Macroscopic Audit Report](reports/MACROSCOPIC_AUDIT_REPORT.md) | System-wide codebase + database audit |
+| [Macroscopic Audit (28 Aug)](reports/MACROSCOPIC_AUDIT_REPORT_2026-08-28.md) | IT & Compliance re-audit — NO-GO, launch-blockers |
+| [Macroscopic Audit Revisit (28 Aug)](reports/MACROSCOPIC_AUDIT_REVISIT_2026-08-28.md) | GO/NO-GO update — CONDITIONAL GO |
+| [Remediation Report (28 Aug)](reports/REMEDIATION_REPORT_2026-08-28.md) | Launch-blocker fixes + incident post-mortem |
 
 ## Key Metrics
 

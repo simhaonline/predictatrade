@@ -1,5 +1,5 @@
 # User Guide
-## v1.16.0 — 26 August 2026
+## v1.17.2 — 28 August 2026
 
 ### Overview
 

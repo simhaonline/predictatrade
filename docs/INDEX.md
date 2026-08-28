@@ -1,5 +1,5 @@
 # Predict-A-Trade Documentation Index
-## v1.16.0 — 26 August 2026
+## v1.17.2 — 28 August 2026
 
 ### Architecture
 - [Architecture & Boundaries](architecture/ARCHITECTURE.md) — 11 services, broker timezone model, plane boundaries, recent architectural changes
@@ -32,3 +32,6 @@
 - [PhD Thesis](reports/PHD_THESIS.md) — Academic thesis: 9 chapters, literature review, formal contributions
 - [UI/UX Audit Report](reports/UI_UX_AUDIT_REPORT.md) — Dashboard accessibility, UX, visual-consistency, and performance audit (41 findings)
 - [Macroscopic Audit Report](reports/MACROSCOPIC_AUDIT_REPORT.md) — System-wide codebase + database audit (architecture, integrity, risk, technical debt)
+- [Macroscopic Audit (28 Aug)](reports/MACROSCOPIC_AUDIT_REPORT_2026-08-28.md) — IT & Compliance re-audit: NO-GO verdict, 29 findings, launch-blockers
+- [Macroscopic Audit Revisit (28 Aug)](reports/MACROSCOPIC_AUDIT_REVISIT_2026-08-28.md) — GO/NO-GO update: CONDITIONAL GO, blockers resolved
+- [Remediation Report (28 Aug)](reports/REMEDIATION_REPORT_2026-08-28.md) — Launch-blocker fixes + post-remediation login/429/#418 incident

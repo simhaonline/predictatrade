@@ -1,5 +1,5 @@
 # REST API & WebSocket Reference
-## v1.16.0 — 26 August 2026
+## v1.17.2 — 28 August 2026
 
 Two backends share the API surface:
 | Service | Base URL | Port | Stack |
@@ -84,11 +84,12 @@ All mutations require JWT. Admin requires AdminGuard. WebSocket requires JWT or 
 |--------|------|------|-------------|
 | POST | /api/v1/license/validate | Agent Token | Proactive server-side license validation. No agent changes required |
 
-### WebSocket (port 13081)
+### WebSocket (port 13081 exec + 13091 data)
 | Path | Auth | Description |
 |------|------|-------------|
 | /ws/v1 | JWT | User signal stream |
-| /ws/v1/agent | Agent token | Windows agent connection |
+| /ws/v1/agent | Agent token | Windows Client Agent (execution) connection |
+| /ws/v1/data | Agent token | Windows Master Node (data-only) connection — port 13091 |
 
 #### Server → Client Events
 | Event | Payload | Description |

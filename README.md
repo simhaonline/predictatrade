@@ -2,7 +2,7 @@
 
 Multi-plane XAUUSD trading signal generation and analytics platform.
 
-**Version:** v1.16.0 | **Date:** 26 August 2026 | **Launch verdict:** NO-GO per `docs/reports/MACROSCOPIC_AUDIT_REPORT_2026-08-28.md` — remediated, see `docs/reports/REMEDIATION_REPORT_2026-08-28.md` (residual: restart Windows MT5 Agent to restore live flow)
+**Version:** v1.17.2 | **Date:** 28 August 2026 | **Launch verdict:** CONDITIONAL GO — all launch-blockers remediated (see `docs/reports/MACROSCOPIC_AUDIT_REVISIT_2026-08-28.md`); residual: schedule NestJS 12 upgrade (js-yaml transitive HIGH) + operator MFA enrollment + end-to-end fill test
 
 ## Quick Start
 
@@ -80,6 +80,14 @@ ExecutionPermission → BrokerSymbolValidation (P0) → SeedCapitalProtection (5
 
 Gate state is isolated per (strategy, timeframe) to prevent cross-strategy contamination. Operator edge-arming enables per-strategy broker-position authorization for EXECUTABLE delivery.
 
+## v1.17.x Features
+
+- **Per-client risk isolation at delivery** — executable signals are forwarded only to clients whose own broker account has free margin; a blown client can never block others (fail-open on stale/unknown state).
+- **Ingest/signal decoupling seam** — inbound agent messages route through a `pkg/bus` abstraction (`DirectBus` in-process by default; `NatsBus` when `NATS_URL` is set).
+- **Silent data-feed detection + auto-recovery** — a data-independent 10s health monitor detects a dead `MARKET_SNAPSHOT` feed (not masked by ticks), alerts via ntfy, and nudges agents with `REQUEST_SNAPSHOT`.
+- **Master Node snapshot delivery fix** — `MasterAppend()` now truly appends (was truncating), so snapshots are no longer clobbered by tick writes.
+- **Launch-blocker remediation** — secrets moved out of `docker-compose.yml` (env-file injection), migrations renumbered to unique prefixes + reconciled, fabricated probability eliminated (VALIDATED-gated calibration), news gate fails closed, GDPR erasure service, RBAC roles+permissions guard, decimal.js money math.
+
 ## v1.16.0 Features (P2 — ACTIVE)
 
 - P2-001: Session ORB — Asian/London/NY opening ranges, breakout detection
@@ -108,7 +116,7 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 | Python Research | research/ | Backtesting, calibration, ML | Live tick dependency |
 | Windows/MQL Edge | windows-agent/, mql/ | Order execution | Primary intelligence |
 
-## Current Status (26 August 2026)
+## Current Status (28 August 2026)
 
 | Check | Status |
 |-------|:------:|
@@ -123,7 +131,9 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 | Price precision rounding (P1-001) | ACTIVE |
 | Math parity (MAPE < 0.0001) | PASS |
 | 49/49 geometry validations | PASS |
-| 5 production blockers | ALL CLOSED |
+| Launch blockers (SEC-1/DB-1/DB-2/DB-5/BE-5/BE-4) | ALL CLOSED |
+| Migration integrity (65 files, unique prefixes) | PASS |
+| Secrets out of git (env-file injection) | PASS |
 | MQL EAs compiled | Operator action |
 | Production API keys | Operator action |
 | Backup/restore tested | Operator action |
@@ -147,7 +157,7 @@ Located in `realtime/`. Key packages:
 ## Documentation
 
 - [SCOPE_OF_WORK.md](realtime/SCOPE_OF_WORK.md) — Full project scope and specifications
-- [CHANGELOG.md](realtime/CHANGELOG.md) — Version history v1.0-v1.16.0
+- [CHANGELOG.md](realtime/CHANGELOG.md) — Version history v1.0-v1.17.2
 - [DOCKER_COMPOSE_REFERENCE.md](realtime/DOCKER_COMPOSE_REFERENCE.md) — Docker architecture
 - [PRODUCTION_READINESS_AUDIT.md](realtime/PRODUCTION_READINESS_AUDIT.md) — Audit: 100/100
 - [docs/](docs/) — Architecture, strategy playbooks, indicators, gates, API, database

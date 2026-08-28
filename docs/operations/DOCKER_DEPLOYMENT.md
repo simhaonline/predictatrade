@@ -1,5 +1,5 @@
 # Docker Deployment Guide
-## v1.16.0 — 26 August 2026
+## v1.17.2 — 28 August 2026
 
 Step-by-step guide to deploy Predict-A-Trade XAUUSD using Docker Compose.
 

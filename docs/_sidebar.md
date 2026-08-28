@@ -28,6 +28,9 @@
   - [PhD Thesis](reports/PHD_THESIS.md)
   - [UI/UX Audit Report](reports/UI_UX_AUDIT_REPORT.md)
   - [Macroscopic Audit Report](reports/MACROSCOPIC_AUDIT_REPORT.md)
+  - [Macroscopic Audit (28 Aug)](reports/MACROSCOPIC_AUDIT_REPORT_2026-08-28.md)
+  - [Macroscopic Audit Revisit (28 Aug)](reports/MACROSCOPIC_AUDIT_REVISIT_2026-08-28.md)
+  - [Remediation Report (28 Aug)](reports/REMEDIATION_REPORT_2026-08-28.md)
 
 - **Links**
   - [GitHub](https://github.com/simhaonline/predictatrade)

@@ -1,5 +1,5 @@
 # Predict-A-Trade Architecture
-## v1.17.0 — 27 August 2026
+## v1.17.2 — 28 August 2026
 
 ### Signal Flow
 
@@ -97,4 +97,4 @@ without changing the engine.
 
 **Frontend Signal Panel Pagination:** Both admin (20/page) and user (15/page) signal tables use client-side pagination to prevent browser lockup with large signal volumes. Full TP1/TP2/TP3 columns with per-level R:R ratios.
 
-**Windows Agent Role Split (v1.2.32):** The Windows Agent ships as two **separate binaries** — **Client Agent** (execution, `pat-agent.exe`, built from `cmd/client`, service `pat-agent-client`, engine exec port 13081) and **Master Node** (data-only, `pat-master.exe`, built from `cmd/master`, service `pat-agent-master`, engine data port 13091). The role is fixed by the binary (no runtime `--mode` flag). The download server serves role-specific subfolders (`…/windows-agent/client/` and `…/master/`) so each role's binary is fetched from an unambiguous URL, while shared assets (NSSM, settings, scripts, version) come from the root. See the [Windows Agent Guide](../guides/WINDOWS_AGENT.md).
+**Windows Agent Role Split (v1.2.35):** The Windows Agent ships as two **separate binaries** — **Client Agent** (execution, `pat-agent.exe`, built from `cmd/client`, service `pat-agent-client`, engine exec port 13081) and **Master Node** (data-only, `pat-master.exe`, built from `cmd/master`, service `pat-agent-master`, engine data port 13091). The role is fixed by the binary (no runtime `--mode` flag). The download server serves role-specific subfolders (`…/windows-agent/client/` and `…/master/`), each with per-arch (`386`/`amd64`/`arm64`) binaries + `update-manifest.json`, while shared assets (NSSM, settings, scripts, version) come from the root. See the [Windows Agent Guide](../guides/WINDOWS_AGENT.md).

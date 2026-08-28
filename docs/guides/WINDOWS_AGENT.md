@@ -1,5 +1,5 @@
 # Windows Agent Guide
-## v1.16.0 — 27 August 2026 · Agent v1.2.32
+## v1.17.2 — 28 August 2026 · Agent v1.2.35
 
 ### Overview
 
@@ -10,7 +10,7 @@ The Windows Agent bridges MetaTrader 4/5 (MT4/MT5) terminals with the Predict-A-
 | **Client Agent** | Receives signals and **places/closes XAUUSD orders** (execution). | `pat-agent.exe` | `pat-agent-client` | 13081 (exec) | `wss://<host>/ws/v1/agent` | 9000 |
 | **Master Node** | Streams market/structure **data only** — never executes. | `pat-master.exe` | `pat-agent-master` | 13091 (data) | `wss://<host>/ws/v1/data` | 9001 |
 
-Both roles ship as **separate Go binaries** — `pat-agent.exe` (Client) and `pat-master.exe` (Master Node) — built from distinct entrypoints (`cmd/client` and `cmd/master`). The role is **fixed by the binary itself**, not a runtime flag, so a Client and a Master Node can run side-by-side on one Windows box with no ambiguity.
+Both roles ship as **separate Go binaries** — `pat-agent.exe` (Client) and `pat-master.exe` (Master Node) — built from distinct entrypoints (`cmd/client` and `cmd/master`). The role is **fixed by the binary itself**, not a runtime flag, so a Client and a Master Node can run side-by-side on one Windows box with no ambiguity. Each role is published for **three architectures** (`386`, `amd64`, `arm64`) under its own subfolder, with a per-arch `update-manifest.json` for auto-update.
 
 > Default engine host is `live.predictatrade.com`. To point at a different server, run the installer with `-EngineHost your.host`.
 
@@ -169,6 +169,7 @@ The download server serves `windows-agent/deploy/` at `https://downloads.predict
 | `uninstall.ps1` | Uninstaller (role-aware via `-Mode client\|master\|all`; always removes both). |
 | `status.ps1` | Status report (role-aware via `-Mode`). |
 | `health-check.ps1` | Hang/crash monitor (role-aware via `-Mode`); used by Scheduled Task. |
+| `verify-cleanup.ps1` | Plain-English post-uninstall verification checklist (self-elevates; reports Master Node + Client Agent separately). |
 | `pat-agent.exe` | Client Agent binary. |
 | `pat-master.exe` | Master Node binary (separate build from the distinct `cmd/master` entrypoint). |
 | `notify.ps1` | Multi-channel notification dispatcher. |
@@ -176,8 +177,8 @@ The download server serves `windows-agent/deploy/` at `https://downloads.predict
 | `install.bat` | Batch wrapper for double-click install. |
 | `version.txt` | Current version number (single source of truth). |
 | `update-manifest.json` | Version + SHA256 for auto-update. |
-| `client/` | Role subfolder: `install.ps1`, `uninstall.ps1`, `status.ps1`, `version.txt`, `pat-agent.exe`. |
-| `master/` | Role subfolder: `install.ps1`, `uninstall.ps1`, `status.ps1`, `version.txt`, `pat-master.exe`. |
+| `client/{386,amd64,arm64}/` | Per-arch Client Agent binaries + `update-manifest.json`. |
+| `master/{386,amd64,arm64}/` | Per-arch Master Node binaries + `update-manifest.json`. |
 
 ---
 
@@ -202,7 +203,8 @@ Server-side commands for capital protection: `CLOSE_POSITION`, `EMERGENCY_STOP`,
 
 - **Same machine, two roles:** install Client then Master (or vice-versa). Distinct service names, binaries, and ports mean they never collide.
 - **Paper vs Live:** in live mode the engine reads the client's **real** broker equity from the connected agent, so risk caps are per-client real capital. The `PAT_PAPER_EQUITY` fallback is demo-only and never overrides a live account.
-- **Production signing:** builds ship **unsigned** (Authenticode signing was removed to avoid Windows Defender/SmartScreen failures). The installer uses `Unblock-File` + a Defender exclusion on the install dir instead. No certificate is required.
+- **Production signing:** code-signing is **optional** — unsigned builds are fully supported. The installer auto-adds a scoped Windows Defender exclusion for the install dir and uses `Unblock-File` to strip the SmartScreen "downloaded from internet" mark, so a self-signed/unsigned agent is not blocked. No certificate is required.
+- **Auto-update:** the agent checks `update-manifest.json` (per-arch) and self-updates by downloading the new binary, verifying SHA256, stopping the service, swapping the exe, and restarting. Manual update = re-run the install command.
 
 ---
 

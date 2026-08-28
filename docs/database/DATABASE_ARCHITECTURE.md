@@ -1,5 +1,5 @@
 # Database Architecture
-## v1.16.0 — 26 August 2026
+## v1.17.2 — 28 August 2026
 
 ### Stack
 - PostgreSQL 17 + TimescaleDB (hypertables)
@@ -19,7 +19,11 @@
 | compliance | Audit events, client telemetry | client_event_log, audit_events |
 | backtest | Backtesting results | backtest_runs, backtest_results |
 
-### Recent Schema Changes (v1.16.x)
+### Recent Schema Changes (v1.17.x)
+
+**Migration renumbering + reconciliation (v1.17.2):** The 7 duplicate-prefix migration pairs were renumbered to unique sequences 089–095 and `audit.migration_history` reconciled to match disk (65 files). `scripts/check_migrations.sh` now passes (no duplicate prefixes, history == disk). See `database/migrations/MIGRATION_ORDER.md`.
+
+**GDPR erasure/retention (v1.17.2):** Migration `088_gdpr_erasure_retention.sql` adds `compliance.gdpr_operations`; the control plane exposes admin-only erase/anonymize/retention endpoints via `compliance/gdpr.service.ts`.
 
 **trade_results table:** New table for real executed-trade metrics (P&L, R:R realized, entry/exit prices, broker ticket IDs). Populated by backfill from broker telemetry and live execution. Trading Reports dashboard queries this table exclusively — no estimated/derived values are substituted for real fills.
 
@@ -28,10 +32,12 @@
 **Migration 085:** `085_set_plan_risk_caps.sql` — sets per-plan risk caps for seed capital protection (5% daily loss limit enforcement per plan tier).
 
 ### Migrations
-- 30+ migrations applied (001-085)
-- Located in `database/migrations/`
-- Run via `./scripts/migrate.sh up`
+- 65 migrations applied (001-095), all with unique sequence prefixes
+- Located in `database/migrations/` (canonical order in `MIGRATION_ORDER.md`)
+- Run via `./scripts/migrate.sh up` (single source of truth — `initdb.d` auto-run removed)
 - All migrations are idempotent (IF NOT EXISTS guards)
+- `scripts/check_migrations.sh` is the CI guard: fails on duplicate prefixes or history-vs-disk drift
+- `audit.migration_history` reconciled to match disk (65 = 65)
 
 ### Hypertables
 - market.candles: 1-hour chunks, TimescaleDB compression
