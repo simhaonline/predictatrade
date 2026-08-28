@@ -51,6 +51,7 @@ func newHealthServer(a *Agent) *healthServer {
 	mux.HandleFunc("/api/status", h.jsonHandler)
 	mux.HandleFunc("/status", h.pageHandler)
 	mux.HandleFunc("/", h.pageHandler)
+	mux.HandleFunc("/api/update", h.updateHandler)
 
 	h.srv = &http.Server{
 		Addr:         fmt.Sprintf("127.0.0.1:%s", port),
@@ -92,6 +93,17 @@ func (h *healthServer) pageHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(renderStatusHTML(s)))
 }
 
+// updateHandler triggers an immediate background update check (dashboard button).
+func (h *healthServer) updateHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	msg := h.a.RequestUpdate()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": msg})
+}
+
 // renderStatusHTML builds a clean, self-contained status dashboard.
 // The displayed cards depend on the agent role:
 //   - data (Master Node): MASTER NODE connection + live CANDLE DELIVERY status.
@@ -123,6 +135,10 @@ func renderStatusHTML(s AgentStatus) string {
 			licClass = "warn"
 			licText = s.LicenseStatus
 		}
+	} else if !isMaster {
+		// No terminal connected → no live license verdict to show (it would be stale).
+		licClass = "warn"
+		licText = "NO TERMINAL"
 	}
 	// A Master Node (data role) is purely a market-data source and requires NO
 	// trading license, so never show it as "LICENSE PENDING".
@@ -157,10 +173,10 @@ func renderStatusHTML(s AgentStatus) string {
 	var cards string
 	if isMaster {
 		roleTitle := "Master Node (Data · Broker TF)"
+		// A Master Node is a pure market-data source — it has NO trading license
+		// and must not display license/plan rows at all.
 		connCard := cardHTML("MASTER NODE (Terminal)",
-			rowHTML("Terminal link", terminalLink)+
-				rowHTML("License", licBadge)+
-				rowHTML("Plan", planText))
+			rowHTML("Terminal link", terminalLink))
 		deliveryCard := cardHTML("CANDLE DELIVERY → Engine",
 			rowHTML("Backend URL", html.EscapeString(s.BackendURL))+
 				rowHTML("Backend data WS", serverBadge)+
@@ -241,6 +257,10 @@ const statusPageTemplate = `<!DOCTYPE html>
   .badge.warn { background:rgba(245,185,66,.15); color:var(--warn); border:1px solid rgba(245,185,66,.4); }
   .badge.bad { background:rgba(255,93,108,.15); color:var(--bad); border:1px solid rgba(255,93,108,.4); }
   .legend { margin-top:18px; color:var(--muted); font-size:12px; text-align:center; }
+  .actions { display:flex; align-items:center; gap:12px; margin-top:16px; }
+  .btn { background:var(--accent); color:#fff; border:0; border-radius:10px; padding:10px 16px; font-size:14px; font-weight:700; cursor:pointer; }
+  .btn:hover { filter:brightness(1.08); }
+  .upd-msg { color:var(--muted); font-size:13px; }
   code { background:#0e1530; padding:1px 6px; border-radius:6px; color:#cfe0ff; }
 </style>
 </head>
@@ -255,7 +275,21 @@ const statusPageTemplate = `<!DOCTYPE html>
     %s
   </div>
 
+  <div class="actions">
+    <button class="btn" onclick="triggerUpdate()">Check for Update</button>
+    <span id="upd-msg" class="upd-msg"></span>
+  </div>
+
   <div class="legend">Auto-refreshing every 5s · page generated %s · open <code>/health</code> for JSON</div>
 </div>
+<script>
+function triggerUpdate(){
+  var el=document.getElementById('upd-msg');
+  el.textContent='checking…';
+  fetch('/api/update',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+    el.textContent=d.message||'done';
+  }).catch(function(e){el.textContent='Error: '+e;});
+}
+</script>
 </body>
 </html>`

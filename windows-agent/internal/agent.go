@@ -225,6 +225,14 @@ func (a *Agent) getStatus() AgentStatus {
 		mt4 = a.pipeManager.MT4Connected()
 		mt5 = a.pipeManager.MT5Connected()
 		licStatus, licPlan = a.pipeManager.GetLicense()
+		// A license verdict is only meaningful while a terminal (EA) is actually
+		// connected and able to validate. Without a live MT4/MT5 link the cached
+		// verdict is stale, so do not surface it as ACTIVE — it would mislead the
+		// operator into thinking the account is licensed when nothing is connected.
+		if !mt4 && !mt5 {
+			licStatus = ""
+			licPlan = ""
+		}
 	}
 
 	a.deliveryMu.Lock()
@@ -1129,6 +1137,18 @@ func (a *Agent) checkAndUpdate() {
 
 	logf("[updater] Update helper launched — service will restart shortly with v%s", manifest.Version)
 	// The helper script will stop this process; no need to exit manually
+}
+
+// RequestUpdate triggers an immediate background update check. It is invoked by the
+// dashboard "Check for Update" button so operators don't have to wait for the
+// next hourly cycle. Runs in a goroutine; if an update is found it downloads,
+// verifies, and swaps the binary automatically (the service restarts itself).
+func (a *Agent) RequestUpdate() string {
+	if a.updater == nil {
+		return "Auto-update is not configured on this agent."
+	}
+	go a.safe(a.checkAndUpdate)
+	return "Update check started in the background — watch the agent log; the service restarts itself if a new version is found."
 }
 
 func (a *Agent) heartbeatLoop() {
