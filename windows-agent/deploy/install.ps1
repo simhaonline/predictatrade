@@ -111,6 +111,17 @@ $HealthPort = if ($Mode -eq "master") { "9001" } else { "9000" }
 [Environment]::SetEnvironmentVariable("PAT_HEALTH_PORT", $HealthPort, "Machine") | Out-Null
 Write-Host "  OK: Local health port = $HealthPort"
 
+# Step 2d: Pin the control-plane API URL. CRITICAL: a stale PAT_API_URL machine
+# env var from a previous install can point at live.predictatrade.com/api/v1,
+# which (on the edge host) proxies /api/v1 to the Go realtime engine — NOT the
+# NestJS control plane. License/device validation then 404s and the EA reports
+# "Access Denied | License: PENDING". The dedicated api.predictatrade.com host
+# proxies /api/v1 to control correctly, so pin it explicitly to override any
+# stale value and make reinstalls deterministic.
+$ApiBaseUrl = "https://api.predictatrade.com/api/v1"
+[Environment]::SetEnvironmentVariable("PAT_API_URL", $ApiBaseUrl, "Machine") | Out-Null
+Write-Host "  OK: Control API URL = $ApiBaseUrl"
+
 # Step 3: Stop existing service if running
 Write-Host "[3/9] Stopping existing service if running..."
 $nssmDest = Join-Path $InstallDir $NssmExe
