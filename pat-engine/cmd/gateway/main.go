@@ -15,7 +15,7 @@ import (
 	"pat-engine/internal/store"
 )
 
-// cmd/gateway is the live signal backend + REST API. It ingests bars (POST /bar),
+// cmd/gateway is the live signal backend + REST API. It ingests bars (POST /candles),
 // runs the strategy pipeline, persists to TimescaleDB, publishes to Valkey, writes the
 // EA signal file, and serves a JSON API the frontend/control-plane consume.
 func main() {
@@ -54,7 +54,7 @@ func main() {
 	http.HandleFunc("/signal", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(gw.Latest()))
 	})
-	http.HandleFunc("/bar", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/candles", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
 			return

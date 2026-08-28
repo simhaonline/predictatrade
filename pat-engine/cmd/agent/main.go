@@ -20,7 +20,7 @@ import (
 func main() {
 	url := os.Getenv("GATEWAY")
 	if url == "" {
-		url = "http://localhost:8080/bar"
+		url = "http://localhost:8080/candles"
 	}
 
 	fp := agentlib.Collect()

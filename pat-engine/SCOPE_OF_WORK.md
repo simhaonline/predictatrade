@@ -14,7 +14,7 @@ single-source config. Backend engine + MQL first; frontend deferred.
 ## 2. Architecture (within pat-engine)
 
 ```
-data/ticks ─▶ cmd/agent ─POST /bar▶ cmd/gateway ─▶ strategy pipeline
+data/ticks ─▶ cmd/agent ─POST /candles▶ cmd/gateway ─▶ strategy pipeline
                                                     │  (broker policy + license + gates)
                                                     ▼
                                             PAT_signals.txt ─▶ MQL EA (FILE_COMMON)
@@ -134,7 +134,7 @@ Runs the **exact live strategy code** on (`internal/backtest`):
 
 ## 8. Live path (proven end-to-end)
 
-`cmd/agent` streams bars → `POST /bar` → `cmd/gateway` → `signal.Decide` →
+`cmd/agent` streams bars → `POST /candles` → `cmd/gateway` → `signal.Decide` →
 `SIGNAL|<json>` written to `PAT_signals.txt` → `cmd/sim` consumes it like the MQL EA.
 Verified manually; the existing `mql/` EAs parse the identical format.
 
@@ -149,7 +149,7 @@ Verified manually; the existing `mql/` EAs parse the identical format.
 
 - Frontend / Command Center.
 - Control-plane licensing **issuance** service (NestJS) — engine already verifies.
-- Rebuilt Windows Agent binary (reuse `windows-agent`, point at `POST /bar`).
+- Rebuilt Windows Agent binary (reuse `windows-agent`, point at `POST /candles`).
 - Calibrated probability model + walk-forward/OOS on real 2025 data.
 
 ## 11. Traceability
@@ -180,5 +180,5 @@ Verified manually; the existing `mql/` EAs parse the identical format.
 
 1. Plug real 2025 KAGGLE/MT5 bars into `cmd/backtest` → lock honest v1 stats.
 2. Issue signed licenses from control plane; bind device/plan/strategies.
-3. Wire live Windows Agent → `POST /bar`; deploy EA reading `PAT_signals.txt`.
+3. Wire live Windows Agent → `POST /candles`; deploy EA reading `PAT_signals.txt`.
 4. Add calibrated probability; only then package & publish performance.

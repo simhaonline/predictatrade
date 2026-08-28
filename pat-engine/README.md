@@ -19,7 +19,7 @@ TimescaleDB service. The current production project is left untouched.
                          ┌──────────────────────────────────────────┐
    market data bars      │                pat-engine                 │
    (Windows Agent)       │                                            │
-        │  POST /bar     │  cmd/gateway                               │
+        │  POST /candles     │  cmd/gateway                               │
         └───────────────▶│   1. provider.Gateway.IngestBar            │
                          │   2. backtest.StateFromBars (indicators)   │
                          │   3. signal.Decide:                        │
@@ -169,7 +169,7 @@ go run ./cmd/agent              # streams 3000 synthetic bars -> gateway
 
 ### Gateway endpoints (live + REST API)
 Ingest:
-- `POST /bar` — JSON `{time,open,high,low,close,spread}`; runs the pipeline.
+- `POST /candles` — JSON `{time,open,high,low,close,spread}`; runs the pipeline.
 - `GET /signal` — last emitted signal line.
 - `GET /health` — liveness.
 
@@ -180,7 +180,7 @@ REST API (`/api/v1`):
 - `GET /risk` — default capital-risk mandate (equity, risk %, max daily loss, max positions, max leverage).
 - `GET /session` — current **broker-server-time** session + overlap flag.
 - `GET /signals?limit=` — recent signals (audit, from TimescaleDB).
-- `GET /bars?limit=` — recent bars.
+ - `GET /bars?limit=` — recent bars.
 - `POST /devices/activate` — register agent hardware fingerprint → license binding.
 - `POST /devices/heartbeat` — agent telemetry (latency, MT4/MT5 connection, version, status).
 - `POST /licensing/validate` — verify a signed license token (entitlements + optional device binding).
@@ -192,7 +192,7 @@ and is the local side of the SL-enforcement / `EMERGENCY_STOP` / `KILL_SWITCH` c
 The trade logic lives in the EA (`mql/PredictATrade_MT4.mq4` / `PredictATrade_MT5.mq5`).
 
 > **"Engine host" = where the Go gateway runs.** The agent does one thing: it POSTs bars
-> to `http://<engine-host>:<port>/bar`. `<engine-host>` is the IP / hostname / domain of the
+> to `http://<engine-host>:<port>/candles`. `<engine-host>` is the IP / hostname / domain of the
 > machine running `cmd/gateway` (the pat-engine realtime service). Use `localhost` (or
 > `127.0.0.1`) when the gateway runs on the **same** Windows box; use the LAN IP or domain
 > (e.g. `192.168.1.50`, `api.predictatrade.com`) when it runs on a separate server. The
@@ -213,13 +213,13 @@ to the trading machine, then run **one** command as Administrator:
 .\install-client.ps1 -EngineHost api.predictatrade.com -LicenseKey "PAT1-XXXX-XXXX-XXXX-XXXX-XXXX-XX"
 ```
 
-The installer writes the agent's `GATEWAY` env to `https://<EngineHost>/bar for a public domain (http://<EngineHost>:80/bar for same-box localhost)` and
+The installer writes the agent's `GATEWAY` env to `https://<EngineHost>/candles for a public domain (http://<EngineHost>:80/candles for same-box localhost)` and
 installs the `pat-agent-client` service. Verify with `Get-Service pat-agent-client`
 (*Running*). Uninstall: `.\uninstall-windows-agent.ps1`.
 
 `install-client.ps1` wraps `install-windows-agent.ps1`, installs the `pat-agent-client`
 service using the local `pat-windows-agent.exe`, deploys the client EA, writes
-`PAT_license.txt`, and sets the `GATEWAY` machine env to `https://<EngineHost>/bar for a public domain (http://<EngineHost>:80/bar for same-box localhost)`.
+`PAT_license.txt`, and sets the `GATEWAY` machine env to `https://<EngineHost>/candles for a public domain (http://<EngineHost>:80/candles for same-box localhost)`.
 Verify with `Get-Service pat-agent-client` (should be *Running*). Uninstall:
 `.\uninstall-windows-agent.ps1`.
 
@@ -255,7 +255,7 @@ deploys the client EA into every detected MT4/MT5 `Experts` folder, writes
 `PAT_license.txt` (`status:ACTIVE`) into the MT common `Files` folder, and starts the
 service `pat-agent-client`. Verify: `Get-Service pat-agent-client` shows *Running*, and the
 agent's `GATEWAY` env (`[Environment]::GetEnvironmentVariable("GATEWAY","Machine")`) equals
-`http://<engine-host>:80/bar`.
+`http://<engine-host>:80/candles`.
 Uninstall: `.\uninstall-windows-agent.ps1`.
 
 **4. License key.** Mint a short activation code and paste it into the EA's `LicenseKey`
@@ -266,7 +266,7 @@ go run ./cmd/license-issuer -plan PRO -strategies "*" -expiry 365 -scalping allo
 The full ~200-char signed token also works; `license.Parse` accepts both.
 
 > **Master node?** The new pat-engine has **no "master" role** — the central Go engine
-> aggregates all agent feeds over `POST /bar`, so the legacy Master Node (data-only) binary
+> aggregates all agent feeds over `POST /candles`, so the legacy Master Node (data-only) binary
 > is obsolete here. One client agent per MT terminal is the only install path. If you need
 > two terminals on one Windows box, run two client agents pointed at *different* terminals/
 > accounts (see "Multiple agents, one Windows box" below). Do **not** point two agents at the
@@ -376,7 +376,7 @@ full REST API, agent hardware-fingerprint + telemetry device binding, nginx rout
 
 **Deferred (per plan: backend + MQL first):** frontend/Command Center, control-plane
 license **issuance** service (engine already verifies), rebuilt Windows Agent binary
-(reuse `windows-agent`, point at `POST /bar`), calibrated probability model, and
+(reuse `windows-agent`, point at `POST /candles`), calibrated probability model, and
 walk-forward/OOS validation on real 2025 data to lock honest v1 stats.
 
 See `SCOPE_OF_WORK.md` for traceability and `docs/PROJECT_RESET_PLAN.md` for the

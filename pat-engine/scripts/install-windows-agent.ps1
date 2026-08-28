@@ -6,7 +6,7 @@
     deploys the CLIENT EA (PredictATrade_MT4/MT5) into every detected MT4/MT5 terminal.
 
     NOTE: the new pat-engine architecture has NO "master node" role. The central Go engine
-    is the data/strategy/risk authority and aggregates feeds from all agents over POST /bar,
+    is the data/strategy/risk authority and aggregates feeds from all agents over POST /candles,
     so the old project's separate Master Node (data-only) binary is obsolete here. A
     data-only terminal is simply another client agent feeding the same engine. (See the
     windows-agent reference project for the legacy master role.)
@@ -31,17 +31,17 @@ $AgentExe    = "pat-windows-agent.exe"
 $EaFiles     = @("PredictATrade_MT4.mq4", "PredictATrade_MT5.mq5")
 $RoleLabel   = "Client Agent (execution)"
 
-# Resolve the gateway URL the agent feeds (pat-engine gateway is plain HTTP POST /bar).
+# Resolve the gateway URL the agent feeds (pat-engine gateway is plain HTTP POST /candles).
 # - Explicit -GatewayUrl wins.
-# - Local host/IP  -> http://host:port/bar (gateway is local; no TLS on :8080).
-# - Public domain  -> TLS terminated upstream: https://host/bar (port 443). The
+# - Local host/IP  -> http://host:port/candles (gateway is local; no TLS on :8080).
+# - Public domain  -> TLS terminated upstream: https://host/candles (port 443). The
 #   engine's nginx fronts the gateway on 443 and redirects :80 -> :443.
 function Resolve-GatewayUrl {
     param([string]$HostArg,[int]$PortArg,[string]$Explicit)
     if ($Explicit) { return $Explicit }
     $isLocal = ($HostArg -match '^(localhost|127\.0\.0\.1|::1)$') -or ($HostArg -match '^\d{1,3}(\.\d{1,3}){3}$')
-    if ($isLocal) { return "http://${HostArg}:${PortArg}/bar" }
-    return "https://${HostArg}/bar"
+    if ($isLocal) { return "http://${HostArg}:${PortArg}/candles" }
+    return "https://${HostArg}/candles"
 }
 $Gw = Resolve-GatewayUrl -HostArg $EngineHost -PortArg $GatewayPort -Explicit $GatewayUrl
 

@@ -133,6 +133,6 @@ The Go reference agent + gateway can be exercised headless to prove the signal
 path end-to-end before involving MT4/MT5:
 
 ```bash
-BARS_CSV=data/xauusd_2024q4.csv go run ./cmd/agent   # posts bars to /bar
+BARS_CSV=data/xauusd_2024q4.csv go run ./cmd/agent   # posts bars to /candles
 # (gateway prints signal file; inspect signals/PAT_signals.txt)
 ```
