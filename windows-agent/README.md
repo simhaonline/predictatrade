@@ -18,6 +18,9 @@ irm https://downloads.predictatrade.com/windows-agent/install.ps1 | iex
 ```powershell
 irm https://downloads.predictatrade.com/windows-agent/uninstall.ps1 | iex
 ```
+This fully removes **both** the Client Agent and the Master Node (services,
+processes, install directories, scheduled task, event-log source, IPC files and
+Defender exclusion). `-Mode` is optional and only changes the messaging.
 
 ### Check Health
 Open in browser: `http://127.0.0.1:9000`

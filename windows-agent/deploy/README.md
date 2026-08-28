@@ -1,7 +1,7 @@
 # Predict-A-Trade XAUUSD — Windows Agent Deployment
 
 The Windows Agent bridges MetaTrader 4/5 (MT4/MT5) and the Predict-A-Trade
-real-time engine. It runs as a native Windows Service and is installed with a
+real-time engine. It runs as a Windows Service and is installed with a
 single PowerShell command. There are **two roles** that can be installed on the
 same machine (or separate machines) without conflict:
 
@@ -78,32 +78,39 @@ irm https://downloads.predictatrade.com/windows-agent/install-master.ps1 | iex
 
 ## 3. Uninstall
 
-The uninstaller is role-aware. Run it elevated and pass the role:
+The uninstaller **fully removes the agent**. Run it elevated:
 
 ```powershell
-# Uninstall Client only
+# Full uninstall — removes BOTH the Client Agent and the Master Node, plus the
+# legacy C:\PredictATrade\XAUUSD install, their Windows services, processes,
+# scheduled task, event-log source, MetaTrader IPC files and the Defender
+# exclusion. -Mode is optional and only changes the on-screen messaging.
 irm https://downloads.predictatrade.com/windows-agent/uninstall.ps1 | iex
-#   (then, when prompted, it targets the client; or pass -Mode client)
-
-# Uninstall Master only
-irm https://downloads.predictatrade.com/windows-agent/uninstall.ps1 | iex
-#   pass -Mode master
-
-# Uninstall BOTH client + master
-irm https://downloads.predictatrade.com/windows-agent/uninstall.ps1 | iex
-#   pass -Mode all
 ```
 
-Silent mode (no prompts, removes everything):
+Scope is optional (default is `all`):
 ```powershell
-irm "https://downloads.predictatrade.com/windows-agent/uninstall.ps1?Silent=true" | iex
+# Download first if you want to pass -Mode / -Silent explicitly:
+$uri = "https://downloads.predictatrade.com/windows-agent/uninstall.ps1"
+irm $uri -OutFile $env:TEMP\pat_uninstall.ps1
+& $env:TEMP\pat_uninstall.ps1 -Mode all          # all | client | master
+& $env:TEMP\pat_uninstall.ps1 -Silent           # no prompts, removes everything
 ```
+*(Note: a query string like `?Silent=true` does NOT reach the script when piped
+via `irm | iex`, so download to a file first to use `-Silent`.)*
 
-The uninstaller stops and deletes the role's Windows Service, kills the agent
-process, cleans IPC files in the MetaQuotes `Common\Files` folder, removes the
-scheduled-task/event-log source, and (optionally) the install directory. It ends
-with a **cleanup-verification report** listing any leftover service, process,
-directory, task, event-source, or IPC file.
+What the uninstaller does:
+- Always stops **and deletes BOTH** `pat-agent-client` and `pat-agent-master`
+  services (and any stale legacy service names), using `sc.exe delete` as the
+  guaranteed removal path — so the service is gone whether it was NSSM-wrapped or
+  a native Windows service.
+- Kills any running `pat-agent` / `pat-master` processes.
+- Cleans MetaTrader IPC files in `Common\Files`.
+- Removes the `PredictATradeHealthCheck` scheduled task, the `pat-agent`
+  event-log source, the install directories, and the Defender exclusion.
+- Ends with a **cleanup-verification report** listing any leftover service,
+  process, directory, task, event-source, or IPC file (and a WARN if something
+  needs a reboot).
 
 To independently **prove** the agent is completely gone (after uninstall, or
 before a clean reinstall), run the standalone audit:
@@ -112,7 +119,16 @@ before a clean reinstall), run the standalone audit:
 irm https://downloads.predictatrade.com/windows-agent/verify-cleanup.ps1 | iex
 ```
 
-It exits `0` (PASS) only when no Predict-A-Trade agent remnants are detected.
+The script **self-elevates to Administrator** if needed, then checks BOTH roles
+explicitly — Master Node (`pat-agent-master` / `pat-master` / `C:\PredictATrade\Master`)
+and Client Agent (`pat-agent-client` / `pat-agent` / `C:\PredictATrade\Client`) — plus
+shared/legacy items (old `C:\PredictATrade\XAUUSD` folder, scheduled task, event-log
+source, Defender exclusion, MetaTrader IPC files). It prints a color-coded checklist
+(`[OK]` = nothing found, `[!]` = still present). If anything remains it shows the
+exact items and the one-line uninstall command to remove them.
+
+Exit code `0` = CLEAN, `1` = leftovers found. A full report is also saved to
+`%TEMP%\pat_verify_cleanup.log`. Optional mode arg: `master`, `client`, or `all` (default).
 
 ---
 
@@ -177,7 +193,7 @@ Shared (both roles): `C:\ProgramData\PredictATrade\logs\` (service logs),
 `C:\ProgramData\PredictATrade\nssm.exe`.
 
 > The legacy single-directory layout (`C:\PredictATrade\XAUUSD`) is **no longer
-> used** and is fully removed by `uninstall.ps1 -Mode all`.
+> used** and is fully removed by `uninstall.ps1`.
 
 ---
 
@@ -188,7 +204,7 @@ Shared (both roles): `C:\ProgramData\PredictATrade\logs\` (service logs),
 | `install.ps1` | Shared installer (role selected via `-Mode client|master`). |
 | `install-client.ps1` | Thin wrapper → installs `pat-agent-client` (exec, port 13081). |
 | `install-master.ps1` | Thin wrapper → installs `pat-agent-master` (data, port 13091). |
-| `uninstall.ps1` | Uninstaller (role-aware via `-Mode client|master|all`); ends with a cleanup-verification report. |
+| `uninstall.ps1` | Uninstaller; always removes BOTH roles + legacy dir, their services (via `sc.exe delete` so it works for NSSM- or native-registered services), task, event source, IPC files and Defender exclusion; ends with a cleanup-verification report. `-Mode` is optional (affects messaging only). |
 | `verify-cleanup.ps1` | Standalone, non-destructive audit proving no agent remnants remain. Checks BOTH roles explicitly (Master Node + Client Agent) plus shared/legacy items (services/processes/dirs/task/event-source/IPC). Optional mode arg: `master`, `client`, or `all` (default). Run after uninstall. |
 | `status.ps1` | Status report (role-aware via `-Mode`). |
 | `health-check.ps1` | Hang/crash monitor (role-aware via `-Mode`); used by Scheduled Task. |
