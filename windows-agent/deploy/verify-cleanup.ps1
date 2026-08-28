@@ -156,19 +156,20 @@ if (-not $anyLeft -and $checkErrors.Count -eq 0) {
 } else {
     $report += "  VERDICT:  Leftover agent pieces were found."
     $report += ""
+    $report += "  >> To remove them, copy and run this (removes BOTH Master and Client):"
+    $report += ""
+    $report += "     powershell -Command \"irm https://downloads.predictatrade.com/windows-agent/uninstall.ps1 -OutFile `$env:TEMP\pat_uninstall.ps1; & `$env:TEMP\pat_uninstall.ps1 -Mode all\""
+    $report += ""
     $report += "  Why this matters:"
     $report += "    An old install that is not fully removed can cause the"
     $report += "    'same-device nssm' conflict when you install both the"
     $report += "    Master Node and the Client Agent."
     $report += ""
-    $report += "  What to do:"
-    $report += "    1. Run the uninstaller (removes everything):"
-    $report += "         irm https://downloads.predictatrade.com/windows-agent/uninstall.ps1 | iex"
-    $report += "       (when asked, choose Mode = all)"
-    $report += "    2. Run this verification check again."
-    $report += "    3. If anything still remains, restart the computer and"
-    $report += "       run this check once more (some files/services only"
-    $report += "       unlock after a reboot)."
+    $report += "  Then:"
+    $report += "    2. Run this verification check again (same command you just used)."
+    $report += "    3. If anything still remains, restart the computer and run"
+    $report += "       this check once more (some files/services only unlock"
+    $report += "       after a reboot)."
     $report += $line
     $report += ("  Full details saved to: " + $Log)
 }
@@ -179,6 +180,8 @@ $report | Out-File -FilePath $Log -Encoding utf8
 foreach ($l in $report) {
     if ($l -like "[!]*") { Write-Host $l -ForegroundColor Red }
     elseif ($l -like "[OK]*") { Write-Host $l -ForegroundColor Green }
+    elseif ($l -like "*>>*") { Write-Host $l -ForegroundColor Cyan }
+    elseif ($l -like "*powershell -Command*") { Write-Host $l -ForegroundColor Cyan }
     elseif ($l -like "  VERDICT:*") { Write-Host $l -ForegroundColor $(if ($anyLeft) { 'Red' } else { 'Green' }) }
     else { Write-Host $l }
 }
