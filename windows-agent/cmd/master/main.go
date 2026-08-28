@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"syscall"
 
 	"github.com/predictatrade/windows-agent/internal"
@@ -28,7 +29,13 @@ func main() {
 
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[panic] master agent process recovered: %v", r)
+			// A panic during startup means the agent cannot run. Previously this
+			// was swallowed and the process pretended to be "started" (blocking on
+			// the signal channel) while actually being dead — the service showed
+			// RUNNING but the Master Node never worked. Fail loudly so the Windows
+			// SCM reports the service failed and the real cause lands in the log.
+			log.Printf("[panic] master agent process crashed during startup: %v\n%s", r, debug.Stack())
+			os.Exit(1)
 		}
 	}()
 
@@ -50,6 +57,7 @@ func main() {
 		log.Fatalf("Failed to start agent: %v", err)
 	}
 
+	log.Println("Master Node startup complete — agent is RUNNING and forwarding market data")
 	log.Println("Master Node started successfully — waiting for signals")
 
 	sigChan := make(chan os.Signal, 1)

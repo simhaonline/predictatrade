@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"syscall"
 
 	"github.com/predictatrade/windows-agent/internal"
@@ -28,7 +29,8 @@ func main() {
 
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[panic] agent process recovered: %v", r)
+			log.Printf("[panic] client agent process crashed during startup: %v\n%s", r, debug.Stack())
+			os.Exit(1)
 		}
 	}()
 
