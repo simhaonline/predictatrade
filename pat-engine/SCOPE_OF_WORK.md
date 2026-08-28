@@ -174,11 +174,64 @@ Verified manually; the existing `mql/` EAs parse the identical format.
 | Real-data backtest replay (XAUUSD 15m, net-R:R gate live) | `internal/backtest` + `cmd/backtest` + MetaTrader loader | gateway/backtest run | DONE (research snapshot; walk-forward/OOS deferred) |
 | Control-plane license issuer + device-bound validation | `cmd/license-issuer` + `/licensing/validate` + `store.GetDevice` | E2E curl (invalid→active) | DONE |
 | Frontend (Next.js) consuming `/api/v1` | `pat-engine/frontend` + nginx `/` route + compose `pat-engine-frontend` | `next build` + render smoke | DONE |
-| Honest packaging (no false claims) | broker/license exclusion + real-data TODO | — | PARTIAL (needs real data) |
+| Honest packaging (no false claims) | broker/license exclusion + real-data backtest §12 | backtest run on real 2024Q4 + 2025 m1 | PARTIAL — real-data baseline locked: only ULTRA_SCALPING OOS PF>1 (~1.08); others net-losing. No claims published; calibration (Next action #2) required before any performance claim. |
 
-## 12. Next actions
+## 12. Real-data backtest — honest v1 stats (LOCKED)
 
-1. Plug real 2025 KAGGLE/MT5 bars into `cmd/backtest` → lock honest v1 stats.
-2. Issue signed licenses from control plane; bind device/plan/strategies.
-3. Wire live Windows Agent → `POST /candles`; deploy EA reading `PAT_signals.txt`.
-4. Add calibrated probability; only then package & publish performance.
+Ran `cmd/backtest` on the two real XAUUSD 1h datasets in `data/` (NOT synthetic):
+- `xauusd_2024q4.csv` — 86,400 bars, 2024-09-30 → 2025-01-28 (UTC)
+- `xauusd_m1.csv` — 84,960 bars, 2025-02-28 → 2025-06-28 (UTC)
+
+Both served through the **same** `BuildSnapshots` → `signal.Decide` → `Simulate`
+pipeline used live. Staleness flag is expected (data predates the run); it is
+shown so the result is never mistaken for fresh. Walk-forward = contiguous,
+non-overlapping OOS folds with **no parameter re-fitting** (params are playbook-
+derived, not data-mined).
+
+### 12.1 Full-period results (real data)
+
+| Strategy | 2024Q4 PF | 2024Q4 win% | 2025 m1 PF | 2025 m1 win% |
+|---|---|---|---|---|
+| ULTRA_SCALPING | 1.07 (26) | 53.8% | 1.27 (34) | 64.7% |
+| STANDARD_SCALPING | 0.82 (26) | 57.7% | 0.62 (88) | 43.2% |
+| STANDARD_SWING | 0.34 (161) | 36.6% | 0.55 (323) | 43.7% |
+| TREND_SWING | 0.25 (23) | 17.4% | 1.53 (127) | 68.5% |
+
+### 12.2 Walk-forward OOS (aggregated across folds)
+
+| Strategy | 2024Q4 OOS PF | 2025 m1 OOS PF |
+|---|---|---|
+| ULTRA_SCALPING | 1.08 | 1.08 |
+| STANDARD_SCALPING | 0.76 | 0.76 |
+| STANDARD_SWING | 0.37 | 0.55 |
+| TREND_SWING | 0.25 | 1.33 |
+
+### 12.3 Honest interpretation
+
+- **No strategy is reliably profitable across both regimes.** Only `ULTRA_SCALPING`
+  cleared PF>1 in both periods (marginal ~1.08). `TREND_SWING` shows PF 1.33 in
+  2025 but 0.25 in 2024Q4 — i.e. period-dependent, not robust.
+- `STANDARD_SCALPING` and `STANDARD_SWING` are **net-losing** on real data as
+  configured. `NO-TRADE` / modest-edge is a valid first-class result; we do NOT
+  force profitability or fabricate win rates.
+- This is exactly why the SOW defers any publishable performance claim until
+  walk-forward/OOS calibration on real data. The numbers above ARE the locked
+  baseline — they are honest and must not be smoothed.
+- Sample size per fold is small (tens of trades), so even PF>1 readings carry
+  wide confidence intervals. Larger/cleaner 2025 history is required before any
+  external claim.
+
+## 13. Next actions
+
+1. **(DONE — baseline locked)** Real-data backtest: honest v1 stats recorded above.
+   No claims are made; the engine currently shows weak/negative edge on XAUUSD 1h.
+2. **Calibration research (required before any claim):** run strict walk-forward
+   with parameter search on a *training* window and validate PF on a held-out
+   *test* window (never the same bars). Re-evaluate only after OOS PF>1 with
+   adequate trade count and reasonable drawdown. Models/optimizers must not
+   self-promote (SOW quant-integrity rule).
+3. Issue signed licenses from control plane; bind device/plan/strategies.
+4. Wire live Windows Agent → `POST /candles`; deploy EA reading `PAT_signals.txt`;
+   verify end-to-end with the bridged `PAT_signals.txt` handoff on a remote terminal.
+5. Add calibrated probability (named prediction target + active exit profile);
+   only then package & publish performance — and only with the OOS-evidenced edge.
