@@ -5,8 +5,8 @@ The agent is built from `pat-engine/cmd/agent` and installed **locally** from
 architecture has **no master-node role**); it feeds bars to the gateway and is
 the local side of SL-enforcement / `EMERGENCY_STOP` / `KILL_SWITCH`.
 
-> **Reference — old project (`windows-agent`):** that project shipped one-line
-> hosted commands, e.g.
+> **Reference — old project (`windows-agent`) — LEGACY, DO NOT RUN:** that project
+> shipped one-line hosted commands, e.g.
 > `irm https://downloads.predictatrade.com/windows-agent/install.ps1 | iex`
 > (install), the **same command** to update, and
 > `irm https://downloads.predictatrade.com/windows-agent/uninstall.ps1 | iex`

@@ -12,7 +12,7 @@
     windows-agent reference project for the legacy master role.)
 
     Usage (local build):  .\install-windows-agent.ps1 -EngineHost 10.0.0.5
-    Usage (release server): .\install-windows-agent.ps1 -BaseUrl https://files.predictatrade.com/pat-engine -EngineHost live.predictatrade.com
+    Usage (release server): .\install-windows-agent.ps1 -BaseUrl https://files.predictatrade.com/pat-engine -EngineHost api.predictatrade.com
 #>
 [CmdletBinding()]
 param(
