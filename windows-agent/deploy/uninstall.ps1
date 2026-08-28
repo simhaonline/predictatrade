@@ -43,11 +43,11 @@ $LegacyDir = "C:\PredictATrade\XAUUSD"   # old single-dir install; always cleane
 # Primary reference dir for shared logic.
 $InstallDir = if ($Mode -eq "master") { $MasterDir } elseif ($Mode -eq "client") { $ClientDir } else { $ClientDir }
 
-# Directories physically removed for this run. The legacy single-dir install is
-# always removed because it is superseded by the per-role directories.
-$DirsToRemove = if ($Mode -eq "master") { @($MasterDir, $LegacyDir) }
-                elseif ($Mode -eq "client") { @($ClientDir, $LegacyDir) }
-                else { @($MasterDir, $ClientDir, $LegacyDir) }
+# Directories physically removed for this run. The uninstall ALWAYS removes BOTH
+# role directories and the legacy single-dir install so a machine is fully clean
+# (the service/process removal above already covers both roles regardless of -Mode;
+# -Mode only affects messaging, not what gets removed).
+$DirsToRemove = @($MasterDir, $ClientDir, $LegacyDir)
 
 # Returns an existing nssm.exe from any role dir, the cached common copy, or PATH.
 function Get-RoleNssm {
