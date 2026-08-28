@@ -189,7 +189,7 @@ Shared (both roles): `C:\ProgramData\PredictATrade\logs\` (service logs),
 | `install-client.ps1` | Thin wrapper → installs `pat-agent-client` (exec, port 13081). |
 | `install-master.ps1` | Thin wrapper → installs `pat-agent-master` (data, port 13091). |
 | `uninstall.ps1` | Uninstaller (role-aware via `-Mode client|master|all`); ends with a cleanup-verification report. |
-| `verify-cleanup.ps1` | Standalone, non-destructive audit proving no agent remnants remain (services/processes/dirs/task/event-source/IPC). Run after uninstall. |
+| `verify-cleanup.ps1` | Standalone, non-destructive audit proving no agent remnants remain. Checks BOTH roles explicitly (Master Node + Client Agent) plus shared/legacy items (services/processes/dirs/task/event-source/IPC). Optional mode arg: `master`, `client`, or `all` (default). Run after uninstall. |
 | `status.ps1` | Status report (role-aware via `-Mode`). |
 | `health-check.ps1` | Hang/crash monitor (role-aware via `-Mode`); used by Scheduled Task. |
 | `pat-agent.exe` | Client Agent binary. |

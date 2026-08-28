@@ -1,16 +1,27 @@
 <#
 .SYNOPSIS
-    Check whether any Predict-A-Trade Windows Agent is still on this computer.
+    Verify that no Predict-A-Trade Windows Agent (Master Node and/or Client
+    Agent) remains on this computer.
 .DESCRIPTION
     Non-destructive audit for leftover services, processes, folders, scheduled
     task, event-log source and MetaTrader IPC files from any prior install —
     including the old single-folder (C:\PredictATrade\XAUUSD) install.
+
+    It checks BOTH roles explicitly:
+      • Master Node  (data-only)  — service pat-agent-master, process pat-master,
+                                     folder C:\PredictATrade\Master
+      • Client Agent (execution)  — service pat-agent-client, process pat-agent,
+                                     folder C:\PredictATrade\Client
+    plus shared/legacy items (old XAUUSD folder, scheduled task, event source,
+    Defender exclusion, MetaTrader IPC files).
 
     Run this AFTER uninstall.ps1 to confirm the agent is fully gone, or BEFORE a
     reinstall to make sure nothing old will conflict.
 
     Usage (admin PowerShell):
       irm https://downloads.predictatrade.com/windows-agent/verify-cleanup.ps1 | iex
+      irm https://downloads.predictatrade.com/windows-agent/verify-cleanup.ps1 | iex   # master
+      irm https://downloads.predictatrade.com/windows-agent/verify-cleanup.ps1 | iex   # client
 
     The script ends with a plain-language verdict. (Technically it returns
     exit code 0 = clean, 1 = leftovers found — but you only need to read the
@@ -20,13 +31,19 @@
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference = 'SilentlyContinue'
 
+# Optional mode: master | client | all (default all). Read from $args so it also
+# works when piped through 'iex' (param() does not).
+$mode = "all"
+if ($args.Count -gt 0) {
+    $m = $args[0].ToString().ToLower()
+    if (@("master","client","all") -contains $m) { $mode = $m }
+}
+
 $MasterDir  = "C:\PredictATrade\Master"
 $ClientDir  = "C:\PredictATrade\Client"
 $LegacyDir  = "C:\PredictATrade\XAUUSD"
 $EventSource = "pat-agent"
 $TaskName   = "PredictATradeHealthCheck"
-$ServiceNames = @("pat-agent-client","pat-agent-master","pat-agent","PredictATradeAgent","PredictATradeXAUUSD","agent")
-$ProcessNames = @("pat-agent","pat-master")
 $IpcFiles   = @("PAT_ticks.txt","PAT_signals.txt","PAT_license.txt","PAT_init.txt","PAT_commands.txt","PAT_heartbeat.txt","PAT_status.txt")
 
 # Runs a check; returns an object with .Value (result) and .Error (message or $null).
@@ -38,53 +55,56 @@ function Invoke-SafeCheck {
     return [PSCustomObject]@{ Value = $val; Error = $err }
 }
 
-$results = @()
+$checks = @()
 $checkErrors = @()
 
-# --- Run the checks ---
-$svcFound = @()
-foreach ($svc in $ServiceNames) {
-    $r = Invoke-SafeCheck { Get-Service -Name $svc -ErrorAction SilentlyContinue }
-    if ($r.Error) { $checkErrors += $r.Error }
-    if ($r.Value) { $svcFound += $svc }
+function Add-Check($Role, $Label, $Found, $Detail) {
+    return [PSCustomObject]@{ Role = $Role; Label = $Label; Found = [bool]$Found; Detail = $Detail }
 }
-$results += [PSCustomObject]@{ Label = "Agent Windows services (Master/Client/old)"; Found = ($svcFound.Count -gt 0); Detail = ($svcFound -join ", ") }
 
-$procFound = @()
-foreach ($pn in $ProcessNames) {
-    $r = Invoke-SafeCheck { Get-Process -Name $pn -ErrorAction SilentlyContinue }
-    if ($r.Error) { $checkErrors += $r.Error }
-    if ($r.Value) { $procFound += $pn }
-}
-$results += [PSCustomObject]@{ Label = "Agent processes running"; Found = ($procFound.Count -gt 0); Detail = ($procFound -join ", ") }
+# --- Master Node (data-only) ---
+if ($mode -eq "master" -or $mode -eq "all") {
+    $r = Invoke-SafeCheck { Get-Service -Name "pat-agent-master" -ErrorAction SilentlyContinue }
+    if ($r.Error) { $checkErrors += $r.Error } else { $checks += Add-Check "Master Node" "Windows service 'pat-agent-master'" $r.Value "pat-agent-master" }
 
-$dirFound = @()
-foreach ($d in @($MasterDir, $ClientDir, $LegacyDir)) {
-    if (Test-Path $d) { $dirFound += $d }
+    $r = Invoke-SafeCheck { Get-Process -Name "pat-master" -ErrorAction SilentlyContinue }
+    if ($r.Error) { $checkErrors += $r.Error } else { $checks += Add-Check "Master Node" "Process 'pat-master' running" $r.Value "pat-master" }
+
+    $found = Test-Path $MasterDir
+    $checks += Add-Check "Master Node" "Install folder" $found $MasterDir
 }
-$results += [PSCustomObject]@{ Label = "Agent install folders"; Found = ($dirFound.Count -gt 0); Detail = ($dirFound -join ", ") }
+
+# --- Client Agent (execution) ---
+if ($mode -eq "client" -or $mode -eq "all") {
+    $r = Invoke-SafeCheck { Get-Service -Name "pat-agent-client" -ErrorAction SilentlyContinue }
+    if ($r.Error) { $checkErrors += $r.Error } else { $checks += Add-Check "Client Agent" "Windows service 'pat-agent-client'" $r.Value "pat-agent-client" }
+
+    $r = Invoke-SafeCheck { Get-Process -Name "pat-agent" -ErrorAction SilentlyContinue }
+    if ($r.Error) { $checkErrors += $r.Error } else { $checks += Add-Check "Client Agent" "Process 'pat-agent' running" $r.Value "pat-agent" }
+
+    $found = Test-Path $ClientDir
+    $checks += Add-Check "Client Agent" "Install folder" $found $ClientDir
+}
+
+# --- Shared / legacy items ---
+$r = Invoke-SafeCheck { Test-Path $LegacyDir }
+if ($r.Error) { $checkErrors += $r.Error } else { $checks += Add-Check "Shared / Legacy" "Old single-folder install (C:\PredictATrade\XAUUSD)" $r.Value $LegacyDir }
 
 $r = Invoke-SafeCheck { Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue }
-if ($r.Error) { $checkErrors += $r.Error }
-$results += [PSCustomObject]@{ Label = "Scheduled task '$TaskName'"; Found = [bool]$r.Value; Detail = $TaskName }
+if ($r.Error) { $checkErrors += $r.Error } else { $checks += Add-Check "Shared / Legacy" "Scheduled task '$TaskName'" $r.Value $TaskName }
 
 $r = Invoke-SafeCheck { [System.Diagnostics.EventLog]::SourceExists($EventSource) }
-if ($r.Error) { $checkErrors += $r.Error }
-$results += [PSCustomObject]@{ Label = "Event-log source '$EventSource'"; Found = [bool]$r.Value; Detail = $EventSource }
+if ($r.Error) { $checkErrors += $r.Error } else { $checks += Add-Check "Shared / Legacy" "Event-log source '$EventSource'" $r.Value $EventSource }
 
 $ipcFound = @()
 $ipcCommon = Join-Path $env:APPDATA "MetaQuotes\Terminal\Common\Files"
 foreach ($f in $IpcFiles) {
     if (Test-Path (Join-Path $ipcCommon $f)) { $ipcFound += $f }
 }
-$results += [PSCustomObject]@{ Label = "MetaTrader IPC files"; Found = ($ipcFound.Count -gt 0); Detail = ($ipcFound -join ", ") }
+$checks += Add-Check "Shared / Legacy" "MetaTrader IPC files" ($ipcFound.Count -gt 0) ($ipcFound -join ", ")
 
-$r = Invoke-SafeCheck {
-    $pref = Get-MpPreference -ErrorAction SilentlyContinue
-    ($pref -and ($pref.ExclusionPath -contains "C:\PredictATrade"))
-}
-if ($r.Error) { $checkErrors += $r.Error }
-$results += [PSCustomObject]@{ Label = "Windows Defender exclusion for C:\PredictATrade"; Found = [bool]$r.Value; Detail = "C:\PredictATrade" }
+$r = Invoke-SafeCheck { $pref = Get-MpPreference -ErrorAction SilentlyContinue; ($pref -and ($pref.ExclusionPath -contains "C:\PredictATrade")) }
+if ($r.Error) { $checkErrors += $r.Error } else { $checks += Add-Check "Shared / Legacy" "Windows Defender exclusion for C:\PredictATrade" $r.Value "C:\PredictATrade" }
 
 # --- Build the human-readable report ---
 $line = "============================================================"
@@ -92,37 +112,46 @@ $Log = Join-Path $env:TEMP "pat_verify_cleanup.log"
 $report = @()
 $report += $line
 $report += "  Predict-A-Trade Agent — Removal Verification"
-$report += ("  " + (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"))
+$report += ("  Mode: " + $mode.ToUpper() + "    " + (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"))
 $report += $line
 $report += ""
-$report += "  Checking this computer for any leftover agent pieces..."
-$report += ""
 
-foreach ($row in $results) {
-    if ($row.Found) {
-        $report += ("  [!] LEFT OVER: " + $row.Label)
-        $report += ("        -> " + $row.Detail)
-    } else {
-        $report += ("  [OK] " + $row.Label + " — none found")
+$roles = @("Master Node","Client Agent","Shared / Legacy")
+foreach ($role in $roles) {
+    $roleChecks = $checks | Where-Object { $_.Role -eq $role }
+    if ($roleChecks.Count -eq 0) { continue }
+    $report += "  $role"
+    $report += "  " + ("-" * 52)
+    foreach ($c in $roleChecks) {
+        if ($c.Found) {
+            $report += ("    [!] LEFT OVER: " + $c.Label)
+            $report += ("         -> " + $c.Detail)
+        } else {
+            $report += ("    [OK] " + $c.Label + " — none found")
+        }
     }
+    $report += ""
 }
 
 if ($checkErrors.Count -gt 0) {
-    $report += ""
     $report += "  NOTE: Some checks could not run (often just missing admin"
     $report += "        rights). Re-run this script as Administrator."
     $report += "        (" + ($checkErrors -join "; ") + ")"
+    $report += ""
 }
 
-$report += ""
 $report += $line
 
-$anyLeft = ($results | Where-Object { $_.Found }).Count -gt 0
+$anyLeft = ($checks | Where-Object { $_.Found }).Count -gt 0
 if (-not $anyLeft -and $checkErrors.Count -eq 0) {
     $report += "  VERDICT:  Your computer is CLEAN."
     $report += "  No Predict-A-Trade agent remnants were found."
-    $report += "  You can safely install or reinstall the Master Node"
-    $report += "  and/or the Client Agent."
+    if ($mode -eq "all") {
+        $report += "  You can safely install or reinstall BOTH the Master Node"
+        $report += "  and the Client Agent."
+    } else {
+        $report += ("  The " + $mode + " role is clear.")
+    }
     $report += $line
 } else {
     $report += "  VERDICT:  Leftover agent pieces were found."
