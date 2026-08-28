@@ -6,6 +6,7 @@ package backtest
 import (
 	"math"
 	"math/rand"
+	"time"
 
 	"pat-engine/internal/indicators"
 	"pat-engine/internal/types"
@@ -125,13 +126,36 @@ func BuildSnapshots(bars []Bar) []*types.MarketState {
 			},
 			MTFScore: mtf,
 			Regime:   regime,
-			Session:  types.Session{CurrentSession: "LONDON"},
+			Session:  sessionFromTime(bars[i].Time),
 			Quality:  "AUTHORITATIVE",
 			VWAP:     vwap[i],
 		}
 		st.Candle.IsBullish = close[i] > bars[i].Open
 		st.Candle.IsBearish = close[i] < bars[i].Open
 		st.Candle.IsDisplacement = math.Abs(close[i]-bars[i].Open) > atr[i]*0.6
+
+		// Derived market structure + liquidity (lightweight; enough for the
+		// strategy confluence math that expects LastBOS / RecentSweeps).
+		var bosDir string
+		if i >= 20 {
+			if close[i] > maxLastN(close, i, 20) {
+				bosDir = "bullish"
+			} else if close[i] < minLastN(close, i, 20) {
+				bosDir = "bearish"
+			}
+		}
+		if bosDir != "" {
+			st.Structure.LastBOS = &types.BOS{Direction: bosDir}
+		}
+		if i >= 10 {
+			if low[i] < minLastN(low, i, 10) {
+				st.Liquidity.RecentSweeps = append(st.Liquidity.RecentSweeps, types.Sweep{Direction: "SELL_SIDE"})
+			}
+			if high[i] > maxLastN(high, i, 10) {
+				st.Liquidity.RecentSweeps = append(st.Liquidity.RecentSweeps, types.Sweep{Direction: "BUY_SIDE"})
+			}
+		}
+
 		states[i] = st
 	}
 	return states
@@ -180,4 +204,48 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// maxLastN returns the max of arr in (i-n, i) exclusive of i.
+func maxLastN(arr []float64, i, n int) float64 {
+	m := arr[max(0, i-n)]
+	for j := max(0, i-n); j < i; j++ {
+		if arr[j] > m {
+			m = arr[j]
+		}
+	}
+	return m
+}
+
+// minLastN returns the min of arr in (i-n, i) exclusive of i.
+func minLastN(arr []float64, i, n int) float64 {
+	m := arr[max(0, i-n)]
+	for j := max(0, i-n); j < i; j++ {
+		if arr[j] < m {
+			m = arr[j]
+		}
+	}
+	return m
+}
+
+// sessionFromTime maps a bar timestamp to a gold trading session. The historical
+// files are in broker/server time; this is an approximation used for the offline
+// replay label. The live gateway uses broker.BrokerPolicy.Session (timezone-aware).
+func sessionFromTime(t int64) types.Session {
+	if t == 0 {
+		return types.Session{CurrentSession: "LONDON"}
+	}
+	h := time.Unix(t, 0).UTC().Hour()
+	switch {
+	case h >= 0 && h < 7:
+		return types.Session{CurrentSession: "TOKYO"}
+	case h >= 7 && h < 13:
+		return types.Session{CurrentSession: "LONDON"}
+	case h >= 13 && h < 17:
+		return types.Session{CurrentSession: "OVERLAP", IsOverlap: true}
+	case h >= 17 && h < 22:
+		return types.Session{CurrentSession: "NEW_YORK"}
+	default:
+		return types.Session{CurrentSession: "SYDNEY"}
+	}
 }

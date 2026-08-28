@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"pat-engine/internal/indicators"
 	"pat-engine/internal/types"
@@ -132,6 +133,43 @@ func FromCSV(path string) ([]Bar, error) {
 			}
 		}
 		bars = append(bars, Bar{Time: t, Open: o, High: h, Low: l, Close: c, Spread: sp})
+	}
+	return bars, nil
+}
+
+// FromMetaCSV loads MetaTrader-style bars: "Date;Open;High;Low;Close;Volume"
+// (semicolon-delimited, date like "2004.06.11 07:00"). No spread column exists, so
+// it defaults to 0.20 (typical XAUUSD). This is the real-history entry point.
+func FromMetaCSV(path string) ([]Bar, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	r := csv.NewReader(f)
+	r.Comma = ';'
+	rows, err := r.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+	const layout = "2006.01.02 15:04"
+	var bars []Bar
+	for idx, row := range rows {
+		if idx == 0 {
+			continue // header
+		}
+		if len(row) < 5 {
+			continue
+		}
+		o, _ := strconv.ParseFloat(strings.TrimSpace(row[1]), 64)
+		h, _ := strconv.ParseFloat(strings.TrimSpace(row[2]), 64)
+		l, _ := strconv.ParseFloat(strings.TrimSpace(row[3]), 64)
+		c, _ := strconv.ParseFloat(strings.TrimSpace(row[4]), 64)
+		t := int64(0)
+		if tm, e := time.Parse(layout, strings.TrimSpace(row[0])); e == nil {
+			t = tm.Unix()
+		}
+		bars = append(bars, Bar{Time: t, Open: o, High: h, Low: l, Close: c, Spread: 0.20})
 	}
 	return bars, nil
 }

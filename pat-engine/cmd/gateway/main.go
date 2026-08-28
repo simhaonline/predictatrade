@@ -169,9 +169,22 @@ func registerAPI(gw *provider.Gateway) {
 			writeJSON(w, map[string]string{"status": "invalid", "reason": err.Error()})
 			return
 		}
-		if err := lic.IsValid(""); err != nil {
+		if err := lic.IsValid(body.DeviceID); err != nil {
 			writeJSON(w, map[string]string{"status": "invalid", "reason": err.Error()})
 			return
+		}
+		// Store-backed device binding: if the token is bound to a device, that device
+		// must be registered (the agent's hardware fingerprint was seen). Without the
+		// store we cannot verify, so we only enforce when persistence is available.
+		if lic.DeviceID != "" && gw.Store() != nil {
+			dev := gw.Store().GetDevice(r.Context(), lic.DeviceID)
+			if dev == nil {
+				writeJSON(w, map[string]string{
+					"status": "invalid",
+					"reason": "device_not_registered:" + lic.DeviceID,
+				})
+				return
+			}
 		}
 		writeJSON(w, map[string]any{
 			"status":             "active",

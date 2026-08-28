@@ -220,6 +220,22 @@ func (s *Store) UpsertDevice(ctx context.Context, d Device) {
 	}
 }
 
+// GetDevice returns a registered device by id, or nil if not found/absent.
+func (s *Store) GetDevice(ctx context.Context, id string) *Device {
+	if s.pg == nil || id == "" {
+		return nil
+	}
+	var d Device
+	err := s.pg.QueryRow(ctx,
+		`SELECT id,license_id,fingerprint_hash,fingerprint_components,installation_id,hostname,os
+		 FROM devices WHERE id=$1`, id).
+		Scan(&d.ID, &d.LicenseID, &d.Fingerprint, &d.Components, &d.InstallID, &d.Hostname, &d.OS)
+	if err != nil {
+		return nil
+	}
+	return &d
+}
+
 // SaveTelemetry records one heartbeat sample.
 func (s *Store) SaveTelemetry(ctx context.Context, t Telemetry) {
 	if s.pg == nil {
