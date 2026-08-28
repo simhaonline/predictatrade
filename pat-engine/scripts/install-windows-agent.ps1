@@ -12,7 +12,7 @@
     windows-agent reference project for the legacy master role.)
 
     Usage (local build):  .\install-windows-agent.ps1 -EngineHost 10.0.0.5
-    Usage (release server): .\install-windows-agent.ps1 -BaseUrl https://files.predictatrade.com/pat-engine -EngineHost api.predictatrade.com
+    Usage (release server): .\install-windows-agent.ps1 -BaseUrl https://files.predictatrade.com/pat-engine -EngineHost live.predictatrade.com
 #>
 [CmdletBinding()]
 param(
@@ -32,27 +32,7 @@ $EaFiles     = @("PredictATrade_MT4.mq4", "PredictATrade_MT5.mq5")
 $RoleLabel   = "Client Agent (execution)"
 
 # Resolve the gateway URL the agent feeds (pat-engine gateway is plain HTTP POST /bar).
-# - Explicit -GatewayUrl wins.
-# - Local host/IP  -> http://host:port/bar (engine gateway default 8080).
-# - Public domain  -> TLS terminated upstream: https://host/bar (port 443). The
-#   internal :8080 is never exposed publicly; nginx fronts it on 80/443 and the
-#   outer reverse proxy terminates TLS, so the agent uses the domain on 443.
-function Resolve-GatewayUrl {
-    param([string]$HostArg,[int]$PortArg,[string]$Explicit)
-    if ($Explicit) { return $Explicit }
-    $isLocal = ($HostArg -match '^(localhost|127\.0\.0\.1|::1)$') -or ($HostArg -match '^\d{1,3}(\.\d{1,3}){3}$')
-    if ($isLocal) { return "http://${HostArg}:${PortArg}/bar" }
-    if ($PortArg -eq 443 -or $PortArg -eq 80) {
-        $scheme = if ($PortArg -eq 443) { "https" } else { "http" }
-        return "${scheme}://${HostArg}/bar"
-    }
-    # Non-standard public port: keep scheme derived from port (443->https).
-    $scheme = if ($PortArg -eq 8080) { "https" } else { "http" }
-    $effPort = if ($PortArg -eq 8080) { 443 } else { $PortArg }
-    if ($effPort -eq 443 -and $scheme -eq "https") { return "https://${HostArg}/bar" }
-    return "${scheme}://${HostArg}:${effPort}/bar"
-}
-$Gw = Resolve-GatewayUrl -HostArg $EngineHost -PortArg $GatewayPort -Explicit $GatewayUrl
+$Gw = if ($GatewayUrl) { $GatewayUrl } else { "http://${EngineHost}:${GatewayPort}/bar" }
 
 # ─── Self-elevation (UAC) ───
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
