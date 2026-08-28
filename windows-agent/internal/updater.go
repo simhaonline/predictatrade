@@ -314,6 +314,11 @@ if exist "%s" move /Y "%s" "%s" 2>nul
 echo [update] Installing new binary...
 move /Y "%s" "%s" 2>nul
 
+echo [update] Removing Mark-of-the-Web (Unblock-File) so Defender/SmartScreen won't block it...
+powershell -NoProfile -Command "Unblock-File -Path '%s' -ErrorAction SilentlyContinue" 2>nul
+echo [update] Ensuring Windows Defender exclusion for the install directory...
+powershell -NoProfile -Command "Add-MpPreference -ExclusionPath '%s' -ErrorAction SilentlyContinue" 2>nul
+
 echo [update] Updating version file...
 echo %s> "%s"
 
@@ -333,6 +338,7 @@ echo [update] Done.
 		serviceName,
 		currentPath, currentPath, backupPath,
 		stagedPath, currentPath,
+		currentPath, installDir,
 		manifest.Version, versionFile,
 		nssmPath, nssmPath, serviceName,
 		serviceName,
