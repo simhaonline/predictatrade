@@ -227,3 +227,29 @@ Shared (both roles): `C:\ProgramData\PredictATrade\logs\` (service logs),
   `PAT_PAPER_EQUITY` fallback is demo-only and never overrides a live account.
 - **Production signing:** builds should use a valid Authenticode certificate.
   Self-signed binaries are acceptable for labelled local dev/test only.
+
+---
+
+## 8. Troubleshooting
+
+### EA shows "Access Denied | License: PENDING" even though the license is ACTIVE
+The EA reads `PAT_license.txt`, which the agent writes from the server's
+license-validation response. `PENDING` (with plan defaulting to `ELITE`) means the
+agent's HTTP call to `POST /api/v1/licensing/validate` did **not** return `ACTIVE`.
+The most common cause is a **stale `PAT_API_URL` machine environment variable**
+pointing at `live.predictatrade.com/api/v1`. That edge host proxies `/api/v1` to the
+Go realtime engine, **not** the NestJS control plane, so validation 404s and the
+agent records `UNKNOWN` → the EA denies access.
+
+Fix — re-run the installer (it now pins the correct value):
+```powershell
+irm https://downloads.predictatrade.com/windows-agent/install-client.ps1 | iex
+irm https://downloads.predictatrade.com/windows-agent/install-master.ps1 | iex
+```
+Or set it manually and restart both services:
+```powershell
+[Environment]::SetEnvironmentVariable("PAT_API_URL","https://api.predictatrade.com/api/v1","Machine")
+Restart-Service pat-agent-client; Restart-Service pat-agent-master
+```
+Confirm via the agent log line `License validation response: HTTP 200 — {... "status":"ACTIVE" ...}`
+or the health endpoint's `license` field.
