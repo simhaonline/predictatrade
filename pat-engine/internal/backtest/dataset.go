@@ -86,6 +86,14 @@ func BuildSnapshots(bars []Bar) []*types.MarketState {
 	ema200 := indicators.EMA(close, 200)
 	sma200 := indicators.SMA(close, 200)
 	atr := indicators.ATR(high, low, close, 14)
+	slowAtr := indicators.ATR(high, low, close, 100)
+	ema400 := indicators.EMA(close, 400)
+	// Higher-timeframe bias proxy: EMA200 vs EMA400 on the same series (a longer
+	// horizon than the trading timeframe). Computed once, reused by the strategy gate.
+	htfBull := make([]bool, n)
+	for i := 0; i < n; i++ {
+		htfBull[i] = ema200[i] > ema400[i]
+	}
 	rsi := indicators.RSI(close, 14)
 	macd, macdSig, osma := indicators.MACD(close, 12, 26, 9)
 	adx, pDI, mDI := indicators.ADX(high, low, close, 14)
@@ -93,9 +101,12 @@ func BuildSnapshots(bars []Bar) []*types.MarketState {
 	_, bUp, bLo := indicators.Bollinger(close, 20, 2)
 	vwap := indicators.VWAP(high, low, close, 20)
 
-	// Precompute liquidity-sweep / BOS detection over the series using a 20-bar
-	// pivot window. A sweep = price taking the pivot extreme; a BOS = close breaking
-	// the opposite pivot. The structural edge is sweep -> BOS sequence, not same-bar.
+	// Precompute liquidity-sweep / BOS detection over the series using a 15-bar
+	// pivot window. A genuine *sweep* is a liquidity grab: price wicks beyond the
+	// pivot extreme but CLOSES BACK INSIDE it (the playbook's highest-edge setup is
+	// sweep -> reclaim). A BOS = close breaking the opposite pivot. The structural
+	// edge is sweep -> BOS sequence, not same-bar. Pivot lookback 15, tolerance
+	// 0.05% so legitimate XAUUSD grabs (sub-tick to a few pips) are captured.
 	sweepSell := make([]bool, n)
 	sweepBuy := make([]bool, n)
 	bosBull := make([]bool, n)
@@ -104,16 +115,20 @@ func BuildSnapshots(bars []Bar) []*types.MarketState {
 		if i < 20 {
 			continue
 		}
-		if low[i] <= minLastN(low, i, 20) {
+		pLow := minLastN(low, i, 15)
+		pHigh := maxLastN(high, i, 15)
+		// wick beyond the sell-side liquidity pool, but body reclaimed inside
+		if low[i] <= pLow*0.9995 && close[i] > pLow {
 			sweepSell[i] = true
 		}
-		if high[i] >= maxLastN(high, i, 20) {
+		// wick beyond the buy-side liquidity pool, but body reclaimed inside
+		if high[i] >= pHigh*1.0005 && close[i] < pHigh {
 			sweepBuy[i] = true
 		}
-		if close[i] > maxLastN(high, i, 20) {
+		if close[i] > pHigh {
 			bosBull[i] = true
 		}
-		if close[i] < minLastN(low, i, 20) {
+		if close[i] < pLow {
 			bosBear[i] = true
 		}
 	}
@@ -145,6 +160,7 @@ func BuildSnapshots(bars []Bar) []*types.MarketState {
 			H1Close:      close[max(0, i-60)],
 			Spread:       spread[i],
 			ATR:          atr[i],
+			SlowATR:      slowAtr[i],
 			Indicators: types.Indicators{
 				EMA9: ema9[i], EMA21: ema21[i], EMA50: ema50[i],
 				EMA100: ema100[i], EMA200: ema200[i], SMA200: sma200[i],
@@ -156,9 +172,16 @@ func BuildSnapshots(bars []Bar) []*types.MarketState {
 			},
 			MTFScore: mtf,
 			Regime:   regime,
+			HTFBias: func() types.Direction {
+				if htfBull[i] {
+					return types.Bullish
+				}
+				return types.Bearish
+			}(),
 			Session:  sessionFromTime(bars[i].Time),
 			Quality:  "AUTHORITATIVE",
 			VWAP:     vwap[i],
+			UTCHour:  int(time.Unix(bars[i].Time, 0).UTC().Hour()),
 		}
 		st.Candle.IsBullish = close[i] > bars[i].Open
 		st.Candle.IsBearish = close[i] < bars[i].Open
@@ -168,7 +191,7 @@ func BuildSnapshots(bars []Bar) []*types.MarketState {
 		// a liquidity sweep within the last 8 bars, then a break of structure now.
 		var sweeps []types.Sweep
 		recentSellSweep, recentBuySweep := false, false
-		for j := max(0, i-8); j <= i; j++ {
+		for j := max(0, i-12); j <= i; j++ {
 			if sweepSell[j] {
 				recentSellSweep = true
 			}
@@ -198,49 +221,122 @@ func BuildSnapshots(bars []Bar) []*types.MarketState {
 // reports the realized P&L in price units (positive = profit) AFTER realistic
 // round-turn costs (spread on entry+exit, commission, slippage) using the broker
 // execution profile. This is the honest figure — no idealized fills.
-func Simulate(states []*types.MarketState, i int, dir types.Direction, entry, sl, tp1 float64, maxBars int, exec broker.ExecutionProfile) float64 {
+//
+// Exit model follows the external scalping research (where the profit actually
+// lives, §8): close 50% at the first target (1R) and move the remainder's stop to
+// breakeven; then trail the remainder under the swing high/low by 1 ATR and take
+// the next targets (2R/3R). A trade is counted a WIN once it reaches 1R (because
+// the position is then risk-free at BE) — this is the genuine edge, not the prior
+// "must reach 3R–5R" rule that turned scratches into full -1R losses.
+func Simulate(states []*types.MarketState, i int, dir types.Direction, entry, sl, tp1, tp2, tp3 float64, maxBars int, exec broker.ExecutionProfile) float64 {
 	if i+1 >= len(states) {
 		return 0
 	}
 	// Round-turn transaction cost in price units (1-lot basis).
 	cost := 0.0
 	if exec.TickSize > 0 {
-		spreadPts := exec.TypicalSpread * 2            // entry + exit
-		slipPts := defaultSlippagePointsRoundTurn      // round-turn slippage
+		spreadPts := exec.TypicalSpread * 2       // entry + exit
+		slipPts := defaultSlippagePointsRoundTurn // round-turn slippage
 		cost += (spreadPts + slipPts) * exec.TickSize
 	}
 	cost += exec.CommissionPrice(1.0) * 2 // round-turn commission (price units / lot)
 
+	const half = 0.5
 	raw := func() float64 {
+		stop := sl
+		be := false
+		partial := false
+		best := entry
 		for j := i + 1; j < len(states) && j <= i+maxBars; j++ {
 			b := states[j]
 			if dir == types.DirBuy {
-				if b.Low <= sl {
-					return sl - entry // loss
+				if !partial && b.High >= tp1 {
+					partial = true
+					be = true
+					stop = entry // move remainder to breakeven
 				}
-				if b.High >= tp1 {
-					return tp1 - entry // win
+				if be {
+					if b.High > best {
+						best = b.High
+					}
+					if trail := best - b.ATR; trail > stop {
+						stop = trail
+					}
+					if b.High >= tp3 {
+						return half*(tp1-entry) + half*(tp3-entry)
+					}
+					if b.High >= tp2 {
+						return half*(tp1-entry) + half*(tp2-entry)
+					}
+					if b.Low <= stop {
+						return half*(tp1-entry) + half*(stop-entry)
+					}
+				} else if b.Low <= stop {
+					return sl - entry
 				}
 			} else {
-				if b.High >= sl {
-					return entry - sl // loss
+				if !partial && b.Low <= tp1 {
+					partial = true
+					be = true
+					stop = entry
 				}
-				if b.Low <= tp1 {
-					return entry - tp1 // win
+				if be {
+					if b.Low < best {
+						best = b.Low
+					}
+					if trail := best + b.ATR; trail < stop {
+						stop = trail
+					}
+					if b.Low <= tp3 {
+						return half*(entry-tp1) + half*(entry-tp3)
+					}
+					if b.Low <= tp2 {
+						return half*(entry-tp1) + half*(entry-tp2)
+					}
+					if b.High >= stop {
+						return half*(entry-tp1) + half*(entry-stop)
+					}
+				} else if b.High >= stop {
+					return entry - sl
 				}
 			}
 		}
-		// Expired without hit: mark to last close.
+		// Expired: mark the remainder to the trailing stop / BE / last close.
 		last := states[min(len(states)-1, i+maxBars)].CurrentPrice
+		if partial {
+			remExit := entry
+			if be {
+				if dir == types.DirBuy {
+					remExit = maxF(stop, last)
+				} else {
+					remExit = minF(stop, last)
+				}
+			}
+			if dir == types.DirBuy {
+				return half*(tp1-entry) + half*(remExit-entry)
+			}
+			return half*(entry-tp1) + half*(entry-remExit)
+		}
 		if dir == types.DirBuy {
 			return last - entry
 		}
 		return entry - last
 	}()
-	if raw >= 0 {
-		return raw - cost
-	}
 	return raw - cost
+}
+
+func maxF(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func minF(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func max(a, b int) int {

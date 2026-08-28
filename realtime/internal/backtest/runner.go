@@ -41,7 +41,7 @@ func NewRunner(config BacktestConfig) *Runner {
 		registry: features.NewRegistry(),
 		strategy: strat,
 		tracker:  NewTradeTracker(config),
-		reader:   NewDBCandleReader(config.DBUrl),
+		reader:   NewDBCandleReader(config.DBUrl, config.Source),
 	}
 }
 

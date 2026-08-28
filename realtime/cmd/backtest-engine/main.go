@@ -29,6 +29,7 @@ func main() {
 	store := flag.Bool("store", false, "Store results in database (trading.backtest_runs)")
 	dbURL := flag.String("db-url", "", "PostgreSQL URL (or read from database_url.txt)")
 	higherTFs := flag.String("higher-tfs", "M15,H1,H4,D1", "Higher timeframes for MTF alignment")
+	source := flag.String("source", "MT5_MASTER", "market.candles.source to use (real feed). Empty = all sources.")
 	flag.Parse()
 
 	// Get DB URL
@@ -80,6 +81,7 @@ func main() {
 	config.EndTime = endTime.UTC()
 	config.InitialBalance = decimal.NewFromFloat(*balance)
 	config.DBUrl = url
+	config.Source = *source
 
 	// Print config
 	fmt.Println(strings.Repeat("=", 70))
@@ -89,6 +91,7 @@ func main() {
 	fmt.Printf("  Timeframe:   %s\n", config.PrimaryTimeframe)
 	fmt.Printf("  Higher TFs:  %v\n", config.HigherTimeframes)
 	fmt.Printf("  Period:      %s → %s\n", startTime.Format("2006-01-02"), endTime.Format("2006-01-02"))
+	fmt.Printf("  Source:      %s\n", *source)
 	fmt.Printf("  Balance:     $%.2f\n", *balance)
 	fmt.Printf("  Store in DB: %v\n", *store)
 	fmt.Println(strings.Repeat("=", 70))

@@ -20,6 +20,7 @@ import (
 type BacktestConfig struct {
 	Symbol           string
 	StrategyID       types.StrategyID
+	Source           string // market.candles.source to use (e.g. MT5_MASTER). Empty = all sources.
 	PrimaryTimeframe types.Timeframe
 	HigherTimeframes []types.Timeframe
 	StartTime        time.Time

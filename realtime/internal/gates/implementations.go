@@ -324,8 +324,26 @@ func (g *RRNetExpectancyGate) Evaluate(input GateInput, state GateState) GateEva
 	}
 
 	if input.StopLoss != 0 && input.TakeProfit1 != 0 && input.EntryPrice != 0 {
+		// Geometry sanity: SL and TP must bracket the entry on the correct sides.
+		// A mis-bracketed trade has undefined R:R and must never be executable.
+		if input.Direction == types.DirectionBuy && !(input.StopLoss < input.EntryPrice && input.TakeProfit1 > input.EntryPrice) {
+			eval.Result = types.GateVeto
+			eval.ReasonCodes = []string{string(types.NTPoorRR), "INVALID_SLTP_GEOMETRY"}
+			return eval
+		}
+		if input.Direction == types.DirectionSell && !(input.TakeProfit1 < input.EntryPrice && input.StopLoss > input.EntryPrice) {
+			eval.Result = types.GateVeto
+			eval.ReasonCodes = []string{string(types.NTPoorRR), "INVALID_SLTP_GEOMETRY"}
+			return eval
+		}
 		grossRR := abs(input.TakeProfit1-input.EntryPrice) / abs(input.EntryPrice-input.StopLoss)
-		if g.MinGrossRR > 0 && grossRR < g.MinGrossRR {
+		// Absolute floor: never trade R:R < 1.0 regardless of configuration, so a
+		// mis-set MIN_RR can never admit negative-expectancy trades.
+		minRR := g.MinGrossRR
+		if minRR < 1.0 {
+			minRR = 1.0
+		}
+		if grossRR < minRR {
 			eval.Result = types.GateVeto
 			eval.ReasonCodes = []string{string(types.NTPoorRR)}
 			return eval

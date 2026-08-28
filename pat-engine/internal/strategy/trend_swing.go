@@ -50,10 +50,6 @@ func (s *TrendSwing) Evaluate(state *types.MarketState) StrategyResult {
 		res.ReasonCodes = append(res.ReasonCodes, "HIGH_NEWS_RISK")
 		return res
 	}
-	if state.ATR > 0 && (state.Spread/state.ATR) > s.cfg.SpreadATRGate {
-		res.ReasonCodes = append(res.ReasonCodes, "HIGH_SPREAD")
-		return res
-	}
 
 	// Trend Swing requires a genuine trend — weak ADX is an immediate NO-TRADE.
 	if state.Indicators.ADX <= s.cfg.MinADX {
@@ -132,7 +128,7 @@ func (s *TrendSwing) Evaluate(state *types.MarketState) StrategyResult {
 		}
 	}
 
-	dir, raw, long, short, reasons := scoreFromEvidence(ev, s.cfg.MinConfluence, state)
+	dir, raw, long, short, reasons := scoreFromEvidence(ev, s.cfg.MinConfluence, state, s.cfg)
 	res.ReasonCodes = append(res.ReasonCodes, reasons...)
 	res.Direction = dir
 	res.RawScore = raw

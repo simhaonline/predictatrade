@@ -13,6 +13,7 @@ func ultraBullState() *types.MarketState {
 	return &types.MarketState{
 		Symbol:       "XAUUSD",
 		Timeframe:    types.TFM1,
+		UTCHour:      10, // within prime window [7,17) and LONDON session
 		CurrentPrice: 2000.00,
 		H1Close:      1998.00,
 		VWAP:         1999.90,
@@ -26,7 +27,8 @@ func ultraBullState() *types.MarketState {
 		},
 		MTFScore: 15,
 		Regime:   "TRENDING_BULLISH",
-		Session:  types.Session{CurrentSession: "LONDON"},
+		HTFBias:  types.Bullish,
+		Session:  types.Session{CurrentSession: "NEW_YORK"},
 		Quality:  "AUTHORITATIVE",
 		Candle:   types.Candle{IsBullish: true, IsDisplacement: true},
 		Liquidity: types.Liquidity{RecentSweeps: []types.Sweep{{Direction: "SELL_SIDE"}}},
@@ -46,7 +48,8 @@ func TestUltraScalpingExecutable(t *testing.T) {
 	if d.Signal.Direction != types.DirBuy {
 		t.Fatalf("expected BUY, got %s", d.Signal.Direction)
 	}
-	rr := (d.Signal.TP1 - d.Signal.EntryPrice) / (d.Signal.EntryPrice - d.Signal.StopLoss)
+	// Under the 1R/2R/3R exit model, MinRR is validated against the 2R target (TP2).
+	rr := (d.Signal.TP2 - d.Signal.EntryPrice) / (d.Signal.EntryPrice - d.Signal.StopLoss)
 	if rr < cfg.MinRR-1e-6 {
 		t.Fatalf("expected R:R >= %.2f, got %.2f", cfg.MinRR, rr)
 	}

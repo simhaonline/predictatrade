@@ -1530,20 +1530,32 @@ func main() {
 		// Enrich missing fields from the originating signal. This guarantees real
 		// direction and opening context for both historical trades and minimal
 		// payloads from older EAs (no empty/zero placeholder in the dashboard).
+		// Additionally, the EA frequently omits SL/TP in the TRADE_RESULT payload
+		// (observed: stop_loss/take_profit NULL on 100% of live trades). When the
+		// EA does not report them, fall back to the server-authoritative SL/TP that
+		// the strategy computed, so trade_results always reflects the planned
+		// risk geometry (audit/edge validation depends on this being honest).
 		direction := tr.Direction
 		var openedAt *time.Time
-		if direction == "" || tr.OpenedAt == "" {
+		var sigStopLoss, sigTP1 float64
+		if direction == "" || tr.OpenedAt == "" || tr.StopLoss == 0 || tr.TakeProfit == 0 {
 			var sigDir string
 			var sigCreated time.Time
 			if err := persister.GetDB().QueryRowContext(ctxTR,
-				`SELECT direction, created_at FROM trading.signals WHERE id=$1`, signalID,
-			).Scan(&sigDir, &sigCreated); err == nil {
+				`SELECT direction, created_at, COALESCE(stop_loss,0), COALESCE(tp1,0) FROM trading.signals WHERE id=$1`, signalID,
+			).Scan(&sigDir, &sigCreated, &sigStopLoss, &sigTP1); err == nil {
 				if direction == "" && sigDir != "" {
 					direction = sigDir
 				}
 				if tr.OpenedAt == "" && !sigCreated.IsZero() {
 					t := sigCreated
 					openedAt = &t
+				}
+				if tr.StopLoss == 0 && sigStopLoss != 0 {
+					tr.StopLoss = sigStopLoss
+				}
+				if tr.TakeProfit == 0 && sigTP1 != 0 {
+					tr.TakeProfit = sigTP1
 				}
 			}
 		}
@@ -1610,7 +1622,7 @@ func main() {
 				 mae, mfe, trading_day, timeframe)
 			VALUES ($1,$2,$3,'XAUUSD',$4,
 				 $5,$6,$7,$8,$9,$10,
-				 $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,CURRENT_DATE,$21)`,
+				$11,$12,$13,$14,$15,$16,$17,$18,$19,CURRENT_DATE,$20)`,
 			signalID, "agent:"+agentID, tr.StrategyID,
 			direction,
 			fmt.Sprintf("%d", tr.Ticket), tr.Entry, tr.Exit, tr.StopLoss, tr.TakeProfit, tr.Lot,
@@ -3635,7 +3647,28 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				decision.Signal.ProvenanceState = types.ProvenanceUnverified
 			}
 			if decision.AllGatesPass {
-				decision.Signal.SignalClass = "EXECUTABLE"
+				// Duplicate EXECUTABLE suppression. The EA is autonomous and opens
+				// positions for every EXECUTABLE signal it receives; re-emitting the
+				// same executable bar (e.g. across re-evaluations/retries) causes
+				// duplicate/over-positioning. Enforce at most ONE EXECUTABLE per
+				// (strategy, market_bar_close_time, direction). Fail closed to
+				// ADVISORY if an EXECUTABLE already exists for this bar.
+				dupCtx, dupCancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+				var existing int
+				_ = persister.GetDB().QueryRowContext(dupCtx,
+					`SELECT 1 FROM trading.signals WHERE strategy_id=$1 AND market_bar_close_time=$2 AND direction=$3 AND signal_class='EXECUTABLE' LIMIT 1`,
+					string(strat.ID()), decision.Signal.MarketBarCloseTime, string(decision.Signal.Direction),
+				).Scan(&existing)
+				dupCancel()
+				if existing == 1 {
+					decision.Signal.SignalClass = "ADVISORY"
+					decision.Signal.ReasonCodes = append(decision.Signal.ReasonCodes, "DUPLICATE_EXECUTABLE_SUPPRESSED")
+					observability.Log.Warn().Str("strategy", string(strat.ID())).
+						Time("bar", decision.Signal.MarketBarCloseTime).
+						Msg("[DEDUP] suppressing duplicate EXECUTABLE for same bar")
+				} else {
+					decision.Signal.SignalClass = "EXECUTABLE"
+				}
 				decision.Signal.QualifiedAt = time.Now().UTC()
 				decision.Signal.PublishedAt = time.Now().UTC()
 				// Count toward the per-strategy position cap until the signal's

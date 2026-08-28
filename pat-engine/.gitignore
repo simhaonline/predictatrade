@@ -8,3 +8,8 @@ infra/env/.env
 # build artifacts
 *.exe
 pat-engine.bin
+backtest
+dist/
+
+# downloaded real-market CSVs (regenerate via scripts/fetch_xauusd.py)
+data/

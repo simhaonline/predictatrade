@@ -82,7 +82,7 @@ func contains(list []string, s string) bool {
 // confluence threshold, and enforces the mandatory H1 trend veto. It returns the
 // resulting direction, raw/long/short scores, and any reason codes. This is shared
 // by every strategy so scoring stays identical across products.
-func scoreFromEvidence(ev []contrib, minConf float64, state *types.MarketState) (types.Direction, float64, float64, float64, []string) {
+func scoreFromEvidence(ev []contrib, minConf float64, state *types.MarketState, cfg config.StrategyConfig) (types.Direction, float64, float64, float64, []string) {
 	long, short := 0.0, 0.0
 	for _, e := range ev {
 		if e.dir == types.DirBuy {
@@ -125,9 +125,12 @@ func scoreFromEvidence(ev []contrib, minConf float64, state *types.MarketState) 
 		reasons = append(reasons, "HTF_BULLISH_VETO")
 	}
 
-	// Structural trigger: the generic confluence vote alone has no robust edge
-	// (PF < 1 after costs). Only take a trade on a liquidity-sweep + BOS
-	// continuation in the trade direction. This is the defensible edge filter.
+	// Structural trigger (primary edge): only take a trade when a liquidity sweep
+	// lines up with the trade direction — i.e. we FADE the liquidity grab in the
+	// direction of the higher-timeframe bias (sell-side sweep -> BUY, buy-side
+	// sweep -> SELL). This is the playbook's highest-expectancy XAUUSD setup;
+	// trading without a sweep present is exactly what produced the coin-flip
+	// win rate, so it is a hard requirement, not a soft confirmation.
 	if bias := structuralBias(state); bias == types.DirNoTrade || bias != dir {
 		dir = types.DirNoTrade
 		reasons = append(reasons, "NO_STRUCTURAL_TRIGGER")
@@ -165,14 +168,59 @@ func scoreFromEvidence(ev []contrib, minConf float64, state *types.MarketState) 
 		reasons = append(reasons, "RSI_OVERSOLD")
 	}
 
+	// Spread NO-GO: a blown spread (> 2x the session baseline) destroys the edge
+	// (playbook §2: widened-spread = flat rule). Round-turn cost balloons and the
+	// break-even win rate becomes unreachable.
+	if cfg.SpreadMedianBaseline > 0 && state.Spread > 2*cfg.SpreadMedianBaseline {
+		dir = types.DirNoTrade
+		reasons = append(reasons, "SPREAD_BLOWN")
+	}
+
+	// Target must be large enough to beat transaction cost (playbook §1 consequence
+	// #1: sub-$1 targets are structurally negative-expectancy). TP1 is the 1R partial.
+	// Compared against the configured typical spread (the broker cost baseline), not
+	// the live per-bar spread — the live spread is handled by the SPREAD_BLOWN gate.
+	if cfg.MinGrossCostMult > 0 && cfg.SpreadMedianBaseline > 0 {
+		scaledATR := state.ATR
+		if cfg.VolatilityScale > 0 {
+			scaledATR = state.ATR * cfg.VolatilityScale
+		}
+		tp1Gross := scaledATR * cfg.ATRMultiplierTP1
+		if tp1Gross < cfg.SpreadMedianBaseline*cfg.MinGrossCostMult {
+			dir = types.DirNoTrade
+			reasons = append(reasons, "TARGET_TOO_SMALL_VS_COST")
+		}
+	}
+
+	// Prime-window selectivity: the edge concentrates in two UTC windows (playbook §3:
+	// London open 09:00-11:00 and London/NY overlap 14:00-17:00). Only enforced for
+	// strategies that opt in (scalpers); swing products leave it empty.
+	if len(cfg.PrimeWindowsUTC) > 0 {
+		inWindow := false
+		for _, w := range cfg.PrimeWindowsUTC {
+			if state.UTCHour >= w[0] && state.UTCHour < w[1] {
+				inWindow = true
+				break
+			}
+		}
+		if !inWindow {
+			dir = types.DirNoTrade
+			reasons = append(reasons, "OUTSIDE_PRIME_WINDOW")
+		}
+	}
+
 	return dir, raw, long, short, reasons
 }
 
-// structuralBias returns a trade direction only when price has taken liquidity
-// (sweep) and then broken structure (BOS) in the continuation direction:
-//   sell-side sweep + bullish BOS  -> BUY  (fade the liquidity grab, follow continuation)
-//   buy-side  sweep + bearish BOS  -> SELL
-// This is a classic SMC-style entry and is the primary edge filter.
+// structuralBias returns a trade direction from the playbook's primary edge:
+// the liquidity sweep & reclaim. A "sweep" is a wick that takes the sell-side or
+// buy-side liquidity pool and then CLOSES BACK INSIDE it (the reclaim is already
+// encoded in the sweep detection). The highest-expectancy gold scalp is to FADE
+// that liquidity grab:
+//   sell-side sweep taken  -> BUY  (fade the stop-hunt, expect continuation up)
+//   buy-side  sweep taken  -> SELL (fade the stop-hunt, expect continuation down)
+// This is deliberately the single, well-defined structural trigger — not "any BOS",
+// which floods the book with low-quality breakout entries.
 func structuralBias(s *types.MarketState) types.Direction {
 	if s == nil {
 		return types.DirNoTrade
@@ -186,14 +234,10 @@ func structuralBias(s *types.MarketState) types.Direction {
 			sweptBuy = true
 		}
 	}
-	bos := ""
-	if s.Structure.LastBOS != nil {
-		bos = s.Structure.LastBOS.Direction
-	}
-	if sweptSell && bos == "bullish" {
+	if sweptSell {
 		return types.DirBuy
 	}
-	if sweptBuy && bos == "bearish" {
+	if sweptBuy {
 		return types.DirSell
 	}
 	return types.DirNoTrade

@@ -14,7 +14,8 @@ func TestNetRRAfterCostPasses(t *testing.T) {
 		Direction:  types.DirBuy,
 		EntryPrice: 2000.0,
 		StopLoss:   1999.5,
-		TP1:        2001.5,
+		TP1:        2001.5, // 1R partial target
+		TP2:        2001.0, // 2R remainder target used for net R:R (1.0 reward / 0.5 risk)
 	}
 	st := types.MarketState{Spread: 0.2}
 	pol := &broker.BrokerPolicy{Digits: 2, Execution: broker.DefaultXAUUSDExecution()}

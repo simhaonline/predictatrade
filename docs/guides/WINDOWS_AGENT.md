@@ -1,5 +1,5 @@
 # Windows Agent Guide
-## v1.17.2 — 28 August 2026 · Agent v1.2.35
+## v1.17.2 — 28 August 2026 · Agent v1.2.40
 
 ### Overview
 
@@ -204,7 +204,9 @@ Server-side commands for capital protection: `CLOSE_POSITION`, `EMERGENCY_STOP`,
 - **Same machine, two roles:** install Client then Master (or vice-versa). Distinct service names, binaries, and ports mean they never collide.
 - **Paper vs Live:** in live mode the engine reads the client's **real** broker equity from the connected agent, so risk caps are per-client real capital. The `PAT_PAPER_EQUITY` fallback is demo-only and never overrides a live account.
 - **Production signing:** code-signing is **optional** — unsigned builds are fully supported. The installer auto-adds a scoped Windows Defender exclusion for the install dir and uses `Unblock-File` to strip the SmartScreen "downloaded from internet" mark, so a self-signed/unsigned agent is not blocked. No certificate is required.
-- **Auto-update:** the agent checks `update-manifest.json` (per-arch) and self-updates by downloading the new binary, verifying SHA256, stopping the service, swapping the exe, and restarting. Manual update = re-run the install command.
+- **Auto-update:** the agent checks its role+arch `update-manifest.json` hourly, downloads the new binary over HTTPS, verifies SHA-256, then a detached helper stops the exact service (`PAT_SERVICE_NAME`), swaps the binary, and restarts. The updater self-`Unblock`s and re-applies the Defender exclusion so unsigned builds aren't blocked. Manual update = re-run the install command.
+- **Log path:** the agent writes logs to `PAT_LOG_DIR` (installer sets it to the monitored logs dir) so logs are always visible — fixes the "empty logs" blindness.
+- **Master Node license:** the Master Node is data-only and has **no license**; it no longer writes `PAT_license.txt` (fixes license oscillation). The Client Agent is the only role that validates a license.
 
 ---
 

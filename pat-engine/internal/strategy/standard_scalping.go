@@ -49,10 +49,6 @@ func (s *StandardScalping) Evaluate(state *types.MarketState) StrategyResult {
 		res.ReasonCodes = append(res.ReasonCodes, "HIGH_NEWS_RISK")
 		return res
 	}
-	if state.ATR > 0 && (state.Spread/state.ATR) > s.cfg.SpreadATRGate {
-		res.ReasonCodes = append(res.ReasonCodes, "HIGH_SPREAD")
-		return res
-	}
 
 	var ev []contrib
 	if state.Indicators.EMA9 > state.Indicators.EMA21 {
@@ -123,7 +119,7 @@ func (s *StandardScalping) Evaluate(state *types.MarketState) StrategyResult {
 		ev = append(ev, contrib{types.DirSell, 0.05})
 	}
 
-	dir, raw, long, short, reasons := scoreFromEvidence(ev, s.cfg.MinConfluence, state)
+	dir, raw, long, short, reasons := scoreFromEvidence(ev, s.cfg.MinConfluence, state, s.cfg)
 	res.ReasonCodes = append(res.ReasonCodes, reasons...)
 	res.Direction = dir
 	res.RawScore = raw

@@ -13,12 +13,15 @@ import (
 
 // DBCandleReader reads historical candles from the market.candles PostgreSQL table.
 type DBCandleReader struct {
-	dbURL string
+	dbURL  string
+	source string // when non-empty, restrict to this market.candles.source (real data only)
 }
 
 // NewDBCandleReader creates a new database candle reader.
-func NewDBCandleReader(dbURL string) *DBCandleReader {
-	return &DBCandleReader{dbURL: dbURL}
+// source, when non-empty, restricts results to that market.candles.source so
+// synthetic/aggregator feeds are never mixed into a "real data" backtest.
+func NewDBCandleReader(dbURL, source string) *DBCandleReader {
+	return &DBCandleReader{dbURL: dbURL, source: source}
 }
 
 // ReadCandles loads candles for a specific symbol+timeframe within the date range.
@@ -34,10 +37,15 @@ func (r *DBCandleReader) ReadCandles(ctx context.Context, symbol string, tf type
 	query := `
 		SELECT time, open, high, low, close, volume, source, is_closed
 		FROM market.candles
-		WHERE symbol = $1 AND timeframe = $2 AND time >= $3 AND time <= $4
-		ORDER BY time ASC`
+		WHERE symbol = $1 AND timeframe = $2 AND time >= $3 AND time <= $4`
+	args := []interface{}{symbol, string(tf), start, end}
+	if r.source != "" {
+		query += ` AND source = $5`
+		args = append(args, r.source)
+	}
+	query += ` ORDER BY time ASC`
 
-	rows, err := conn.Query(ctx, query, symbol, string(tf), start, end)
+	rows, err := conn.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query candles: %w", err)
 	}

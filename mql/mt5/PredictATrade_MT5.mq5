@@ -1726,6 +1726,17 @@ void ExecuteBuy()
     // 4. EA-side risk gate (spread, drift, TTL, caps, risk$, martingale, margin)
     // Risk gates handled by SERVER — EA trusts server decision
 
+    // Enforce EA-side position caps / halt flags. PAT_PreTradeGate was defined
+    // but never invoked here — that omission allowed duplicate/over-positioning
+    // (multiple positions per signal). Wire it in (fail-closed) so at most
+    // MaxSameDirPositions / MaxTotalPositions PAT positions can be open.
+    if(!PAT_PreTradeGate(true, vol, g_signalStrategy))
+    {
+        Print("SIGNAL NOT EXECUTED: EA pre-trade gate rejected BUY (cap/halt)");
+        g_signalsFiltered++;
+        return;
+    }
+
     double ask = SymbolInfoDouble(g_symbol, SYMBOL_ASK);
     Print("ExecuteBuy: vol=", DoubleToString(vol, 2), " ask=", DoubleToString(ask, _Digits),
           " sl=", DoubleToString(g_sl, _Digits), " tp3=", DoubleToString(finalTP, _Digits),
@@ -1795,6 +1806,15 @@ void ExecuteSell()
     }
 
     // Risk gates handled by SERVER — EA trusts server decision
+
+    // Enforce EA-side position caps / halt flags (same as ExecuteBuy — this was
+    // the missing call that permitted multiple positions per signal).
+    if(!PAT_PreTradeGate(false, vol, g_signalStrategy))
+    {
+        Print("SIGNAL NOT EXECUTED: EA pre-trade gate rejected SELL (cap/halt)");
+        g_signalsFiltered++;
+        return;
+    }
 
     double bid = SymbolInfoDouble(g_symbol, SYMBOL_BID);
     Print("ExecuteSell: vol=", DoubleToString(vol, 2), " bid=", DoubleToString(bid, _Digits),

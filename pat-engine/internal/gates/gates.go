@@ -39,10 +39,10 @@ func EvaluateAll(state *types.MarketState, res strategy.StrategyResult, cfg conf
 	var risk, reward float64
 	if res.Direction == types.DirBuy {
 		risk = res.EntryPrice - res.StopLoss
-		reward = res.TP1 - res.EntryPrice
+		reward = res.TP2 - res.EntryPrice // measured to the 2R target (TP1 is the 1R partial)
 	} else {
 		risk = res.StopLoss - res.EntryPrice
-		reward = res.EntryPrice - res.TP1
+		reward = res.EntryPrice - res.TP2
 	}
 
 	// 1) R:R floor — the dominant cause of prior client stop-outs.
@@ -57,7 +57,9 @@ func EvaluateAll(state *types.MarketState, res strategy.StrategyResult, cfg conf
 
 	// 1b) NET R:R after TOTAL transaction cost (spread + commission + swap), in
 	// PRICE units (same scale as the SL/TP distances). This is the authoritative
-	// gate — gross R:R alone hides the cost that erodes edge.
+	// gate — gross R:R alone hides the cost that erodes edge. Cost uses the BROKER
+	// execution profile (the real execution cost), matching the backtest simulator;
+	// the per-bar data spread is only used by the SPREAD_BLOWN NO-GO gate.
 	if pol != nil {
 		exec := pol.Execution
 		side := "BUY"
@@ -71,8 +73,8 @@ func EvaluateAll(state *types.MarketState, res strategy.StrategyResult, cfg conf
 				holdDays = 1
 			}
 		}
-		costPrice := state.Spread +
-			exec.CommissionPrice(1.0) +
+		costPrice := exec.TypicalSpread*2*exec.TickSize + // round-turn spread
+			exec.CommissionPrice(1.0)*2 + // round-turn commission
 			exec.SwapPrice(side, 1.0, holdDays)
 
 		netRisk := risk + costPrice

@@ -12,6 +12,10 @@ const (
 	DirNoTrade Direction = "NO_TRADE"
 	DirWait    Direction = "WAIT"
 	DirError   Direction = "ERROR"
+
+	// Bias values used for higher-timeframe trend alignment (not trade directions).
+	Bullish Direction = "BULLISH"
+	Bearish Direction = "BEARISH"
 )
 
 // Timeframe identifies a candle timeframe.
@@ -104,15 +108,18 @@ type MarketState struct {
 	H1Close      float64 // H1 close used for the higher-timeframe trend veto
 	Spread       float64
 	ATR          float64
+	SlowATR      float64 // longer-period ATR used for volatility-regime gating
 	Indicators   Indicators
 	Structure    Structure
 	Candle       Candle
 	Liquidity    Liquidity
 	MTFScore     float64
 	Regime       string
+	HTFBias      Direction // higher-timeframe bias (EMA200 vs EMA400 proxy)
 	Session      Session
 	Quality      string
 	VWAP         float64
+	UTCHour      int // UTC hour of the bar (set by the data layer; drives prime-window gating)
 }
 
 // Signal is the engine's output (executable or blocked).

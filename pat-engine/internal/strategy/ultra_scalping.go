@@ -59,24 +59,10 @@ func (s *UltraScalping) Evaluate(state *types.MarketState) StrategyResult {
 		return res
 	}
 
-	// Spread gate — Ultra is extremely cost-sensitive.
-	if state.ATR > 0 && (state.Spread/state.ATR) > 0.4 {
-		res.ReasonCodes = append(res.ReasonCodes, "HIGH_SPREAD")
-		return res
-	}
-
-	// EMA hierarchy (relaxed in RANGE/MEAN_REVERSION).
-	emaOK := false
-	if state.Regime == "RANGE" || state.Regime == "MEAN_REVERSION" {
-		emaOK = state.Indicators.EMA9 != state.Indicators.EMA21
-	} else {
-		emaOK = (state.Indicators.EMA9 > state.Indicators.EMA21 && state.Indicators.EMA21 > state.Indicators.EMA50) ||
-			(state.Indicators.EMA9 < state.Indicators.EMA21 && state.Indicators.EMA21 < state.Indicators.EMA50)
-	}
-	if !emaOK {
-		res.ReasonCodes = append(res.ReasonCodes, "EMA_HIERARCHY_BROKEN")
-		return res
-	}
+	// EMA hierarchy is used only as soft evidence below (not a hard veto): the
+	// primary edge is the liquidity-sweep & reclaim, which by definition occurs
+	// during a pullback (M1 EMA9<EMA21) while the HTF bias stays intact. A hard
+	// EMA-alignment veto would reject exactly the pullback-fade entries we want.
 
 	var ev []contrib
 	if state.Indicators.EMA9 > state.Indicators.EMA21 {
@@ -135,7 +121,7 @@ func (s *UltraScalping) Evaluate(state *types.MarketState) StrategyResult {
 		}
 	}
 
-	dir, raw, long, short, reasons := scoreFromEvidence(ev, s.cfg.MinConfluence, state)
+	dir, raw, long, short, reasons := scoreFromEvidence(ev, s.cfg.MinConfluence, state, s.cfg)
 	res.ReasonCodes = append(res.ReasonCodes, reasons...)
 	res.Direction = dir
 	res.RawScore = raw
