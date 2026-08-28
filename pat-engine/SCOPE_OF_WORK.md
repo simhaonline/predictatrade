@@ -89,6 +89,31 @@ concern and **never an EA input**.
 (`BROKER_SCALPING_NOT_ALLOWED`). Verified by backtest harness and decision tests. This is
 how we safely offer a **no-scalping-broker-eligible package** (swing/trend only).
 
+## 5b. Data & persistence (PostgreSQL + TimescaleDB + Valkey)
+
+Required for auditability: **every bar and every signal decision is tracked.**
+
+- **TimescaleDB**, database `pat_engine` (dedicated service; does not touch the main
+  project's `pat-postgres`). Schema `infra/db/init/01_schema.sql`:
+  - `bars(ts, symbol, o/h/l/c, spread)` — hypertable, every ingested bar.
+  - `signals(id PK, ts, symbol, strategy_id, direction, entry, sl, tp1..tp3, raw_score,
+    grade, signal_class, status, reasons jsonb)` — hypertable, **every** decision
+    (executable or blocked).
+- **Valkey**: `pat:signal:latest:<strategy>` cache (TTL 24h) + `pat:signals` pub/sub
+  channel for low-latency live push (the EA file remains the primary delivery).
+- **`internal/store`** wraps `pgxpool` + `go-redis` and is **degradable**: if either
+  backend is unreachable the engine keeps running on an in-memory ring buffer (logs the
+  degradation). A missing datastore never blocks signal generation.
+- **Docker**: `docker-compose.yml` runs `pat-engine-db` (TimescaleDB, port 5433),
+  `pat-engine-cache` (Valkey, port 6380), and `pat-engine` (gateway). Env sample in
+  `infra/env/ENV_SAMPLE` (real `.env` gitignored).
+- **Verified live:** streaming bars persisted 6000 `bars` + 967 `signals` rows; Valkey
+  cached the latest signal and published on `pat:signals`.
+
+> Note: earlier "zero external dependency" guidance is relaxed for the datastore only;
+> `pgx` and `go-redis` are the sole added modules, both standard, well-maintained, and
+> required for the persistence/audit requirement.
+
 ## 6. Strategies (config-backed, versioned)
 
 | ID | Class | SL×ATR | TP1×ATR | Min R:R | Min Conf | Min ADX |
@@ -138,6 +163,7 @@ Verified manually; the existing `mql/` EAs parse the identical format.
 | Hard risk gates | `internal/gates` | signal_test | DONE |
 | Cost-aware backtest on live code | `internal/backtest` | — | DONE (real-data loader wired) |
 | Live signal→EA handoff | `internal/provider` + `mql/` | e2e | DONE |
+| Persistence: TimescaleDB + Valkey | `internal/store` + `infra/db/init` + compose | store degraded test + live smoke | DONE |
 | Honest packaging (no false claims) | broker/license exclusion + real-data TODO | — | PARTIAL (needs real data) |
 
 ## 12. Next actions

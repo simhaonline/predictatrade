@@ -1,0 +1,16 @@
+# pat-engine environment SAMPLE (copy to infra/env/.env and fill in; .env is gitignored).
+# Used by docker-compose and cmd/gateway. All values have safe defaults if omitted.
+
+# TimescaleDB (database name is pat_engine)
+PAT_DB_PASSWORD=pat_engine_dev
+
+# Valkey / Redis
+# PAT_REDIS_URL=redis://pat-engine-cache:6379
+
+# License (signed token from the control plane). Empty => DEV license (all strategies).
+PAT_LICENSE=
+PAT_LICENSE_SECRET=
+
+# Gateway
+PORT=8080
+SIGNAL_FILE=/data/PAT_signals.txt

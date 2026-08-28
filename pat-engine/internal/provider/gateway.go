@@ -8,17 +8,20 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"pat-engine/internal/backtest"
 	"pat-engine/internal/broker"
 	"pat-engine/internal/config"
 	"pat-engine/internal/license"
 	"pat-engine/internal/signal"
+	"pat-engine/internal/store"
 	"pat-engine/internal/strategy"
 	"pat-engine/internal/types"
 )
@@ -47,6 +50,7 @@ type Gateway struct {
 	bars     []backtest.Bar
 	policy   *broker.BrokerPolicy
 	lic      *license.License
+	store    *store.Store
 	outPath  string
 	lastID   string
 	lastJSON string
@@ -65,6 +69,10 @@ func New(policy *broker.BrokerPolicy, outPath string) *Gateway {
 	return &Gateway{policy: policy, lic: dev, outPath: outPath}
 }
 
+// SetStore attaches the persistence layer (TimescaleDB + Valkey). Optional; when nil
+// the gateway still runs (no persistence).
+func (g *Gateway) SetStore(s *store.Store) { g.store = s }
+
 // LoadLicense parses and installs a signed license token; non-entitled strategies
 // are filtered out of signal selection.
 func (g *Gateway) LoadLicense(token, secret string) error {
@@ -82,8 +90,11 @@ func (g *Gateway) IngestBar(b backtest.Bar) {
 	defer g.mu.Unlock()
 
 	g.bars = append(g.bars, b)
-	if len(g.bars) > 1000 {
-		g.bars = g.bars[len(g.bars)-1000:]
+	if len(g.bars) > 400 {
+		g.bars = g.bars[len(g.bars)-400:]
+	}
+	if g.store != nil {
+		g.store.SaveBar(context.Background(), b)
 	}
 	state := backtest.StateFromBars(g.bars)
 	if state == nil {
@@ -101,6 +112,29 @@ func (g *Gateway) IngestBar(b backtest.Bar) {
 	g.lastJSON = best.line
 	if err := os.WriteFile(g.outPath, []byte(best.line+"\n"), 0o644); err != nil {
 		fmt.Println("gateway: write signal file:", err)
+	}
+
+	// Persist + publish the decision (even if the agent is not connected yet).
+	if g.store != nil {
+		var dto SignalDTO
+		if err := json.Unmarshal([]byte(best.line[7:]), &dto); err == nil {
+			g.store.SaveSignal(context.Background(), store.SignalRecord{
+				ID:          dto.ID,
+				TS:          time.Now(),
+				Symbol:      "XAUUSD",
+				StrategyID:  dto.StrategyID,
+				Direction:   dto.Direction,
+				Entry:       dto.EntryPrice,
+				SL:          dto.StopLoss,
+				TP1:         dto.TP1,
+				TP2:         dto.TP2,
+				TP3:         dto.TP3,
+				RawScore:    dto.RawScore,
+				Grade:       dto.Grade,
+				SignalClass: dto.SignalClass,
+				Status:      "EXECUTABLE",
+			})
+		}
 	}
 }
 

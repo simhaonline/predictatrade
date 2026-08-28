@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -9,17 +10,29 @@ import (
 	"pat-engine/internal/backtest"
 	"pat-engine/internal/license"
 	"pat-engine/internal/provider"
+	"pat-engine/internal/store"
 )
 
 // cmd/gateway is the live signal backend. It ingests bars from a Windows Agent
-// (POST /bar), runs the strategy pipeline, and writes executable signals to the
-// EA signal file. Zero external dependencies.
+// (POST /bar), runs the strategy pipeline, persists bars/signals to TimescaleDB,
+// publishes live signals via Valkey, and writes the EA signal file. If the datastore
+// is unreachable it degrades to in-memory and keeps serving signals.
 func main() {
 	out := os.Getenv("SIGNAL_FILE")
 	if out == "" {
 		out = "signals/PAT_signals.txt"
 	}
 	gw := provider.New(nil, out)
+
+	// Persistence (TimescaleDB + Valkey). Degrades to in-memory if unavailable.
+	if dsn := os.Getenv("PAT_DB_DSN"); dsn != "" {
+		st := store.New(context.Background(), dsn, os.Getenv("PAT_REDIS_URL"))
+		gw.SetStore(st)
+		pg, vk := st.Healthy()
+		log.Printf("store: postgres=%v valkey=%v", pg, vk)
+	} else {
+		log.Println("no PAT_DB_DSN set — persistence disabled (in-memory only)")
+	}
 
 	if tok := os.Getenv("PAT_LICENSE"); tok != "" {
 		secret := os.Getenv("PAT_LICENSE_SECRET")

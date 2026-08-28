@@ -2,6 +2,9 @@
 signals/PAT_signals.txt
 *.txt
 
+# local secrets (the sample is ENV_SAMPLE, which is committed)
+infra/env/.env
+
 # build artifacts
-/pat-engine
 *.exe
+pat-engine.bin
