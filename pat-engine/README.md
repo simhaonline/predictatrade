@@ -213,13 +213,13 @@ to the trading machine, then run **one** command as Administrator:
 .\install-client.ps1 -EngineHost api.predictatrade.com -LicenseKey "PAT1-XXXX-XXXX-XXXX-XXXX-XXXX-XX"
 ```
 
-The installer writes the agent's `GATEWAY` env to `http://<EngineHost>:80/bar` and
+The installer writes the agent's `GATEWAY` env to `https://<EngineHost>/bar for a public domain (http://<EngineHost>:80/bar for same-box localhost)` and
 installs the `pat-agent-client` service. Verify with `Get-Service pat-agent-client`
 (*Running*). Uninstall: `.\uninstall-windows-agent.ps1`.
 
 `install-client.ps1` wraps `install-windows-agent.ps1`, installs the `pat-agent-client`
 service using the local `pat-windows-agent.exe`, deploys the client EA, writes
-`PAT_license.txt`, and sets the `GATEWAY` machine env to `http://<EngineHost>:80/bar`.
+`PAT_license.txt`, and sets the `GATEWAY` machine env to `https://<EngineHost>/bar for a public domain (http://<EngineHost>:80/bar for same-box localhost)`.
 Verify with `Get-Service pat-agent-client` (should be *Running*). Uninstall:
 `.\uninstall-windows-agent.ps1`.
 

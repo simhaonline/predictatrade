@@ -32,7 +32,18 @@ $EaFiles     = @("PredictATrade_MT4.mq4", "PredictATrade_MT5.mq5")
 $RoleLabel   = "Client Agent (execution)"
 
 # Resolve the gateway URL the agent feeds (pat-engine gateway is plain HTTP POST /bar).
-$Gw = if ($GatewayUrl) { $GatewayUrl } else { "http://${EngineHost}:${GatewayPort}/bar" }
+# - Explicit -GatewayUrl wins.
+# - Local host/IP  -> http://host:port/bar (gateway is local; no TLS on :8080).
+# - Public domain  -> TLS terminated upstream: https://host/bar (port 443). The
+#   engine's nginx fronts the gateway on 443 and redirects :80 -> :443.
+function Resolve-GatewayUrl {
+    param([string]$HostArg,[int]$PortArg,[string]$Explicit)
+    if ($Explicit) { return $Explicit }
+    $isLocal = ($HostArg -match '^(localhost|127\.0\.0\.1|::1)$') -or ($HostArg -match '^\d{1,3}(\.\d{1,3}){3}$')
+    if ($isLocal) { return "http://${HostArg}:${PortArg}/bar" }
+    return "https://${HostArg}/bar"
+}
+$Gw = Resolve-GatewayUrl -HostArg $EngineHost -PortArg $GatewayPort -Explicit $GatewayUrl
 
 # ─── Self-elevation (UAC) ───
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)

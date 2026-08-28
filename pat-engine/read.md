@@ -45,5 +45,5 @@ the Defender exclusion.
 ## Verify
 ```powershell
 Get-Service pat-agent-client          # Status should be "Running"
-[Environment]::GetEnvironmentVariable("GATEWAY","Machine")   # http(s)://<EngineHost>:80/bar
+[Environment]::GetEnvironmentVariable("GATEWAY","Machine")   # https://<EngineHost>/bar (or http://<EngineHost>:80/bar for localhost)
 ```
