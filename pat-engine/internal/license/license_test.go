@@ -1,6 +1,7 @@
 package license
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -73,5 +74,51 @@ func TestWildcardAllowsAll(t *testing.T) {
 	l, _ := Parse(tok, DefaultDevSecret)
 	if !l.AllowsStrategy("ANY_STRATEGY_AT_ALL") {
 		t.Fatal("wildcard license should allow any strategy")
+	}
+}
+
+func TestCompactRoundTrip(t *testing.T) {
+	yes := true
+	l := &License{
+		Key:               "X",
+		Plan:              "PRO",
+		AllowedStrategies: []string{"ULTRA_SCALPING", "TREND_SWING"},
+		ExpiresAt:         compactEpochBase + 365*86400,
+		BrokerScalping:    &yes,
+	}
+	code, err := CompactSign(l, DefaultDevSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(code) > 30 {
+		t.Fatalf("compact code too long: %q (%d chars)", code, len(code))
+	}
+	if !strings.HasPrefix(code, "PAT1-") {
+		t.Fatalf("compact code missing prefix: %q", code)
+	}
+	got, err := Parse(code, DefaultDevSecret)
+	if err != nil {
+		t.Fatalf("parse compact: %v", err)
+	}
+	if got.Plan != "PRO" {
+		t.Fatalf("plan mismatch: %s", got.Plan)
+	}
+	if !got.AllowsStrategy("ULTRA_SCALPING") || !got.AllowsStrategy("TREND_SWING") {
+		t.Fatal("strategies not preserved")
+	}
+	if got.AllowsStrategy("STANDARD_SCALPING") {
+		t.Fatal("unlisted strategy should not be allowed")
+	}
+	if got.BrokerScalping == nil || !*got.BrokerScalping {
+		t.Fatal("broker scalping not preserved")
+	}
+}
+
+func TestCompactTamperFails(t *testing.T) {
+	code, _ := CompactSign(&License{Plan: "PRO", AllowedStrategies: []string{"*"}}, DefaultDevSecret)
+	// flip last char
+	tampered := code[:len(code)-1] + "X"
+	if _, err := Parse(tampered, DefaultDevSecret); err == nil {
+		t.Fatal("expected compact signature mismatch")
 	}
 }

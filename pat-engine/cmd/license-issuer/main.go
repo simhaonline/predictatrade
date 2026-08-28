@@ -25,6 +25,7 @@ func main() {
 	device := flag.String("device", "", "bind token to a device id (empty = no binding)")
 	expiryDays := flag.Int("expiry", 0, "days until expiry (0 = never)")
 	scalping := flag.String("scalping", "", "broker scalping override: allow|forbid|'' (unset)")
+	compact := flag.Bool("compact", false, "emit the short PAT1-... activation code (user-facing) instead of the full token")
 	validateURL := flag.String("validate", "", "if set, POST the token to this /licensing/validate URL and print the response")
 	flag.Parse()
 
@@ -66,6 +67,15 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "sign error:", err)
 		os.Exit(1)
+	}
+	if *compact {
+		code, cerr := license.CompactSign(l, *secret)
+		if cerr != nil {
+			fmt.Fprintln(os.Stderr, "compact sign error:", cerr)
+			os.Exit(1)
+		}
+		fmt.Println(code)
+		return
 	}
 	fmt.Println(tok)
 
