@@ -783,21 +783,35 @@ func (pm *PipeManager) masterReadLoop() {
 				}
 				pm.processMasterMessage(line)
 			}
-			// Truncate the file after draining it. Retry because the EA may
-			// briefly hold the file open (its append races our truncate) — an
-			// ignored failure here was the root cause of PAT_master_data.txt
-			// growing until the EA hit ERR_FILE_TOO_LONG (5004) and stopped
-			// writing snapshots.
-			truncated := false
-			for attempt := 0; attempt < 5; attempt++ {
-				if err := os.WriteFile(masterPath, []byte(""), 0644); err == nil {
-					truncated = true
-					break
+			// Consume the file atomically via RENAME instead of truncating it.
+			//
+			// Truncating (os.WriteFile "") races with the EA's open → seek-to-END
+			// → append sequence: if the agent zeroes the file while the EA has
+			// already seeked to the old end offset, the EA's next write lands at
+			// that stale offset and creates a sparse file of garbage. Over a long
+			// session this balloons to MT's 64 MB limit (ERR_FILE_TOO_LONG / 5004)
+			// and the EA stops writing snapshots (it self-heals by reset, dropping
+			// data). Renaming the file away leaves the EA free to create a fresh,
+			// correctly-sized PAT_master_data.txt on its next append, and lets us
+			// drain the renamed copy with no lock/offset race.
+			consumedPath := masterPath + ".consumed"
+			if err := os.Rename(masterPath, consumedPath); err == nil {
+				// Bytes the EA appended between our ReadFile above and this rename
+				// are captured in consumedPath beyond the data we already processed
+				// — drain just that suffix so we lose nothing.
+				if extra, rerr := os.ReadFile(consumedPath); rerr == nil && len(extra) > len(data) {
+					suffix := string(extra[len(data):])
+					for _, line := range strings.Split(suffix, "\n") {
+						line = strings.TrimSpace(line)
+						if line == "" {
+							continue
+						}
+						pm.processMasterMessage(line)
+					}
 				}
-				time.Sleep(2 * time.Millisecond)
-			}
-			if !truncated && doDiag {
-				log.Printf("[IPC] WARN: failed to truncate %s after retries", masterPath)
+				_ = os.Remove(consumedPath)
+			} else if doDiag {
+				log.Printf("[IPC] WARN: failed to consume %s: %v", masterPath, err)
 			}
 		}
 		time.Sleep(5 * time.Millisecond)
