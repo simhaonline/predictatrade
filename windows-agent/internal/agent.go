@@ -309,7 +309,7 @@ func (a *Agent) Start() error {
 
 	// Initialize named pipe manager for MT4/MT5 EA communication
 	commonDirs := findCommonFolders()
-	a.pipeManager = NewPipeManager(commonDirs, a.sendToServer, a.config.APIURL)
+	a.pipeManager = NewPipeManager(commonDirs, a.sendToServer, a.config.APIURL, a.role)
 	a.pipeManager.SetDeviceIDFn(func() string { return a.config.DeviceID })
 	a.pipeManager.SetCallbacks(a.onTickFromEA, a.onLicenseCheck)
 	a.pipeManager.SetTerminalCallback(func(term TerminalInfo) {

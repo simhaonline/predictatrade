@@ -317,11 +317,19 @@ func startHealthMonitor(
 ) {
 	const checkInterval = 10 * time.Second
 	const nudgeInterval = 30 * time.Second
+	// Debounce alert delivery so a flickering feed or flapping agent connection
+	// cannot spam ntfy. STALE re-alerts at most once per cooldown; RESTORED only
+	// fires after the feed is healthy for a sustained window (avoids oscillation
+	// chatter when the connection blips).
+	const staleAlertCooldown = 30 * time.Minute
+	const healthyStreakForRestore = 3 // ~30s of consecutive healthy checks
 	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
 
 	var staleAlerted bool
 	var lastNudge time.Time
+	var lastStaleAlert time.Time
+	var healthyStreak int
 	startTime := time.Now()
 
 	alert := func(et notifications.EventType, severity, title, message string) {
@@ -362,6 +370,7 @@ func startHealthMonitor(
 		outage := dataFeedOutage(critical, agentsConnected())
 
 		if warmedUp && outage {
+			healthyStreak = 0
 			// Best-effort recovery: prod connected agents to resend a snapshot.
 			if time.Since(lastNudge) > nudgeInterval {
 				lastNudge = now
@@ -373,8 +382,11 @@ func startHealthMonitor(
 				}
 				observability.Log.Warn().Msg("[HEALTH] Data feed outage — nudged agents with REQUEST_SNAPSHOT")
 			}
-			if !staleAlerted {
+			// Only alert if this is a new outage AND the cooldown since the last
+			// STALE alert has elapsed — prevents notification spam on flicker.
+			if !staleAlerted && now.Sub(lastStaleAlert) > staleAlertCooldown {
 				staleAlerted = true
+				lastStaleAlert = now
 				age := "never"
 				if agentProvider != nil {
 					if t := agentProvider.LastSnapshotAt(); !t.IsZero() {
@@ -388,8 +400,11 @@ func startHealthMonitor(
 			continue
 		}
 
-		// Healthy (or no agents / still in warmup): clear the stale alert once.
-		if staleAlerted {
+		// Healthy (or no agents / still in warmup). Require a sustained healthy
+		// window before clearing the stale alert, otherwise a one-tick blip
+		// produces a RESTORED/STALE chatter loop.
+		healthyStreak++
+		if staleAlerted && healthyStreak >= healthyStreakForRestore {
 			staleAlerted = false
 			alert(notifications.EventType("DATA_FEED_RESTORED"), "info",
 				"XAUUSD data feed restored", "Live market data resumed; signals re-enabled.")

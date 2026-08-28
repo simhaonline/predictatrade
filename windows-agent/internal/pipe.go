@@ -43,6 +43,7 @@ type PipeManager struct {
 	running     bool
 	stopChan    chan struct{}
 	apiURL      string
+	role          string // "exec" (client) or "data" (master) — set by agent
 	licStatus     string
 	licPlan       string
 	licKey        string
@@ -76,11 +77,12 @@ type LicenseResponse struct {
 	AllowedStrategies []string `json:"allowed_strategies"`
 }
 
-func NewPipeManager(commonDirs []string, wsSender func([]byte) error, apiURL string) *PipeManager {
+func NewPipeManager(commonDirs []string, wsSender func([]byte) error, apiURL string, role string) *PipeManager {
 	return &PipeManager{
 		commonDirs: commonDirs,
 		wsSender:   wsSender,
 		apiURL:     apiURL,
+		role:       role,
 		stopChan:   make(chan struct{}),
 		licStatus:  "PENDING",
 		licPlan:    "",
@@ -392,6 +394,16 @@ func (pm *PipeManager) licenseLoop() {
 	for {
 		select {
 		case <-ticker.C:
+			// The license file is ONLY relevant to the execution (client) EA.
+			// The Master Node (data role) has no license key of its own and, when
+			// co-located with the client on the same machine, would otherwise
+			// write "PENDING" into the SHARED MetaQuotes Common\Files folder and
+			// clobber the client's authoritative "ACTIVE" verdict every 3s,
+			// causing the EA to oscillate ACTIVE<->PENDING. Data agents never
+			// write PAT_license.txt.
+			if pm.role == "data" {
+				continue
+			}
 			plan := pm.licPlan
 			if plan == "" {
 				plan = "ELITE" // never write a blank plan; EA always shows a type
