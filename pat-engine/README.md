@@ -187,34 +187,83 @@ REST API (`/api/v1`):
 
 ### Windows Agent (MT4/MT5 client) — build & install
 
-The Windows Agent (`cmd/agent`) is a thin Go binary that feeds bars to the gateway
-and is the local side of the SL-enforcement / `EMERGENCY_STOP` / `KILL_SWITCH`
-commands. The trade logic lives in the EAs (`mql/PredictATrade_MT4.mq4`,
-`PredictATrade_MT5.mq5`) and the **MasterNode** EA (`mql/PredictATrade_MasterNode_*.mq4/_mq5`).
+The Windows Agent (`cmd/agent`) is a thin Go binary that feeds bars to the **gateway**
+and is the local side of the SL-enforcement / `EMERGENCY_STOP` / `KILL_SWITCH` commands.
+The trade logic lives in the EA (`mql/PredictATrade_MT4.mq4` / `PredictATrade_MT5.mq5`).
 
-**1. Cross-compile (run on Linux/macOS):**
+> **"Engine host" = where the Go gateway runs.** The agent does one thing: it POSTs bars
+> to `http://<engine-host>:<port>/bar`. `<engine-host>` is the IP / hostname / domain of the
+> machine running `cmd/gateway` (the pat-engine realtime service). Use `localhost` (or
+> `127.0.0.1`) when the gateway runs on the **same** Windows box; use the LAN IP or domain
+> (e.g. `192.168.1.50`, `live.predictatrade.com`) when it runs on a separate server. The
+> default `<port>` is **8080** (override with the `PORT` env on the gateway). The agent reads
+> this from the `GATEWAY` machine env the installer writes.
+
+**1. Build the agent .exe** (run on Linux/macOS, then copy `dist/pat-windows-agent.exe`
+   to the Windows box next to `scripts/`):
 ```bash
 ./scripts/build-windows-agent.sh          # -> dist/pat-windows-agent.exe (+ pat-gateway.exe)
 ```
 
-**2. Install on the trading machine (Administrator PowerShell).** The new pat-engine
-has **no separate "master" role** — the central Go engine aggregates all agent feeds over
-`POST /bar`, so the legacy Master Node (data-only) binary is obsolete here. The installer
-therefore deploys a single **client/execution** agent + the `PredictATrade` EA per terminal
-(adapted from the reference `windows-agent` project's patterns: self-elevation, Defender
-exclusions, nssm→`sc.exe` service, EA + license deploy):
+**2. Start the gateway on the engine host** (this is the "engine host" the agent points at;
+   `SIGNAL_FILE` must be the MT common `Files` folder the EA reads):
+```bash
+# Linux/macOS engine host:
+SIGNAL_FILE="/root/.wine/.../Common/Files/PAT_signals.txt" \
+PAT_LICENSE="PAT1-XXXX-XXXX-XXXX-XXXX-XXXX-XX" \
+go run ./cmd/gateway
+# Windows engine host (same box as the terminal), use the MT common Files path:
+SIGNAL_FILE="C:/Users/<you>/AppData/Roaming/MetaQuotes/Terminal/Common/Files/PAT_signals.txt" `
+PAT_LICENSE="PAT1-XXXX-XXXX-XXXX-XXXX-XXXX-XX" go run ./cmd/gateway
+```
+
+**3. Install on the trading machine (Administrator PowerShell, in `scripts/`):**
 ```powershell
-# from scripts/ (after copying dist/pat-windows-agent.exe alongside the scripts):
-.\install-client.ps1 -EngineHost <engine-host> -LicenseKey "PAT1-XXXX-..."
-# or invoke the shared installer directly:
-.\install-windows-agent.ps1 -EngineHost <engine-host> -GatewayPort 8080 -LicenseKey "PAT1-..."
+# Engine on the SAME Windows box:
+.\install-client.ps1 -EngineHost localhost -LicenseKey "PAT1-XXXX-XXXX-XXXX-XXXX-XXXX-XX"
+# Engine on a separate server (use its IP/hostname; ensure port 8080 is reachable):
+.\install-client.ps1 -EngineHost 192.168.1.50 -LicenseKey "PAT1-XXXX-XXXX-XXXX-XXXX-XXXX-XX"
 ```
 The installer self-elevates, applies scoped Windows Defender exclusions (pre-download, so
-the unsigned binary isn't quarantined), downloads the binary from `-BaseUrl` (or uses a
-local copy), wraps it as a Windows service via nssm (falls back to `sc.exe`), deploys the
-client EA into every detected MT4/MT5 `Experts` folder, writes `PAT_license.txt`
-(`status:ACTIVE`) into the MT common `Files` folder, and verifies the service is running.
+the unsigned binary isn't quarantined), uses the local `pat-windows-agent.exe` (or
+downloads via `-BaseUrl`), wraps it as a Windows service via nssm (falls back to `sc.exe`),
+deploys the client EA into every detected MT4/MT5 `Experts` folder, writes
+`PAT_license.txt` (`status:ACTIVE`) into the MT common `Files` folder, and starts the
+service `pat-agent-client`. Verify: `Get-Service pat-agent-client` shows *Running*, and the
+agent's `GATEWAY` env (`[Environment]::GetEnvironmentVariable("GATEWAY","Machine")`) equals
+`http://<engine-host>:8080/bar`.
 Uninstall: `.\uninstall-windows-agent.ps1`.
+
+**4. License key.** Mint a short activation code and paste it into the EA's `LicenseKey`
+input (the agent/gateway verify it):
+```bash
+go run ./cmd/license-issuer -plan PRO -strategies "*" -expiry 365 -scalping allow -compact
+```
+The full ~200-char signed token also works; `license.Parse` accepts both.
+
+> **Master node?** The new pat-engine has **no "master" role** — the central Go engine
+> aggregates all agent feeds over `POST /bar`, so the legacy Master Node (data-only) binary
+> is obsolete here. One client agent per MT terminal is the only install path. If you need
+> two terminals on one Windows box, run two client agents pointed at *different* terminals/
+> accounts (see "Multiple agents, one Windows box" below). Do **not** point two agents at the
+> *same* terminal — that doubles bars and signals.
+
+#### Multiple agents / "master + agent" on one Windows box
+- **New pat-engine (no master):** just run more client agents. Each agent is a Windows
+  service named `pat-agent-client`, so to run two you must install them into *different*
+  directories with *different* service names (e.g. `pat-agent-client-1`/`C:\PredictATrade\Agent1`
+  and `pat-agent-client-2`/`C:\PredictATrade\Agent2`) — the shipped installer hardcodes one
+  service, so for a second instance either re-run it with `-InstallDir` + a renamed service,
+  or install manually. Point each at a *different* MT terminal/account. The engine dedupes by
+  instrument, so two terminals on different symbols/accounts coexist cleanly; two agents on
+  the *same* terminal will both feed the same bars and both receive the same signals →
+  **duplicate fills**. Never do that.
+- **Old `windows-agent` project (where "master" existed):** master (data) + client (execution)
+  were *designed* to run side-by-side on one box — separate binaries (`pat-master.exe` /
+  `pat-agent.exe`), separate dirs (`C:\PredictATrade\Master` / `\Client`), separate services
+  (`pat-agent-master` :13091 / `pat-agent-client` :13081) and separate health ports
+  (9001 / 9000). So master + client on the same Windows machine was expected and conflict-free.
+  That separation is exactly why the old installer used per-role folders.
 
 **3. License key.** Mint a short activation code and paste it into the EA's
 `LicenseKey` input (the agent/gateway verify it):
