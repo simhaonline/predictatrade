@@ -36,6 +36,8 @@ export interface SessionTokens {
 export interface AuthResponse {
   accessToken: string;
   user: { id: string; email: string; displayName: string };
+  /** Set when a privileged account logs in without an enrolled authenticator. */
+  mfaEnrollmentRequired?: boolean;
 }
 
 export interface CookieOptions {
@@ -216,9 +218,11 @@ export class AuthService {
     );
 
     // AUTH-1: MFA is mandatory for privileged roles. Resolve the user's role
-    // (same lookup used when minting the JWT) and block login if an ADMIN /
-    // SUPER_ADMIN / OPERATOR has not enrolled an authenticator. This closes the
-    // "MFA opt-in" gap: privileged accounts can no longer bypass MFA.
+    // (same lookup used when minting the JWT). If an ADMIN / SUPER_ADMIN / OPERATOR
+    // has not yet enrolled an authenticator, we still let the login succeed so the
+    // operator can reach the enrollment screen, but flag it so the UI forces MFA
+    // enrollment before any privileged action. This closes the "MFA opt-in" gap
+    // WITHOUT locking operators out of the enrollment flow (chicken-and-egg).
     const roleResult = await this.pool.query(
       `SELECT r.name AS role_name FROM iam.memberships m
        JOIN iam.roles r ON m.role_id = r.id
@@ -227,11 +231,9 @@ export class AuthService {
     );
     const userRole = roleResult.rows.length > 0 ? roleResult.rows[0].role_name : 'USER';
     const PRIVILEGED_ROLES = new Set(['ADMIN', 'SUPER_ADMIN', 'OPERATOR']);
-    if (PRIVILEGED_ROLES.has(userRole) && mfaResult.rows.length === 0) {
-      await this.logLoginEvent(user.id, 'LOGIN_BLOCKED_MFA_REQUIRED', { role: userRole });
-      throw new UnauthorizedException(
-        'Multi-factor authentication is required for privileged accounts. Please enroll an authenticator device before signing in.',
-      );
+    const requiresMfaEnrollment = PRIVILEGED_ROLES.has(userRole) && mfaResult.rows.length === 0;
+    if (requiresMfaEnrollment) {
+      await this.logLoginEvent(user.id, 'LOGIN_MFA_ENROLLMENT_REQUIRED', { role: userRole });
     }
 
     if (mfaResult.rows.length > 0 && !dto.mfaCode) {
@@ -262,7 +264,7 @@ export class AuthService {
     const session = await this.createSession(user.id, user.email);
     return {
       accessToken: session.accessToken,
-
+      mfaEnrollmentRequired: requiresMfaEnrollment,
       user: { id: user.id, email: user.email, displayName: user.full_name },
       _refreshToken: session.refreshToken,
     };

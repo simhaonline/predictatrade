@@ -45,7 +45,7 @@ Same planes/services as original §1. All containers `Up` & healthy: `pat-postgr
 | BE-1 | Maint | God-file `main.go` | HIGH | PARTIAL | safety logic present; file still large (accepted; extraction non-blocking) |
 | CP-2 | Fin | Float money math | HIGH | **PASS** | `payouts/commissions` use `decimal.js` (`new Decimal`) |
 | CP-3 | Auth | Coarse RBAC | MED | **PASS** | `roles.guard.ts`: `Role` + `Permission`/`RequirePermissions` |
-| AUTH-1 | Auth | MFA not enforced for ADMIN | MED | **PASS** | `auth.service.ts` blocks privileged login without enrolled TOTP (ADMIN/SUPER_ADMIN/OPERATOR) |
+| AUTH-1 | Auth | MFA not enforced for ADMIN | MED | **PASS** | privileged login without enrolled TOTP is flagged `mfaEnrollmentRequired` (UI forces enrollment; no hard lockout — chicken-and-egg resolved) |
 | SEC-2 | Sec | Live GitHub PAT in `mcp.env` | MED | **PASS** | `mcp.env` secrets stripped to placeholder; operator must provision via secrets manager |
 | FE-3 | FE | API base hits `:13080` | MED | **PASS** | `.env.example` + `axios-instance.ts` default `/api/v1` (nginx TLS) |
 | CP-4 | DB | Duplicate subscription_events | MED | PARTIAL | legacy table noted; new path used |
@@ -153,7 +153,7 @@ Same planes/services as original §1. All containers `Up` & healthy: `pat-postgr
 |----|--------|----------|
 | DB-2 | `git mv` 7 files `018/019/020/028/062/071/080_*_*.sql` → `089–095_*_*.sql`; `UPDATE audit.migration_history SET filename=...` for the 7 rows; `migrate.sh` allowlist emptied; `MIGRATION_ORDER.md` updated. | `check_migrations.sh` → PASSED (exit 0); history matches disk (65) |
 | SUP-1 (critical) | Added `"overrides": { "tar": ">=6.2.9" }` to `control/package.json`; `npm install`; CI gate scoped to `npm audit --omit=dev --audit-level=high`. | `npm ls tar` → 7.5.22; CVE-2024-28863 resolved |
-| AUTH-1 | `auth.service.ts` login(): resolve role, block ADMIN/SUPER_ADMIN/OPERATOR login unless a TOTP `mfa_methods` row exists. | code present; `tsc` clean; control rebuilt & healthy |
+| AUTH-1 | `auth.service.ts` login(): flag `mfaEnrollmentRequired` for ADMIN/SUPER_ADMIN/OPERATOR without enrolled TOTP (UI forces enrollment, no hard lockout). | code present; `tsc` clean; control rebuilt & healthy |
 | SEC-2 | `mcp.env` live `ghp_…` PAT + Context7 key replaced with `__ROTATE_VIA_SECRETS_MANAGER__` placeholders. | file redacted (gitignored) |
 | Ops | `pat-control` rebuilt & restarted (override + AUTH-1 baked in); `pat-frontend` rebuilt (prior incident fixes). | containers `Up`/healthy |
 
