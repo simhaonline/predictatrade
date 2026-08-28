@@ -178,6 +178,29 @@ try {
     exit 1
 }
 
+# Step 5b: Stop Windows Defender from blocking the agent. The binary is currently
+# self-signed (labelled local dev/test only — see AGENTS.md), so Defender quarantines
+# or blocks it on download/run. Add a SCOPED exclusion for the agent's own directories
+# so the service can start. Only attempted when the installer is elevated (RunAs).
+# For production the binary MUST be Authenticode-signed instead of relying on this.
+try {
+    $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+    if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        $excl = @($InstallDir, (Join-Path $env:ProgramData 'PredictATrade'))
+        foreach ($p in $excl) {
+            if (Test-Path $p) { Add-MpPreference -ExclusionPath $p -ErrorAction SilentlyContinue }
+        }
+        Write-Host "  OK: Added Windows Defender exclusions for agent directories"
+    } else {
+        Write-Host "  WARN: Not running as Administrator — skipped Defender exclusion."
+        Write-Host "        If Defender blocks the agent, re-run the installer as Admin or add a"
+        Write-Host "        Windows Security exclusion for $InstallDir manually."
+    }
+} catch {
+    Write-Host "  WARN: Could not configure Defender automatically ($_). Allow the agent in"
+    Write-Host "        Windows Security > Virus & threat protection > Exclusions."
+}
+
 # ── [5b] Prevent Windows Defender / antivirus from blocking the agent ──
 # The agent is shipped UNSIGNED, so we stop Defender from quarantining it by
 # (1) Unblock-File (already strips the "downloaded from internet" SmartScreen
