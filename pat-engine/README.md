@@ -195,7 +195,7 @@ The trade logic lives in the EA (`mql/PredictATrade_MT4.mq4` / `PredictATrade_MT
 > to `http://<engine-host>:<port>/bar`. `<engine-host>` is the IP / hostname / domain of the
 > machine running `cmd/gateway` (the pat-engine realtime service). Use `localhost` (or
 > `127.0.0.1`) when the gateway runs on the **same** Windows box; use the LAN IP or domain
-> (e.g. `192.168.1.50`, `live.predictatrade.com`) when it runs on a separate server. The
+> (e.g. `192.168.1.50`, `api.predictatrade.com`) when it runs on a separate server. The
 > default `<port>` is **8080** (override with the `PORT` env on the gateway). The agent reads
 > this from the `GATEWAY` machine env the installer writes.
 
@@ -207,11 +207,17 @@ remote one-liner. Build the exe once, copy `dist/pat-windows-agent.exe` + `scrip
 to the trading machine, then run **one** command as Administrator:
 
 ```powershell
-# Engine (gateway) on the SAME Windows box:
+# Production: gateway fronted by the public domain (auto https://api.predictatrade.com/bar):
+.\install-client.ps1 -EngineHost api.predictatrade.com -LicenseKey "PAT1-XXXX-XXXX-XXXX-XXXX-XXXX-XX"
+# Same-box dev (gateway on localhost:8080):
 .\install-client.ps1 -EngineHost localhost -LicenseKey "PAT1-XXXX-XXXX-XXXX-XXXX-XXXX-XX"
-# Engine on a separate server (its LAN IP / hostname; port 8080 must be reachable):
+# Separate LAN server (its IP; port 8080 must be reachable):
 .\install-client.ps1 -EngineHost 192.168.1.50 -LicenseKey "PAT1-XXXX-XXXX-XXXX-XXXX-XXXX-XX"
 ```
+
+When `-EngineHost` is a public domain the installer automatically builds the TLS URL
+`https://<domain>/bar` (port 443); for `localhost`/LAN IPs it uses `http://host:8080/bar`.
+Override explicitly with `-GatewayUrl https://your.domain/bar` if your proxy path differs.
 
 `install-client.ps1` wraps `install-windows-agent.ps1`, installs the `pat-agent-client`
 service using the local `pat-windows-agent.exe`, deploys the client EA, writes
