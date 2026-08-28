@@ -185,6 +185,47 @@ REST API (`/api/v1`):
 - `POST /devices/heartbeat` — agent telemetry (latency, MT4/MT5 connection, version, status).
 - `POST /licensing/validate` — verify a signed license token (entitlements + optional device binding).
 
+### Windows Agent (MT4/MT5 client) — build & install
+
+The Windows Agent (`cmd/agent`) is a thin Go binary that feeds bars to the gateway
+and is the local side of the SL-enforcement / `EMERGENCY_STOP` / `KILL_SWITCH`
+commands. The trade logic lives in the EAs (`mql/PredictATrade_MT4.mq4`,
+`PredictATrade_MT5.mq5`) and the **MasterNode** EA (`mql/PredictATrade_MasterNode_*.mq4/_mq5`).
+
+**1. Cross-compile (run on Linux/macOS):**
+```bash
+./scripts/build-windows-agent.sh          # -> dist/pat-windows-agent.exe (+ pat-gateway.exe)
+```
+
+**2. Install on the trading machine (Administrator PowerShell):**
+```powershell
+# copy dist/pat-windows-agent.exe next to the script, then:
+.\scripts\install-windows-agent.ps1 -GatewayUrl "http://<engine-host>:8080/bar" `
+                                     -LicenseKey "PAT1-XXXX-XXXX-XXXX-XXXX-XXXX-XX"
+```
+This copies the agent, deploys **both** the client EA and the MasterNode EA into
+every detected MT4/MT5 `Experts` folder, writes `PAT_license.txt` (`status:ACTIVE`)
+into the MT common `Files` folder, and registers the agent to auto-start.
+
+**3. License key.** Mint a short activation code and paste it into the EA's
+`LicenseKey` input (the agent/gateway verify it):
+```bash
+go run ./cmd/license-issuer -plan PRO -strategies "*" -expiry 365 -scalping allow -compact
+```
+The full ~200-char signed token also works; `license.Parse` accepts both.
+
+**4. Signal wiring.** The gateway writes `PAT_signals.txt`; the EA reads it from
+the MT common `Files` folder (`FILE_COMMON`). Point `SIGNAL_FILE` at that exact
+path or the EA will show `Access Granted` but receive **no signals**:
+```bash
+SIGNAL_FILE="C:/Users/<you>/AppData/Roaming/MetaQuotes/Terminal/Common/Files/PAT_signals.txt" \
+PAT_LICENSE="<activation code>" go run ./cmd/gateway
+```
+
+> Full step-by-step, safety gates and the emergency-stop test: `docs/WINDOWS_MT4_MT5_TESTING.md`.
+> Keep `AutoExecute=false` / `ExecuteCandidates=false` (signal-only) until you have
+> validated on a **demo** account.
+
 ---
 
 ## 8b. Broker execution correctness (cost-aware, broker-time)
