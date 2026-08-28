@@ -63,7 +63,7 @@ export default function AdminDeviceAuthPage() {
   };
 
   // Live Go engine agents status
-  const { data: agentsStatus } = useQuery<{ agents_connected: number; master_node_connected: boolean; snapshot_count: number }>({
+  const { data: agentsStatus } = useQuery<{ agents_connected: number; agents_online: boolean; snapshot_count: number }>({
     queryKey: ["admin-device-auth-agents"],
     queryFn: async () => (await customInstance.get("/agents/status")).data,
     refetchInterval: 10000,
@@ -142,8 +142,8 @@ export default function AdminDeviceAuthPage() {
             <div className="text-[10px] text-pat-text-muted">Windows Agent(s)</div>
           </div>
           <div className="rounded-lg bg-pat-bg-surface-secondary/30 p-3">
-            <div className="flex items-center gap-2 mb-1"><IconBroadcast size={14} className={agentsStatus?.master_node_connected ? "text-pat-success" : "text-pat-danger"} /><span className="text-[10px] text-pat-text-muted uppercase">Master Node</span></div>
-            <div className={`text-lg font-bold tabular-nums ${agentsStatus?.master_node_connected ? "text-pat-success" : "text-pat-danger"}`}>{agentsStatus?.master_node_connected ? "ONLINE" : "OFFLINE"}</div>
+            <div className="flex items-center gap-2 mb-1"><IconBroadcast size={14} className={agentsStatus?.agents_online ? "text-pat-success" : "text-pat-danger"} /><span className="text-[10px] text-pat-text-muted uppercase">Agents</span></div>
+            <div className={`text-lg font-bold tabular-nums ${agentsStatus?.agents_online ? "text-pat-success" : "text-pat-danger"}`}>{agentsStatus?.agents_online ? "ONLINE" : "OFFLINE"}</div>
             <div className="text-[10px] text-pat-text-muted">MT5 Data Feed</div>
           </div>
           <div className="rounded-lg bg-pat-bg-surface-secondary/30 p-3">
@@ -161,7 +161,7 @@ export default function AdminDeviceAuthPage() {
         {/* Connected terminal details */}
         {liveSnapshot?.broker && (
           <div className="rounded-lg bg-pat-bg-surface-secondary/20 p-3 space-y-2">
-            <div className="text-xs font-medium text-pat-text-primary mb-2">Connected Master Node Terminal</div>
+            <div className="text-xs font-medium text-pat-text-primary mb-2">Connected Agents Terminal</div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
               <div><span className="text-pat-text-muted">Broker:</span> <span className="text-pat-text-secondary">{liveSnapshot.broker}</span></div>
               <div><span className="text-pat-text-muted">Server:</span> <span className="text-pat-text-secondary">{liveSnapshot?.account_info?.server || "—"}</span></div>

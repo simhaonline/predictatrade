@@ -130,12 +130,12 @@ type DataAuthenticityGuard struct {
 	allowedSources map[types.DataSourceType]bool
 }
 
-// NewDataAuthenticityGuard creates a guard that only allows LIVE_MASTER_NODE
+// NewDataAuthenticityGuard creates a guard that only allows LIVE_AGENT
 // for production signal generation. REPLAY is allowed for backtesting only.
 func NewDataAuthenticityGuard() *DataAuthenticityGuard {
 	return &DataAuthenticityGuard{
 		allowedSources: map[types.DataSourceType]bool{
-			types.DataSourceLiveMasterNode: true,
+			types.DataSourceLiveAgent: true,
 			types.DataSourceReplay:         true, // For backtesting/research only
 		},
 	}
@@ -152,7 +152,7 @@ func (g *DataAuthenticityGuard) RejectReason(src types.DataSourceType) string {
 	if g.CheckSource(src) {
 		return ""
 	}
-	return "PRODUCTION_SIGNAL_REJECTED: data source " + string(src) + " is not LIVE_MASTER_NODE"
+	return "PRODUCTION_SIGNAL_REJECTED: data source " + string(src) + " is not LIVE_AGENT"
 }
 
 // EvaluateDataQuality measures real data quality from observable attributes.

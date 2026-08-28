@@ -489,7 +489,7 @@ type Signal struct {
 	SecondaryBlockers []string
 
 	// Signal provenance (prompt.md Sections 30-31, 43)
-	SourceMode        string         // LIVE_MASTER_NODE, AGENT, SIMULATED, etc.
+	SourceMode        string         // LIVE_AGENT, AGENT, SIMULATED, etc.
 	SourceAgentID     string         // agent/device safe identifier
 	SourceSequence    uint64         // source tick/snapshot sequence
 	SourceTimestamp   time.Time      // source timestamp from provider
@@ -572,12 +572,12 @@ const (
 )
 
 // DataSourceType represents the provenance of market data (Stage 4 Section 1).
-// Production signal generation requires LIVE_MASTER_NODE.
+// Production signal generation requires LIVE_AGENT.
 // Any other source must FAIL CLOSED.
 type DataSourceType string
 
 const (
-	DataSourceLiveMasterNode DataSourceType = "LIVE_MASTER_NODE"
+	DataSourceLiveAgent DataSourceType = "LIVE_AGENT"
 	DataSourceTest           DataSourceType = "TEST"
 	DataSourceMock           DataSourceType = "MOCK"
 	DataSourceDemo           DataSourceType = "DEMO"
@@ -590,7 +590,7 @@ const (
 
 // IsLiveDataSource returns true only if the data source is production-live.
 func IsLiveDataSource(src DataSourceType) bool {
-	return src == DataSourceLiveMasterNode
+	return src == DataSourceLiveAgent
 }
 
 // ModuleMode represents the activation state of an advanced intelligence module.

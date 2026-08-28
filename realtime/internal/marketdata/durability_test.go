@@ -39,8 +39,8 @@ func TestGenerateSignalReference_Sortable(t *testing.T) {
 
 // Test production source safeguard (prompt.md Section 3)
 func TestIsProductionSafeSource(t *testing.T) {
-	if !IsProductionSafeSource("LIVE_MASTER_NODE") {
-		t.Error("LIVE_MASTER_NODE should be production-safe")
+	if !IsProductionSafeSource("LIVE_AGENT") {
+		t.Error("LIVE_AGENT should be production-safe")
 	}
 	if !IsProductionSafeSource("AGENT") {
 		t.Error("AGENT should be production-safe")
@@ -83,8 +83,8 @@ func TestCalibrationStatus(t *testing.T) {
 
 // Test provenance state (prompt.md Section 57)
 func TestProvenanceState(t *testing.T) {
-	if !types.IsLiveDataSource(types.DataSourceLiveMasterNode) {
-		t.Error("LIVE_MASTER_NODE should be live")
+	if !types.IsLiveDataSource(types.DataSourceLiveAgent) {
+		t.Error("LIVE_AGENT should be live")
 	}
 	if types.IsLiveDataSource(types.DataSourceSynthetic) {
 		t.Error("SYNTHETIC should not be live")

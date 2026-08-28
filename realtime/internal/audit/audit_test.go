@@ -112,7 +112,7 @@ func TestSignalExecutionStruct(t *testing.T) {
 		DecisionReason:      "Trend alignment + BOS + bullish displacement",
 		StrategyID:          "STANDARD_SCALPING",
 		MarketDataTimestamp: time.Now().UTC(),
-		DataSource:          "LIVE_MASTER_NODE",
+		DataSource:          "LIVE_AGENT",
 	}
 
 	if exec.Signal != "BUY" {

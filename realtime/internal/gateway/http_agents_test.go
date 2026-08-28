@@ -51,14 +51,14 @@ func TestHandleAgentsStatusLivePrecedence(t *testing.T) {
 		t.Errorf("expected agents_connected=1 (live), got %v", agentsConnected)
 	}
 
-	// When agentHub has >0 connections, master_node_connected must be true
+	// When agentHub has >0 connections, agents_online must be true
 	// even if the provider hasn't registered yet (race during handshake).
-	masterConnected, ok := resp["master_node_connected"].(bool)
+	masterConnected, ok := resp["agents_online"].(bool)
 	if !ok {
-		t.Fatalf("master_node_connected missing or wrong type: %v", resp["master_node_connected"])
+		t.Fatalf("agents_online missing or wrong type: %v", resp["agents_online"])
 	}
 	if !masterConnected {
-		t.Error("expected master_node_connected=true when agents_connected > 0")
+		t.Error("expected agents_online=true when agents_connected > 0")
 	}
 }
 
@@ -86,8 +86,8 @@ func TestHandleAgentsStatusZeroAgents(t *testing.T) {
 		t.Errorf("expected agents_connected=0, got %v", agentsConnected)
 	}
 
-	masterConnected, _ := resp["master_node_connected"].(bool)
+	masterConnected, _ := resp["agents_online"].(bool)
 	if masterConnected {
-		t.Error("expected master_node_connected=false when no agents connected")
+		t.Error("expected agents_online=false when no agents connected")
 	}
 }

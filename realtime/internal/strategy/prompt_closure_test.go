@@ -187,7 +187,7 @@ func makeBaseState() *features.MarketState {
 		Spread:        decimal.NewFromFloat(0.4),
 		Quality:       types.QualityAuthoritative,
 		Timestamp:     time.Now().UTC(),
-		LastTick:      &types.Tick{Source: "LIVE_MASTER_NODE", Sequence: 1, SourceTimestamp: time.Now().UTC()},
+		LastTick:      &types.Tick{Source: "LIVE_AGENT", Sequence: 1, SourceTimestamp: time.Now().UTC()},
 		Session:       features.SessionFeatures{CurrentSession: "LONDON", IsOverlap: false, IsWeekend: false, NewsRisk: "NONE"},
 		Indicators:    features.IndicatorFeatures{ATR: decimal.NewFromFloat(3.0), RSI: decimal.NewFromFloat(50.0)},
 		VWAP:          features.VWAPFeatures{SessionVWAP: decimal.NewFromFloat(4400.0)},
@@ -677,8 +677,8 @@ func TestRetry_NoDuplicate(t *testing.T) {
 
 // Test 19: Real provider required for LIVE VERIFIED
 func TestProvenance_LiveVerified_RequiresLiveSource(t *testing.T) {
-	if !types.IsLiveDataSource(types.DataSourceLiveMasterNode) {
-		t.Error("LIVE_MASTER_NODE should be a live data source")
+	if !types.IsLiveDataSource(types.DataSourceLiveAgent) {
+		t.Error("LIVE_AGENT should be a live data source")
 	}
 	if types.IsLiveDataSource(types.DataSourceSynthetic) {
 		t.Error("SYNTHETIC should NOT be a live data source")

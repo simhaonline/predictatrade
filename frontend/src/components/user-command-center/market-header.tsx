@@ -150,7 +150,7 @@ export function MarketHeader() {
           </div>
         ))}
         <div className="ml-auto flex items-center gap-2">
-          {/* Engine-authoritative clock — Broker TF (collected live from Master Node), not UTC */}
+          {/* Engine-authoritative clock — Broker TF (collected live from Agents), not UTC */}
           <span className="text-[10px] font-mono tabular-nums text-pat-text-secondary" title={brokerTimeMode === "BROKER_ALIGNED" ? "Engine time aligned to broker session timezone" : "Engine time UTC-aligned"}>
             {/* Clock is Date.now()-derived; render a stable placeholder until
                 mounted to avoid a server/client text mismatch (#418 hydration). */}

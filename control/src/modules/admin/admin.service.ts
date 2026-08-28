@@ -558,7 +558,7 @@ export class AdminService {
       });
     }
 
-    // 6. Windows Agent / Master Node - derived from Go engine agents endpoint
+    // 6. Windows Agent - derived from Go engine agents endpoint
     try {
       const goAgentsUrl = process.env.GO_ENGINE_AGENTS_URL || 'http://127.0.0.1:13081/api/v1/agents/status';
       const controller = new AbortController();
@@ -567,19 +567,19 @@ export class AdminService {
       clearTimeout(timeout);
       const data = await res.json();
       const agentCount = data.agents_connected ?? 0;
-      const masterConnected = data.master_node_connected ?? false;
+      const agentsOnline = data.agents_online ?? false;
       services.push({
-        service: 'Windows Agent / Master Node',
-        status: masterConnected ? 'HEALTHY' : agentCount > 0 ? 'DEGRADED' : 'OFFLINE',
+        service: 'Windows Agent',
+        status: agentsOnline ? 'HEALTHY' : agentCount > 0 ? 'DEGRADED' : 'OFFLINE',
         latency_ms: 0,
         last_check: now,
-        details: masterConnected
-          ? `Master node connected, ${agentCount} agent(s)`
-          : `No master node, ${agentCount} agent(s) connected`,
+        details: agentsOnline
+          ? `Agents connected, ${agentCount} agent(s)`
+          : `No agents, ${agentCount} agent(s) connected`,
       });
     } catch {
       services.push({
-        service: 'Windows Agent / Master Node',
+        service: 'Windows Agent',
         status: 'UNKNOWN',
         latency_ms: 0,
         last_check: now,

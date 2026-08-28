@@ -39,7 +39,7 @@ export default function PreviewPage() {
 
   const { data: agentsStatus } = useQuery<{
     agents_connected: number;
-    master_node_connected: boolean;
+    agents_online: boolean;
     snapshot_count: number;
     mt4_connected: number;
     mt5_connected: number;

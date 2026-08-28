@@ -56,7 +56,7 @@ export default function UserMtClientPage() {
   // NOT global agent status (which shows ALL agents on the server)
   const { data: agentsStatus, refetch: refetchAgents } = useQuery<{
     agents_connected: number;
-    master_node_connected: boolean;
+    agents_online: boolean;
     snapshot_count: number;
     mt4_connected: number;
     mt5_connected: number;
@@ -72,7 +72,7 @@ export default function UserMtClientPage() {
       const onlineDevices = userDevices.filter((d: any) => d.connection_status === "ONLINE");
       return {
         agents_connected: onlineDevices.length,
-        master_node_connected: onlineDevices.length > 0,
+        agents_online: onlineDevices.length > 0,
         snapshot_count: 0,
         mt4_connected: mt4Devices.filter((d: any) => d.connection_status === "ONLINE").length,
         mt5_connected: mt5Devices.filter((d: any) => d.connection_status === "ONLINE").length,
@@ -179,7 +179,7 @@ export default function UserMtClientPage() {
       title: "Verify Your Connection",
       steps: [
         "Check http://127.0.0.1:9000 — the Client Agent dashboard should show your CLIENT (EA) connection and a live SIGNAL DELIVERY → EA status.",
-        "If you also run the Master Node, open http://127.0.0.1:9001 — it shows the MASTER NODE connection and live CANDLE DELIVERY → Engine status (no server/backend card).",
+        "The Windows Agent sends live market data (candles) to the engine — the client dashboard at http://127.0.0.1:9000 shows the CLIENT (EA) connection and live SIGNAL DELIVERY → EA status.",
         "In MT4/MT5, check the Experts tab — should show 'License validated — ACTIVE'.",
         "In MT4/MT5, check the Journal tab — should show 'License strategies from server: ...'",
         "Your terminal status should appear as 'Online' in the dashboard above.",
@@ -266,9 +266,9 @@ export default function UserMtClientPage() {
 
         <div className="mt-3 text-[11px] text-pat-text-muted leading-relaxed">
           This page shows your <strong>Client Agent</strong> (execution) connection. Live
-          <strong> signal delivery</strong> (signals → EA) and <strong>candle delivery</strong> (Master
-          Node → engine) are reported on the local Windows Agent dashboard:
-          Client <code>http://127.0.0.1:9000</code> · Master Node <code>http://127.0.0.1:9001</code>.
+          <strong> signal delivery</strong> (signals → EA) and <strong>candle delivery</strong> (agent
+          → engine) are reported on the local Windows Agent dashboard:
+          Client <code>http://127.0.0.1:9000</code>.
         </div>
       </div>
 

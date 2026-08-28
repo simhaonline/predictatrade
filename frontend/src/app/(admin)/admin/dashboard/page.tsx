@@ -146,7 +146,7 @@ export default function AdminDashboardPage() {
   const agentCount = Number(agentsStatus?.agents_connected ?? 0) || (Array.isArray(agentsStatus?.agents) ? agentsStatus.agents.length : 0);
   const hasAgents = agentCount > 0;
   const wsConnected = wsState === 'CONNECTED';
-  const masterNodeConnected = (agentsStatus?.master_node_connected as boolean) ?? false;
+  const agentsOnline = agentsStatus?.agents_online ?? false;
 
   // Extract market data from the Go engine response
   const marketData = marketState as Record<string, unknown> | undefined;
@@ -174,7 +174,7 @@ export default function AdminDashboardPage() {
   const platformStatusItems = [
     { label: "Trading", status: tradingHalted ? "halted" : "active" },
     { label: "Signals", status: signalsPaused ? "paused" : "active" },
-    { label: "Master Node", status: masterNodeConnected ? "online" : "offline" },
+    { label: "Agents", status: agentsOnline ? "online" : "offline" },
     { label: "Market Feed", status: feedState.toLowerCase() },
     { label: "RT Engine", status: engineAlive ? "operational" : "unknown" },
     { label: "Control Plane", status: (nestHealth?.status as string) === "ok" ? "operational" : "unknown" },
@@ -229,7 +229,7 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* Market Data + Master Node */}
+      {/* Market Data + Agents */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Live Price */}
         <div className="bg-pat-card-bg border border-pat-card-border rounded-lg p-4 shadow-sm">
@@ -265,18 +265,18 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* Master Node / Windows Agent */}
+        {/* Agents / Windows Agent */}
         <div className="bg-pat-card-bg border border-pat-card-border rounded-lg p-4 shadow-sm">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-medium text-pat-text-primary">Master Node</span>
-            <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${masterNodeConnected ? "bg-pat-badge-success-bg text-pat-badge-success-text border-pat-badge-success-bg" : "bg-pat-badge-danger-bg text-pat-badge-danger-text border-pat-badge-danger-bg"}`}>
-              {masterNodeConnected ? "ONLINE" : "OFFLINE"}
+            <span className="text-sm font-medium text-pat-text-primary">Agents</span>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${agentsOnline ? "bg-pat-badge-success-bg text-pat-badge-success-text border-pat-badge-success-bg" : "bg-pat-badge-danger-bg text-pat-badge-danger-text border-pat-badge-danger-bg"}`}>
+              {agentsOnline ? "ONLINE" : "OFFLINE"}
             </span>
           </div>
           {hasAgents ? (
             <div className="space-y-2 text-xs">
               <div className="flex justify-between"><span className="text-pat-text-muted">Connected Agents</span><span className="text-pat-text-primary">{agentCount}</span></div>
-              <div className="flex justify-between"><span className="text-pat-text-muted">Master Node</span><span className={masterNodeConnected ? "text-pat-success" : "text-pat-danger"}>{masterNodeConnected ? "Connected" : "Disconnected"}</span></div>
+              <div className="flex justify-between"><span className="text-pat-text-muted">Agents</span><span className={agentsOnline ? "text-pat-success" : "text-pat-danger"}>{agentsOnline ? "Connected" : "Disconnected"}</span></div>
               <div className="flex justify-between"><span className="text-pat-text-muted">Snapshots</span><span className="text-pat-text-primary">{(agentsStatus?.snapshot_count as number) ?? 0}</span></div>
             </div>
           ) : (

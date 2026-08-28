@@ -90,7 +90,7 @@ function buildComponents(control, sys, rt, fe, agents) {
   const dbOk = !!(control.j && control.j.database === 'healthy' && sys.j && sys.j.postgresql && sys.j.postgresql.healthy);
   const cacheOk = !!(sys.j && sys.j.valkey && sys.j.valkey.connected);
   const agentOk = !!(agents.ok);
-  const agentMaster = !!(agents.j && agents.j.master_node_connected);
+  const agentMaster = !!(agents.j && agents.j.agents_online);
 
   return [
     { name: 'Platform Web', group: 'Presentation', url: PUBLIC.platform, status: statusOf(fe.ok), ms: fe.ms, critical: true },

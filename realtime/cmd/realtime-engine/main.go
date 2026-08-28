@@ -2197,8 +2197,8 @@ func main() {
 				if isAgentProvider && agentProvider != nil {
 					// Write agent status to both WebSocket and Valkey
 					agentStatus := gateway.AgentStatus{
-						AgentsConnected:     agentHub.AgentCount(),
-						MasterNodeConnected: agentProvider.HasConnectedAgents(),
+					AgentsConnected:     agentHub.AgentCount(),
+					AgentsOnline:        agentProvider.HasConnectedAgents(),
 						DataAgentsConnected: dataAgentHub.AgentCount(),
 						SnapshotCount:       agentProvider.GetSnapshotCount(),
 						Timestamp:           time.Now().UTC(),
@@ -2578,7 +2578,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 
 	// PTB: Evaluate shared intelligence layer (Stage 4)
 	// All modules are SHADOW — they calculate and persist but contribute ZERO to scores
-	dataSource := types.DataSourceLiveMasterNode
+	dataSource := types.DataSourceLiveAgent
 	mergedState.PTB = ptbEngine.Evaluate(mergedState, candle.Time.Format("2006-01-02T15:04:05Z"), dataSource)
 	if persister != nil {
 		go func() {

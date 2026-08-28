@@ -3,7 +3,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 interface AgentsStatus {
   agents_connected: number;
-  master_node_connected: boolean;
+  agents_online: boolean;
   snapshot_count: number;
   mt4_connected: number;
   mt5_connected: number;
@@ -28,7 +28,7 @@ export class AgentsController {
       const data = (await res.json()) as Record<string, unknown>;
       return {
         agents_connected: Number(data.agents_connected ?? 0),
-        master_node_connected: Boolean(data.master_node_connected ?? false),
+        agents_online: Boolean(data.agents_online ?? false),
         snapshot_count: Number(data.snapshot_count ?? 0),
         mt4_connected: Number(data.mt4_connected ?? 0),
         mt5_connected: Number(data.mt5_connected ?? 0),
@@ -39,7 +39,7 @@ export class AgentsController {
     } catch {
       return {
         agents_connected: 0,
-        master_node_connected: false,
+        agents_online: false,
         snapshot_count: 0,
         mt4_connected: 0,
         mt5_connected: 0,

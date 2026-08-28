@@ -90,10 +90,10 @@ interface CommissionSummary {
   pending_amount: string; confirmed_amount: string;
 }
 
-// Master Node account numbers that should NOT be shown to users (admin-only)
-const MASTER_NODE_ACCOUNTS = ["1013700717"];
-// Master Node device names — terminals on these devices are admin-only
-const MASTER_NODE_DEVICE_NAMES = ["Equiti MT5 Master Node", "Master Node"];
+// Agents account numbers that should NOT be shown to users (admin-only)
+const ADMIN_ONLY_ACCOUNTS = ["1013700717"];
+// Agents device names — terminals on these devices are admin-only
+const ADMIN_ONLY_DEVICE_NAMES = ["Equiti MT5 Agents", "Agents"];
 
 export default function UserTradingReportsPage() {
   const { data: devices } = useQuery<UserDevice[]>({
@@ -155,10 +155,10 @@ export default function UserTradingReportsPage() {
   const totalRealizedPnL = trades.reduce((s, t) => s + parseFloat(t.pnl || "0"), 0);
   const realizedWinRate = totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0;
 
-  // Filter out Master Node terminals — those are admin-only, not for client dashboard
+  // Filter out Agents terminals — those are admin-only, not for client dashboard
   const allTerminals = (devices?.flatMap(d =>
-    (d.activations || []).map(a => ({ ...a, deviceName: d.device_name, deviceStatus: d.status, _isMasterNodeDevice: MASTER_NODE_DEVICE_NAMES.some(n => d.device_name?.includes(n)) }))
-  ) ?? []).filter(t => !MASTER_NODE_ACCOUNTS.includes(t.mt_account_login || "") && !t._isMasterNodeDevice);
+    (d.activations || []).map(a => ({ ...a, deviceName: d.device_name, deviceStatus: d.status, _isAdminOnlyDevice: ADMIN_ONLY_DEVICE_NAMES.some(n => d.device_name?.includes(n)) }))
+  ) ?? []).filter(t => !ADMIN_ONLY_ACCOUNTS.includes(t.mt_account_login || "") && !t._isAdminOnlyDevice);
 
   const totalSignals = signals.length;
   const directional = signals.filter(s => s.Direction !== "NO-TRADE");
@@ -245,7 +245,7 @@ export default function UserTradingReportsPage() {
         </div>
       </div>
 
-      {/* MT Client Connection status — no Master Node info shown to users */}
+      {/* MT Client Connection status — no Agents info shown to users */}
       <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">

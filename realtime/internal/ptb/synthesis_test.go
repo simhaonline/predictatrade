@@ -16,7 +16,7 @@ import (
 func TestSynthesize_StrongLong(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveAgent)
 	cfg := DefaultConfig()
 	out := e.Synthesize(state, snap, cfg)
 	if out == nil {
@@ -43,7 +43,7 @@ func TestSynthesize_StrongShort(t *testing.T) {
 	state.Candle.IsBullish = false
 	state.Candle.IsBearish = true
 
-	snap := e.Evaluate(state, "snap-002", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-002", types.DataSourceLiveAgent)
 	cfg := DefaultConfig()
 	out := e.Synthesize(state, snap, cfg)
 	if out.Bias != BiasShort && out.Bias != BiasStrongShort && out.Bias != BiasNeutral {
@@ -59,7 +59,7 @@ func TestSynthesize_NeutralConflictingState(t *testing.T) {
 	state.MTF.States[types.TFH4] = -1
 	state.MTF.Score = 0
 
-	snap := e.Evaluate(state, "snap-003", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-003", types.DataSourceLiveAgent)
 	cfg := DefaultConfig()
 	out := e.Synthesize(state, snap, cfg)
 	// Conflicting evidence should produce NEUTRAL or STAND_ASIDE
@@ -71,7 +71,7 @@ func TestSynthesize_NeutralConflictingState(t *testing.T) {
 func TestSynthesize_ShadowMode_NoProductionImpact(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveAgent)
 	cfg := DefaultConfig()
 	cfg.ShadowMode = true
 	out := e.Synthesize(state, snap, cfg)
@@ -85,7 +85,7 @@ func TestSynthesize_ShadowMode_NoProductionImpact(t *testing.T) {
 func TestSynthesize_SetupQualityGrading(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveAgent)
 	cfg := DefaultConfig()
 	out := e.Synthesize(state, snap, cfg)
 
@@ -160,7 +160,7 @@ func TestSynthesize_ActionStates(t *testing.T) {
 func TestSynthesize_RegimeClassification(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveAgent)
 	cfg := DefaultConfig()
 	out := e.Synthesize(state, snap, cfg)
 
@@ -179,7 +179,7 @@ func TestSynthesize_RegimeClassification(t *testing.T) {
 func TestSynthesize_GoldRoleUnknown_WithoutData(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveAgent)
 	cfg := DefaultConfig()
 	out := e.Synthesize(state, snap, cfg)
 	// Without DXY/yield data, gold role must be UNKNOWN — no fabrication
@@ -191,7 +191,7 @@ func TestSynthesize_GoldRoleUnknown_WithoutData(t *testing.T) {
 func TestSynthesize_ReasonCodes(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveAgent)
 	cfg := DefaultConfig()
 	out := e.Synthesize(state, snap, cfg)
 
@@ -204,7 +204,7 @@ func TestSynthesize_ReasonCodes(t *testing.T) {
 func TestSynthesize_MarketNarrative(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveAgent)
 	cfg := DefaultConfig()
 	out := e.Synthesize(state, snap, cfg)
 
@@ -217,7 +217,7 @@ func TestSynthesize_MarketNarrative(t *testing.T) {
 func TestSynthesize_ComponentScores(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveAgent)
 	cfg := DefaultConfig()
 	out := e.Synthesize(state, snap, cfg)
 
@@ -233,7 +233,7 @@ func TestSynthesize_ComponentScores(t *testing.T) {
 func TestSynthesize_LiquidityTargets(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveAgent)
 	cfg := DefaultConfig()
 	out := e.Synthesize(state, snap, cfg)
 
@@ -341,7 +341,7 @@ func TestRegression_PTBDisabled_PreservesBehavior(t *testing.T) {
 
 	// With PTB shadow mode, strategies should produce the same results
 	// as without PTB. The PTB snapshot is stored but doesn't alter scores.
-	snap := e.Evaluate(state, "snap-reg", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-reg", types.DataSourceLiveAgent)
 	if snap == nil {
 		t.Fatal("PTB snapshot should not be nil")
 	}
@@ -372,7 +372,7 @@ func TestIntegration_PTBCannotBypassRiskGates(t *testing.T) {
 	// This test verifies PTB output does not bypass risk.
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-int", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-int", types.DataSourceLiveAgent)
 	cfg := DefaultConfig()
 	out := e.Synthesize(state, snap, cfg)
 
@@ -389,7 +389,7 @@ func TestIntegration_PTBCannotBypassRiskGates(t *testing.T) {
 func TestIntegration_AVOID_DoesNotProduceSignal(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-avoid", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-avoid", types.DataSourceLiveAgent)
 	cfg := DefaultConfig()
 	// Force high manipulation to trigger AVOID
 	cfg.ManipHighRisk = 10 // low threshold to trigger AVOID easily
@@ -406,7 +406,7 @@ func TestIntegration_UnavailableMacroDoesNotCrash(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
 	// No DXY/silver/yield data added to correlation engine
-	snap := e.Evaluate(state, "snap-no-macro", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-no-macro", types.DataSourceLiveAgent)
 	cfg := DefaultConfig()
 	out := e.Synthesize(state, snap, cfg)
 

@@ -39,8 +39,8 @@ func TestFlagRegistry_SetMode(t *testing.T) {
 
 func TestDataAuthenticityGuard_RejectsNonLive(t *testing.T) {
 	g := NewDataAuthenticityGuard()
-	if !g.CheckSource(types.DataSourceLiveMasterNode) {
-		t.Error("LIVE_MASTER_NODE should be accepted")
+	if !g.CheckSource(types.DataSourceLiveAgent) {
+		t.Error("LIVE_AGENT should be accepted")
 	}
 	if g.CheckSource(types.DataSourceMock) {
 		t.Error("MOCK should be rejected")
@@ -71,14 +71,14 @@ func TestDataAuthenticityGuard_Reason(t *testing.T) {
 	if reason == "" {
 		t.Error("Expected non-empty rejection reason for MOCK")
 	}
-	if g.RejectReason(types.DataSourceLiveMasterNode) != "" {
-		t.Error("Expected empty reason for LIVE_MASTER_NODE")
+	if g.RejectReason(types.DataSourceLiveAgent) != "" {
+		t.Error("Expected empty reason for LIVE_AGENT")
 	}
 }
 
 func TestEngine_Evaluate_NilState(t *testing.T) {
 	e := NewEngine()
-	snap := e.Evaluate(nil, "test-id", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(nil, "test-id", types.DataSourceLiveAgent)
 	if snap != nil {
 		t.Error("Expected nil snapshot for nil state")
 	}
@@ -87,15 +87,15 @@ func TestEngine_Evaluate_NilState(t *testing.T) {
 func TestEngine_Evaluate_ValidState(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveAgent)
 	if snap == nil {
 		t.Fatal("Expected non-nil snapshot")
 	}
 	if !snap.IsLive {
-		t.Error("Expected IsLive=true for LIVE_MASTER_NODE")
+		t.Error("Expected IsLive=true for LIVE_AGENT")
 	}
-	if snap.DataSource != types.DataSourceLiveMasterNode {
-		t.Errorf("Expected LIVE_MASTER_NODE, got %s", snap.DataSource)
+	if snap.DataSource != types.DataSourceLiveAgent {
+		t.Errorf("Expected LIVE_AGENT, got %s", snap.DataSource)
 	}
 }
 
@@ -114,7 +114,7 @@ func TestEngine_Evaluate_TestSourceRejected(t *testing.T) {
 func TestEngine_AllModulesShadow_ZeroScoreContribution(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveAgent)
 
 	// Verify ALL modules have zero score contribution in SHADOW mode
 	if !snap.LiquidityVoid.ScoreContrib.IsZero() {
@@ -137,7 +137,7 @@ func TestEngine_AllModulesShadow_ZeroScoreContribution(t *testing.T) {
 func TestEngine_InstitutionalFootprint_Unsupported(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveAgent)
 	if snap.InstitutionalFootprint.Mode != types.ModuleUnsupported {
 		t.Errorf("Expected UNSUPPORTED, got %s", snap.InstitutionalFootprint.Mode)
 	}
@@ -152,7 +152,7 @@ func TestEngine_InstitutionalFootprint_Unsupported(t *testing.T) {
 func TestEngine_MTFBias(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveAgent)
 	// MTF bias should compute from existing MTF states
 	if snap.MTFBias.Bias == "" {
 		t.Error("Expected non-empty MTF bias")
@@ -162,7 +162,7 @@ func TestEngine_MTFBias(t *testing.T) {
 func TestEngine_VolatilityRegime(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveAgent)
 	if snap.VolatilityRegime.Regime == "" {
 		t.Error("Expected non-empty volatility regime")
 	}
@@ -171,7 +171,7 @@ func TestEngine_VolatilityRegime(t *testing.T) {
 func TestEngine_DataQuality_Measured(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveAgent)
 	if snap.DataQuality.State == "" {
 		t.Error("Expected non-empty data quality state")
 	}
@@ -185,7 +185,7 @@ func TestEngine_ShadowMode_DoesNotAlterSignals(t *testing.T) {
 	// Stage 4 Section 69: Shadow modules must NOT alter BUY/SELL/WAIT/NO_TRADE/BLOCKED/ERROR
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveAgent)
 
 	// None of the shadow results should contain any BUY/SELL direction
 	results := []ModuleResult{
@@ -206,7 +206,7 @@ func TestEngine_ShadowMode_DoesNotAlterSignals(t *testing.T) {
 func TestEngine_CompleteLiquidityMap_InferredOnly(t *testing.T) {
 	e := NewEngine()
 	state := makeTestState()
-	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveMasterNode)
+	snap := e.Evaluate(state, "snap-001", types.DataSourceLiveAgent)
 	// Verify all liquidity levels are INFERRED_PRICE_STRUCTURE, not fabricated
 	if snap.CompleteLiquidityMap.Available {
 		value, ok := snap.CompleteLiquidityMap.Value.(map[string]interface{})

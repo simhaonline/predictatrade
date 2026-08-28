@@ -63,12 +63,12 @@ export default function AdminHealthPage() {
     details: goHealth?.valkey?.connected ? 'Connected' : 'Disconnected',
   });
 
-  // Windows Agent / Master Node
+  // Windows Agent
   services.push({
-    service: 'Windows Agent / Master Node',
+    service: 'Windows Agent',
     status: goHealth?.market_source?.agents_connected > 0 ? 'HEALTHY' : 'UNKNOWN',
     last_check: now,
-    details: goHealth?.market_source?.master_node_connected ? 'Master node connected' : `Agents: ${goHealth?.market_source?.agents_connected ?? 0}`,
+    details: goHealth?.market_source?.agents_online ? 'Agents connected' : `Agents: ${goHealth?.market_source?.agents_connected ?? 0}`,
   });
 
   if (goLoading) return <div className="text-sm text-pat-text-secondary">Loading health status...</div>;

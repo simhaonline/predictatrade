@@ -866,18 +866,18 @@ func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) 
 	// Valkey cache is still written by the broadcast loop for other
 	// consumers (e.g. NestJS health aggregation), but the Go engine's
 	// own endpoint must reflect the truth it holds in memory.
-	agentsConnected := h.agentHub.AgentCount()
-	masterNodeConnected := false
+	agentCount := h.agentHub.AgentCount()
+	agentsOnline := false
 	snapshotCount := uint64(0)
 	if h.agentProvider != nil {
-		masterNodeConnected = h.agentProvider.HasConnectedAgents()
+		agentsOnline = h.agentProvider.HasConnectedAgents()
 		snapshotCount = h.agentProvider.GetSnapshotCount()
 	}
 	// If the live agentHub reports a connection but the provider has not
 	// yet registered it (race during initial handshake), trust the hub —
-	// a connected WebSocket agent IS a connected master node.
-	if agentsConnected > 0 && !masterNodeConnected {
-		masterNodeConnected = true
+	// a connected WebSocket agent IS a connected agent.
+	if agentCount > 0 && !agentsOnline {
+		agentsOnline = true
 	}
 	dataAgentCount := 0
 	if h.DataAgentHub != nil {
@@ -909,8 +909,8 @@ func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"agents_connected":      agentsConnected,
-		"master_node_connected": masterNodeConnected,
+		"agents_connected":      agentCount,
+		"agents_online":         agentsOnline,
 		"data_agents_connected": dataAgentCount,
 		"snapshot_count":        snapshotCount,
 		"last_market_data_at":   lastMarketDataAt.UTC().Format(time.RFC3339),
@@ -1164,8 +1164,8 @@ func (h *HTTPServer) handleSystemHealth(w http.ResponseWriter, r *http.Request) 
 	
 	// Market source
 	health["market_source"] = map[string]interface{}{
-		"agents_connected":     h.agentHub.AgentCount(),
-		"master_node_connected": func() bool { mc := h.agentProvider.HasConnectedAgents(); if !mc && h.agentHub.AgentCount() > 0 { mc = true }; return mc }(),
+		"agents_connected":    h.agentHub.AgentCount(),
+		"agents_online":       func() bool { mc := h.agentProvider.HasConnectedAgents(); if !mc && h.agentHub.AgentCount() > 0 { mc = true }; return mc }(),
 	}
 	
 	// Overall ready

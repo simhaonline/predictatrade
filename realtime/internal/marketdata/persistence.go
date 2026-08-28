@@ -850,7 +850,7 @@ type OutboxEvent struct {
 // Production safeguard: prevent synthetic/test data from being persisted as LIVE (prompt.md Section 3)
 func IsProductionSafeSource(sourceMode string) bool {
 	switch sourceMode {
-	case "LIVE_MASTER_NODE", "AGENT", "LIVE":
+	case "LIVE_AGENT", "AGENT", "LIVE":
 		return true
 	default:
 		return false

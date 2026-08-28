@@ -10,7 +10,7 @@
  * stale data misjudgment, and wrong session/news gate evaluation.
  *
  * The engine runs on the BROKER session timezone (collected live from the
- * Master Node), not UTC — see broker_offset / time_mode in the snapshot API.
+ * Agents), not UTC — see broker_offset / time_mode in the snapshot API.
  * The frontend surfaces the authoritative broker-local time, not browser time.
  */
 

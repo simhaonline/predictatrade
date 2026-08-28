@@ -133,7 +133,7 @@ describe('normalizeWsMessage — Go EventEnvelope to frontend WsMessage', () => 
       type: 'AGENT_STATUS',
       payload: {
         AgentsConnected: 1,
-        MasterNodeConnected: true,
+        AgentsOnline: true,
         Timestamp: '2026-08-19T13:00:00Z',
       },
     });

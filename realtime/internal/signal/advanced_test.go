@@ -68,7 +68,7 @@ func makeBaseInput(strat types.StrategyID) DecisionInput {
 			Ask:             decimal.NewFromFloat(2400.3),
 			Mid:             decimal.NewFromFloat(2400.15),
 			Spread:          decimal.NewFromFloat(0.3),
-			Source:          "LIVE_MASTER_NODE",
+			Source:          "LIVE_AGENT",
 			SourceTimestamp: time.Now(),
 			Quality:         types.QualityAuthoritative,
 		},
