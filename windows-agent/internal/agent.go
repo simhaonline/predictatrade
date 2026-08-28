@@ -321,17 +321,26 @@ func (a *Agent) Start() error {
 	// Master Node is data-only and starts no extra loops).
 	a.handler.startRoleLoops(a)
 
-	// Start auto-updater (checks for updates every hour)
-	// The Master Node (data role) fetches its role-specific manifest so it
-	// always downloads the correct pat-master.exe rather than the client binary.
-	defaultManifest := "https://downloads.predictatrade.com/windows-agent/update-manifest.json"
+	// Start auto-updater (checks for updates every hour).
+	// Each role fetches its ARCH-specific manifest so it always downloads the
+	// correct binary for the platform (amd64/386/arm64). A per-role (amd64)
+	// manifest is used as a fallback if the arch-specific one is missing.
+	roleDir := "client"
 	if a.role == "data" {
-		defaultManifest = "https://downloads.predictatrade.com/windows-agent/master/update-manifest.json"
+		roleDir = "master"
 	}
+	arch := runtime.GOARCH // amd64, 386, arm64
+	defaultManifest := fmt.Sprintf("https://downloads.predictatrade.com/windows-agent/%s/%s/update-manifest.json", roleDir, arch)
 	manifestURL := getEnv("PAT_UPDATE_MANIFEST_URL", defaultManifest)
-	installDir := getEnv("PAT_INSTALL_DIR", "C:\\Program Files\\PredictATrade\\XAUUSD")
-	a.updater = NewUpdater(manifestURL, AgentVersion, a.config.AgentDataDir, installDir, a.config.UpdateChannel)
+	fallbackManifest := fmt.Sprintf("https://downloads.predictatrade.com/windows-agent/%s/update-manifest.json", roleDir)
+	defaultSvc := "pat-agent-client"
+	if a.role == "data" {
+		defaultSvc = "pat-agent-master"
+	}
+	serviceName := getEnv("PAT_SERVICE_NAME", defaultSvc)
+	a.updater = NewUpdater(manifestURL, fallbackManifest, AgentVersion, a.config.AgentDataDir, a.config.UpdateChannel, serviceName)
 	go a.safe(a.updateLoop)
+	go a.safe(a.telemetryLoop)
 
 	return nil
 }
@@ -870,6 +879,54 @@ func (a *Agent) sendToServer(data []byte) error {
 	return a.conn.WriteMessage(websocket.TextMessage, data)
 }
 
+// sendTelemetry pushes a periodic health/usage snapshot to the backend so the
+// server has visibility into each client agent (uptime, connectivity, license,
+// data delivery). It rides the same engine WebSocket as market data.
+func (a *Agent) sendTelemetry() {
+	if a.conn == nil {
+		return
+	}
+	st := a.getStatus()
+	payload := map[string]interface{}{
+		"type":              "AGENT_TELEMETRY",
+		"agent_id":          a.deviceID,
+		"version":           AgentVersion,
+		"role":              a.role,
+		"goos":              runtime.GOOS,
+		"goarch":            runtime.GOARCH,
+		"mt4_connected":     st.MT4Connected,
+		"mt5_connected":     st.MT5Connected,
+		"backend_connected": st.BackendConnected,
+		"uptime_seconds":    st.UptimeSeconds,
+		"candles_delivered": st.CandlesDelivered,
+		"license_status":    st.LicenseStatus,
+		"license_plan":      st.LicensePlan,
+		"timestamp":         time.Now().UTC().Format(time.RFC3339),
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	if err := a.sendToServer(data); err != nil {
+		logf("[telemetry] send failed: %v", err)
+	}
+}
+
+// telemetryLoop emits a telemetry snapshot every minute for server-side observability.
+func (a *Agent) telemetryLoop() {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	a.sendTelemetry() // emit immediately on connect
+	for {
+		select {
+		case <-ticker.C:
+			a.sendTelemetry()
+		case <-a.stopChan:
+			return
+		}
+	}
+}
+
 // onTickFromEA is called when the EA sends real MT5 tick data via named pipe
 func (a *Agent) onTickFromEA(tick MT5Tick) {
 	// Capture latest XAUUSD tick for the heartbeat market-status payload (do not
@@ -1056,8 +1113,15 @@ func (a *Agent) checkAndUpdate() {
 
 	logf("[updater] Update verified (checksum OK), staged at %s", stagedPath)
 
-	// Apply the update (Windows: helper batch script stops service, swaps, restarts)
-	currentPath := filepath.Join(getEnv("PAT_INSTALL_DIR", "C:\\Program Files\\PredictATrade\\XAUUSD"), "pat-agent.exe")
+	// Apply the update (Windows: helper batch script stops service, swaps, restarts).
+	// Determine the exact path of the running binary so the swap targets the real
+	// installed exe (pat-agent.exe OR pat-master.exe, in its actual install dir).
+	exePath, err := os.Executable()
+	if err != nil {
+		logf("[updater] cannot determine own executable path: %v", err)
+		return
+	}
+	currentPath := exePath
 	if err := a.updater.ApplyUpdateOnWindows(stagedPath, currentPath, manifest); err != nil {
 		logf("[updater] Apply failed: %v", err)
 		return

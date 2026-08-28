@@ -215,6 +215,8 @@ Shared (both roles): `C:\ProgramData\PredictATrade\logs\` (service logs),
 | `install.bat` | Batch launcher — delegates to `install.ps1 -Mode` (keeps separate dirs + nssm reuse). |
 | `version.txt` | Current version number. |
 | `update-manifest.json` | Version + SHA256 for auto-update. |
+| `<role>/<arch>/<exe>.exe` | Per-architecture binaries (`client`\|`master` × `amd64`\|`386`\|`arm64`) fetched by the installer based on detected Windows arch. |
+| `<role>/<arch>/update-manifest.json` | Per-architecture auto-update manifest. |
 
 ---
 
@@ -230,6 +232,33 @@ Shared (both roles): `C:\ProgramData\PredictATrade\logs\` (service logs),
   (supplied via `PAT_SIGN_CERT`). Self-signed certificates are **NOT** acceptable and must
   not be used; an unsigned/self-signed binary triggers Defender/SmartScreen "unknown
   publisher", and the installer applies a scoped Defender exclusion only as a dev/test stopgap.
+- **Downloads are HTTPS (certbot / Let's Encrypt):** binaries are served over TLS by
+  nginx, so the *transport* is authenticated. A TLS server certificate, however, **cannot**
+  Authenticode-sign a Windows executable — that requires a separate code-signing certificate.
+  Until a CA code-signing cert is supplied (`PAT_SIGN_CERT`), the binary stays UNSIGNED and the
+  Defender exclusion remains the dev/test stopgap.
+
+---
+
+## 7b. Auto-Update & Multi-Architecture Support
+
+**Auto-update (no manual reinstalls).** Every agent checks its role+arch manifest
+(`windows-agent/<role>/<arch>/update-manifest.json`) once an hour. If a newer version is
+published, it downloads it over HTTPS, verifies the SHA-256 checksum, then a detached helper
+stops the exact Windows service (`pat-agent-client` / `pat-agent-master`), swaps the binary,
+and restarts the service. **Clients therefore receive fixes automatically** — you should never
+need to ask them to reinstall. The service name is passed to the agent at install time via the
+`PAT_SERVICE_NAME` machine env var, so the swap always targets the correct service.
+
+**Multi-arch.** Binaries are built for `amd64`, `386`, and `arm64`. The installer detects the
+Windows architecture (`PROCESSOR_ARCHITECTURE` / `PROCESSOR_ARCHITEW6432`) and downloads the
+matching binary from `windows-agent/<role>/<arch>/<exe>.exe`. If a per-arch manifest is
+missing, the agent falls back to the per-role (amd64) manifest so updates still apply.
+
+**Telemetry.** Each agent sends an `AGENT_TELEMETRY` snapshot (version, role, goarch, MT4/MT5
+connectivity, backend connectivity, uptime, candles delivered, license status/plan) to the
+realtime engine over its existing WebSocket once per minute. These appear in the backend logs
+(`[AGENT-TELEMETRY] ...`) for fleet observability.
 
 ---
 

@@ -30,10 +30,11 @@ import (
 // swaps the binary, and restarts.
 type Updater struct {
 	manifestURL   string
+	fallbackURL   string // per-role (amd64) manifest, tried if the arch-specific one is missing
 	currentVer    string
 	dataDir       string
-	installDir    string
 	updateChannel string
+	serviceName   string // Windows service name to stop/start during swap (e.g. pat-agent-client)
 }
 
 // UpdateManifest represents the update metadata from the server.
@@ -48,14 +49,18 @@ type UpdateManifest struct {
 }
 
 // NewUpdater creates a new updater instance.
-// manifestURL is the full URL to update-manifest.json on the download server.
-func NewUpdater(manifestURL, currentVer, dataDir, installDir, channel string) *Updater {
+// manifestURL is the full URL to the arch-specific update-manifest.json on the
+// download server. fallbackURL is the per-role (amd64) manifest used when the
+// arch-specific one is unavailable, so updates never dead-end. serviceName is the
+// exact Windows service name (must match what the installer registered).
+func NewUpdater(manifestURL, fallbackURL, currentVer, dataDir, channel, serviceName string) *Updater {
 	return &Updater{
 		manifestURL:   manifestURL,
+		fallbackURL:   fallbackURL,
 		currentVer:    currentVer,
 		dataDir:       dataDir,
-		installDir:    installDir,
 		updateChannel: channel,
+		serviceName:   serviceName,
 	}
 }
 
@@ -109,31 +114,53 @@ func (u *Updater) verifyManifestSignature(manifest *UpdateManifest) error {
 	return nil
 }
 
-// CheckForUpdate fetches the manifest from the server and compares versions.
-// Returns the manifest if an update is available, nil if up-to-date.
-func (u *Updater) CheckForUpdate() (*UpdateManifest, error) {
+// fetchManifest GETs a manifest URL and decodes it. It returns (manifest, status, err).
+// A 204 means up-to-date, a non-200 non-204 returns manifest=nil with that status.
+func (u *Updater) fetchManifest(url string) (*UpdateManifest, int, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get(u.manifestURL)
+	resp, err := client.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("update check failed: %w", err)
+		return nil, 0, fmt.Errorf("manifest fetch failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 204 {
-		return nil, nil // Up to date
+		return nil, 204, nil
 	}
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("update check returned HTTP %d", resp.StatusCode)
+		return nil, resp.StatusCode, nil
 	}
+	var m UpdateManifest
+	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+		return nil, resp.StatusCode, fmt.Errorf("failed to decode update manifest: %w", err)
+	}
+	return &m, 200, nil
+}
 
-	var manifest UpdateManifest
-	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
-		return nil, fmt.Errorf("failed to decode update manifest: %w", err)
+// CheckForUpdate fetches the manifest from the server and compares versions.
+// Returns the manifest if an update is available, nil if up-to-date.
+func (u *Updater) CheckForUpdate() (*UpdateManifest, error) {
+	manifest, status, err := u.fetchManifest(u.manifestURL)
+	if err != nil {
+		return nil, fmt.Errorf("update check failed: %w", err)
+	}
+	if status == 204 {
+		return nil, nil // Up to date
+	}
+	// Arch-specific manifest missing (404) → fall back to the per-role (amd64) one
+	// so the fleet still receives updates.
+	if status == 404 && u.fallbackURL != "" && u.fallbackURL != u.manifestURL {
+		if fb, fbStatus, fbErr := u.fetchManifest(u.fallbackURL); fbErr == nil && fbStatus == 200 {
+			manifest, status = fb, 200
+		}
+	}
+	if status != 200 {
+		return nil, fmt.Errorf("update check returned HTTP %d", status)
 	}
 
 	// W9: verify the manifest signature before trusting any field (e.g. the
 	// download URL could be redirected to a malicious binary).
-	if err := u.verifyManifestSignature(&manifest); err != nil {
+	if err := u.verifyManifestSignature(manifest); err != nil {
 		return nil, fmt.Errorf("update manifest rejected: %w", err)
 	}
 
@@ -142,14 +169,14 @@ func (u *Updater) CheckForUpdate() (*UpdateManifest, error) {
 	// leaving most of the fleet stuck on old versions (observed in prod).
 	if belowMin, err := versionLessThan(u.currentVer, manifest.MinVersion); err == nil && manifest.MinVersion != "" && belowMin {
 		// Below the floor is not an abort condition — it FORCES the update.
-		return &manifest, nil
+		return manifest, nil
 	}
 
 	if newer, err := versionLessThan(u.currentVer, manifest.Version); err == nil && !newer {
 		return nil, nil // Already up to date or newer
 	}
 
-	return &manifest, nil
+	return manifest, nil
 }
 
 // versionLessThan returns true if a < b under numeric semver comparison
@@ -250,10 +277,17 @@ func (u *Updater) DownloadAndVerify(manifest *UpdateManifest) (string, error) {
 // The batch script runs outside the agent process, so it can replace the
 // locked binary after the service stops.
 func (u *Updater) ApplyUpdateOnWindows(stagedPath, currentPath string, manifest *UpdateManifest) error {
+	installDir := filepath.Dir(currentPath)
 	backupPath := currentPath + ".bak"
-	versionFile := filepath.Join(u.installDir, "version.txt")
-	nssmPath := filepath.Join(u.installDir, "nssm.exe")
-	serviceName := "pat-agent"
+	versionFile := filepath.Join(installDir, "version.txt")
+	nssmPath := filepath.Join(installDir, "nssm.exe")
+	// Use the exact service name registered by the installer (pat-agent-client /
+	// pat-agent-master). A wrong name would stop/start the wrong service and the
+	// update would never take effect, forcing a manual reinstall.
+	serviceName := u.serviceName
+	if serviceName == "" {
+		serviceName = "pat-agent-client"
+	}
 
 	// Build the helper batch script
 	batchContent := fmt.Sprintf(`@echo off
@@ -305,7 +339,7 @@ echo [update] Done.
 		backupPath, backupPath)
 
 	// Write the batch script
-	batchPath := filepath.Join(u.installDir, "pat_update_helper.bat")
+	batchPath := filepath.Join(installDir, "pat_update_helper.bat")
 	if err := os.WriteFile(batchPath, []byte(batchContent), 0755); err != nil {
 		return fmt.Errorf("failed to write update helper: %w", err)
 	}

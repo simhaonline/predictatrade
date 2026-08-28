@@ -78,41 +78,83 @@ EOF
     log "Updated version.go → v$NEW_VERSION"
 fi
 
-# ─── Step 3: Build the Windows binaries ───
-log "Cross-compiling for Windows amd64..."
+# ─── Steps 3-7: Build per-role/per-arch, publish binaries + manifests ───
 cd "$AGENT_DIR"
 # Build WITHOUT .syso resource file — the manifest was causing Windows
 # App Control to reject the binary.
 rm -f "$AGENT_DIR/cmd/client/resource_windows_amd64.syso" "$AGENT_DIR/cmd/master/resource_windows_amd64.syso"
 
-GOTOOLCHAIN=go1.23.0 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
-  -ldflags="-s -w -X github.com/predictatrade/windows-agent/internal/agent.AgentVersion=$NEW_VERSION" \
-  -o "$BIN_CLIENT" ./cmd/client/ || fatal "Client build failed"
+ARCHES=( amd64 386 arm64 )
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-GOTOOLCHAIN=go1.23.0 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
-  -ldflags="-s -w -X github.com/predictatrade/windows-agent/internal/agent.AgentVersion=$NEW_VERSION" \
-  -o "$BIN_MASTER" ./cmd/master/ || fatal "Master build failed"
+write_manifest() {
+  local role="$1" arch="$2" exe="$3" sum="$4"
+  local dir="$DEPLOY_DIR/$role/$arch"
+  mkdir -p "$dir"
+  cat > "$dir/update-manifest.json" << EOF
+{
+    "version": "$NEW_VERSION",
+    "download_url": "https://downloads.predictatrade.com/windows-agent/$role/$arch/$exe.exe",
+    "checksum": "$sum",
+    "min_version": "1.0.0",
+    "release_notes": "v$NEW_VERSION — Windows Agent ($role). Multi-arch build ($arch): $exe.exe.",
+    "timestamp": "$TIMESTAMP"
+}
+EOF
+}
 
-log "Client binary built: $BIN_CLIENT ($(du -h "$BIN_CLIENT" | cut -f1))"
-log "Master binary built: $BIN_MASTER ($(du -h "$BIN_MASTER" | cut -f1))"
+CLIENT_CHECKSUM_AMD64=""
+MASTER_CHECKSUM_AMD64=""
 
-# ─── Step 4: Copy standalone deployment binaries ───
-# The Nginx container mounts deploy/ only. A symlink to ../bin is therefore
-# broken inside the container and produces a public 404.
-mkdir -p "$DEPLOY_CLIENT_DIR" "$DEPLOY_MASTER_DIR"
-rm -f "$DEPLOY_CLIENT_EXE" "$DEPLOY_ROOT_CLIENT_EXE" "$DEPLOY_MASTER_EXE" "$DEPLOY_ROOT_MASTER_EXE"
-cp "$BIN_CLIENT" "$DEPLOY_CLIENT_EXE"
-cp "$BIN_CLIENT" "$DEPLOY_ROOT_CLIENT_EXE"
-cp "$BIN_MASTER" "$DEPLOY_MASTER_EXE"
-cp "$BIN_MASTER" "$DEPLOY_ROOT_MASTER_EXE"
-chmod 0644 "$DEPLOY_CLIENT_EXE" "$DEPLOY_ROOT_CLIENT_EXE" "$DEPLOY_MASTER_EXE" "$DEPLOY_ROOT_MASTER_EXE"
-log "Copied deploy binaries (client + master, role subdirs + root)"
+for role in client master; do
+  exe=$( [ "$role" = "client" ] && echo "pat-agent" || echo "pat-master" )
+  for arch in "${ARCHES[@]}"; do
+    BIN="bin/${role}-${arch}.exe"
+    log "Cross-compiling $role ($arch)..."
+    GOTOOLCHAIN=go1.23.0 GOOS=windows GOARCH=$arch CGO_ENABLED=0 go build -trimpath \
+      -ldflags="-s -w -X github.com/predictatrade/windows-agent/internal/agent.AgentVersion=$NEW_VERSION" \
+      -o "$BIN" "./cmd/$role/" || fatal "$role/$arch build failed"
+    SUM=$(sha256sum "$BIN" | cut -d' ' -f1)
+    log "$role/$arch SHA256: $SUM"
+    mkdir -p "$DEPLOY_DIR/$role/$arch"
+    cp "$BIN" "$DEPLOY_DIR/$role/$arch/$exe.exe"
+    chmod 0644 "$DEPLOY_DIR/$role/$arch/$exe.exe"
+    write_manifest "$role" "$arch" "$exe" "$SUM"
+    if [ "$arch" = "amd64" ]; then
+      if [ "$role" = "client" ]; then CLIENT_CHECKSUM_AMD64=$SUM; else MASTER_CHECKSUM_AMD64=$SUM; fi
+    fi
+  done
+  # Role-root (amd64) copy kept for backward-compatibility / simplest URLs
+  cp "$DEPLOY_DIR/$role/amd64/$exe.exe" "$DEPLOY_DIR/$role/$exe.exe"
+  chmod 0644 "$DEPLOY_DIR/$role/$exe.exe"
+done
 
-# ─── Step 5: Calculate SHA256 checksums ───
-CLIENT_CHECKSUM=$(sha256sum "$BIN_CLIENT" | cut -d' ' -f1)
-MASTER_CHECKSUM=$(sha256sum "$BIN_MASTER" | cut -d' ' -f1)
-log "Client SHA256: $CLIENT_CHECKSUM"
-log "Master SHA256: $MASTER_CHECKSUM"
+# Legacy deploy-root copies (older installers / direct links)
+cp "$DEPLOY_DIR/client/amd64/pat-agent.exe" "$DEPLOY_ROOT_CLIENT_EXE"
+cp "$DEPLOY_DIR/master/amd64/pat-master.exe" "$DEPLOY_ROOT_MASTER_EXE"
+chmod 0644 "$DEPLOY_ROOT_CLIENT_EXE" "$DEPLOY_ROOT_MASTER_EXE"
+
+# Role-root manifests (amd64) — what pre-multi-arch agents fetch as fallback
+cat > "$CLIENT_MANIFEST" << EOF
+{
+    "version": "$NEW_VERSION",
+    "download_url": "https://downloads.predictatrade.com/windows-agent/client/pat-agent.exe",
+    "checksum": "$CLIENT_CHECKSUM_AMD64",
+    "min_version": "1.0.0",
+    "release_notes": "v$NEW_VERSION — Windows Agent (Client).",
+    "timestamp": "$TIMESTAMP"
+}
+EOF
+cat > "$MASTER_MANIFEST" << EOF
+{
+    "version": "$NEW_VERSION",
+    "download_url": "https://downloads.predictatrade.com/windows-agent/master/pat-master.exe",
+    "checksum": "$MASTER_CHECKSUM_AMD64",
+    "min_version": "1.0.0",
+    "release_notes": "v$NEW_VERSION — Windows Master Node (data-only).",
+    "timestamp": "$TIMESTAMP"
+}
+EOF
 
 # ─── Step 6: Update version.txt (shared) ───
 echo -n "$NEW_VERSION" > "$VERSION_FILE"
@@ -126,35 +168,19 @@ if [[ -f "$INSTALL_PS1" ]]; then
     log "Updated install.ps1 version strings → v$NEW_VERSION"
 fi
 
-# ─── Step 7: Update update-manifests ───
-TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-cat > "$CLIENT_MANIFEST" << EOF
-{
-    "version": "$NEW_VERSION",
-    "download_url": "https://downloads.predictatrade.com/windows-agent/client/pat-agent.exe",
-    "checksum": "$CLIENT_CHECKSUM",
-    "min_version": "1.0.0",
-    "release_notes": "v$NEW_VERSION — Windows Agent (Client). Distinct client binary (pat-agent.exe) and master binary (pat-master.exe) now shipped separately per role.",
-    "timestamp": "$TIMESTAMP"
-}
-EOF
-log "Updated client update-manifest.json"
-
-cat > "$MASTER_MANIFEST" << EOF
-{
-    "version": "$NEW_VERSION",
-    "download_url": "https://downloads.predictatrade.com/windows-agent/master/pat-master.exe",
-    "checksum": "$MASTER_CHECKSUM",
-    "min_version": "1.0.0",
-    "release_notes": "v$NEW_VERSION — Windows Master Node (data-only). Distinct master binary (pat-master.exe).",
-    "timestamp": "$TIMESTAMP"
-}
-EOF
-log "Updated master update-manifest.json"
-
 # ─── Step 8: Verify live endpoints ───
 log "Verifying live download endpoints..."
-for ep in "windows-agent/client/pat-agent.exe" "windows-agent/master/pat-master.exe"; do
+for ep in \
+    "windows-agent/client/pat-agent.exe" \
+    "windows-agent/master/pat-master.exe" \
+    "windows-agent/client/amd64/pat-agent.exe" \
+    "windows-agent/client/386/pat-agent.exe" \
+    "windows-agent/client/arm64/pat-agent.exe" \
+    "windows-agent/master/amd64/pat-master.exe" \
+    "windows-agent/master/386/pat-master.exe" \
+    "windows-agent/master/arm64/pat-master.exe" \
+    "windows-agent/client/amd64/update-manifest.json" \
+    "windows-agent/master/arm64/update-manifest.json" ; do
     HTTP_CODE=$(curl -sI -o /dev/null -w "%{http_code}" "https://downloads.predictatrade.com/$ep" 2>/dev/null || echo "000")
     if [[ "$HTTP_CODE" == "200" ]]; then
         log "✅ Live endpoint OK ($ep): HTTP 200"
@@ -166,16 +192,12 @@ done
 # ─── Summary ───
 echo ""
 echo "═══════════════════════════════════════════════"
-echo "  Windows Agent Build Complete"
+echo "  Windows Agent Build Complete (multi-arch)"
 echo "═══════════════════════════════════════════════"
 echo "  Version:        v$NEW_VERSION"
-echo "  Client binary:  $BIN_CLIENT"
-echo "  Master binary:  $BIN_MASTER"
-echo "  Client deploy:  $DEPLOY_CLIENT_EXE"
-echo "  Master deploy:  $DEPLOY_MASTER_EXE"
-echo "  Client checksum:  $CLIENT_CHECKSUM"
-echo "  Master checksum:  $MASTER_CHECKSUM"
-echo "  Client URL:    https://downloads.predictatrade.com/windows-agent/client/pat-agent.exe"
-echo "  Master URL:    https://downloads.predictatrade.com/windows-agent/master/pat-master.exe"
+echo "  Roles:          client (pat-agent.exe) / master (pat-master.exe)"
+echo "  Architectures:  amd64, 386, arm64"
+echo "  Client URL:    https://downloads.predictatrade.com/windows-agent/client/{arch}/pat-agent.exe"
+echo "  Master URL:    https://downloads.predictatrade.com/windows-agent/master/{arch}/pat-master.exe"
 echo "  Install:        irm https://downloads.predictatrade.com/windows-agent/install.ps1 | iex"
 echo "═══════════════════════════════════════════════"

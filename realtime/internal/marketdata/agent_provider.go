@@ -879,6 +879,20 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		default:
 		}
 
+	case "AGENT_TELEMETRY":
+		// Client agent health/usage snapshot for server-side observability.
+		// Logged (not processed) so ops can see fleet state; never affects trading.
+		var tel map[string]interface{}
+		if err := json.Unmarshal(data, &tel); err == nil {
+			log.Printf("[AGENT-TELEMETRY] agent=%s version=%v role=%v goarch=%v backend=%v mt4=%v mt5=%v uptime_s=%v candles=%v license=%v plan=%v",
+				agentID,
+				tel["version"], tel["role"], tel["goarch"],
+				tel["backend_connected"], tel["mt4_connected"], tel["mt5_connected"],
+				tel["uptime_seconds"], tel["candles_delivered"],
+				tel["license_status"], tel["license_plan"])
+		}
+		return
+
 	case "MARKET_SNAPSHOT":
 		// Process as comprehensive market snapshot from Master Node
 		var snapshot MarketSnapshot

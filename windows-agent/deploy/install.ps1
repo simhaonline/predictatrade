@@ -63,6 +63,21 @@ $AgentExe    = if ($Mode -eq "master") { "pat-master.exe" } else { "pat-agent.ex
 $AgentArgs   = ""
 $NssmExe     = "nssm.exe"
 
+# ─── Architecture detection (multi-arch support) ───
+# MT5/MT4 are x64, but we ship amd64/386/arm64 so the agent runs on any Windows
+# and the installer never fails on an unusual architecture.
+$RoleDir = if ($Mode -eq "master") { "master" } else { "client" }
+$rawArch = $env:PROCESSOR_ARCHITECTURE
+if ($rawArch -eq "x86" -and $env:PROCESSOR_ARCHITEW6432 -eq "AMD64") { $rawArch = "AMD64" }
+$goArch = switch ($rawArch) {
+    "AMD64" { "amd64" }
+    "ARM64" { "arm64" }
+    "ARM"   { "arm64" }
+    "x86"   { "386" }
+    default { "amd64" }
+}
+Write-Host "[arch] Detected Windows architecture: $rawArch → agent build: $goArch"
+
 # ─── Self-elevation ───
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
@@ -85,7 +100,7 @@ if (-not $isAdmin) {
 # ─── NOW RUNNING AS ADMIN ───
 Write-Host ""
 Write-Host "=========================================="
-Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.34"
+Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.35"
 Write-Host "=========================================="
 Write-Host ""
 
@@ -122,6 +137,12 @@ $ApiBaseUrl = "https://api.predictatrade.com/api/v1"
 [Environment]::SetEnvironmentVariable("PAT_API_URL", $ApiBaseUrl, "Machine") | Out-Null
 Write-Host "  OK: Control API URL = $ApiBaseUrl"
 
+# Step 2e: Tell the auto-updater the exact Windows service name to stop/start when
+# it swaps the binary. Must match the service registered below (pat-agent-client /
+# pat-agent-master) or the update would target the wrong service and never apply.
+[Environment]::SetEnvironmentVariable("PAT_SERVICE_NAME", $ServiceName, "Machine") | Out-Null
+Write-Host "  OK: Auto-update service name = $ServiceName"
+
 # Step 3: Stop existing service if running
 Write-Host "[3/9] Stopping existing service if running..."
 $nssmDest = Join-Path $InstallDir $NssmExe
@@ -147,7 +168,7 @@ Write-Host "[5/9] Downloading $AgentExe..."
 $agentPath = Join-Path $InstallDir $AgentExe
 try {
     if (Test-Path $agentPath) { Remove-Item $agentPath -Force -ErrorAction SilentlyContinue }
-    Invoke-WebRequest -Uri "$BaseUrl/$AgentExe" -OutFile $agentPath -UseBasicParsing -TimeoutSec 120
+                Invoke-WebRequest -Uri "$BaseUrl/$RoleDir/$goArch/$AgentExe" -OutFile $agentPath -UseBasicParsing -TimeoutSec 120
     Unblock-File -Path $agentPath -ErrorAction SilentlyContinue
 
     # Check if Defender quarantined the file immediately after download
@@ -160,7 +181,7 @@ try {
                 Remove-MpThreat -ErrorAction SilentlyContinue
                 Start-Sleep -Seconds 2
                 # Re-download after restoring
-                Invoke-WebRequest -Uri "$BaseUrl/$AgentExe" -OutFile $agentPath -UseBasicParsing -TimeoutSec 120
+    Invoke-WebRequest -Uri "$BaseUrl/$RoleDir/$goArch/$AgentExe" -OutFile $agentPath -UseBasicParsing -TimeoutSec 120
                 Unblock-File -Path $agentPath -ErrorAction SilentlyContinue
                 Write-Host "  OK: Restored and re-downloaded"
             }
@@ -406,7 +427,7 @@ try {
     $serverVersion = (Invoke-WebRequest -Uri "$RootUrl/version.txt" -UseBasicParsing -TimeoutSec 10).Content.Trim()
     Write-Host "  Server version: v$serverVersion"
 } catch {
-    $serverVersion = "1.2.34"
+    $serverVersion = "1.2.35"
     Write-Host "  WARN: Could not fetch server version — using default v$serverVersion"
 }
 Set-Content -Path (Join-Path $InstallDir "version.txt") -Value $serverVersion -NoNewline
