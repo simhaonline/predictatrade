@@ -215,6 +215,25 @@ export class AuthService {
       [user.id],
     );
 
+    // AUTH-1: MFA is mandatory for privileged roles. Resolve the user's role
+    // (same lookup used when minting the JWT) and block login if an ADMIN /
+    // SUPER_ADMIN / OPERATOR has not enrolled an authenticator. This closes the
+    // "MFA opt-in" gap: privileged accounts can no longer bypass MFA.
+    const roleResult = await this.pool.query(
+      `SELECT r.name AS role_name FROM iam.memberships m
+       JOIN iam.roles r ON m.role_id = r.id
+       WHERE m.user_id = $1`,
+      [user.id],
+    );
+    const userRole = roleResult.rows.length > 0 ? roleResult.rows[0].role_name : 'USER';
+    const PRIVILEGED_ROLES = new Set(['ADMIN', 'SUPER_ADMIN', 'OPERATOR']);
+    if (PRIVILEGED_ROLES.has(userRole) && mfaResult.rows.length === 0) {
+      await this.logLoginEvent(user.id, 'LOGIN_BLOCKED_MFA_REQUIRED', { role: userRole });
+      throw new UnauthorizedException(
+        'Multi-factor authentication is required for privileged accounts. Please enroll an authenticator device before signing in.',
+      );
+    }
+
     if (mfaResult.rows.length > 0 && !dto.mfaCode) {
       const challengeId = crypto.randomUUID();
       await this.pool.query(

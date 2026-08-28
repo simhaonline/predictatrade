@@ -6,7 +6,7 @@
 # migrations is unsafe (migration_history keys on filename). So we ALLOWLIST the
 # known duplicates and HARD-FAIL only on NEW duplicate sequence numbers, which
 # would otherwise break ordering for future deploys.
-KNOWN_APPLIED_DUPES="018 019 020 028 062 071"
+KNOWN_APPLIED_DUPES=""
 duplicates=$(ls database/migrations/*.sql 2>/dev/null | sed 's/.*\/\([0-9]*\)_.*/\1/' | sort | uniq -d)
 if [ -n "$duplicates" ]; then
     unknown=""

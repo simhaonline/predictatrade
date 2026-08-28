@@ -2,21 +2,22 @@
 
 ## Canonical Apply Order
 
-Migrations are applied lexicographically by filename. Duplicate sequence numbers
-exist in the deployed database and cannot be renamed (migration history discipline).
+Migrations are applied lexicographically by filename. As of the 2026-08-28
+renumber, all previously-duplicate sequence numbers have been resolved: the second
+file of each former duplicate pair was renumbered to a unique sequence (089–095)
+and the corresponding `audit.migration_history` rows were updated, so each migration
+applies exactly once.
 
-### Duplicates (already applied, do NOT rename — renumber only in a future maintenance window):
-- 018: `018_regime_telemetry_shadow_signals.sql` + `018_slippage_capital_protection.sql`
-- 019: `019_percentage_sltp_config.sql` + `019_signal_bug_closure_fields.sql`
-- 020: `020_signal_truth_durability.sql` + `020_valkey_candle_cache_indexes.sql`
-- 028: `028_audit_execution_tables.sql` + `028_bar_processing_metadata.sql`
-- 062: `062_licensing_lifecycle.sql` + `062_risk_config.sql`
-- 071: `071_live_preview_anonymous_trials.sql` + `071_marketing_consent_columns.sql`
-- 080: `080_devil_liquidity.sql` + `080_signal_quality_diagnostics.sql`
+### Resolved duplicates (renumbered — no longer collide):
+- 018 `018_regime_telemetry_shadow_signals.sql` + 089 `089_slippage_capital_protection.sql`
+- 019 `019_percentage_sltp_config.sql` + 090 `090_signal_bug_closure_fields.sql`
+- 020 `020_signal_truth_durability.sql` + 091 `091_valkey_candle_cache_indexes.sql`
+- 028 `028_audit_execution_tables.sql` + 092 `092_bar_processing_metadata.sql`
+- 062 `062_licensing_lifecycle.sql` + 093 `093_risk_config.sql`
+- 071 `071_live_preview_anonymous_trials.sql` + 094 `094_marketing_consent_columns.sql`
+- 080 `080_devil_liquidity.sql` + 095 `095_signal_quality_diagnostics.sql`
 
-These files carry a `-- LEGACY DUPLICATE PREFIX NN` header comment noting the
-collision. They must NOT be renamed: renaming would risk re-applying already
-applied schema. The collision is tolerated until a deliberate renumber window.
+`scripts/check_migrations.sh` now passes (no duplicate prefixes, history matches disk).
 
 ### Future migrations:
 - Use 3-digit zero-padded sequence numbers (028, 029, 030, ...)

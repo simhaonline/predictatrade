@@ -64,6 +64,9 @@
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.6.0"
   },
+  "overrides": {
+    "tar": ">=6.2.9"
+  },
   "jest": {
     "moduleFileExtensions": [
       "js",
