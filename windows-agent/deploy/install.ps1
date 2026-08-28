@@ -200,10 +200,10 @@ try {
 }
 
 # Step 5b: Stop Windows Defender from blocking the agent. The binary is shipped
-# UNSIGNED (no self-signed or CA signature), so Defender quarantines or blocks it on
-# download/run. Add a SCOPED exclusion for the agent's own directories so the service
-# can start. Only attempted when the installer is elevated (RunAs). This is a dev/test
-# stopgap — for production the binary MUST be Authenticode-signed with a real CA cert.
+# UNSIGNED (no self-signed or CA signature) by default, which is a supported production
+# path. Defender may quarantine/block it on download/run, so we add a SCOPED exclusion
+# for the agent's own directories. Only attempted when the installer is elevated (RunAs).
+# (Optional: supply a CA code-signing cert via PAT_SIGN_CERT and the binary is signed.)
 try {
     $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
     if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {

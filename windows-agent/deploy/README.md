@@ -227,16 +227,19 @@ Shared (both roles): `C:\ProgramData\PredictATrade\logs\` (service logs),
 - **Paper vs Live:** in live mode the engine reads the client's **real** broker
   equity from the connected agent, so risk caps are per-client real capital. The
   `PAT_PAPER_EQUITY` fallback is demo-only and never overrides a live account.
-- **Production signing:** the agent is shipped **UNSIGNED** by default. For production it
-  MUST be Authenticode-signed with a legitimate CA-issued code-signing certificate
-  (supplied via `PAT_SIGN_CERT`). Self-signed certificates are **NOT** acceptable and must
-  not be used; an unsigned/self-signed binary triggers Defender/SmartScreen "unknown
-  publisher", and the installer applies a scoped Defender exclusion only as a dev/test stopgap.
+- **Code-signing is OPTIONAL for production.** The agent ships **UNSIGNED** by default
+  (no self-signed cert is ever used). To eliminate every AV/SmartScreen prompt, supply a
+  CA-issued Authenticode certificate via `PAT_SIGN_CERT`/`PAT_SIGN_CERT_PASSWORD` and
+  `build.ps1` applies it automatically. **Without a cert, the unsigned binary is still a
+  supported production path:** the installer (1) runs `Unblock-File` to strip the download's
+  Mark-of-the-Web — which suppresses the SmartScreen "unrecognized app" prompt — and
+  (2) adds a scoped Windows Defender exclusion so the binary is never quarantined. A handful
+  of Windows builds may still show a reputation-based SmartScreen prompt; clicking
+  **More info → Run anyway** proceeds normally. Self-signed certificates are **NOT** used.
 - **Downloads are HTTPS (certbot / Let's Encrypt):** binaries are served over TLS by
   nginx, so the *transport* is authenticated. A TLS server certificate, however, **cannot**
-  Authenticode-sign a Windows executable — that requires a separate code-signing certificate.
-  Until a CA code-signing cert is supplied (`PAT_SIGN_CERT`), the binary stays UNSIGNED and the
-  Defender exclusion remains the dev/test stopgap.
+  Authenticode-sign a Windows executable — that requires a separate code-signing certificate,
+  which is optional (see above).
 
 ---
 
