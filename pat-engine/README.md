@@ -167,10 +167,43 @@ go run ./cmd/agent              # streams 3000 synthetic bars -> gateway
 | `PAT_REDIS_URL` | _(empty)_ | Valkey URL; empty ⇒ no cache/pubsub |
 | `PAT_LICENSE` / `PAT_LICENSE_SECRET` | _(empty)_ | entitlement token |
 
-### Gateway endpoints
+### Gateway endpoints (live + REST API)
+Ingest:
 - `POST /bar` — JSON `{time,open,high,low,close,spread}`; runs the pipeline.
 - `GET /signal` — last emitted signal line.
 - `GET /health` — liveness.
+
+REST API (`/api/v1`):
+- `GET /health` — status + broker timezone offset.
+- `GET /strategies` — strategy IDs allowed by the active license.
+- `GET /broker` — execution economics (digits, contract, commission, swap, spread, leverage, **broker timezone offset**, sessions).
+- `GET /risk` — default capital-risk mandate (equity, risk %, max daily loss, max positions, max leverage).
+- `GET /session` — current **broker-server-time** session + overlap flag.
+- `GET /signals?limit=` — recent signals (audit, from TimescaleDB).
+- `GET /bars?limit=` — recent bars.
+- `POST /devices/activate` — register agent hardware fingerprint → license binding.
+- `POST /devices/heartbeat` — agent telemetry (latency, MT4/MT5 connection, version, status).
+- `POST /licensing/validate` — verify a signed license token (entitlements + optional device binding).
+
+---
+
+## 8b. Broker execution correctness (cost-aware, broker-time)
+
+All trading math is driven by `broker.ExecutionProfile` (`internal/broker/profile.go`),
+loaded from env (`BROKER_TZ_OFFSET`, `BROKER_DIGITS`, `BROKER_LEVERAGE`,
+`BROKER_CONTRACT_SIZE`, `BROKER_COMMISSION_PER_LOT`, `BROKER_TYPICAL_SPREAD`) with a
+production default for **Equiti XAUUSD (broker server time UTC+4)**: contract 100 oz,
+commission $7/lot, leverage 500, spread 20 pts, swap ±1.5 pts.
+
+- **Timezone is broker server time.** Signal session/overlap classification uses the
+  profile `timezone_offset` (never local/UTC). `BrokerPolicy.Session(now)` is the single
+  source of truth (`internal/broker/policy.go`).
+- **Cost-aware net R:R.** The hard gate computes net reward/risk **after spread +
+  commission + swap** (`internal/gates/gates.go`), expressed in price units via
+  `ContractSize` so commission/swap convert correctly to price distance.
+- **Capital-loss control.** `internal/risk/risk.go` provides risk-based position sizing
+  (equity × risk% ÷ (stopDistance × contractSize)), free-margin/leverage affordability,
+  a daily-loss tracker, and open-risk veto (max positions / max leverage).
 
 ---
 
@@ -200,8 +233,13 @@ rows to TimescaleDB; Valkey cached the latest signal and published on `pat:signa
 
 - **Backup:** `pg_dump pat_engine > pat_engine.sql` (TimescaleDB-aware with
   `--format=custom` for hypertables). Valkey is a cache; not a durability requirement.
-- **Schema migrations:** idempotent `infra/db/init/01_schema.sql`, applied on first
-  container start; new columns/migrations are additive and re-runnable.
+- **Schema migrations:** idempotent `infra/db/init/01_schema.sql` (bars, signals) and
+  `02_pat_engine.sql` (broker profiles, risk config, users, licenses, devices, device
+  telemetry, positions, equity snapshots + daily-P&L / daily-loss / signal-count
+  functions). `01` runs on container start; `02` is applied manually/by migration tool.
+- **Web/domain routing:** `pat-engine-nginx` (nginx:alpine) proxies `/api/` → gateway on
+  `:8080` (CORS open for dev). The old-project nginx was stopped so the domain now serves
+  this stack. Real `.env` is created from `infra/env/ENV_SAMPLE` (gitignored).
 - **No systemd:** all services are containers (`docker compose`); never systemd.
 
 ---
@@ -209,7 +247,9 @@ rows to TimescaleDB; Valkey cached the latest signal and published on `pat:signa
 ## 12. Status & deferred
 
 **Done:** 4 strategies, broker scalping policy, license management, hard risk gates,
-backtest (real-data loader), live gateway, TimescaleDB + Valkey persistence, E2E proof.
+backtest (real-data loader), live gateway, TimescaleDB + Valkey persistence, **broker
+execution correctness (cost-aware net R:R, broker-time sessions, capital-loss control),
+full REST API, agent hardware-fingerprint + telemetry device binding, nginx routing**, E2E proof.
 
 **Deferred (per plan: backend + MQL first):** frontend/Command Center, control-plane
 license **issuance** service (engine already verifies), rebuilt Windows Agent binary

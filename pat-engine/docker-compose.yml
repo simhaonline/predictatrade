@@ -47,12 +47,24 @@ services:
       PAT_REDIS_URL: redis://pat-engine-cache:6379
       PAT_LICENSE: ${PAT_LICENSE:-}
       PAT_LICENSE_SECRET: ${PAT_LICENSE_SECRET:-}
+      BROKER_TZ_OFFSET: ${BROKER_TZ_OFFSET:-4}
+      BROKER_LEVERAGE: ${BROKER_LEVERAGE:-500}
       PORT: "8080"
       SIGNAL_FILE: /data/PAT_signals.txt
     ports:
       - "8080:8080"
     volumes:
       - pat_engine_data:/data
+
+  pat-engine-nginx:
+    image: nginx:1.27-alpine
+    container_name: pat-engine-nginx
+    depends_on:
+      - pat-engine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/pat-engine.conf:/etc/nginx/conf.d/default.conf:ro
 
 volumes:
   pat_engine_pgdata:

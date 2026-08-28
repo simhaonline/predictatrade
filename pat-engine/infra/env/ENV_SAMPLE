@@ -1,16 +1,41 @@
-# pat-engine environment SAMPLE (copy to infra/env/.env and fill in; .env is gitignored).
-# Used by docker-compose and cmd/gateway. All values have safe defaults if omitted.
+# pat-engine PRODUCTION-GRADE environment template.
+# Copy to infra/env/.env and fill secrets (gitignored). Used by docker-compose and
+# cmd/gateway. Every key the backend/agent needs is declared here so URLs/APIs are
+# fixed from the start and the frontend has a stable contract.
 
-# TimescaleDB (database name is pat_engine)
-PAT_DB_PASSWORD=pat_engine_dev
+# ---- Domain / networking ----
+DOMAIN=api.predictatrade.com
+API_BASE_URL=https://api.predictatrade.com
+CORS_ORIGINS=https://predictatrade.com,https://app.predictatrade.com
+NGINX_LISTEN=80
 
-# Valkey / Redis
-# PAT_REDIS_URL=redis://pat-engine-cache:6379
+# ---- TimescaleDB (database name: pat_engine) ----
+PAT_DB_PASSWORD=__CHANGE_ME__
+PAT_DB_DSN=postgres://pat:__CHANGE_ME__@pat-engine-db:5432/pat_engine
 
-# License (signed token from the control plane). Empty => DEV license (all strategies).
+# ---- Valkey ----
+PAT_REDIS_URL=redis://pat-engine-cache:6379
+
+# ---- Broker execution economics (Equiti XAUUSD, broker server time UTC+4) ----
+BROKER_TZ_OFFSET=4
+BROKER_DIGITS=2
+BROKER_LEVERAGE=500
+BROKER_CONTRACT_SIZE=100
+BROKER_COMMISSION_PER_LOT=7
+BROKER_TYPICAL_SPREAD=20
+
+# ---- License / signing (control plane signs; engine verifies) ----
 PAT_LICENSE=
-PAT_LICENSE_SECRET=
+PAT_LICENSE_SECRET=__CHANGE_ME__
+JWT_SECRET=__CHANGE_ME__
 
-# Gateway
+# ---- Engine ----
 PORT=8080
 SIGNAL_FILE=/data/PAT_signals.txt
+
+# ---- Agent ----
+AGENT_API=https://api.predictatrade.com/api/v1
+
+# ---- Observability (optional) ----
+# OTEL_EXPORTER_OTLP_ENDPOINT=http://pat-engine-otel:4317
+# PROMETHEUS_PORT=9090

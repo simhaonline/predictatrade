@@ -13,9 +13,10 @@ func main() {
 	states := backtest.BuildSnapshots(backtest.Generate(5000, 42))
 	// Dev license allows every strategy so the harness behaves like an unrestricted plan.
 	lic, _, _ := license.DevLicense(license.DefaultDevSecret, nil, nil)
+	exec := broker.DefaultXAUUSDExecution()
 
-	runWith(&broker.BrokerPolicy{Symbol: "XAUUSD", AllowsScalping: true, Digits: 2}, lic, states, "scalping ALLOWED")
-	runWith(&broker.BrokerPolicy{Symbol: "XAUUSD", AllowsScalping: false, Digits: 2}, lic, states, "scalping FORBIDDEN (no-scalping broker)")
+	runWith(&broker.BrokerPolicy{Symbol: "XAUUSD", AllowsScalping: true, Digits: 2, MinNetRR: 1.3, Execution: exec}, lic, states, "scalping ALLOWED")
+	runWith(&broker.BrokerPolicy{Symbol: "XAUUSD", AllowsScalping: false, Digits: 2, MinNetRR: 1.3, Execution: exec}, lic, states, "scalping FORBIDDEN (no-scalping broker)")
 }
 
 func runWith(pol *broker.BrokerPolicy, lic *license.License, states []*types.MarketState, label string) {

@@ -62,7 +62,10 @@ type Gateway struct {
 // entitlements.
 func New(policy *broker.BrokerPolicy, outPath string) *Gateway {
 	if policy == nil {
-		policy = &broker.BrokerPolicy{Symbol: "XAUUSD", AllowsScalping: true, Digits: 2}
+		policy = &broker.BrokerPolicy{Symbol: "XAUUSD", AllowsScalping: true, Digits: 2, MinNetRR: 1.3}
+	}
+	if policy.Execution.TickSize == 0 {
+		policy.Execution = broker.DefaultXAUUSDExecution().LoadExecutionFromEnv()
 	}
 	dev, _, _ := license.DevLicense(license.DefaultDevSecret, nil, nil)
 	_ = os.MkdirAll(filepath.Dir(outPath), 0o755)
@@ -72,6 +75,20 @@ func New(policy *broker.BrokerPolicy, outPath string) *Gateway {
 // SetStore attaches the persistence layer (TimescaleDB + Valkey). Optional; when nil
 // the gateway still runs (no persistence).
 func (g *Gateway) SetStore(s *store.Store) { g.store = s }
+
+// Accessors used by the REST API layer.
+func (g *Gateway) Store() *store.Store             { return g.store }
+func (g *Gateway) Policy() *broker.BrokerPolicy    { return g.policy }
+func (g *Gateway) License() *license.License       { return g.lic }
+func (g *Gateway) Execution() broker.ExecutionProfile { return g.policy.Execution }
+func (g *Gateway) Strategies() []string {
+	cfgs := config.AllDefaults()
+	out := make([]string, 0, len(cfgs))
+	for k := range cfgs {
+		out = append(out, k)
+	}
+	return out
+}
 
 // LoadLicense parses and installs a signed license token; non-entitled strategies
 // are filtered out of signal selection.
@@ -173,17 +190,18 @@ func (g *Gateway) bestExecutable(state *types.MarketState) *emit {
 		best = &emit{ID: fmt.Sprintf("%s-%d", d.Signal.StrategyID, g.seq)}
 		cls := signalClass(string(d.Signal.StrategyID))
 		grade := gradeOf(d.Signal.RawScore)
+		exec := g.policy.Execution
 		dto := SignalDTO{
 			ID:          best.ID,
 			Direction:   string(d.Signal.Direction),
 			Grade:       grade,
 			StrategyID:  string(d.Signal.StrategyID),
 			SignalClass: cls,
-			EntryPrice:  d.Signal.EntryPrice,
-			StopLoss:    d.Signal.StopLoss,
-			TP1:         d.Signal.TP1,
-			TP2:         d.Signal.TP2,
-			TP3:         d.Signal.TP3,
+			EntryPrice:  exec.RoundToDigits(d.Signal.EntryPrice),
+			StopLoss:    exec.RoundToDigits(d.Signal.StopLoss),
+			TP1:         exec.RoundToDigits(d.Signal.TP1),
+			TP2:         exec.RoundToDigits(d.Signal.TP2),
+			TP3:         exec.RoundToDigits(d.Signal.TP3),
 			RawScore:    d.Signal.RawScore,
 		}
 		b, _ := json.Marshal(dto)

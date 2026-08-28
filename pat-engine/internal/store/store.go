@@ -174,6 +174,94 @@ func (s *Store) Close() {
 	}
 }
 
+// ---- Device / telemetry (license misuse control + monitoring) ----
+
+// Device is a registered agent installation bound to a license via hardware fingerprint.
+type Device struct {
+	ID          string
+	LicenseID   string
+	Fingerprint string // hash
+	Components  string // json
+	InstallID   string
+	Hostname    string
+	OS          string
+}
+
+// Telemetry is one agent heartbeat sample.
+type Telemetry struct {
+	DeviceID       string
+	LatencyMs      float64
+	MT4Conn        bool
+	MT5Conn        bool
+	Broker         string
+	AccountMasked  string
+	Equity         float64
+	Balance        float64
+	OpenPositions  int
+	FloatingPnL    float64
+	CPU            float64
+	RAM            float64
+	Version        string
+	Status         string
+}
+
+// UpsertDevice records/refreshes a device binding.
+func (s *Store) UpsertDevice(ctx context.Context, d Device) {
+	if s.pg == nil {
+		return
+	}
+	_, err := s.pg.Exec(ctx,
+		`INSERT INTO devices(id,license_id,fingerprint_hash,fingerprint_components,installation_id,hostname,os,last_seen)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,now())
+		 ON CONFLICT (id) DO UPDATE SET license_id=$2, fingerprint_hash=$3, hostname=$6, os=$7, last_seen=now()`,
+		d.ID, d.LicenseID, d.Fingerprint, d.Components, d.InstallID, d.Hostname, d.OS)
+	if err != nil {
+		log.Printf("store: upsert device: %v", err)
+	}
+}
+
+// SaveTelemetry records one heartbeat sample.
+func (s *Store) SaveTelemetry(ctx context.Context, t Telemetry) {
+	if s.pg == nil {
+		return
+	}
+	_, err := s.pg.Exec(ctx,
+		`INSERT INTO device_telemetry(device_id,ts,latency_ms,mt4_conn,mt5_conn,broker,account_masked,equity,balance,open_positions,floating_pnl,cpu_pct,ram_pct,version,status)
+		 VALUES($1,now(),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+		t.DeviceID, t.LatencyMs, t.MT4Conn, t.MT5Conn, t.Broker, t.AccountMasked, t.Equity, t.Balance,
+		t.OpenPositions, t.FloatingPnL, t.CPU, t.RAM, t.Version, t.Status)
+	if err != nil {
+		log.Printf("store: save telemetry: %v", err)
+	}
+}
+
+// RecentBars returns the latest n bars (newest first).
+func (s *Store) RecentBars(ctx context.Context, n int) []backtest.Bar {
+	if s.pg == nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		out := make([]backtest.Bar, 0, n)
+		for i := len(s.memBars) - 1; i >= 0 && len(out) < n; i-- {
+			out = append(out, s.memBars[i])
+		}
+		return out
+	}
+	rows, err := s.pg.Query(ctx, `SELECT ts,symbol,open,high,low,close,spread FROM bars ORDER BY ts DESC LIMIT $1`, n)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []backtest.Bar
+	for rows.Next() {
+		var ts time.Time
+		var sym string
+		var o, h, l, c, sp float64
+		_ = rows.Scan(&ts, &sym, &o, &h, &l, &c, &sp)
+		out = append(out, backtest.Bar{Time: ts.Unix(), Open: o, High: h, Low: l, Close: c, Spread: sp})
+	}
+	return out
+}
+
 func addrFromURL(u string) string {
 	// accept redis://host:port or host:port
 	if len(u) > 8 && u[:8] == "redis://" {

@@ -55,6 +55,38 @@ func EvaluateAll(state *types.MarketState, res strategy.StrategyResult, cfg conf
 		vetoes = append(vetoes, Veto{"INVALID_SL", "SL on wrong side of entry"})
 	}
 
+	// 1b) NET R:R after TOTAL transaction cost (spread + commission + swap), in
+	// PRICE units (same scale as the SL/TP distances). This is the authoritative
+	// gate — gross R:R alone hides the cost that erodes edge.
+	if pol != nil {
+		exec := pol.Execution
+		side := "BUY"
+		if res.Direction == types.DirSell {
+			side = "SELL"
+		}
+		holdDays := 1
+		if cfg.ExpiryMinutes > 0 {
+			holdDays = int(cfg.ExpiryMinutes / 1440)
+			if holdDays < 1 {
+				holdDays = 1
+			}
+		}
+		costPrice := state.Spread +
+			exec.CommissionPrice(1.0) +
+			exec.SwapPrice(side, 1.0, holdDays)
+
+		netRisk := risk + costPrice
+		netReward := reward - costPrice
+		if netReward <= 0 {
+			vetoes = append(vetoes, Veto{"NET_RR_NEGATIVE", "trade unprofitable after spread+commission+swap"})
+		} else if netRisk > 0 && pol.MinNetRR > 0 {
+			netRR := netReward / netRisk
+			if netRR < pol.MinNetRR {
+				vetoes = append(vetoes, Veto{"NET_RR_BELOW_MIN", "net R:R " + format(netRR) + " < min net " + format(pol.MinNetRR)})
+			}
+		}
+	}
+
 	// 2) Broker stop-level compliance (points). SL distance must exceed the
 	//    broker's StopsLevel.
 	if pol != nil && pol.Digits > 0 && pol.StopLevelPoints > 0 {

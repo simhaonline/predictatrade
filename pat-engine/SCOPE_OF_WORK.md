@@ -164,6 +164,13 @@ Verified manually; the existing `mql/` EAs parse the identical format.
 | Cost-aware backtest on live code | `internal/backtest` | — | DONE (real-data loader wired) |
 | Live signal→EA handoff | `internal/provider` + `mql/` | e2e | DONE |
 | Persistence: TimescaleDB + Valkey | `internal/store` + `infra/db/init` + compose | store degraded test + live smoke | DONE |
+| Broker execution correctness (digits, contract, commission, swap, spread, leverage) | `internal/broker/profile.go` + `LoadExecutionFromEnv` | profile_test | DONE |
+| Broker-server-time sessions (timezone, not local/UTC) | `broker.BrokerPolicy.Session` + `TimezoneOffset` | profile_test (UTC 09:30→OVERLAP) | DONE |
+| Cost-aware NET R:R gate (spread+commission+swap, price units) | `internal/gates` | gates_test (negative-after-cost) | DONE |
+| Capital-loss control (position size, daily loss, max positions/leverage) | `internal/risk` | risk_test | DONE |
+| Full backend REST API (`/api/v1`: strategies, broker, risk, session, signals, bars, devices, licensing) | `cmd/gateway/main.go` | live smoke (curl) | DONE |
+| Agent hardware fingerprint + telemetry device binding | `internal/agentlib` + `cmd/agent` + `/devices/*` | — | DONE (collector + endpoints) |
+| Web/domain routing (nginx) | `nginx/pat-engine.conf` + compose `pat-engine-nginx` | — | DONE |
 | Honest packaging (no false claims) | broker/license exclusion + real-data TODO | — | PARTIAL (needs real data) |
 
 ## 12. Next actions
