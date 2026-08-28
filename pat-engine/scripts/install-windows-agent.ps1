@@ -1,115 +1,274 @@
-# Install-PredictATradeAgent.ps1
-# Deploys the PAT Windows Agent + MQL EAs (PredictATrade client AND MasterNode) and the
-# license file on a Windows trading machine. Run from an ADMINISTRATOR PowerShell.
-#
-# It does NOT compile anything (cross-compile on Linux/macOS with
-# scripts/build-windows-agent.sh, then copy pat-windows-agent.exe next to this script).
-# It DOES:
-#   1. Copy pat-windows-agent.exe to $InstallPath
-#   2. Deploy PredictATrade_MT4/MT5.mq4/.mq5 and the MasterNode variants into every
-#      detected MT4/MT5 terminal's Experts folder
-#   3. Write PAT_license.txt (status ACTIVE) into the MT common Files folder
-#   4. Register the agent to start at boot via Task Scheduler (dependency-free)
-#
-# Usage:
-#   .\Install-PredictATradeAgent.ps1 -GatewayUrl "http://<engine-host>:8080/bar" `
-#                                    -LicenseKey "PAT1-CIHT-OBIB-J5VF-SQP4-FQ"
+<#
+.SYNOPSIS
+    Predict-A-Trade XAUUSD — pat-engine Windows Agent Installer (adapted from the
+    windows-agent reference project: role-aware, self-elevating, Defender-safe).
+.DESCRIPTION
+    Installs pat-engine's Windows Agent (pat-windows-agent.exe) as a Windows service
+    and deploys the matching MQL EA into every detected MT4/MT5 terminal.
 
+      -Mode client  -> deploys the CLIENT EA (PredictATrade_MT4/MT5)
+      -Mode master  -> deploys the MASTER NODE EA (PredictATrade_MasterNode_MT4/MT5)
+
+    The two roles ship as the SAME Go binary but install into SEPARATE directories
+    (C:\PredictATrade\Client, C:\PredictATrade\Master) so a Client Agent and a
+    Master Node can coexist on one machine without sharing binaries/settings/logs.
+
+    Usage (local build):
+      .\install-windows-agent.ps1 -Mode client -EngineHost 10.0.0.5
+    Usage (download from a release server):
+      .\install-windows-agent.ps1 -Mode master -BaseUrl https://files.predictatrade.com/pat-engine -EngineHost live.predictatrade.com
+#>
 [CmdletBinding()]
 param(
-    [string]$GatewayUrl  = "http://localhost:8080/bar",
-    [string]$LicenseKey  = "",
-    [string]$InstallPath = "C:\Program Files\PredictATrade",
+    [ValidateSet("client","master")][string]$Mode = "client",
+    [string]$EngineHost = "localhost",
+    [int]$GatewayPort   = 8080,
+    [string]$GatewayUrl = "",          # direct override; if set, EngineHost/Port ignored
+    [string]$BaseUrl    = "",          # if set, download pat-windows-agent.exe from here
+    [string]$AgentPath  = "",          # local exe path (default: next to this script / dist/)
+    [string]$LicenseKey = "",
+    [string]$InstallRoot = "C:\PredictATrade",
     [switch]$NoService
 )
 
-$ErrorActionPreference = "Stop"
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+# ─── Role identity ───
+$RoleDir    = if ($Mode -eq "master") { "Master" } else { "Client" }
+$InstallDir = Join-Path $InstallRoot $RoleDir
+$ServiceName = if ($Mode -eq "master") { "pat-agent-master" } else { "pat-agent-client" }
+$AgentExe    = "pat-windows-agent.exe"
+$EaFiles     = if ($Mode -eq "master") {
+    @("PredictATrade_MasterNode_MT4.mq4", "PredictATrade_MasterNode_MT5.mq5")
+} else {
+    @("PredictATrade_MT4.mq4", "PredictATrade_MT5.mq5")
+}
+$RoleLabel   = if ($Mode -eq "master") { "Master Node (data/coordination)" } else { "Client Agent (execution)" }
 
+# Resolve the gateway URL the agent feeds (pat-engine gateway is plain HTTP POST /bar).
+$Gw = if ($GatewayUrl) { $GatewayUrl } else { "http://${EngineHost}:${GatewayPort}/bar" }
+
+# ─── Self-elevation (UAC) ───
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Write-Host "[install] Administrator required — UAC prompt will appear..."
+    $tmp = Join-Path $env:TEMP ("pat_install_" + [guid]::NewGuid().ToString("N") + ".ps1")
+    try {
+        if ($BaseUrl) {
+            $c = Invoke-WebRequest -Uri "$BaseUrl/install-windows-agent.ps1" -UseBasicParsing -TimeoutSec 30 | Select-Object -ExpandProperty Content
+            Set-Content -Path $tmp -Value $c -Encoding UTF8
+        } else {
+            Copy-Item -Path $MyInvocation.MyCommand.Path -Destination $tmp -Force
+        }
+        $args = @("-ExecutionPolicy","Bypass","-NoProfile","-File","""$tmp""","-Mode",$Mode,"-EngineHost",$EngineHost,"-GatewayPort",$GatewayPort)
+        if ($GatewayUrl)  { $args += @("-GatewayUrl",$GatewayUrl) }
+        if ($BaseUrl)     { $args += @("-BaseUrl",$BaseUrl) }
+        if ($LicenseKey)  { $args += @("-LicenseKey",$LicenseKey) }
+        $p = Start-Process -FilePath "powershell.exe" -ArgumentList $args -Verb RunAs -Wait -PassThru
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+        exit $p.ExitCode
+    } catch {
+        Write-Host "[install] ERROR: elevation failed: $_"
+        exit 1
+    }
+}
+
+# ─── Header ───
+Write-Host ""
+Write-Host "=========================================="
+Write-Host "  Predict-A-Trade pat-engine Agent Installer"
+Write-Host "=========================================="
+Write-Host "  Mode : $RoleLabel"
+Write-Host "  GW   : $Gw"
+Write-Host ""
+
+# ─── 1. Defender exclusions (MUST be before the binary is present) ───
+function Add-DefenderExclusions {
+    $paths = @($InstallDir, (Join-Path $env:ProgramData 'PredictATrade'))
+    foreach ($p in $paths) {
+        if (-not (Test-Path $p)) { New-Item -ItemType Directory -Path $p -Force | Out-Null }
+        try { Add-MpPreference -ExclusionPath $p -ErrorAction Stop } catch { Write-Host "  WARN: Defender exclusion failed for $p`: $_" }
+    }
+    Write-Host "  OK: Windows Defender exclusions applied (pre-download)."
+}
+Write-Host "[1/8] Applying Defender exclusions..."
+Add-DefenderExclusions
+
+# ─── 2. Directories ───
+Write-Host "[2/8] Creating directories..."
+if (-not (Test-Path $InstallDir)) { New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null }
+$logsDir = Join-Path $InstallDir "logs"
+if (-not (Test-Path $logsDir))   { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
+
+# ─── 3. Persist machine env (agent reads GATEWAY) ───
+Write-Host "[3/8] Saving configuration..."
+[Environment]::SetEnvironmentVariable("GATEWAY", $Gw, "Machine") | Out-Null
+[Environment]::SetEnvironmentVariable("PAT_SERVICE_NAME", $ServiceName, "Machine") | Out-Null
+[Environment]::SetEnvironmentVariable("PAT_LOG_DIR", $logsDir, "Machine") | Out-Null
+Write-Host "  OK: GATEWAY = $Gw"
+
+# ─── 4. Acquire the agent binary (download or local) ───
+Write-Host "[4/8] Acquiring $AgentExe..."
+$agentPath = Join-Path $InstallDir $AgentExe
+$src = $null
+if ($AgentPath -and (Test-Path $AgentPath)) { $src = $AgentPath }
+else {
+    $cand = @(
+        (Join-Path $PSScriptRoot $AgentExe),
+        (Join-Path $PSScriptRoot "dist\$AgentExe"),
+        (Join-Path (Split-Path $PSScriptRoot) "dist\$AgentExe")
+    )
+    foreach ($c in $cand) { if (Test-Path $c) { $src = $c; break } }
+}
+if ($BaseUrl) {
+    $rawArch = $env:PROCESSOR_ARCHITECTURE
+    if ($rawArch -eq "x86" -and $env:PROCESSOR_ARCHITEW6432 -eq "AMD64") { $rawArch = "AMD64" }
+    $goArch = switch ($rawArch) { "AMD64"{"amd64"} "ARM64"{"arm64"} "ARM"{"arm64"} "x86"{"386"} default{"amd64"} }
+    $url = "$BaseUrl/$RoleDir/$goArch/$AgentExe"
+    try {
+        if (Test-Path $agentPath) { Remove-Item $agentPath -Force -ErrorAction SilentlyContinue }
+        Invoke-WebRequest -Uri $url -OutFile $agentPath -UseBasicParsing -TimeoutSec 120
+        Unblock-File -Path $agentPath -ErrorAction SilentlyContinue
+        Write-Host "  OK: Downloaded from $url"
+    } catch {
+        Write-Host "  WARN: Download failed ($_), falling back to local copy if present."
+    }
+}
+if ((Test-Path $agentPath) -and (Get-Item $agentPath).Length -ge 1KB) {
+    Write-Host "  OK: $AgentExe present ($([math]::Round((Get-Item $agentPath).Length/1MB,1)) MB)"
+} elseif ($src) {
+    Copy-Item $src $agentPath -Force
+    Unblock-File -Path $agentPath -ErrorAction SilentlyContinue
+    Write-Host "  OK: Copied local $src"
+} else {
+    Write-Host "  FATAL: No $AgentExe available. Run scripts/build-windows-agent.sh first or pass -BaseUrl/-AgentPath."
+    Read-Host "Press Enter to close"; exit 1
+}
+
+# Re-assert Defender exclusion (unsigned binary may have been blocked on copy/download).
+try { Add-MpPreference -ExclusionPath $InstallDir -ErrorAction SilentlyContinue } catch {}
+
+# ─── 5. Deploy MQL EA(s) + license into every MT terminal ───
 function Find-Terminals {
     $mtRoot = Join-Path $env:APPDATA "MetaQuotes\Terminal"
-    $found  = @()
-    if (-not (Test-Path $mtRoot)) { return $found }
+    $out = @()
+    if (-not (Test-Path $mtRoot)) { return $out }
     foreach ($term in (Get-ChildItem $mtRoot -Directory)) {
-        foreach ($ver in @(4, 5)) {
+        foreach ($ver in @(4,5)) {
             $mql = Join-Path $term.FullName "MQL$ver"
-            if (Test-Path $mql) {
-                $found += [PSCustomObject]@{
-                    Version = $ver
-                    Experts = Join-Path $mql "Experts"
-                    Files   = Join-Path $mql "Files"
-                }
-            }
+            if (Test-Path $mql) { $out += [PSCustomObject]@{Version=$ver; Experts=(Join-Path $mql "Experts"); Files=(Join-Path $mql "Files")} }
         }
     }
-    # FILE_COMMON (shared across terminals) lives here:
     $common = Join-Path $mtRoot "Common\Files"
-    if (Test-Path (Split-Path $common)) { $found += [PSCustomObject]@{Version = 0; Experts = $null; Files = $common } }
-    return $found
+    if (Test-Path (Split-Path $common)) { $out += [PSCustomObject]@{Version=0; Experts=$null; Files=$common} }
+    return $out
 }
-
-# --- 1. Agent binary ---------------------------------------------------------
-$agentExe = Join-Path $InstallPath "pat-windows-agent.exe"
-if (-not (Test-Path $agentExe)) {
-    # fall back to script dir if not yet copied
-    $local = Join-Path $ScriptDir "pat-windows-agent.exe"
-    if (Test-Path $local) {
-        New-Item -ItemType Directory -Force -Path $InstallPath | Out-Null
-        Copy-Item $local $agentExe -Force
-        Write-Host "Copied agent -> $agentExe"
-    } else {
-        Write-Error "pat-windows-agent.exe not found in $InstallPath or $ScriptDir. Cross-compile it first (scripts/build-windows-agent.sh)."
-    }
-}
-
-# wrapper that injects the GATEWAY env the agent reads
-$runCmd = Join-Path $InstallPath "run-agent.cmd"
-Set-Content -Path $runCmd -Value "@echo off`r`nSET GATEWAY=$GatewayUrl`r`n""$agentExe""""
-
-# --- 2. MQL EAs (client + MasterNode) ---------------------------------------
+Write-Host "[5/8] Deploying EAs + license..."
 $terms = Find-Terminals
-if ($terms.Count -eq 0) { Write-Warning "No MetaTrader terminal found under $env:APPDATA\MetaQuotes\Terminal. Skipping EA deploy." }
-$eas = @(
-    @{Src="PredictATrade_MT4.mq4";  Dest="MQL4\Experts"; Match=4},
-    @{Src="PredictATrade_MT5.mq5";  Dest="MQL5\Experts"; Match=5},
-    @{Src="PredictATrade_MasterNode_MT4.mq4"; Dest="MQL4\Experts"; Match=4},
-    @{Src="PredictATrade_MasterNode_MT5.mq5"; Dest="MQL5\Experts"; Match=5}
-)
+if ($terms.Count -eq 0) { Write-Warning "No MT4/MT5 terminal found; skipping EA deploy." }
 foreach ($t in $terms) {
-    if ($null -eq $t.Experts) { continue }
-    foreach ($ea in $eas) {
-        if ($ea.Match -ne 0 -and $ea.Match -ne $t.Version) { continue }
-        $src = Join-Path $ScriptDir $ea.Src
-        if (-not (Test-Path $src)) { Write-Warning "EA source missing: $src"; continue }
-        $dst = Join-Path $t.Experts (Split-Path $ea.Src -Leaf)
-        Copy-Item $src $dst -Force
-        Write-Host "Deployed $($ea.Src) -> $dst"
+    if ($null -ne $t.Experts) {
+        foreach ($ea in $EaFiles) {
+            $s = Join-Path $PSScriptRoot $ea
+            if (-not (Test-Path $s)) {
+                # Try a sibling mql/ folder (repo layout) as a fallback source.
+                $s2 = Join-Path (Split-Path $PSScriptRoot) "mql\$ea"
+                if (Test-Path $s2) { $s = $s2 } else { Write-Warning "EA source missing: $ea"; continue }
+            }
+            Copy-Item $s (Join-Path $t.Experts $ea) -Force
+        }
+    }
+    if ($null -ne $t.Files) {
+        New-Item -ItemType Directory -Force -Path $t.Files | Out-Null
+        $lic = Join-Path $t.Files "PAT_license.txt"
+        $key = if ($LicenseKey) { $LicenseKey } else { "UNSET" }
+        Set-Content -Path $lic -Value "{`"status`":`"ACTIVE`",`"plan`":`"PRO`",`"auth`":`"OK`",`"device`":`"OK`",`"session`":`"OK`",`"trading`":`"ENABLED`",`"key`":`"$key`"}"
     }
 }
+Write-Host "  OK: EA(s) + PAT_license.txt deployed to $($terms.Count) location(s)."
 
-# --- 3. License file (status ACTIVE) ----------------------------------------
-foreach ($t in $terms) {
-    if ($null -eq $t.Files) { continue }
-    New-Item -ItemType Directory -Force -Path $t.Files | Out-Null
-    $licPath = Join-Path $t.Files "PAT_license.txt"
-    $key = if ($LicenseKey) { $LicenseKey } else { "UNSET" }
-    Set-Content -Path $licPath -Value (
-        "{`"status`":`"ACTIVE`",`"plan`":`"PRO`",`"auth`":`"OK`",`"device`":`"OK`",`"session`":`"OK`",`"trading`":`"ENABLED`",`"key`":`"$key`"}"
-    )
-    Write-Host "Wrote license -> $licPath"
+# ─── 6. Acquire NSSM (service wrapper) ───
+Write-Host "[6/8] Acquiring NSSM (service manager)..."
+$NssmExe = "nssm.exe"
+$nssmDest = Join-Path $InstallDir $NssmExe
+$nssmOk = $false
+function Get-ExistingNssm {
+    $cmd = Get-Command nssm.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $common = Join-Path $env:ProgramData "PredictATrade\nssm.exe"
+    if (Test-Path $common) { return $common }
+    return $null
+}
+$ex = Get-ExistingNssm
+if (Test-Path $nssmDest) { $nssmOk = $true; Write-Host "  OK: reusing existing nssm in install dir." }
+elseif ($ex) { try { Copy-Item $ex $nssmDest -Force; Unblock-File $nssmDest; $nssmOk=$true; Write-Host "  OK: reused nssm from $ex." } catch {} }
+if (-not $nssmOk -and $BaseUrl) {
+    try {
+        Invoke-WebRequest -Uri "$BaseUrl/nssm/win64/nssm.exe" -OutFile $nssmDest -UseBasicParsing -TimeoutSec 60
+        Unblock-File $nssmDest -ErrorAction SilentlyContinue
+        if (Test-Path $nssmDest) { $nssmOk=$true; Write-Host "  OK: downloaded nssm." }
+    } catch { Write-Host "  WARN: nssm download failed; will try sc.exe." }
 }
 
-# --- 4. Auto-start the agent (Task Scheduler, no 3rd-party deps) ------------
+# ─── 7. Stop old service, install fresh ───
+Write-Host "[7/8] Installing Windows service..."
+$svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+if ($svc) {
+    if ($svc.Status -eq "Running") {
+        if ($nssmOk) { & $nssmDest stop $ServiceName 2>&1 | Out-Null } else { Stop-Service $ServiceName -Force -ErrorAction SilentlyContinue }
+        Start-Sleep -Seconds 3
+    }
+    if ($nssmOk) { & $nssmDest remove $ServiceName confirm 2>&1 | Out-Null }
+    sc.exe delete $ServiceName 2>&1 | Out-Null
+    Start-Sleep -Seconds 2
+}
+$serviceCreated = $false
+$AgentLog = Join-Path $logsDir "agent.log"
 if (-not $NoService) {
-    $taskName = "PredictATradeAgent"
-    schtasks /Delete /TN $taskName /F 2>$null
-    $res = schtasks /Create /TN $taskName /TR "`"$runCmd`"" /SC ONSTART /RU SYSTEM /RL HIGHEST 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "Registered auto-start task '$taskName'. Start it with: schtasks /Run /TN $taskName"
-    } else {
-        Write-Warning "Could not register task ($res). Start $runCmd manually or at login."
+    if ($nssmOk -and (Test-Path $nssmDest)) {
+        & $nssmDest install $ServiceName $agentPath 2>&1 | Out-Null
+        & $nssmDest set $ServiceName AppDirectory $InstallDir 2>&1 | Out-Null
+        & $nssmDest set $ServiceName AppStdout $AgentLog 2>&1 | Out-Null
+        & $nssmDest set $ServiceName AppStderr $AgentLog 2>&1 | Out-Null
+        & $nssmDest set $ServiceName AppExit Default Restart 2>&1 | Out-Null
+        & $nssmDest set $ServiceName AppRestartDelay 5000 2>&1 | Out-Null
+        & $nssmDest set $ServiceName DisplayName "Predict-A-Trade pat-engine Agent ($RoleLabel)" 2>&1 | Out-Null
+        & $nssmDest set $ServiceName Start SERVICE_AUTO_START 2>&1 | Out-Null
+        $serviceCreated = $true
+        Write-Host "  OK: NSSM service created."
     }
+    if (-not $serviceCreated) {
+        sc.exe create $ServiceName binPath= "`"$agentPath`"" start= auto 2>&1 | Out-Null
+        sc.exe description $ServiceName "Predict-A-Trade pat-engine Windows Agent" 2>&1 | Out-Null
+        sc.exe failure $ServiceName reset= 60 actions= restart/5000 2>&1 | Out-Null
+        $serviceCreated = $true
+        Write-Host "  OK: sc.exe service created."
+    }
+    if ($serviceCreated) {
+        if ($nssmOk) { & $nssmDest start $ServiceName 2>&1 | Out-Null } else { try { Start-Service $ServiceName } catch {} }
+        Start-Sleep -Seconds 4
+        $chk = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+        if ($chk -and $chk.Status -eq "Running") { Write-Host "  OK: Service RUNNING." }
+        else { Write-Host "  WARN: Service not running yet — check $AgentLog." }
+    }
+} else {
+    Write-Host "  Skipped (NoService). Run `"$agentPath`" manually or at login."
 }
 
-Write-Host "`nDone. Agent at $agentExe | Gateway: $GatewayUrl | License keys written."
-Write-Host "Next: attach PredictATrade EA + MasterNode EA to XAUUSD charts in MT, set LicenseKey if prompted."
+# ─── 8. Version stamp ───
+Write-Host "[8/8] Finalizing..."
+$ver = if (Test-Path (Join-Path $PSScriptRoot "version.txt")) { (Get-Content (Join-Path $PSScriptRoot "version.txt")).Trim() } else { "local" }
+Set-Content -Path (Join-Path $InstallDir "version.txt") -Value $ver -NoNewline
+
+Write-Host ""
+Write-Host "=========================================="
+Write-Host "  Installation Complete!"
+Write-Host "=========================================="
+Write-Host "  Service : $ServiceName"
+Write-Host "  Role    : $RoleLabel"
+Write-Host "  Gateway : $Gw"
+Write-Host "  Install : $InstallDir"
+Write-Host "  Logs    : $logsDir"
+Write-Host ""
+Write-Host "  Uninstall: .\uninstall-windows-agent.ps1 -Mode $Mode"
+Write-Host "=========================================="
+Write-Host ""
+if (-not $Silent) { Read-Host "Press Enter to close" }

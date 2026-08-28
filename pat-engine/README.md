@@ -197,15 +197,26 @@ commands. The trade logic lives in the EAs (`mql/PredictATrade_MT4.mq4`,
 ./scripts/build-windows-agent.sh          # -> dist/pat-windows-agent.exe (+ pat-gateway.exe)
 ```
 
-**2. Install on the trading machine (Administrator PowerShell):**
+**2. Install on the trading machine (Administrator PowerShell).** The installer is
+role-aware (mirrors the reference `windows-agent` project): `-Mode client` deploys the
+**client EA**, `-Mode master` deploys the **MasterNode EA**. Both roles share the same
+Go binary but install into separate dirs (`C:\PredictATrade\Client`,
+`C:\PredictATrade\Master`) so they coexist. Thin wrappers exist for each role:
 ```powershell
-# copy dist/pat-windows-agent.exe next to the script, then:
-.\scripts\install-windows-agent.ps1 -GatewayUrl "http://<engine-host>:8080/bar" `
-                                     -LicenseKey "PAT1-XXXX-XXXX-XXXX-XXXX-XXXX-XX"
+# from scripts/ (after copying dist/pat-windows-agent.exe alongside the scripts):
+.\install-client.ps1 -EngineHost <engine-host> -LicenseKey "PAT1-XXXX-..."
+# or, for the master node:
+.\install-master.ps1 -EngineHost <engine-host> -LicenseKey "PAT1-XXXX-..."
+# or invoke the shared installer directly:
+.\install-windows-agent.ps1 -Mode client -EngineHost <engine-host> -GatewayPort 8080 -LicenseKey "PAT1-..."
 ```
-This copies the agent, deploys **both** the client EA and the MasterNode EA into
-every detected MT4/MT5 `Experts` folder, writes `PAT_license.txt` (`status:ACTIVE`)
-into the MT common `Files` folder, and registers the agent to auto-start.
+The installer self-elevates, applies scoped Windows Defender exclusions (pre-download,
+so the unsigned binary isn't quarantined), downloads the binary from `-BaseUrl` (or uses
+a local copy), wraps it as a Windows service via nssm (falls back to `sc.exe`), deploys
+the role's EA into every detected MT4/MT5 `Experts` folder, writes `PAT_license.txt`
+(`status:ACTIVE`) into the MT common `Files` folder, and verifies the service is running.
+Uninstall: `.\uninstall-windows-agent.ps1 -Mode <client|master|all>` (always cleans
+both roles).
 
 **3. License key.** Mint a short activation code and paste it into the EA's
 `LicenseKey` input (the agent/gateway verify it):
