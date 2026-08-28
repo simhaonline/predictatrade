@@ -1,0 +1,76 @@
+// Package gates implements the hard, fail-closed risk gate pipeline. A gate may
+// only VETO; it never invents a trade. Every veto carries a stable ID so the
+// downstream UI / EA can render an exact, machine-readable reason.
+package gates
+
+import (
+	"strconv"
+
+	"pat-engine/internal/broker"
+	"pat-engine/internal/config"
+	"pat-engine/internal/strategy"
+	"pat-engine/internal/types"
+)
+
+// Veto is a single gate rejection.
+type Veto struct {
+	ID     string
+	Reason string
+}
+
+func format(f float64) string { return strconv.FormatFloat(f, 'f', 2, 64) }
+
+func pow10(n int) int {
+	p := 1
+	for i := 0; i < n; i++ {
+		p *= 10
+	}
+	return p
+}
+
+// EvaluateAll runs the gate set against a directional strategy result. It returns
+// the list of vetoes (empty = pass). Order is irrelevant; any veto blocks.
+func EvaluateAll(state *types.MarketState, res strategy.StrategyResult, cfg config.StrategyConfig, pol *broker.BrokerPolicy) []Veto {
+	var vetoes []Veto
+	if res.Direction != types.DirBuy && res.Direction != types.DirSell {
+		return vetoes
+	}
+
+	var risk, reward float64
+	if res.Direction == types.DirBuy {
+		risk = res.EntryPrice - res.StopLoss
+		reward = res.TP1 - res.EntryPrice
+	} else {
+		risk = res.StopLoss - res.EntryPrice
+		reward = res.EntryPrice - res.TP1
+	}
+
+	// 1) R:R floor — the dominant cause of prior client stop-outs.
+	if risk > 0 {
+		rr := reward / risk
+		if rr < cfg.MinRR {
+			vetoes = append(vetoes, Veto{"RR_BELOW_MIN", "R:R " + format(rr) + " < MinRR " + format(cfg.MinRR)})
+		}
+	} else {
+		vetoes = append(vetoes, Veto{"INVALID_SL", "SL on wrong side of entry"})
+	}
+
+	// 2) Broker stop-level compliance (points). SL distance must exceed the
+	//    broker's StopsLevel.
+	if pol != nil && pol.Digits > 0 && pol.StopLevelPoints > 0 {
+		slPoints := risk * float64(pow10(pol.Digits))
+		if slPoints < pol.StopLevelPoints {
+			vetoes = append(vetoes, Veto{"BROKER_STOP_LEVEL", "SL " + format(slPoints) + "pts < broker min " + format(pol.StopLevelPoints) + "pts"})
+		}
+	}
+
+	// 3) Broker freeze-level compliance (entry must clear the freeze zone).
+	if pol != nil && pol.Digits > 0 && pol.FreezeLevelPoints > 0 {
+		distToEntry := risk // conservative: use SL distance as proxy for execution clearance
+		if distToEntry*float64(pow10(pol.Digits)) < pol.FreezeLevelPoints {
+			vetoes = append(vetoes, Veto{"BROKER_FREEZE_LEVEL", "entry clearance < freeze level"})
+		}
+	}
+
+	return vetoes
+}

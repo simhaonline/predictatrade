@@ -1,0 +1,7 @@
+# runtime signal file produced by the gateway / simulator
+signals/PAT_signals.txt
+*.txt
+
+# build artifacts
+/pat-engine
+*.exe
