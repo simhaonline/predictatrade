@@ -22,6 +22,7 @@ type TerminalInfo struct {
 	Symbol         string
 	LicenseKey     string
 	ConnectedAt    time.Time
+	LastActivity   time.Time // last tick/INIT/LICENSE_CHECK/MASTER_TICK — drives liveness
 	Balance        float64
 	Equity         float64
 	Profit         float64
@@ -370,6 +371,7 @@ func (pm *PipeManager) heartbeatLoop() {
 	for {
 		select {
 		case <-ticker.C:
+			pm.pruneStaleTerminals()
 			content := fmt.Sprintf(`{"type":"HEARTBEAT","timestamp":"%s","agent":"1.02"}`,
 				time.Now().UTC().Format(time.RFC3339))
 			for _, d := range pm.commonDirs {
@@ -479,7 +481,7 @@ func (pm *PipeManager) processMessage(line string) {
 				pm.terminals[terminalKey] = &TerminalInfo{
 					ClientType: clientType, Account: tick.Account,
 					Broker: tick.Broker, Symbol: tick.Symbol,
-					ConnectedAt: time.Now(),
+					ConnectedAt: time.Now(), LastActivity: time.Now(),
 				}
 				pm.mu.Unlock()
 				log.Printf("Terminal auto-registered from tick: %s account=%s broker=%s", clientType, tick.Account, tick.Broker)
@@ -489,6 +491,7 @@ func (pm *PipeManager) processMessage(line string) {
 			} else {
 				existing.Broker = tick.Broker
 				existing.Symbol = tick.Symbol
+				existing.LastActivity = time.Now()
 				pm.mu.Unlock()
 			}
 		}
@@ -549,6 +552,7 @@ func (pm *PipeManager) processMessage(line string) {
 				pm.terminals[terminalKey] = &TerminalInfo{
 					ClientType: clientType, Account: initMsg.Account, Broker: initMsg.Broker,
 					Symbol: initMsg.Symbol, LicenseKey: initMsg.LicenseKey, ConnectedAt: time.Now(),
+					LastActivity: time.Now(),
 					Balance: initMsg.Balance, Equity: initMsg.Equity, Profit: initMsg.Profit,
 					Currency: initMsg.Currency, Leverage: initMsg.Leverage,
 					OpenPositions: initMsg.OpenPos, BuyPositions: initMsg.BuyPos, SellPositions: initMsg.SellPos,
@@ -566,6 +570,7 @@ func (pm *PipeManager) processMessage(line string) {
 				existing.SellPositions = initMsg.SellPos
 				existing.TotalLots = initMsg.TotalLots
 				existing.FloatingPnL = initMsg.FloatingPnL
+				existing.LastActivity = time.Now()
 			}
 			pm.mu.Unlock()
 		}
@@ -616,6 +621,7 @@ func (pm *PipeManager) processMessage(line string) {
 				Symbol:        lic.Symbol,
 				LicenseKey:    lic.LicenseKey,
 				ConnectedAt:   time.Now(),
+				LastActivity:   time.Now(),
 				Balance:       accountData.Balance,
 				Equity:        accountData.Equity,
 				Profit:        accountData.Profit,
@@ -638,6 +644,7 @@ func (pm *PipeManager) processMessage(line string) {
 			existing.Profit = accountData.Profit
 			existing.FloatingPnL = accountData.Profit
 			existing.OpenPositions = accountData.OpenPositions
+			existing.LastActivity = time.Now()
 			pm.mu.Unlock()
 		}
 		log.Printf("License validated: %s (%s) — terminals: %d", pm.licStatus, pm.licPlan, len(pm.terminals))
@@ -818,7 +825,7 @@ func (pm *PipeManager) processMasterMessage(line string) {
 				pm.terminals[terminalKey] = &TerminalInfo{
 					ClientType: clientType, Account: tick.Account,
 					Broker: tick.Broker, Symbol: tick.Symbol,
-					ConnectedAt: time.Now(),
+					ConnectedAt: time.Now(), LastActivity: time.Now(),
 				}
 				pm.mu.Unlock()
 				log.Printf("Terminal auto-registered from master tick: %s account=%s broker=%s", clientType, tick.Account, tick.Broker)
@@ -828,6 +835,7 @@ func (pm *PipeManager) processMasterMessage(line string) {
 			} else {
 				existing.Broker = tick.Broker
 				existing.Symbol = tick.Symbol
+				existing.LastActivity = time.Now()
 				pm.mu.Unlock()
 			}
 		}
@@ -926,11 +934,28 @@ func (pm *PipeManager) setTerminalClientType(account, clientType string) {
 	}
 }
 
+// terminalLivenessTimeout is how long a terminal may be silent before it is
+// considered disconnected. The EA sends ticks/INIT/LICENSE_CHECK continuously
+// while running, so 30s covers transient gaps without lingering after the
+// terminal is actually closed (which otherwise produced a permanently "connected"
+// status — stale/fake information).
+const terminalLivenessTimeout = 30 * time.Second
+
+// terminalLive reports whether a terminal has sent a liveness signal recently.
+// A zero LastActivity (terminals created before liveness tracking existed) is
+// treated as live so we never falsely report a long-running terminal offline.
+func terminalLive(t *TerminalInfo) bool {
+	if t.LastActivity.IsZero() {
+		return true
+	}
+	return time.Since(t.LastActivity) <= terminalLivenessTimeout
+}
+
 func (pm *PipeManager) MT4Connected() bool {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	for _, t := range pm.terminals {
-		if t.ClientType == "MT4" {
+		if t.ClientType == "MT4" && terminalLive(t) {
 			return true
 		}
 	}
@@ -942,9 +967,25 @@ func (pm *PipeManager) MT5Connected() bool {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	for _, t := range pm.terminals {
-		if t.ClientType == "MT5" {
+		if t.ClientType == "MT5" && terminalLive(t) {
 			return true
 		}
 	}
 	return false
+}
+
+// pruneStaleTerminals removes terminal entries that have not sent any liveness
+// signal within terminalPruneTimeout, so the agent's view (and what it reports
+// upstream) reflects reality instead of lingering forever after disconnect.
+const terminalPruneTimeout = 60 * time.Second
+
+func (pm *PipeManager) pruneStaleTerminals() {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	cutoff := time.Now().Add(-terminalPruneTimeout)
+	for k, t := range pm.terminals {
+		if !t.LastActivity.IsZero() && t.LastActivity.Before(cutoff) {
+			delete(pm.terminals, k)
+		}
+	}
 }

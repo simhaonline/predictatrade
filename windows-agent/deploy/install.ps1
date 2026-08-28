@@ -85,7 +85,7 @@ if (-not $isAdmin) {
 # ─── NOW RUNNING AS ADMIN ───
 Write-Host ""
 Write-Host "=========================================="
-Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.33"
+Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.34"
 Write-Host "=========================================="
 Write-Host ""
 
@@ -178,11 +178,11 @@ try {
     exit 1
 }
 
-# Step 5b: Stop Windows Defender from blocking the agent. The binary is currently
-# self-signed (labelled local dev/test only — see AGENTS.md), so Defender quarantines
-# or blocks it on download/run. Add a SCOPED exclusion for the agent's own directories
-# so the service can start. Only attempted when the installer is elevated (RunAs).
-# For production the binary MUST be Authenticode-signed instead of relying on this.
+# Step 5b: Stop Windows Defender from blocking the agent. The binary is shipped
+# UNSIGNED (no self-signed or CA signature), so Defender quarantines or blocks it on
+# download/run. Add a SCOPED exclusion for the agent's own directories so the service
+# can start. Only attempted when the installer is elevated (RunAs). This is a dev/test
+# stopgap — for production the binary MUST be Authenticode-signed with a real CA cert.
 try {
     $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
     if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -406,7 +406,7 @@ try {
     $serverVersion = (Invoke-WebRequest -Uri "$RootUrl/version.txt" -UseBasicParsing -TimeoutSec 10).Content.Trim()
     Write-Host "  Server version: v$serverVersion"
 } catch {
-    $serverVersion = "1.2.33"
+    $serverVersion = "1.2.34"
     Write-Host "  WARN: Could not fetch server version — using default v$serverVersion"
 }
 Set-Content -Path (Join-Path $InstallDir "version.txt") -Value $serverVersion -NoNewline

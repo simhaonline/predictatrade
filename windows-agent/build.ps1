@@ -111,5 +111,8 @@ Write-Host " Master binary:     $MASTERBIN"
 Write-Host " Build:             SUCCESS"
 Write-Host "================================================="
 
-# Note: a self-signed certificate is acceptable ONLY for labelled local dev/test.
-# Production builds MUST use a legitimate organization code-signing certificate.
+# WARNING: Self-signed certificates must NOT be used. A self-signed binary still
+# triggers SmartScreen/Defender "unknown publisher" and undermines trust. The build is
+# left UNSIGNED unless a legitimate CA-issued code-signing certificate is supplied via
+# PAT_SIGN_CERT. For production, provide a real Authenticode certificate (e.g.
+# DigiCert/GlobalSign/Sectigo OV/EV) and set PAT_SIGN_CERT / PAT_SIGN_CERT_PASSWORD.

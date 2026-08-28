@@ -225,8 +225,11 @@ Shared (both roles): `C:\ProgramData\PredictATrade\logs\` (service logs),
 - **Paper vs Live:** in live mode the engine reads the client's **real** broker
   equity from the connected agent, so risk caps are per-client real capital. The
   `PAT_PAPER_EQUITY` fallback is demo-only and never overrides a live account.
-- **Production signing:** builds should use a valid Authenticode certificate.
-  Self-signed binaries are acceptable for labelled local dev/test only.
+- **Production signing:** the agent is shipped **UNSIGNED** by default. For production it
+  MUST be Authenticode-signed with a legitimate CA-issued code-signing certificate
+  (supplied via `PAT_SIGN_CERT`). Self-signed certificates are **NOT** acceptable and must
+  not be used; an unsigned/self-signed binary triggers Defender/SmartScreen "unknown
+  publisher", and the installer applies a scoped Defender exclusion only as a dev/test stopgap.
 
 ---
 
