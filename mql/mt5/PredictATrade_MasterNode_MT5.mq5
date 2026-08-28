@@ -913,7 +913,9 @@ void MasterWrite(string content)
     int retry = 0;
     while(retry < 3)
     {
-        int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+        // FILE_SHARE_READ|FILE_SHARE_WRITE lets the Windows Agent's reader hold a
+        // handle at the same time without forcing error 5004 (file locked).
+        int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
         if(h != INVALID_HANDLE)
         {
             FileWriteString(h, content);
@@ -939,7 +941,11 @@ void MasterWrite(string content)
     int retry = 0;
     while(retry < 3)
     {
-        int h = FileOpen(PAT_MASTER_FILE, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+        // FILE_SHARE_READ|FILE_SHARE_WRITE: the Windows Agent polls this file every
+        // ~5ms with a read handle. Opening exclusive (the old default) races with
+        // that read and fails with error 5004 (file locked) on every other tick —
+        // which then forced a destructive self-heal reset that dropped snapshots.
+        int h = FileOpen(PAT_MASTER_FILE, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
         if(h != INVALID_HANDLE)
         {
             FileSeek(h, 0, SEEK_END);
@@ -955,7 +961,7 @@ void MasterWrite(string content)
     // transient lock race with the Agent), reset the file with a truncating
     // write and record the message. This guarantees the market-data feed keeps
     // flowing instead of silently dropping snapshots and going blind.
-    int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+    int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
     if(h != INVALID_HANDLE)
     {
         FileWriteString(h, content);

@@ -45,6 +45,9 @@ input int     NotifyCooldownSec    = 300;    // Min seconds between repeated not
 //=== IPC Files (in FILE_COMMON folder — shared with Windows Agent) ===
 #define PAT_MASTER_FILE  "PAT_master_data.txt"
 #define PAT_HEARTBEAT    "PAT_heartbeat.txt"
+// PAT_RESYNC is written by the Windows Agent (on engine REQUEST_SNAPSHOT nudge)
+// and polled by this EA to force an immediate MARKET_SNAPSHOT re-emit.
+#define PAT_RESYNC       "PAT_resync.txt"
 
 //=== Timeframes for multi-TF bar data ===
 // Per-TF broker CopyRates sync: the engine ingests these bars directly so its
@@ -111,16 +114,25 @@ int OnInit()
     {
         g_connection = "OFFLINE";
         Print("WARNING: Windows Agent not detected.");
-        Print("Ensure the pat-agent service is running on this machine.");
+        Print("Ensure pat-agent.exe is running on this machine.");
     }
 
     UpdatePanel();
+
+    // ─── Resilience: periodic timer ───
+    // OnTick only fires when the broker streams quotes for the chart symbol. If
+    // the terminal/connection hiccups and ticks stall, OnTick stops and the
+    // engine goes silently blind. A 1-second OnTimer keeps emitting
+    // MARKET_SNAPSHOT regardless of tick flow (terminal must be connected).
+    EventSetTimer(1000);
+
     return(INIT_SUCCEEDED);
 }
 
 //+------------------------------------------------------------------+
-void OnDeinit(const int reason)
+ void OnDeinit(const int reason)
 {
+    EventKillTimer();
     MasterWrite("MASTER_DEINIT|{\"reason\":" + IntegerToString((long)reason) +
                 ",\"symbol\":\"" + g_symbol + "\"}\n");
     Comment("");
@@ -138,6 +150,36 @@ void OnTick()
 
     if(SendSnapshots)
         SendMarketSnapshot();
+
+    UpdatePanel();
+}
+
+//+------------------------------------------------------------------+
+//| OnTimer — resilience fallback for market-data delivery.           |
+//+------------------------------------------------------------------+
+//| OnTick only fires while the broker streams quotes for the chart.  |
+//| If quotes stall (terminal/connection hiccup) OnTick stops and the |
+//| engine goes silently blind. This timer runs regardless of ticks   |
+//| (as long as the terminal is alive) and re-emits MARKET_SNAPSHOT,  |
+//| so the engine always has fresh data. It also honours a REQUEST_   |
+//| SNAPSHOT nudge: the agent writes PAT_resync.txt when the engine   |
+//| asks for a refresh; we delete it and force an immediate snapshot. |
+//+------------------------------------------------------------------+
+void OnTimer()
+{
+    CheckAgentConnection();
+
+    if(g_connection == "CONNECTED" && SendSnapshots)
+    {
+        // Engine recovery nudge: if the agent dropped a REQUEST_SNAPSHOT flag,
+        // force an immediate snapshot (bypass the snapshot throttle).
+        if(FileIsExist(PAT_RESYNC, FILE_COMMON))
+        {
+            FileDelete(PAT_RESYNC, FILE_COMMON);
+            g_lastSnapshot = 0;
+        }
+        SendMarketSnapshot();
+    }
 
     UpdatePanel();
 }
@@ -605,7 +647,7 @@ void MasterWrite(string content)
     int retry = 0;
     while(retry < 3)
     {
-        int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+        int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
         if(h != -1)
         {
             FileWriteString(h, content);
@@ -618,15 +660,22 @@ void MasterWrite(string content)
     Print("FileOpen WRITE failed after 3 retries: ", PAT_MASTER_FILE, " error=", GetLastError());
 }
 
-void MasterAppend(string content)
+ void MasterAppend(string content)
 {
-    // Write directly — no read-append-write (prevents race condition with Windows Agent)
+    // Append (do NOT truncate). The Windows Agent polls PAT_master_data.txt every
+    // ~5ms, reads ALL lines and clears the file. Because MASTER_TICK is written on
+    // every tick while MARKET_SNAPSHOT / MASTER_INIT are written less often, a
+    // truncating write would clobber the snapshot before the agent can read it —
+    // which made the engine receive ticks but never snapshots (silent data feed).
+    // Opening read+write and seeking to the end lets ticks AND snapshots coexist
+    // in the file until the agent drains them.
     int retry = 0;
     while(retry < 3)
     {
-        int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+        int h = FileOpen(PAT_MASTER_FILE, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
         if(h != -1)
         {
+            FileSeek(h, 0, SEEK_END);
             FileWriteString(h, content);
             FileClose(h);
             return;
@@ -634,6 +683,18 @@ void MasterAppend(string content)
         retry++;
         Sleep(5);
     }
+    // Self-heal: if the append keeps failing (err 5004 = file too long, or a
+    // transient lock race with the Agent), reset the file with a truncating
+    // write and record the message so the market-data feed never dies.
+    int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
+    if(h != -1)
+    {
+        FileWriteString(h, content);
+        FileClose(h);
+        Print("MasterAppend self-heal: reset ", PAT_MASTER_FILE, " (prev err ", GetLastError(), ")");
+        return;
+    }
+    Print("FileOpen APPEND failed after retries + self-heal: ", PAT_MASTER_FILE, " error=", GetLastError());
 }
 
 //+------------------------------------------------------------------+

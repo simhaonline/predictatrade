@@ -647,7 +647,7 @@ void MasterWrite(string content)
     int retry = 0;
     while(retry < 3)
     {
-        int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+        int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
         if(h != -1)
         {
             FileWriteString(h, content);
@@ -672,7 +672,7 @@ void MasterWrite(string content)
     int retry = 0;
     while(retry < 3)
     {
-        int h = FileOpen(PAT_MASTER_FILE, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+        int h = FileOpen(PAT_MASTER_FILE, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
         if(h != -1)
         {
             FileSeek(h, 0, SEEK_END);
@@ -686,7 +686,7 @@ void MasterWrite(string content)
     // Self-heal: if the append keeps failing (err 5004 = file too long, or a
     // transient lock race with the Agent), reset the file with a truncating
     // write and record the message so the market-data feed never dies.
-    int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+    int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
     if(h != -1)
     {
         FileWriteString(h, content);

@@ -46,11 +46,14 @@ input int     NotifyCooldownSec    = 300;    // Min seconds between repeated not
 //=== IPC Files (in FILE_COMMON folder — shared with Windows Agent) ===
 #define PAT_MASTER_FILE  "PAT_master_data.txt"
 #define PAT_HEARTBEAT    "PAT_heartbeat.txt"
+// PAT_RESYNC is written by the Windows Agent (on engine REQUEST_SNAPSHOT nudge)
+// and polled by this EA to force an immediate MARKET_SNAPSHOT re-emit.
+#define PAT_RESYNC       "PAT_resync.txt"
 
 //=== Timeframes for multi-TF bar data ===
+#define TF_COUNT 9
 // Per-TF broker CopyRates sync: the engine ingests these bars directly so its
 // candles match MT5 exactly (no tick-re-aggregation drift).
-#define TF_COUNT 9
 ENUM_TIMEFRAMES g_timeframes[TF_COUNT] = {PERIOD_M1, PERIOD_M5, PERIOD_M15, PERIOD_M30, PERIOD_H1, PERIOD_H4, PERIOD_D1, PERIOD_W1, PERIOD_MN1};
 string g_tfNames[TF_COUNT] = {"M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1", "MN1"};
 
@@ -68,6 +71,18 @@ int g_hStoch    = INVALID_HANDLE;
 int g_hCCI      = INVALID_HANDLE;
 int g_hMomentum = INVALID_HANDLE;
 int g_hOsMA     = INVALID_HANDLE;
+
+//=== Per-Timeframe Bar State (prompt.md Sections 4-6) ===
+struct TimeframeBarState
+{
+    ENUM_TIMEFRAMES timeframe;
+    string          tf_name;
+    datetime        last_bar_open;              // current bar's open time
+    datetime        last_processed_closed_bar;  // last bar we emitted a closed event for
+};
+
+TimeframeBarState g_barStates[TF_COUNT];
+ulong   g_barEventSequence = 0;     // monotonic sequence for bar_closed events
 
 //=== Global State ===
 string  g_symbol;
@@ -143,17 +158,49 @@ int OnInit()
     {
         g_connection = "OFFLINE";
         Print("WARNING: Windows Agent not detected.");
-        Print("Ensure the pat-agent service is running on this machine.");
+        Print("Ensure pat-agent.exe is running on this machine.");
         Print("Agent writes heartbeat to FILE_COMMON folder.");
     }
 
+    //--- Initialize per-timeframe bar state (prompt.md Section 6)
+    // Do NOT treat startup as a new-bar signal — just establish baseline
+    for(int i = 0; i < TF_COUNT; i++)
+    {
+        g_barStates[i].timeframe = g_timeframes[i];
+        g_barStates[i].tf_name   = g_tfNames[i];
+        long rawBarTime = 0;
+        if(SeriesInfoInteger(g_symbol, g_timeframes[i], SERIES_LASTBAR_DATE, rawBarTime))
+        {
+            g_barStates[i].last_bar_open = (datetime)rawBarTime;
+            g_barStates[i].last_processed_closed_bar = 0; // no bar processed yet
+            if(DebugMode)
+                Print("[BAR_INIT] ", g_tfNames[i], " baseline bar_open=", FormatISO8601UTC((datetime)rawBarTime));
+        }
+        else
+        {
+            g_barStates[i].last_bar_open = 0;
+            g_barStates[i].last_processed_closed_bar = 0;
+            Print("[BAR_INIT] WARNING: Failed to get SERIES_LASTBAR_DATE for ", g_tfNames[i]);
+        }
+    }
+
     UpdatePanel();
+
+    // ─── Resilience: periodic timer ───
+    // OnTick only fires when the broker streams quotes for the chart symbol. If
+    // the terminal/connection hiccups and ticks stall, OnTick stops and the
+    // engine goes silently blind (the exact "signals stop with no error" failure).
+    // A 1-second OnTimer keeps emitting MARKET_SNAPSHOT regardless of tick flow,
+    // as long as the terminal is connected — guaranteeing continuous market data.
+    EventSetTimer(1000);
+
     return(INIT_SUCCEEDED);
 }
 
 //+------------------------------------------------------------------+
-void OnDeinit(const int reason)
+ void OnDeinit(const int reason)
 {
+    EventKillTimer();
     MasterWrite("MASTER_DEINIT|{\"reason\":" + IntegerToString((long)reason) +
                 ",\"symbol\":\"" + g_symbol + "\"}\n");
 
@@ -182,6 +229,70 @@ void OnTick()
 
     if(g_connection != "CONNECTED") { UpdatePanel(); return; }
 
+    // ─── Per-timeframe new-bar detection (prompt.md Sections 3-5) ───
+    // Check each timeframe for a newly opened bar using SERIES_LASTBAR_DATE
+    for(int i = 0; i < TF_COUNT; i++)
+    {
+        long rawBarTime = 0;
+        if(!SeriesInfoInteger(g_symbol, g_barStates[i].timeframe, SERIES_LASTBAR_DATE, rawBarTime))
+        {
+            if(DebugMode)
+                Print("[BAR_CHECK] Failed SeriesInfoInteger for ", g_barStates[i].tf_name);
+            continue;
+        }
+
+        datetime currentBarOpen = (datetime)rawBarTime;
+
+        // Same bar — no action needed
+        if(currentBarOpen == g_barStates[i].last_bar_open)
+            continue;
+
+        // ─── NEW BAR DETECTED ───
+        // The previous bar is now closed. Read it from shift 1.
+        datetime prevBarOpen = g_barStates[i].last_bar_open;
+        g_barStates[i].last_bar_open = currentBarOpen;
+
+        // Skip if this is the first tick after init (baseline establishment)
+        if(prevBarOpen == 0)
+        {
+            if(DebugMode)
+                Print("[BAR_SKIP] ", g_barStates[i].tf_name, " first bar after init — baseline only");
+            continue;
+        }
+
+        // Read the closed candle at shift 1 (prompt.md Section 7-8)
+        MqlRates rates[1];
+        int copied = CopyRates(g_symbol, g_barStates[i].timeframe, 1, 1, rates);
+        if(copied <= 0)
+        {
+            Print("[BAR_ERROR] Failed CopyRates for ", g_barStates[i].tf_name, " shift=1 err=", GetLastError());
+            continue;
+        }
+
+        // Bar idempotency: skip if we already processed this exact bar
+        if(rates[0].time == g_barStates[i].last_processed_closed_bar)
+        {
+            if(DebugMode)
+                Print("[BAR_SKIP_DUP] ", g_barStates[i].tf_name, " bar already processed");
+            continue;
+        }
+        g_barStates[i].last_processed_closed_bar = rates[0].time;
+
+        // Calculate bar close time = open + period
+        int periodSec = PeriodSeconds(g_barStates[i].timeframe);
+        datetime barCloseTime = (datetime)((long)rates[0].time + periodSec);
+
+        Print("[MASTER_NODE][NEW_BAR] symbol=", g_symbol, " tf=", g_barStates[i].tf_name,
+              " new_bar_open=", FormatISO8601UTC(currentBarOpen),
+              " closed_bar_open=", FormatISO8601UTC((datetime)rates[0].time),
+              " closed_bar_close=", FormatISO8601UTC(barCloseTime));
+
+        // Emit market.bar_closed event (prompt.md Section 11)
+        SendBarClosedEvent(g_barStates[i].tf_name, g_barStates[i].timeframe, rates[0], barCloseTime);
+    }
+
+    // ─── Continuous tick path (prompt.md Section 3) ───
+    // Ticks continue to flow for realtime quote/spread/gates/execution
     if(SendTickData)
         SendTickToAgent();
 
@@ -189,6 +300,83 @@ void OnTick()
         SendMarketSnapshot();
 
     UpdatePanel();
+}
+
+//+------------------------------------------------------------------+
+//| OnTimer — resilience fallback for market-data delivery.           |
+//+------------------------------------------------------------------+
+//| OnTick only fires while the broker streams quotes for the chart.  |
+//| If quotes stall (terminal/connection hiccup) OnTick stops and the |
+//| engine goes silently blind. This timer runs regardless of ticks   |
+//| (as long as the terminal is alive) and re-emits MARKET_SNAPSHOT,  |
+//| so the engine always has fresh data. It also honours a REQUEST_   |
+//| SNAPSHOT nudge: the agent writes PAT_resync.txt when the engine   |
+//| asks for a refresh; we delete it and force an immediate snapshot. |
+//+------------------------------------------------------------------+
+void OnTimer()
+{
+    CheckAgentConnection();
+
+    if(g_connection == "CONNECTED" && SendSnapshots)
+    {
+        // Engine recovery nudge: if the agent dropped a REQUEST_SNAPSHOT flag,
+        // force an immediate snapshot (bypass the snapshot throttle).
+        if(FileIsExist(PAT_RESYNC, FILE_COMMON))
+        {
+            FileDelete(PAT_RESYNC, FILE_COMMON);
+            g_lastSnapshot = 0;
+        }
+        SendMarketSnapshot();
+    }
+
+    UpdatePanel();
+}
+
+//+------------------------------------------------------------------+
+//| Send bar_closed event to Agent (prompt.md Section 11)            |
+//+------------------------------------------------------------------+
+void SendBarClosedEvent(string tfName, ENUM_TIMEFRAMES tf, MqlRates &closedBar, datetime barCloseTime)
+{
+    g_barEventSequence++;
+
+    // Convert broker time to UTC: offset = GMT - server time
+    long utcOffset = (long)TimeGMT() - (long)TimeCurrent();
+    datetime barOpenUTC  = (datetime)((long)closedBar.time + utcOffset);
+    datetime barCloseUTC = (datetime)((long)barCloseTime + utcOffset);
+    datetime detectedUTC = TimeGMT();
+
+    double bid = SymbolInfoDouble(g_symbol, SYMBOL_BID);
+    double ask = SymbolInfoDouble(g_symbol, SYMBOL_ASK);
+    long   spreadPts = SymbolInfoInteger(g_symbol, SYMBOL_SPREAD);
+
+    string msg = "{";
+    msg += "\"schema_version\":2";
+    msg += ",\"event_type\":\"market.bar_closed\"";
+    msg += ",\"symbol\":\"XAUUSD\"";  // canonical symbol
+    msg += ",\"broker_symbol\":\"" + g_symbol + "\"";
+    msg += ",\"timeframe\":\"" + tfName + "\"";
+    msg += ",\"bar_open_time_utc\":\"" + FormatISO8601UTC(barOpenUTC) + "\"";
+    msg += ",\"bar_close_time_utc\":\"" + FormatISO8601UTC(barCloseUTC) + "\"";
+    msg += ",\"open\":" + DoubleToString(closedBar.open, 5);
+    msg += ",\"high\":" + DoubleToString(closedBar.high, 5);
+    msg += ",\"low\":" + DoubleToString(closedBar.low, 5);
+    msg += ",\"close\":" + DoubleToString(closedBar.close, 5);
+    msg += ",\"tick_volume\":" + IntegerToString((long)closedBar.tick_volume);
+    msg += ",\"bid\":" + DoubleToString(bid, 5);
+    msg += ",\"ask\":" + DoubleToString(ask, 5);
+    msg += ",\"spread_points\":" + IntegerToString(spreadPts);
+    msg += ",\"detected_at_utc\":\"" + FormatISO8601UTC(detectedUTC) + "\"";
+    msg += ",\"terminal_connected\":" + (TerminalInfoInteger(TERMINAL_CONNECTED) ? "true" : "false");
+    msg += ",\"sequence\":" + IntegerToString(g_barEventSequence);
+    msg += ",\"source\":\"MT5_MASTER_NODE\"";
+    msg += "}";
+    msg += "\n";
+
+    MasterAppend(msg);
+
+    Print("[MASTER_NODE][BAR_SENT] symbol=", g_symbol, " tf=", tfName,
+          " bar_id=", g_symbol, ":", tfName, ":", FormatISO8601UTC(barOpenUTC),
+          " sequence=", g_barEventSequence);
 }
 
 //+------------------------------------------------------------------+
@@ -474,13 +662,17 @@ void SendMarketSnapshot()
 //+------------------------------------------------------------------+
 string GetBarJSON(ENUM_TIMEFRAMES timeframe)
 {
+    // prompt.md Section 7-8: Use shift 1 (closed candle) and shift 2 (previous closed)
     MqlRates rates[2];
-    int copied = CopyRates(g_symbol, timeframe, 0, 2, rates);
+    int copied = CopyRates(g_symbol, timeframe, 1, 2, rates);
     if(copied < 1)
         return "{}";
 
+    long utcOffset = (long)TimeGMT() - (long)TimeCurrent();
+
     string s = "{";
 
+    // rates[0] = shift 1 = newly closed candle (INDEX 1 = closed)
     if(copied >= 1)
     {
         s += "\"open\":" + DoubleToString(rates[0].open, 5);
@@ -488,9 +680,10 @@ string GetBarJSON(ENUM_TIMEFRAMES timeframe)
         s += ",\"low\":" + DoubleToString(rates[0].low, 5);
         s += ",\"close\":" + DoubleToString(rates[0].close, 5);
         s += ",\"volume\":" + IntegerToString((long)rates[0].tick_volume);
-        s += ",\"time\":\"" + FormatISO8601UTC((datetime)((long)rates[0].time - (long)TimeCurrent() + (long)TimeGMT())) + "\"";
+        s += ",\"time\":\"" + FormatISO8601UTC((datetime)((long)rates[0].time + utcOffset)) + "\"";
     }
 
+    // rates[1] = shift 2 = candle before the newly closed candle
     if(copied >= 2)
     {
         s += ",\"prev_open\":" + DoubleToString(rates[1].open, 5);
@@ -512,45 +705,45 @@ string GetIndicatorsJSON()
     string s = "{";
 
     // ATR (14)
-    s += "\"atr\":" + DoubleToString(GetIndicatorValue(g_hATR, 0, 0), 5);
+    s += "\"atr\":" + DoubleToString(GetIndicatorValue(g_hATR, 0, 1), 5);
 
     // RSI (14)
-    s += ",\"rsi\":" + DoubleToString(GetIndicatorValue(g_hRSI, 0, 0), 2);
+    s += ",\"rsi\":" + DoubleToString(GetIndicatorValue(g_hRSI, 0, 1), 2);
 
     // EMA 9, 21, 50
-    s += ",\"ema9\":" + DoubleToString(GetIndicatorValue(g_hEMA9, 0, 0), 5);
-    s += ",\"ema21\":" + DoubleToString(GetIndicatorValue(g_hEMA21, 0, 0), 5);
-    s += ",\"ema50\":" + DoubleToString(GetIndicatorValue(g_hEMA50, 0, 0), 5);
+    s += ",\"ema9\":" + DoubleToString(GetIndicatorValue(g_hEMA9, 0, 1), 5);
+    s += ",\"ema21\":" + DoubleToString(GetIndicatorValue(g_hEMA21, 0, 1), 5);
+    s += ",\"ema50\":" + DoubleToString(GetIndicatorValue(g_hEMA50, 0, 1), 5);
 
     // SMA 200
-    s += ",\"sma200\":" + DoubleToString(GetIndicatorValue(g_hSMA200, 0, 0), 5);
+    s += ",\"sma200\":" + DoubleToString(GetIndicatorValue(g_hSMA200, 0, 1), 5);
 
     // ADX (14) — buffers: 0=MAIN, 1=PLUSDI, 2=MINUSDI
-    s += ",\"adx\":" + DoubleToString(GetIndicatorValue(g_hADX, 0, 0), 2);
-    s += ",\"adx_plus_di\":" + DoubleToString(GetIndicatorValue(g_hADX, 1, 0), 2);
-    s += ",\"adx_minus_di\":" + DoubleToString(GetIndicatorValue(g_hADX, 2, 0), 2);
+    s += ",\"adx\":" + DoubleToString(GetIndicatorValue(g_hADX, 0, 1), 2);
+    s += ",\"adx_plus_di\":" + DoubleToString(GetIndicatorValue(g_hADX, 1, 1), 2);
+    s += ",\"adx_minus_di\":" + DoubleToString(GetIndicatorValue(g_hADX, 2, 1), 2);
 
     // Bollinger Bands (20, 2) — buffers: 0=MAIN, 1=UPPER, 2=LOWER
-    s += ",\"boll_upper\":" + DoubleToString(GetIndicatorValue(g_hBands, 1, 0), 5);
-    s += ",\"boll_lower\":" + DoubleToString(GetIndicatorValue(g_hBands, 2, 0), 5);
-    s += ",\"boll_middle\":" + DoubleToString(GetIndicatorValue(g_hBands, 0, 0), 5);
+    s += ",\"boll_upper\":" + DoubleToString(GetIndicatorValue(g_hBands, 1, 1), 5);
+    s += ",\"boll_lower\":" + DoubleToString(GetIndicatorValue(g_hBands, 2, 1), 5);
+    s += ",\"boll_middle\":" + DoubleToString(GetIndicatorValue(g_hBands, 0, 1), 5);
 
     // MACD (12, 26, 9) — buffers: 0=MAIN, 1=SIGNAL
-    s += ",\"macd_main\":" + DoubleToString(GetIndicatorValue(g_hMACD, 0, 0), 5);
-    s += ",\"macd_signal\":" + DoubleToString(GetIndicatorValue(g_hMACD, 1, 0), 5);
+    s += ",\"macd_main\":" + DoubleToString(GetIndicatorValue(g_hMACD, 0, 1), 5);
+    s += ",\"macd_signal\":" + DoubleToString(GetIndicatorValue(g_hMACD, 1, 1), 5);
 
     // Stochastic (14, 3, 3) — buffers: 0=MAIN, 1=SIGNAL
-    s += ",\"stoch_main\":" + DoubleToString(GetIndicatorValue(g_hStoch, 0, 0), 2);
-    s += ",\"stoch_signal\":" + DoubleToString(GetIndicatorValue(g_hStoch, 1, 0), 2);
+    s += ",\"stoch_main\":" + DoubleToString(GetIndicatorValue(g_hStoch, 0, 1), 2);
+    s += ",\"stoch_signal\":" + DoubleToString(GetIndicatorValue(g_hStoch, 1, 1), 2);
 
     // CCI (14)
-    s += ",\"cci\":" + DoubleToString(GetIndicatorValue(g_hCCI, 0, 0), 2);
+    s += ",\"cci\":" + DoubleToString(GetIndicatorValue(g_hCCI, 0, 1), 2);
 
     // Momentum (14)
-    s += ",\"mom\":" + DoubleToString(GetIndicatorValue(g_hMomentum, 0, 0), 5);
+    s += ",\"mom\":" + DoubleToString(GetIndicatorValue(g_hMomentum, 0, 1), 5);
 
     // OsMA (12, 26, 9)
-    s += ",\"osma\":" + DoubleToString(GetIndicatorValue(g_hOsMA, 0, 0), 5);
+    s += ",\"osma\":" + DoubleToString(GetIndicatorValue(g_hOsMA, 0, 1), 5);
 
     s += "}";
     return s;
@@ -565,7 +758,8 @@ double CalculateSessionVWAP()
     int maxBars = MathMin(Bars(g_symbol, PERIOD_M1), 1440);
     if(maxBars <= 0) return 0;
 
-    int copied = CopyRates(g_symbol, PERIOD_M1, 0, maxBars, rates);
+    // prompt.md Section 8: Use shift 1+ for closed bars only
+    int copied = CopyRates(g_symbol, PERIOD_M1, 1, maxBars, rates);
     if(copied <= 0) return 0;
 
     double sumPV = 0;
@@ -719,7 +913,9 @@ void MasterWrite(string content)
     int retry = 0;
     while(retry < 3)
     {
-        int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+        // FILE_SHARE_READ|FILE_SHARE_WRITE lets the Windows Agent's reader hold a
+        // handle at the same time without forcing error 5004 (file locked).
+        int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
         if(h != INVALID_HANDLE)
         {
             FileWriteString(h, content);
@@ -733,16 +929,26 @@ void MasterWrite(string content)
     Print("FileOpen WRITE failed after 3 retries: ", PAT_MASTER_FILE, " error=", GetLastError());
 }
 
-void MasterAppend(string content)
+ void MasterAppend(string content)
 {
-    // Write directly — no read-append-write (prevents race condition with Windows Agent)
-    // The Windows Agent reads and clears the file, so append is unnecessary
+    // Append (do NOT truncate). The Windows Agent polls PAT_master_data.txt every
+    // ~5ms, reads ALL lines and clears the file. Because MASTER_TICK is written on
+    // every tick while MARKET_SNAPSHOT / MASTER_INIT are written less often, a
+    // truncating write would clobber the snapshot before the agent can read it —
+    // which made the engine receive ticks but never snapshots (silent data feed).
+    // Opening read+write and seeking to the end lets ticks AND snapshots coexist
+    // in the file until the agent drains them.
     int retry = 0;
     while(retry < 3)
     {
-        int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+        // FILE_SHARE_READ|FILE_SHARE_WRITE: the Windows Agent polls this file every
+        // ~5ms with a read handle. Opening exclusive (the old default) races with
+        // that read and fails with error 5004 (file locked) on every other tick —
+        // which then forced a destructive self-heal reset that dropped snapshots.
+        int h = FileOpen(PAT_MASTER_FILE, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
         if(h != INVALID_HANDLE)
         {
+            FileSeek(h, 0, SEEK_END);
             FileWriteString(h, content);
             FileClose(h);
             return;
@@ -751,6 +957,19 @@ void MasterAppend(string content)
         retry++;
         Sleep(5);
     }
+    // Self-heal: if the append keeps failing (err 5004 = file too long, or a
+    // transient lock race with the Agent), reset the file with a truncating
+    // write and record the message. This guarantees the market-data feed keeps
+    // flowing instead of silently dropping snapshots and going blind.
+    int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
+    if(h != INVALID_HANDLE)
+    {
+        FileWriteString(h, content);
+        FileClose(h);
+        Print("MasterAppend self-heal: reset ", PAT_MASTER_FILE, " (prev err ", GetLastError(), ")");
+        return;
+    }
+    Print("FileOpen APPEND failed after retries + self-heal: ", PAT_MASTER_FILE, " error=", GetLastError());
 }
 
 //+------------------------------------------------------------------+
