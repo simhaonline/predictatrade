@@ -191,7 +191,7 @@ if (-not $anyLeft -and $checkErrors.Count -eq 0) {
     $report += ""
     $report += "  >> To remove them, copy and run this (removes BOTH Master and Client):"
     $report += ""
-    $report += "     powershell -Command \"irm https://downloads.predictatrade.com/windows-agent/uninstall.ps1 -OutFile `$env:TEMP\pat_uninstall.ps1; & `$env:TEMP\pat_uninstall.ps1 -Mode all\""
+    $report += "     powershell -Command `"irm https://downloads.predictatrade.com/windows-agent/uninstall.ps1 -OutFile `$env:TEMP\pat_uninstall.ps1; & `$env:TEMP\pat_uninstall.ps1 -Mode all`""
     $report += ""
     $report += "  Why this matters:"
     $report += "    An old install that is not fully removed can cause the"
