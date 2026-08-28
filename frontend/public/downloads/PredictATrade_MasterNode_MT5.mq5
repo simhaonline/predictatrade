@@ -393,7 +393,11 @@ void SendAgentNotification(string status, string message)
     fullMsg += "\nHost: " + AccountInfoString(ACCOUNT_COMPANY);
     fullMsg += "\nBroker: " + g_broker;
     fullMsg += "\nSymbol: " + g_symbol;
-    fullMsg += "\nTime: " + FormatISO8601UTC(TimeGMT()) + " (UTC)";
+    // Show the broker/local time (TimeCurrent) for the operator, but keep the UTC
+    // value as reference. Internal/provenance time truth remains UTC (SOW): the
+    // forwarded data fields are all UTC plus broker_offset, so the server/dashboard
+    // can convert to any timezone unambiguously.
+    fullMsg += "\nTime: " + FormatISO8601UTC(TimeCurrent()) + " (broker/local)  [UTC " + FormatISO8601UTC(TimeGMT()) + "]";
     fullMsg += "\nAgent Status: " + status;
     
     Print("[NOTIFY] ", fullMsg);
