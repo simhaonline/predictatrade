@@ -118,6 +118,7 @@ var globalAgentProvider *marketdata.AgentProvider
 var globalCrossMarketEngine *crossmarket.Engine
 var globalAgentHub *gateway.AgentHub
 var globalPersister *marketdata.Persister
+var globalReconciler *reconciliation.Reconciler
 
 // engineOverrideSLTP gates the strategy-engine SL/TP override matrix.
 // When false (default, ENVINE_OVERRIDE_SLTP unset or != "true"), the live
@@ -286,6 +287,11 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHu
 		// the signal is NOT sent to that agent at all.
 		// This is the REAL enforcement — the signal never reaches the EA.
 		agentHub.SendFilteredSignalToAgents(eventID, streamID, "SIGNAL", priority, "1.0.0", payload, string(signal.StrategyID))
+		// BE-6: record the delivery leg of reconciliation so ACK-timeout
+		// detection has a stable delivery timestamp to measure against.
+		if globalReconciler != nil {
+			globalReconciler.RecordDelivery(signal.ID, fmt.Sprintf("agents:%d", agentHub.AgentCount()))
+		}
 		observability.Log.Info().
 			Str("signal_id", signal.ID).
 			Str("direction", dir).
@@ -1328,6 +1334,7 @@ func main() {
 	}
 	ptbEngine := ptb.NewEngine()
 	reconciler := reconciliation.NewReconciler()
+	globalReconciler = reconciler
 
 	// WebSocket hub for frontend/dashboard clients
 	wsHub := gateway.NewWebSocketHub(cfg.AllowedOrigins)
@@ -1787,6 +1794,10 @@ func main() {
 						Float64("tp", ack.TP).
 						Float64("entry", ack.Entry).
 						Msg("EXECUTION_ACK verified: SL matches server value")
+
+					// BE-6: close the delivery leg of reconciliation now that the
+					// edge confirmed execution with a matching SL.
+					reconciler.RecordAcknowledgement(ack.SignalID, agentID)
 				}
 			}
 		}
