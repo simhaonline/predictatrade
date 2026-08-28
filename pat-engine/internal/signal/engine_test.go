@@ -29,6 +29,8 @@ func ultraBullState() *types.MarketState {
 		Session:  types.Session{CurrentSession: "LONDON"},
 		Quality:  "AUTHORITATIVE",
 		Candle:   types.Candle{IsBullish: true, IsDisplacement: true},
+		Liquidity: types.Liquidity{RecentSweeps: []types.Sweep{{Direction: "SELL_SIDE"}}},
+		Structure: types.Structure{LastBOS: &types.BOS{Direction: "bullish"}},
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"time"
 
+	"pat-engine/internal/broker"
 	"pat-engine/internal/indicators"
 	"pat-engine/internal/types"
 )
@@ -21,6 +22,10 @@ type Bar struct {
 	Close  float64 `json:"close"`
 	Spread float64 `json:"spread"`
 }
+
+// defaultSlippagePointsRoundTurn is the assumed round-turn slippage (in points) used
+// by the honest replay simulator. XAUUSD typical slippage is 1-2 pts/side.
+const defaultSlippagePointsRoundTurn = 3.0
 
 // Generate produces a deterministic synthetic XAUUSD-like series with shifting
 // regimes (trend / range / volatility). It exists so the harness can run with zero
@@ -88,6 +93,31 @@ func BuildSnapshots(bars []Bar) []*types.MarketState {
 	_, bUp, bLo := indicators.Bollinger(close, 20, 2)
 	vwap := indicators.VWAP(high, low, close, 20)
 
+	// Precompute liquidity-sweep / BOS detection over the series using a 20-bar
+	// pivot window. A sweep = price taking the pivot extreme; a BOS = close breaking
+	// the opposite pivot. The structural edge is sweep -> BOS sequence, not same-bar.
+	sweepSell := make([]bool, n)
+	sweepBuy := make([]bool, n)
+	bosBull := make([]bool, n)
+	bosBear := make([]bool, n)
+	for i := 0; i < n; i++ {
+		if i < 20 {
+			continue
+		}
+		if low[i] <= minLastN(low, i, 20) {
+			sweepSell[i] = true
+		}
+		if high[i] >= maxLastN(high, i, 20) {
+			sweepBuy[i] = true
+		}
+		if close[i] > maxLastN(high, i, 20) {
+			bosBull[i] = true
+		}
+		if close[i] < minLastN(low, i, 20) {
+			bosBear[i] = true
+		}
+	}
+
 	states := make([]*types.MarketState, n)
 	for i := range bars {
 		if i < 200 {
@@ -134,26 +164,29 @@ func BuildSnapshots(bars []Bar) []*types.MarketState {
 		st.Candle.IsBearish = close[i] < bars[i].Open
 		st.Candle.IsDisplacement = math.Abs(close[i]-bars[i].Open) > atr[i]*0.6
 
-		// Derived market structure + liquidity (lightweight; enough for the
-		// strategy confluence math that expects LastBOS / RecentSweeps).
-		var bosDir string
-		if i >= 20 {
-			if close[i] > maxLastN(close, i, 20) {
-				bosDir = "bullish"
-			} else if close[i] < minLastN(close, i, 20) {
-				bosDir = "bearish"
+		// Derived market structure + liquidity as a SWEEP -> BOS sequence:
+		// a liquidity sweep within the last 8 bars, then a break of structure now.
+		var sweeps []types.Sweep
+		recentSellSweep, recentBuySweep := false, false
+		for j := max(0, i-8); j <= i; j++ {
+			if sweepSell[j] {
+				recentSellSweep = true
+			}
+			if sweepBuy[j] {
+				recentBuySweep = true
 			}
 		}
-		if bosDir != "" {
-			st.Structure.LastBOS = &types.BOS{Direction: bosDir}
+		if recentSellSweep {
+			sweeps = append(sweeps, types.Sweep{Direction: "SELL_SIDE"})
 		}
-		if i >= 10 {
-			if low[i] < minLastN(low, i, 10) {
-				st.Liquidity.RecentSweeps = append(st.Liquidity.RecentSweeps, types.Sweep{Direction: "SELL_SIDE"})
-			}
-			if high[i] > maxLastN(high, i, 10) {
-				st.Liquidity.RecentSweeps = append(st.Liquidity.RecentSweeps, types.Sweep{Direction: "BUY_SIDE"})
-			}
+		if recentBuySweep {
+			sweeps = append(sweeps, types.Sweep{Direction: "BUY_SIDE"})
+		}
+		st.Liquidity.RecentSweeps = sweeps
+		if bosBull[i] {
+			st.Structure.LastBOS = &types.BOS{Direction: "bullish"}
+		} else if bosBear[i] {
+			st.Structure.LastBOS = &types.BOS{Direction: "bearish"}
 		}
 
 		states[i] = st
@@ -162,35 +195,52 @@ func BuildSnapshots(bars []Bar) []*types.MarketState {
 }
 
 // Simulate models the outcome of an executable signal: it walks forward bars and
-// reports the realized P&L in price units (positive = profit).
-func Simulate(states []*types.MarketState, i int, dir types.Direction, entry, sl, tp1 float64, maxBars int) float64 {
+// reports the realized P&L in price units (positive = profit) AFTER realistic
+// round-turn costs (spread on entry+exit, commission, slippage) using the broker
+// execution profile. This is the honest figure — no idealized fills.
+func Simulate(states []*types.MarketState, i int, dir types.Direction, entry, sl, tp1 float64, maxBars int, exec broker.ExecutionProfile) float64 {
 	if i+1 >= len(states) {
 		return 0
 	}
-	for j := i + 1; j < len(states) && j <= i+maxBars; j++ {
-		b := states[j]
-		if dir == types.DirBuy {
-			if b.Low <= sl {
-				return sl - entry // loss
-			}
-			if b.High >= tp1 {
-				return tp1 - entry // win
-			}
-		} else {
-			if b.High >= sl {
-				return entry - sl // loss
-			}
-			if b.Low <= tp1 {
-				return entry - tp1 // win
+	// Round-turn transaction cost in price units (1-lot basis).
+	cost := 0.0
+	if exec.TickSize > 0 {
+		spreadPts := exec.TypicalSpread * 2            // entry + exit
+		slipPts := defaultSlippagePointsRoundTurn      // round-turn slippage
+		cost += (spreadPts + slipPts) * exec.TickSize
+	}
+	cost += exec.CommissionPrice(1.0) * 2 // round-turn commission (price units / lot)
+
+	raw := func() float64 {
+		for j := i + 1; j < len(states) && j <= i+maxBars; j++ {
+			b := states[j]
+			if dir == types.DirBuy {
+				if b.Low <= sl {
+					return sl - entry // loss
+				}
+				if b.High >= tp1 {
+					return tp1 - entry // win
+				}
+			} else {
+				if b.High >= sl {
+					return entry - sl // loss
+				}
+				if b.Low <= tp1 {
+					return entry - tp1 // win
+				}
 			}
 		}
+		// Expired without hit: mark to last close.
+		last := states[min(len(states)-1, i+maxBars)].CurrentPrice
+		if dir == types.DirBuy {
+			return last - entry
+		}
+		return entry - last
+	}()
+	if raw >= 0 {
+		return raw - cost
 	}
-	// Expired without hit: mark to last close.
-	last := states[min(len(states)-1, i+maxBars)].CurrentPrice
-	if dir == types.DirBuy {
-		return last - entry
-	}
-	return entry - last
+	return raw - cost
 }
 
 func max(a, b int) int {

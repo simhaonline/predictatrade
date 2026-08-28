@@ -26,6 +26,7 @@ type StrategyConfig struct {
 	AcceptedRegimes   []string
 	AcceptedSessions  []string
 	MinQualityState   string
+	BacktestMaxBars   int // realistic trade horizon (bars) for the replay simulator
 }
 
 // DefaultUltraScalping returns the v1 ULTRA_SCALPING profile.
@@ -55,6 +56,7 @@ func DefaultUltraScalping() StrategyConfig {
 		AcceptedRegimes:   []string{"TRENDING_BULLISH", "TRENDING_BEARISH", "BREAKOUT", "MEAN_REVERSION", "RANGE", "HIGH_VOLATILITY"},
 		AcceptedSessions:  []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"},
 		MinQualityState:   "AUTHORITATIVE",
+		BacktestMaxBars:   24,
 	}
 }
 
@@ -83,6 +85,7 @@ func DefaultStandardScalping() StrategyConfig {
 		AcceptedRegimes:   []string{"TRENDING_BULLISH", "TRENDING_BEARISH", "BREAKOUT", "MEAN_REVERSION", "RANGE", "HIGH_VOLATILITY"},
 		AcceptedSessions:  []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"},
 		MinQualityState:   "AUTHORITATIVE",
+		BacktestMaxBars:   40,
 	}
 }
 
@@ -111,6 +114,7 @@ func DefaultStandardSwing() StrategyConfig {
 		AcceptedRegimes:   []string{"TRENDING_BULLISH", "TRENDING_BEARISH", "BREAKOUT", "MEAN_REVERSION", "RANGE", "HIGH_VOLATILITY"},
 		AcceptedSessions:  []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"},
 		MinQualityState:   "AUTHORITATIVE",
+		BacktestMaxBars:   160,
 	}
 }
 
@@ -139,6 +143,7 @@ func DefaultTrendSwing() StrategyConfig {
 		AcceptedRegimes:   []string{"TRENDING_BULLISH", "TRENDING_BEARISH", "BREAKOUT", "HIGH_VOLATILITY"},
 		AcceptedSessions:  []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"},
 		MinQualityState:   "AUTHORITATIVE",
+		BacktestMaxBars:   240,
 	}
 }
 

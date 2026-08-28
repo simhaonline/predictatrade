@@ -27,7 +27,11 @@ func RunAll(states []*types.MarketState, pol *broker.BrokerPolicy, lic *license.
 	cfgs := config.AllDefaults()
 	strats := strategy.All()
 	results := make([]Result, 0, len(strats))
-	const maxBars = 50
+
+	exec := broker.ExecutionProfile{}
+	if pol != nil {
+		exec = pol.Execution
+	}
 
 	for _, st := range strats {
 		cfg := cfgs[string(st.ID())]
@@ -49,6 +53,11 @@ func RunAll(states []*types.MarketState, pol *broker.BrokerPolicy, lic *license.
 			}
 		}
 
+		maxBars := cfg.BacktestMaxBars
+		if maxBars <= 0 {
+			maxBars = 50
+		}
+
 		for i, s := range states {
 			if s == nil {
 				continue
@@ -57,7 +66,7 @@ func RunAll(states []*types.MarketState, pol *broker.BrokerPolicy, lic *license.
 			if !d.Signal.Executable {
 				continue
 			}
-			pnl := Simulate(states, i, d.Signal.Direction, d.Signal.EntryPrice, d.Signal.StopLoss, d.Signal.TP1, maxBars)
+			pnl := Simulate(states, i, d.Signal.Direction, d.Signal.EntryPrice, d.Signal.StopLoss, d.Signal.TP1, maxBars, exec)
 			r.Trades++
 			if pnl > 0 {
 				r.Wins++

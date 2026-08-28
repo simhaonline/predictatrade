@@ -124,5 +124,44 @@ func scoreFromEvidence(ev []contrib, minConf float64, state *types.MarketState) 
 		dir = types.DirNoTrade
 		reasons = append(reasons, "HTF_BULLISH_VETO")
 	}
+
+	// Structural trigger: the generic confluence vote alone has no robust edge
+	// (PF < 1 after costs). Only take a trade on a liquidity-sweep + BOS
+	// continuation in the trade direction. This is the defensible edge filter.
+	if bias := structuralBias(state); bias == types.DirNoTrade || bias != dir {
+		dir = types.DirNoTrade
+		reasons = append(reasons, "NO_STRUCTURAL_TRIGGER")
+	}
 	return dir, raw, long, short, reasons
+}
+
+// structuralBias returns a trade direction only when price has taken liquidity
+// (sweep) and then broken structure (BOS) in the continuation direction:
+//   sell-side sweep + bullish BOS  -> BUY  (fade the liquidity grab, follow continuation)
+//   buy-side  sweep + bearish BOS  -> SELL
+// This is a classic SMC-style entry and is the primary edge filter.
+func structuralBias(s *types.MarketState) types.Direction {
+	if s == nil {
+		return types.DirNoTrade
+	}
+	var sweptSell, sweptBuy bool
+	for _, sw := range s.Liquidity.RecentSweeps {
+		switch sw.Direction {
+		case "SELL_SIDE":
+			sweptSell = true
+		case "BUY_SIDE":
+			sweptBuy = true
+		}
+	}
+	bos := ""
+	if s.Structure.LastBOS != nil {
+		bos = s.Structure.LastBOS.Direction
+	}
+	if sweptSell && bos == "bullish" {
+		return types.DirBuy
+	}
+	if sweptBuy && bos == "bearish" {
+		return types.DirSell
+	}
+	return types.DirNoTrade
 }
