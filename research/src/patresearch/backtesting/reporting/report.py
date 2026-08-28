@@ -104,6 +104,18 @@ class ReportGenerator:
                 "profit_factor": result.metrics.profit_factor,
                 "total_trades": result.metrics.total_trades,
             })
+
+        # Data-integrity provenance — never let a synthetic/stale run be mistaken
+        # for genuine market data. Consumers must check is_synthetic == false and
+        # confirm data_start/data_end cover the intended window before trusting WR%.
+        summary["data_integrity"] = {
+            "data_source": result.manifest.get("data_source", "UNKNOWN") if result.manifest else "UNKNOWN",
+            "data_hash": result.manifest.get("data_hash", "") if result.manifest else "",
+            "is_synthetic": (result.manifest.get("data_source", "") == "SYNTHETIC") if result.manifest else False,
+            "data_start": result.manifest.get("start_time", "") if result.manifest else "",
+            "data_end": result.manifest.get("end_time", "") if result.manifest else "",
+            "data_quality_score": result.manifest.get("data_quality_score") if result.manifest else None,
+        }
         artifacts["summary"] = self._write_json(summary, run_dir, "summary.json")
 
         # trades.csv

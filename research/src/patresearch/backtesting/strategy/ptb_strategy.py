@@ -35,6 +35,7 @@ STRATEGY_CONFIGS = {
         "min_confluence": 65, "min_mtf_alignment": 40,
         "atr_sl": 1.5, "atr_tp1": 2.5, "atr_tp2": 3.5, "atr_tp3": 4.5,
         "min_adx": 20, "min_rr": 1.5,
+        "require_sweep_reclaim": False,
         "accepted_regimes": ["TRENDING_BULLISH", "TRENDING_BEARISH", "BREAKOUT", "MEAN_REVERSION"],
         "accepted_sessions": ["LONDON", "NEW_YORK", "OVERLAP", "TOKYO"],
     },
@@ -42,6 +43,7 @@ STRATEGY_CONFIGS = {
         "min_confluence": 75, "min_mtf_alignment": 50,
         "atr_sl": 1.0, "atr_tp1": 1.5, "atr_tp2": 2.0, "atr_tp3": 2.5,
         "min_adx": 25, "min_rr": 1.0,
+        "require_sweep_reclaim": False,
         "accepted_regimes": ["TRENDING_BULLISH", "TRENDING_BEARISH", "BREAKOUT"],
         "accepted_sessions": ["LONDON", "NEW_YORK", "OVERLAP", "TOKYO"],
     },
@@ -49,6 +51,7 @@ STRATEGY_CONFIGS = {
         "min_confluence": 55, "min_mtf_alignment": 30,
         "atr_sl": 2.0, "atr_tp1": 3.0, "atr_tp2": 4.0, "atr_tp3": 5.0,
         "min_adx": 18, "min_rr": 1.5,
+        "require_sweep_reclaim": False,
         "accepted_regimes": ["TRENDING_BULLISH", "TRENDING_BEARISH", "BREAKOUT", "RANGE"],
         "accepted_sessions": ["LONDON", "NEW_YORK", "OVERLAP"],
     },
@@ -56,6 +59,7 @@ STRATEGY_CONFIGS = {
         "min_confluence": 50, "min_mtf_alignment": 25,
         "atr_sl": 2.5, "atr_tp1": 4.0, "atr_tp2": 5.5, "atr_tp3": 7.0,
         "min_adx": 15, "min_rr": 1.5,
+        "require_sweep_reclaim": False,
         "accepted_regimes": ["TRENDING_BULLISH", "TRENDING_BEARISH", "BREAKOUT"],
         "accepted_sessions": ["LONDON", "NEW_YORK", "OVERLAP"],
     },
@@ -320,6 +324,46 @@ class PTBStrategyAdapter(BaseStrategy):
                 raw_score=raw_score, regime=regime,
                 session=session_info.session,
                 reason_codes=["CONFLICTING_TIMEFRAMES"],
+            )
+
+        # ── Research edge gate (read.md §5/§7): the sweep-&-reclaim of a liquidity
+        # pool is the highest-expectancy XAUUSD setup. Trading broad indicator
+        # agreement without it is the low-win-rate trap. Require a structural
+        # sweep+reclaim in the trade direction before any entry is allowed.
+        if self.config.get("require_sweep_reclaim"):
+            has_trigger = any(
+                e.feature in ("LIQUIDITY_SWEEP_RECLAIM", "LIQUIDITY_SWEEP_REJECT")
+                and e.direction == direction
+                for e in evidence
+            )
+            if not has_trigger:
+                return SignalEvent(
+                    timestamp=candle.timestamp, direction="NO_TRADE",
+                    strategy_id=self._strategy_id,
+                    raw_score=raw_score, regime=regime,
+                    session=session_info.session,
+                    reason_codes=["NO_SWEEP_RECLAIM_TRIGGER"],
+                )
+
+        # ── RSI extreme filter (read.md §"Deliberately left off the chart"): RSI is
+        # NOT a directional vote on gold — an OB/OS print at a sweep is exactly
+        # where the reversal fires. Block entries INTO the extreme only.
+        rsi = ind["rsi"]
+        if direction == "BUY" and rsi > 72:
+            return SignalEvent(
+                timestamp=candle.timestamp, direction="NO_TRADE",
+                strategy_id=self._strategy_id,
+                raw_score=raw_score, regime=regime,
+                session=session_info.session,
+                reason_codes=["RSI_OVERBOUGHT"],
+            )
+        if direction == "SELL" and rsi < 28:
+            return SignalEvent(
+                timestamp=candle.timestamp, direction="NO_TRADE",
+                strategy_id=self._strategy_id,
+                raw_score=raw_score, regime=regime,
+                session=session_info.session,
+                reason_codes=["RSI_OVERSOLD"],
             )
 
         # Compute entry/SL/TP

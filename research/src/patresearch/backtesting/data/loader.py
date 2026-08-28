@@ -65,43 +65,106 @@ class DatasetMetadata:
 class DataLoader:
     """Loads historical XAUUSD data from various sources."""
 
+    # Timestamp formats seen across XAUUSD exports (Dukascopy, MetaTrader, etc.)
+    _TS_FORMATS = (
+        "%Y.%m.%d %H:%M", "%Y.%m.%d %H:%M:%S",
+        "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S",
+        "%Y/%m/%d %H:%M", "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%SZ", "%d.%m.%Y %H:%M",
+    )
+
+    # Map alternate header names -> canonical field. Keeps the loader usable with
+    # the real XAUUSD exports in this repo (header: Date;Open;High;Low;Close;Volume).
+    _COLUMN_ALIASES = {
+        "date": "timestamp", "time": "timestamp", "datetime": "timestamp",
+        "timestamp": "timestamp", "open": "open", "o": "open",
+        "high": "high", "h": "high", "low": "low", "l": "low",
+        "close": "close", "c": "close", "volume": "volume", "vol": "volume",
+    }
+
+    @classmethod
+    def _parse_ts(cls, ts_str: str) -> Optional[datetime]:
+        ts_str = (ts_str or "").strip()
+        if not ts_str:
+            return None
+        # Epoch (int/float seconds)
+        try:
+            return datetime.fromtimestamp(float(ts_str), tz=timezone.utc)
+        except (ValueError, TypeError):
+            pass
+        for fmt in cls._TS_FORMATS:
+            try:
+                dt = datetime.strptime(ts_str, fmt)
+                return dt.replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+        # Last resort: ISO
+        try:
+            dt = datetime.fromisoformat(ts_str)
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+
     @staticmethod
     def from_csv(filepath: str, symbol: str = "XAUUSD", timeframe: str = "M5",
                  time_col: str = "timestamp", tz: str = "UTC") -> tuple[List[HistoricalCandle], DatasetMetadata]:
-        """Load candles from CSV file. All timestamps normalized to UTC."""
-        candles = []
-        with open(filepath, "r") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                ts_str = row.get(time_col, row.get("time", row.get("datetime", "")))
-                # Parse timestamp — handle both epoch and ISO
-                try:
-                    ts = datetime.fromisoformat(ts_str)
-                except (ValueError, TypeError):
-                    try:
-                        ts = datetime.fromtimestamp(float(ts_str), tz=timezone.utc)
-                    except (ValueError, TypeError):
+        """Load candles from CSV file. All timestamps normalized to UTC.
+
+        Robust to delimiter (auto-detects ';' used by the real XAUUSD exports in
+        this repo) and to alternate header names / timestamp formats. A file that
+        yields zero rows after parsing raises — we never silently fall back to
+        synthetic data, so a backtest can only ever run on genuine loaded rows.
+        """
+        with open(filepath, "r", newline="") as f:
+            sample = f.read(4096)
+            f.seek(0)
+            delim = ";" if ";" in sample.splitlines()[0] else ","
+            reader = csv.DictReader(f, delimiter=delim)
+
+            def norm(row):
+                out = {}
+                for k, v in row.items():
+                    if k is None:
                         continue
+                    key = k.strip().lower()
+                    canon = DataLoader._COLUMN_ALIASES.get(key, key)
+                    out[canon] = v
+                return out
 
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
+            candles = []
+            bad = 0
+            for raw in reader:
+                row = norm(raw)
+                ts = DataLoader._parse_ts(row.get("timestamp", ""))
+                if ts is None:
+                    bad += 1
+                    continue
+                try:
+                    candles.append(HistoricalCandle(
+                        timestamp=ts,
+                        open=float(row["open"]),
+                        high=float(row["high"]),
+                        low=float(row["low"]),
+                        close=float(row["close"]),
+                        volume=int(float(row.get("volume", 0) or 0)),
+                        timeframe=timeframe,
+                        source="CSV",
+                    ))
+                except (KeyError, ValueError):
+                    bad += 1
+                    continue
 
-                candles.append(HistoricalCandle(
-                    timestamp=ts,
-                    open=float(row["open"]),
-                    high=float(row["high"]),
-                    low=float(row["low"]),
-                    close=float(row["close"]),
-                    volume=int(row.get("volume", 0)),
-                    timeframe=timeframe,
-                    source="CSV",
-                ))
+        if not candles:
+            raise ValueError(
+                f"CSV loader parsed 0 valid candles from {filepath} "
+                f"({bad} rejected rows). Refusing to run on empty data."
+            )
 
         candles.sort(key=lambda c: c.timestamp)
         meta = DatasetMetadata(
             symbol=symbol, timeframe=timeframe, source="CSV",
-            start_time=candles[0].timestamp if candles else datetime.min.replace(tzinfo=timezone.utc),
-            end_time=candles[-1].timestamp if candles else datetime.min.replace(tzinfo=timezone.utc),
+            start_time=candles[0].timestamp,
+            end_time=candles[-1].timestamp,
             record_count=len(candles),
         )
         meta.compute_hash(candles)

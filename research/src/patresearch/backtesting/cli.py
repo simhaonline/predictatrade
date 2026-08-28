@@ -24,7 +24,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional
 
-from .data.loader import DataLoader
+from .data.loader import DataLoader, DatasetMetadata
 from .data.quality import DataQualityValidator
 from .engine.core import BacktestEngine, BacktestConfig
 from .engine.execution import ExecutionConfig
@@ -49,6 +49,24 @@ def cmd_run(args):
               f"from {meta.start_time} to {meta.end_time}")
     elif args.data_file:
         candles, meta = DataLoader.from_csv(args.data_file, args.symbol, args.timeframe)
+        # Apply optional date-window filtering on genuine CSV data so we can
+        # backtest a specific regime (e.g. the current high-volatility period)
+        # without loading the entire multi-decade history into memory.
+        if (args.start or args.end) and args.db_url is None:
+            start = _parse_dt(args.start) if args.start else None
+            end = _parse_dt(args.end) if args.end else None
+            before = len(candles)
+            candles = [c for c in candles if (start is None or c.timestamp >= start)
+                       and (end is None or c.timestamp <= end)]
+            if not candles:
+                print(f"ERROR: date window {start}..{end} matched 0 of {before} candles")
+                return 1
+            meta = DatasetMetadata(
+                symbol=meta.symbol, timeframe=meta.timeframe, source=meta.source,
+                start_time=candles[0].timestamp, end_time=candles[-1].timestamp,
+                record_count=len(candles), data_hash=meta.data_hash,
+            )
+            print(f"Windowed to {len(candles)} candles ({meta.start_time} .. {meta.end_time})")
     else:
         n = args.candles or 500
         candles, meta = DataLoader.generate_synthetic(
@@ -60,6 +78,17 @@ def cmd_run(args):
         return 1
 
     print(f"Loaded {len(candles)} candles ({meta.source}) from {meta.start_time} to {meta.end_time}")
+    print(f"Data hash: {meta.data_hash}")
+
+    # Anti-fake-data guard: never let a synthetic dataset stand in for genuine
+    # market history in a reported backtest. Operator must pass --allow-synthetic
+    # explicitly to run on generated/fixture data.
+    if meta.source == "SYNTHETIC" and not args.allow_synthetic:
+        print("\n[REFUSED] Data source is SYNTHETIC. Refusing to produce a backtest "
+              "report on non-genuine data.\n"
+              "          Re-run with --data-file pointing at real XAUUSD history, "
+              "or pass --allow-synthetic if you intentionally want a self-test.")
+        return 2
 
     # Configure
     config = BacktestConfig(
@@ -473,6 +502,8 @@ def main():
     p_run.add_argument("--seed", type=int, default=42)
     p_run.add_argument("--data-file", default=None)
     p_run.add_argument("--candles", type=int, default=500)
+    p_run.add_argument("--allow-synthetic", action="store_true",
+                      help="Permit running on SYNTHETIC data (self-tests only; never for reported results)")
     p_run.add_argument("--output", default=None)
     p_run.add_argument("--db-url", default=None,
                        help="PostgreSQL/TimescaleDB connection string. When set, "

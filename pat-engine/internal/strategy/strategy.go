@@ -132,6 +132,39 @@ func scoreFromEvidence(ev []contrib, minConf float64, state *types.MarketState) 
 		dir = types.DirNoTrade
 		reasons = append(reasons, "NO_STRUCTURAL_TRIGGER")
 	}
+
+	// Higher-timeframe alignment (EMA200 vs EMA400 proxy). Trade only with the
+	// higher-timeframe bias — the dominant edge filter from the external scalping
+	// research (trade with the map, not against it).
+	if dir == types.DirBuy && state.HTFBias != types.Bullish {
+		dir = types.DirNoTrade
+		reasons = append(reasons, "HTF_BIAS_BEARISH")
+	}
+	if dir == types.DirSell && state.HTFBias != types.Bearish {
+		dir = types.DirNoTrade
+		reasons = append(reasons, "HTF_BIAS_BULLISH")
+	}
+
+	// Volatility-regime gate: skip dead/whippy low-volatility stretches where the
+	// edge collapses (research: ATR < 0.8x its longer baseline = whipsaw land).
+	if state.SlowATR > 0 && state.ATR < 0.8*state.SlowATR {
+		dir = types.DirNoTrade
+		reasons = append(reasons, "LOW_VOL_REGIME")
+	}
+
+	// RSI extreme filter (read.md §"Deliberately left off the chart"): RSI is NOT a
+	// directional vote on gold — an OB/OS print at a liquidity sweep is exactly
+	// where the sweep-&-reclaim reversal fires. Block entries INTO the extreme only
+	// (validated on the Python backtest: +win-rate, +profit factor).
+	if dir == types.DirBuy && state.Indicators.RSI > 72 {
+		dir = types.DirNoTrade
+		reasons = append(reasons, "RSI_OVERBOUGHT")
+	}
+	if dir == types.DirSell && state.Indicators.RSI < 28 {
+		dir = types.DirNoTrade
+		reasons = append(reasons, "RSI_OVERSOLD")
+	}
+
 	return dir, raw, long, short, reasons
 }
 

@@ -54,7 +54,7 @@ func DefaultUltraScalping() StrategyConfig {
 		CooldownMinutes:   5,
 		DecisionTFs:       []string{"M1"},
 		AcceptedRegimes:   []string{"TRENDING_BULLISH", "TRENDING_BEARISH", "BREAKOUT", "MEAN_REVERSION", "RANGE", "HIGH_VOLATILITY"},
-		AcceptedSessions:  []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"},
+		AcceptedSessions:  []string{"LONDON", "OVERLAP", "NEW_YORK"},
 		MinQualityState:   "AUTHORITATIVE",
 		BacktestMaxBars:   24,
 	}
@@ -83,7 +83,7 @@ func DefaultStandardScalping() StrategyConfig {
 		CooldownMinutes:   15,
 		DecisionTFs:       []string{"M1", "M5"},
 		AcceptedRegimes:   []string{"TRENDING_BULLISH", "TRENDING_BEARISH", "BREAKOUT", "MEAN_REVERSION", "RANGE", "HIGH_VOLATILITY"},
-		AcceptedSessions:  []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"},
+		AcceptedSessions:  []string{"LONDON", "OVERLAP", "NEW_YORK"},
 		MinQualityState:   "AUTHORITATIVE",
 		BacktestMaxBars:   40,
 	}
@@ -112,7 +112,7 @@ func DefaultStandardSwing() StrategyConfig {
 		CooldownMinutes:   120,
 		DecisionTFs:       []string{"M15", "M30", "H1"},
 		AcceptedRegimes:   []string{"TRENDING_BULLISH", "TRENDING_BEARISH", "BREAKOUT", "MEAN_REVERSION", "RANGE", "HIGH_VOLATILITY"},
-		AcceptedSessions:  []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"},
+		AcceptedSessions:  []string{"LONDON", "OVERLAP", "NEW_YORK"},
 		MinQualityState:   "AUTHORITATIVE",
 		BacktestMaxBars:   160,
 	}
@@ -141,7 +141,7 @@ func DefaultTrendSwing() StrategyConfig {
 		CooldownMinutes:   360,
 		DecisionTFs:       []string{"H1", "H4"},
 		AcceptedRegimes:   []string{"TRENDING_BULLISH", "TRENDING_BEARISH", "BREAKOUT", "HIGH_VOLATILITY"},
-		AcceptedSessions:  []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"},
+		AcceptedSessions:  []string{"LONDON", "OVERLAP", "NEW_YORK"},
 		MinQualityState:   "AUTHORITATIVE",
 		BacktestMaxBars:   240,
 	}
