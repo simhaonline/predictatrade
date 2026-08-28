@@ -28,6 +28,39 @@
     on-screen message.)
 #>
 
+# Self-elevate to Administrator. Some checks (Windows Defender exclusion,
+# Event Log source) require admin rights; without them the check errors out and
+# the verdict becomes unreliable. Mirrors the install/uninstall scripts.
+function Test-IsAdmin {
+    return ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+if (-not (Test-IsAdmin)) {
+    Write-Host "This verification needs Administrator rights. Restarting elevated..."
+    $scriptPath = $PSCommandPath
+    if (-not $scriptPath -or -not (Test-Path $scriptPath)) {
+        $scriptPath = Join-Path $env:TEMP ("pat_verify_" + [guid]::NewGuid().ToString("N") + ".ps1")
+        try {
+            Invoke-WebRequest -Uri "https://downloads.predictatrade.com/windows-agent/verify-cleanup.ps1" -OutFile $scriptPath -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
+        } catch {
+            Write-Host "ERROR: Could not download the script for elevation: $_"
+            Write-Host "Please re-run this script as Administrator manually."
+            if ([Environment]::UserInteractive) { Read-Host -Prompt "Press Enter to close" }
+            exit 1
+        }
+    }
+    $argList = "-ExecutionPolicy Bypass -NoProfile -File `"$scriptPath`""
+    if ($args.Count -gt 0) { $argList += " " + ($args -join " ") }
+    try {
+        Start-Process powershell -ArgumentList $argList -Verb RunAs -Wait -ErrorAction Stop
+    } catch {
+        Write-Host "ERROR: Could not launch elevated process: $_"
+        Write-Host "Please re-run this script as Administrator manually."
+        if ([Environment]::UserInteractive) { Read-Host -Prompt "Press Enter to close" }
+        exit 1
+    }
+    exit 0
+}
+
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference = 'SilentlyContinue'
 
