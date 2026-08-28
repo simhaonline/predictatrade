@@ -28,61 +28,65 @@ func RunAll(states []*types.MarketState, pol *broker.BrokerPolicy, lic *license.
 	strats := strategy.All()
 	results := make([]Result, 0, len(strats))
 
+	for _, st := range strats {
+		cfg := cfgs[string(st.ID())]
+		results = append(results, EvalStrategy(states, pol, lic, st, cfg))
+	}
+	return results
+}
+
+// EvalStrategy runs the full live pipeline for a single strategy with a specific
+// config. Exposed so the calibration harness can test candidate configurations on a
+// strict train/test split without re-fitting between windows.
+func EvalStrategy(states []*types.MarketState, pol *broker.BrokerPolicy, lic *license.License, st strategy.Strategy, cfg config.StrategyConfig) Result {
+	r := Result{Strategy: string(st.ID())}
 	exec := broker.ExecutionProfile{}
 	if pol != nil {
 		exec = pol.Execution
 	}
 
-	for _, st := range strats {
-		cfg := cfgs[string(st.ID())]
-		r := Result{Strategy: string(st.ID())}
+	// Entitlement gate: a license may only narrow what the broker policy allows.
+	if lic != nil && !lic.AllowsStrategy(string(st.ID())) {
+		r.ExcludedBy = "LICENSE_STRATEGY_NOT_ALLOWED"
+		return r
+	}
 
-		// Entitlement gate: a license may only narrow what the broker policy allows.
-		if lic != nil && !lic.AllowsStrategy(string(st.ID())) {
-			r.ExcludedBy = "LICENSE_STRATEGY_NOT_ALLOWED"
-			results = append(results, r)
+	// Broker-policy eligibility (mirrors live: a no-scalping broker excludes scalpers).
+	if pol != nil {
+		if ok, why := pol.StrategyAllowed(string(st.ID())); !ok {
+			r.ExcludedBy = why
+			return r
+		}
+	}
+
+	maxBars := cfg.BacktestMaxBars
+	if maxBars <= 0 {
+		maxBars = 50
+	}
+
+	for i, s := range states {
+		if s == nil {
 			continue
 		}
-
-		// Broker-policy eligibility (mirrors live: a no-scalping broker excludes scalpers).
-		if pol != nil {
-			if ok, why := pol.StrategyAllowed(string(st.ID())); !ok {
-				r.ExcludedBy = why
-				results = append(results, r)
-				continue
-			}
+		d := signal.Decide(s, st, cfg, pol)
+		if !d.Signal.Executable {
+			continue
 		}
-
-		maxBars := cfg.BacktestMaxBars
-		if maxBars <= 0 {
-			maxBars = 50
+		pnl := Simulate(states, i, d.Signal.Direction, d.Signal.EntryPrice, d.Signal.StopLoss,
+			d.Signal.TP1, d.Signal.TP2, d.Signal.TP3, maxBars, exec)
+		r.Trades++
+		if pnl > 0 {
+			r.Wins++
+			r.GrossWin += pnl
+		} else {
+			r.GrossLoss += -pnl
 		}
-
-		for i, s := range states {
-			if s == nil {
-				continue
-			}
-			d := signal.Decide(s, st, cfg, pol)
-			if !d.Signal.Executable {
-				continue
-			}
-			pnl := Simulate(states, i, d.Signal.Direction, d.Signal.EntryPrice, d.Signal.StopLoss,
-				d.Signal.TP1, d.Signal.TP2, d.Signal.TP3, maxBars, exec)
-			r.Trades++
-			if pnl > 0 {
-				r.Wins++
-				r.GrossWin += pnl
-			} else {
-				r.GrossLoss += -pnl
-			}
-		}
-		if r.GrossLoss > 0 {
-			r.PF = r.GrossWin / r.GrossLoss
-		}
-		if r.Trades > 0 {
-			r.WinRate = float64(r.Wins) / float64(r.Trades)
-		}
-		results = append(results, r)
 	}
-	return results
+	if r.GrossLoss > 0 {
+		r.PF = r.GrossWin / r.GrossLoss
+	}
+	if r.Trades > 0 {
+		r.WinRate = float64(r.Wins) / float64(r.Trades)
+	}
+	return r
 }

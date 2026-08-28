@@ -133,4 +133,17 @@ type Signal struct {
 	Reason      string
 	ReasonCodes []string
 	Executable  bool
+	Regime      string
+
+	// CalibratedProbability is a probability (0..1) calibrated to a NAMED
+	// prediction target and the active exit profile — never the raw strategy
+	// score. It is only populated when a fitted calibration model is supplied to
+	// the engine; otherwise it stays 0 and ProbabilityModel = "UNCALIBRATED".
+	CalibratedProbability float64
+	// ProbabilityTarget names the event the probability refers to, e.g.
+	// "TP1_BEFORE_SL" (price reaches the 1R partial target before the SL).
+	ProbabilityTarget string
+	// ProbabilityModel names the calibrator that produced the value
+	// ("empirical-region", "UNCALIBRATED", ...).
+	ProbabilityModel string
 }

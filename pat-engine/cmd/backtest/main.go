@@ -77,6 +77,47 @@ func main() {
 		return
 	}
 
+	// Calibration mode: fit the empirical probability model on a TRAIN window and
+	// validate it on a strictly held-out TEST window. The fitted model is written as
+	// JSON for the live gateway to load (CALIBRATION_MODEL_PATH). No probability is
+	// published without this OOS check.
+	if os.Getenv("CALIBRATE") == "1" {
+		trainFrac := 0.6
+		if v := os.Getenv("TRAIN_FRAC"); v != "" {
+			if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 && f < 1 {
+				trainFrac = f
+			}
+		}
+		cut := int(float64(len(states)) * trainFrac)
+		if cut < 400 {
+			cut = 400
+		}
+		if cut >= len(states) {
+			cut = len(states) - 1
+		}
+		train, test := states[:cut], states[cut:]
+		fmt.Printf("\n=== CALIBRATION (empirical, strict OOS) ===\n")
+		fmt.Printf("train states : %d\n", len(train))
+		fmt.Printf("test  states : %d\n", len(test))
+
+		model := backtest.FitCalibration(train, pol, lic)
+		fmt.Print(backtest.ValidateCalibration(model, test, pol, lic))
+
+		out := os.Getenv("CALIBRATION_OUT")
+		if out == "" {
+			out = "data/calibration_model.json"
+		}
+		b, err := model.Bytes()
+		if err != nil {
+			fmt.Println("model serialize error:", err)
+		} else if err := os.WriteFile(out, b, 0o644); err != nil {
+			fmt.Println("model write error:", err)
+		} else {
+			fmt.Printf("fitted model written to %s\n", out)
+		}
+		return
+	}
+
 	runWith(pol, lic, states, src+" | scalping ALLOWED")
 	runWith(&broker.BrokerPolicy{Symbol: "XAUUSD", AllowsScalping: false, Digits: 2, MinNetRR: 1.3, Execution: exec}, lic, states, src+" | scalping FORBIDDEN (no-scalping broker)")
 }

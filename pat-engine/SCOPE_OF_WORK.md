@@ -175,6 +175,8 @@ Verified manually; the existing `mql/` EAs parse the identical format.
 | Control-plane license issuer + device-bound validation | `cmd/license-issuer` + `/licensing/validate` + `store.GetDevice` | E2E curl (invalid→active) | DONE |
 | Frontend (Next.js) consuming `/api/v1` | `pat-engine/frontend` + nginx `/` route + compose `pat-engine-frontend` | `next build` + render smoke | DONE |
 | Honest packaging (no false claims) | broker/license exclusion + real-data backtest §12 | backtest run on real 2024Q4 + 2025 m1 | PARTIAL — real-data baseline locked: only ULTRA_SCALPING OOS PF>1 (~1.08); others net-losing. No claims published; calibration (Next action #2) required before any performance claim. |
+| Calibrated probability (named target) | `internal/calibrate` + `Signal.CalibratedProbability` + gateway attach | unit tests pass; gateway emits; backtest `CALIBRATE=1` fits+validates | DONE — probability is empirical, regime×score-decile, Laplace-smoothed, validated OOS reliability; never the raw score. Uncalibrated when no model loaded. |
+| Calibration research harness (OOS) | `internal/backtest.EvalStrategy` + `cmd/calibrate` | ran on real 2025 m1 (ULTRA_SCALPING) | DONE (tooling) — harness is strict train/test OOS. Result: NO candidate showed genuine OOS edge (test PF 0.28–0.63). Nothing published; honest negative finding. |
 
 ## 12. Real-data backtest — honest v1 stats (LOCKED)
 
@@ -235,3 +237,38 @@ derived, not data-mined).
    verify end-to-end with the bridged `PAT_signals.txt` handoff on a remote terminal.
 5. Add calibrated probability (named prediction target + active exit profile);
    only then package & publish performance — and only with the OOS-evidenced edge.
+
+## 14. Calibrated probability (NEW — SOW §4.5)
+
+`internal/calibrate` attaches a **calibrated probability** to every executable signal. It
+is explicitly NOT the raw strategy score (raw score is not probability).
+
+- **Named target:** `TP1_BEFORE_SL` — P(price reaches the 1R partial target before the
+  SL), under the same exit profile the backtest `Simulate` uses. Calibration is thus
+  consistent between research and live.
+- **Model:** `EmpiricalModel` buckets realized outcomes by `(strategy, regime) × score-decile`
+  and reports a Laplace-smoothed win fraction. Simple, monotonic, no market-prediction
+  claim, no over-fitting surface.
+- **Fitting:** `backtest.FitCalibration(train)` over a TRAIN window; `ValidateCalibration`
+  measures reliability on a held-out TEST window (predicted vs realized per bucket).
+- **Live wiring:** the gateway loads a fitted model from `CALIBRATION_MODEL_PATH`;
+  `calibrate.Attach` sets `Signal.CalibratedProbability / ProbabilityTarget /
+  ProbabilityModel`. With no model loaded, signals are emitted `UNCALIBRATED` (prob 0) —
+  never a guessed number.
+- **CLI:** `cmd/backtest` with `CALIBRATE=1` fits on TRAIN (default 60%), validates on
+  TEST, and writes the model JSON (`CALIBRATION_OUT`) for the gateway.
+
+## 15. Calibration research harness (NEW — SOW §12.2)
+
+`cmd/calibrate` searches a parameter grid for ONE strategy on a TRAIN window and reports
+the out-of-sample (TEST) profit factor for every candidate, strictly separated.
+
+- Reuses `backtest.EvalStrategy` (the exact live pipeline) so no research drift.
+- Honesty guards: a config is only written out as "having edge" when **TEST PF > 1** AND
+  **TEST PF ≥ 0.8 × TRAIN PF** (no silent over-fit) AND adequate sample. Otherwise it
+  publishes nothing and says so.
+- **Honest result on real 2025 m1 (ULTRA_SCALPING, 72-grid):** every candidate's TEST PF
+  was 0.28–0.63 (all < 1) while some TRAIN PF reached ~1.8 — i.e. the apparent full-sample
+  edge does not survive a strict holdout. This is exactly why OOS validation precedes any
+  performance claim. The default v1 configs therefore remain UNPUBLISHED pending a
+  genuinely OOS-validated parameter set (broader grid, more history, or a different edge).

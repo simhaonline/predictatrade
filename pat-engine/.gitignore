@@ -5,11 +5,15 @@ signals/PAT_signals.txt
 # local secrets (the sample is ENV_SAMPLE, which is committed)
 infra/env/.env
 
-# build artifacts
+# build artifacts (anchored to repo root so they do not swallow the
+# internal/backtest or cmd/calibrate source directories)
 *.exe
 pat-engine.bin
-backtest
-dist/
+/backtest
+/dist/
 
 # downloaded real-market CSVs (regenerate via scripts/fetch_xauusd.py)
-data/
+/data/
+
+# calibration research binary (build artifact, repo-root only)
+/calibrate

@@ -18,6 +18,7 @@ import (
 
 	"pat-engine/internal/backtest"
 	"pat-engine/internal/broker"
+	"pat-engine/internal/calibrate"
 	"pat-engine/internal/config"
 	"pat-engine/internal/license"
 	"pat-engine/internal/signal"
@@ -55,6 +56,7 @@ type Gateway struct {
 	lastID   string
 	lastJSON string
 	seq      int
+	model    calibrate.Model
 }
 
 // New creates a Gateway writing signals to outPath (PAT_signals.txt). It starts with
@@ -69,7 +71,22 @@ func New(policy *broker.BrokerPolicy, outPath string) *Gateway {
 	}
 	dev, _, _ := license.DevLicense(license.DefaultDevSecret, nil, nil)
 	_ = os.MkdirAll(filepath.Dir(outPath), 0o755)
-	return &Gateway{policy: policy, lic: dev, outPath: outPath}
+	gw := &Gateway{policy: policy, lic: dev, outPath: outPath}
+	// Load a pre-fitted calibration model if one is supplied. Without it, signals are
+	// emitted with ProbabilityModel="UNCALIBRATED" (never a guessed probability).
+	if p := os.Getenv("CALIBRATION_MODEL_PATH"); p != "" {
+		if b, err := os.ReadFile(p); err == nil {
+			if m, err := calibrate.LoadModel(b); err == nil {
+				gw.model = m
+				fmt.Printf("calibration model loaded from %s\n", p)
+			} else {
+				fmt.Printf("calibration model load failed: %v\n", err)
+			}
+		} else {
+			fmt.Printf("calibration model read failed (%s): %v\n", p, err)
+		}
+	}
+	return gw
 }
 
 // SetStore attaches the persistence layer (TimescaleDB + Valkey). Optional; when nil
@@ -191,6 +208,10 @@ func (g *Gateway) bestExecutable(state *types.MarketState) *emit {
 		cls := signalClass(string(d.Signal.StrategyID))
 		grade := gradeOf(d.Signal.RawScore)
 		exec := g.policy.Execution
+		// Attach the calibrated probability (named target, never raw score). When no
+		// model is loaded this marks the signal UNCALIBRATED rather than guessing.
+		d.Signal.Regime = state.Regime
+		calibrate.Attach(&d.Signal, g.model)
 		dto := SignalDTO{
 			ID:          best.ID,
 			Direction:   string(d.Signal.Direction),
@@ -203,6 +224,7 @@ func (g *Gateway) bestExecutable(state *types.MarketState) *emit {
 			TP2:         exec.RoundToDigits(d.Signal.TP2),
 			TP3:         exec.RoundToDigits(d.Signal.TP3),
 			RawScore:    d.Signal.RawScore,
+			CalibratedProbability: d.Signal.CalibratedProbability,
 		}
 		b, _ := json.Marshal(dto)
 		best.line = "SIGNAL|" + string(b)
