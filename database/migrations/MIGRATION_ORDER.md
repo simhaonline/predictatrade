@@ -32,3 +32,4 @@ applies exactly once.
 `audit.migration_history` must equal the on-disk `database/migrations/*.sql` set.
 Run `scripts/reconcile_migrations.sh --apply` to back-fill missing rows and
 delete orphan rows. A rollback SQL is generated alongside it.
+096_ai_providers.sql

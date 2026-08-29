@@ -2,6 +2,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { IconBrain, IconPlus, IconAlertTriangle } from "@tabler/icons-react";
+import { ProvidersCRUD } from "@/components/admin/providers-crud";
 import {
   fetchAIModels,
   activateModel,
@@ -14,6 +15,7 @@ function DegradedBanner({ children }: { children: React.ReactNode }) {
     <div className="bg-pat-warning/10 border border-pat-warning/20 rounded-lg p-3 flex items-start gap-2">
       <IconAlertTriangle size={16} className="text-pat-warning mt-0.5 shrink-0" />
       <div className="text-xs text-pat-warning">{children}</div>
+<ProvidersCRUD />
     </div>
   );
 }
@@ -43,7 +45,7 @@ export default function AdminAiProvidersPage() {
       <div>
         <h1 className="text-xl font-bold text-pat-text-primary">AI Providers</h1>
         <p className="text-sm text-pat-text-secondary mt-1">
-          Live AI/ML model activation state (source: GET /operations/ai/models). Provider-level CRUD is not yet backed by an endpoint.
+          AI/ML models + provider registry — full CRUD via /operations/ai/providers.
         </p>
       </div>
 
@@ -95,7 +97,7 @@ export default function AdminAiProvidersPage() {
       {/* DEGRADED: add provider */}
       <div className="bg-pat-card-bg border border-pat-card-border rounded-lg p-4 shadow-sm opacity-80">
         <h2 className="text-sm font-medium text-pat-text-primary mb-3 flex items-center gap-2">
-          <IconPlus size={16} /> Add Provider (Pending Backend)
+          <IconPlus size={16} /> Add Provider
         </h2>
         <DegradedBanner>
           No dedicated provider-management endpoint exists. The form below is schema-only and disabled.
