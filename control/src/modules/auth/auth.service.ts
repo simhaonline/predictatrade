@@ -762,4 +762,29 @@ export class AuthService {
     }
     return sanitized;
   }
+
+  /** check.md 2026-08-30 #23 — admin/user Settings password change */
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters');
+    }
+    if (!currentPassword) throw new BadRequestException('Current password required');
+    const r = await this.pool.query(`SELECT id, password_hash, email FROM iam.users WHERE id = $1`, [userId]);
+    const user = r.rows[0];
+    if (!user) throw new UnauthorizedException('user_not_found');
+    const ok = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!ok) throw new UnauthorizedException('Current password is incorrect');
+    const same = await bcrypt.compare(newPassword, user.password_hash);
+    if (same) throw new BadRequestException('New password must differ from current password');
+    const hash = await bcrypt.hash(newPassword, 12);
+    await this.pool.query(`UPDATE iam.users SET password_hash = $2, updated_at = now() WHERE id = $1`, [userId, hash]);
+    // Single session invalidation: delete refresh sessions so they must re-login
+    await this.pool.query(`DELETE FROM iam.sessions WHERE user_id = $1`, [userId]);
+    await this.pool.query(
+      `INSERT INTO audit.audit_events (actor_type, actor_id, action, entity_type, entity_id, reason)
+       VALUES ('system', $1, 'iam.password_changed', 'user', $1, 'Settings password change')`,
+      [userId],
+    );
+    return { changed: true };
+  }
 }

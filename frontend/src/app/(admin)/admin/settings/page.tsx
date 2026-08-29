@@ -52,7 +52,7 @@ export default function AdminSettingsPage() {
     if (newPassword.length < 8) { toast.error("Password must be at least 8 characters"); return; }
     setSavingPassword(true);
     try {
-      await customInstance.post("/auth/mfa/verify", { code: currentPassword });
+      await customInstance.post("/auth/change-password", { currentPassword, newPassword });
       toast.success("Password changed successfully");
       setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
     } catch {
