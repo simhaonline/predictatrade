@@ -302,7 +302,6 @@ void SendTickToAgent()
     // Broker session timezone — collected live so the engine works on Broker TF
     // (not UTC). TimeGMTOffset() returns the broker's GMT offset in seconds.
     msg += ",\"broker_offset\":" + IntegerToString(TimeGMTOffset() / 3600);
-    if(marketClosed) msg += ",\"market_closed\":true";
     msg += "}\n";
 
     MasterAppend(msg);
@@ -346,6 +345,7 @@ void SendMarketSnapshot()
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";
     msg += ",\"node\":\"MASTER\"";
+    if(marketClosed) msg += ",\"market_closed\":true";
     // Broker session timezone — collected live so the engine works on Broker TF
     // (not UTC). TimeGMTOffset() returns the broker's GMT offset in seconds.
     msg += ",\"broker_offset\":" + IntegerToString(TimeGMTOffset() / 3600);

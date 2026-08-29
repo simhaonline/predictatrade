@@ -89,7 +89,6 @@ string  g_symbol;
 string  g_connection   = "OFFLINE";
 double  g_lastKnownBid = 0;   // last valid price — used for weekend market_closed snapshots
 double  g_lastKnownAsk = 0;
-bool    g_marketClosedAlerted = false;
 string  g_accountID     = "—";
 string  g_broker        = "";
 uint    g_lastTickSend   = 0;
@@ -537,7 +536,6 @@ void SendTickToAgent()
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";
     msg += ",\"node\":\"MASTER\"";
-    if(marketClosed) msg += ",\"market_closed\":true";
     // Broker session timezone — collected live so the engine works on Broker TF
     // (not UTC). TimeGMTOffset() returns the broker's GMT offset in seconds.
     msg += ",\"broker_offset\":" + IntegerToString(TimeGMTOffset() / 3600);
@@ -898,7 +896,6 @@ void SendMasterInit()
     msg += "\"type\":\"MASTER_INIT\"";
     msg += ",\"ea_version\":\"1.00\"";
     msg += ",\"node\":\"MASTER\"";
-    if(marketClosed) msg += ",\"market_closed\":true";
     msg += ",\"platform\":\"MT5\"";
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";
