@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
 import { Pool } from 'pg';
 import { DB_POOL } from '../../common/database.module';
 
@@ -237,5 +237,60 @@ export class AdminExtrasService {
       this.logger.warn(`macro/news read failed: ${err instanceof Error ? err.message : err}`);
       return { items: [], note: 'No macro/news data source configured' };
     }
+  }
+
+  /** check.md 2026-08-30 — Publish Release (add new release row) */
+  async publishRelease(body: { component: string; version: string; channel?: string; download_url: string; sha256: string; release_notes?: string }) {
+    if (!body.component || !body.version || !body.download_url || !body.sha256) {
+      throw new BadRequestException('component, version, download_url, sha256 required');
+    }
+    const r = await this.pool.query(
+      `INSERT INTO licensing.client_releases (component, version, channel, download_url, sha256, release_notes)
+       VALUES ($1, $2, COALESCE($3, 'STABLE'), $4, $5, $6) RETURNING *`,
+      [body.component, body.version, body.channel, body.download_url, body.sha256, body.release_notes || null],
+    );
+    return r.rows[0];
+  }
+
+  /** check.md 2026-08-30 — Trigger Restore Test (drill: verify spool + write audit row) */
+  async triggerRestoreTest() {
+    const r = await this.pool.query(
+      `INSERT INTO audit.audit_events (actor_type, action, entity_type, entity_id, reason, new_value)
+       VALUES ('system', 'backup_dr.restore_test_triggered', 'system', now()::text, 'operator requested restore drill', '{}'::jsonb)
+       RETURNING id`,
+    );
+    return { triggered: true, audit_id: r.rows[0].id, note: 'Execute scripts/backup/restore_test.sh to complete the drill' };
+  }
+
+  /** check.md 2026-08-30 — Blackout config (news windows when trading is off) */
+  async setBlackout(body: { enabled: boolean; windows?: string[] }) {
+    // Store in control.feature_flags-like table or a dedicated JSON config
+    const cfg = await this.pool.query(
+      `SELECT config_value FROM system.backup_configuration WHERE config_key = 'news_blackout' LIMIT 1`,
+    );
+    const json = JSON.stringify({ enabled: body.enabled, windows: body.windows || [] });
+    if (cfg.rowCount > 0) {
+      await this.pool.query(`UPDATE system.backup_configuration SET config_value = $2 WHERE config_key = 'news_blackout'`, [json]);
+    } else {
+      await this.pool.query(
+        `INSERT INTO system.backup_configuration (config_key, config_value) VALUES ('news_blackout', $1)`,
+        [json],
+      );
+    }
+    return { saved: true, body };
+  }
+
+  /** check.md 2026-08-30 — Add Qualification Run (new broker profile) */
+  async addQualificationRun(body: { broker: string; server: string; platform: string; typical_spread?: number }) {
+    if (!body.broker || !body.server || !body.platform) {
+      throw new BadRequestException('broker/server/platform required');
+    }
+    const r = await this.pool.query(
+      `INSERT INTO market.broker_execution_profiles
+         (broker, server, platform, canonical_symbol, broker_symbol, typical_spread, last_observed_at, last_validated_at, qualification_result)
+       VALUES ($1, $2, $3, 'XAUUSD', 'XAUUSD', COALESCE($4, 20), now(), now(), 'PENDING_EXECUTION') RETURNING *`,
+      [body.broker, body.server, body.platform, body.typical_spread || 20],
+    );
+    return r.rows[0];
   }
 }
