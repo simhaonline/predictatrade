@@ -1,6 +1,6 @@
 # Predict-A-Trade XAUUSD — Documentation
 
-> Multi-plane XAUUSD algorithmic trading platform · v1.17.3 · GO — CI 6/6 green, dashboards runtime-audited, Windows Agent verified
+> Multi-plane XAUUSD algorithmic trading platform · v1.17.4 · GO — weekend-hardened: market_closed liveness, USDT-only payments, mail relay, agents v1.2.44; CI 6/6 green, dashboards runtime-audited, Windows Agent verified
 
 Welcome to the official documentation for Predict-A-Trade — a production-grade XAUUSD trading signal generation platform. Use the sidebar to navigate, or start with the sections below.
 
@@ -19,6 +19,7 @@ Welcome to the official documentation for Predict-A-Trade — a production-grade
 | [Backup & Restore](operations/BACKUP_RESTORE.md) | Automated backup scripts, restore procedures |
 | [Incident Response](operations/INCIDENT_RESPONSE_PLAN.md) | Classification, response, communication |
 | [Disaster Recovery](operations/DR_PLAN.md) | RTO/RPO, backups, testing |
+| [Mail Relay Runbook](https://github.com/simhaonline/predictatrade/tree/main/mail-relay) | Go SMTP submission relay, DNS records |
 | [Admin Guide](guides/ADMIN_GUIDE.md) | System administration, agent monitoring, signals |
 | [User Guide](guides/USER_GUIDE.md) | Dashboard, MT4/MT5 setup, signal interpretation |
 | [Windows Agent Guide](guides/WINDOWS_AGENT.md) | Client Agent + Master Node roles, install/update/uninstall, health endpoints |
@@ -43,7 +44,9 @@ Welcome to the official documentation for Predict-A-Trade — a production-grade
 | CI jobs | 6/6 green |
 | API surface | 64 documented paths (OpenAPI 3.0 in [`api/openapi.json`](api/openapi.json)) |
 | Dashboard pages | 38 runtime-audited (25 admin + 19 user routes) |
-| Windows Agent | v1.2.40, binaries + manifests byte-verified live |
+| Windows Agent | v1.2.44, self-healing installer + honest telemetry |
+| Payments | USDT-only (NOWPayments verified settlement; Stripe off) |
+| Outbound Mail | Go SMTP relay (pat.predictatrade.com), spool+retry |
 
 ## Repository
 

@@ -308,3 +308,24 @@ Add-MpPreference -ExclusionPath "C:\ProgramData\PredictATrade"
 Then: restore the quarantined exe from **Protection history** (or re-run the
 installer), and the service will start. This is one-time per machine — future
 updates with exclusions *verified active* pass cleanly.
+
+### v1.2.44 — stale-terminal liveness + deinit (29 Aug 2026)
+- `MASTER_DEINIT` unregisters the terminal immediately — closing an MT chart
+  drops the Master status page / dashboard to OFFLINE in <1s (payload now
+  carries the account; verified by the close-test, which exposed the bug).
+- Telemetry honesty: the data role's `candles` counter counts only real
+  MASTER_TICK/MARKET_SNAPSHOT forwards (was counting heartbeats, masking a
+  dead feed).
+- Closed-market truth: Client EAs emit a LIVENESS ping every ~15s so MT4/MT5
+  stay honestly ONLINE through weekends; status pages + dashboard show
+  `market_closed: true` rather than dark/offline (v1.17.4).
+
+### installer v1.2.43+ — customer-proof self-healing
+- SHA256-verified downloads with Defender-allow repair and 4x retry.
+- Self-healing start loop (3 rounds): re-asserts exclusions, re-creates the
+  service, verifies `Running` + health 200, prints the agent's own log lines
+  on failure; late-retry safety net with service re-registration.
+- `-Unattended` (irm|iex never blocks) + `-LicenseKey` forwarded through
+  elevation.
+- Tamper Protection: exclusions are *verified* via `Get-MpPreference`; when
+  silently blocked the installer prints exact manual exclusion steps.

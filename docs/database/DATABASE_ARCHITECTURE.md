@@ -1,5 +1,5 @@
 # Database Architecture
-## v1.17.3 — 29 August 2026
+## v1.17.4 — 30 August 2026
 
 ### Stack
 - PostgreSQL 17 + TimescaleDB (hypertables) — `timescale/timescaledb-ha:pg17`
@@ -46,6 +46,15 @@ Entity relationships for the core domains: **[DB_ERD.md](DB_ERD.md)** (mermaid `
   history; `MIGRATION_ORDER.md` is the canonical sequence.
 - Dual mechanism removed: `initdb.d` no longer auto-runs migrations (DB-5); `scripts/migrate.sh`
   is the only runner.
+
+**v1.17.4 — payments honesty (USDT-only era):**
+- `billing.payments.status` values now include `UNDERPAID` (IPN amount
+  verification failed — subscription NOT activated; audit row in
+  `audit.audit_events`).
+- `billing.payment_events` = IPN dedupe/replay ledger keyed
+  `(provider, provider_event_id)` with `signature_verified`.
+- Access tokens embed `permissions[]` (role_permissions ⋈ memberships ⋈
+  permissions) — @RequirePermissions guards rely on this.
 
 ### Recent schema changes
 

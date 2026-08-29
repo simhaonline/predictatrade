@@ -1,5 +1,5 @@
 # Architecture Flow Diagrams
-## v1.17.3 — 29 August 2026
+## v1.17.4 — 30 August 2026
 
 Authoritative visual reference for the runtime flows of Predict-A-Trade. All diagrams are
 [Mermaid](https://mermaid.js.org/) — rendered natively on the docs site (docsify-mermaid) and

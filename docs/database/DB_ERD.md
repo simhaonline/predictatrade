@@ -1,5 +1,5 @@
 # Database ERD — Core Domains
-## v1.17.3 — 29 August 2026
+## v1.17.4 — 30 August 2026
 
 16 application schemas (see `DATABASE_ARCHITECTURE.md` for full inventory). This ERD covers the
 business-critical core: identity, licensing/devices, commercial (plans → subscriptions →
@@ -72,6 +72,8 @@ erDiagram
     bill_subscriptions ||--o{ bill_invoices : "billed"
     bill_subscriptions ||--o{ bill_subscription_events : "lifecycle"
     bill_invoices ||--o{ bill_payments : "settles"
+    bill_invoices ||--o{ bill_payment_events : "ipn ledger"
+    bill_payments ||--o{ bill_payment_events : "dedupe/replay"
     control_coupons }o--o{ bill_subscriptions : "discounts"
 
     control_plans {
@@ -105,8 +107,28 @@ erDiagram
         numeric amount
         string currency
         string status
-        string provider "STRIPE|NOWPAYMENTS"
-        string provider_ref
+        string provider "NOWPAYMENTS (Stripe disabled v1.17.4)"
+        string provider_invoice_id
+        string provider_hosted_url
+    }
+
+    bill_payments {
+        uuid id PK
+        uuid user_id FK
+        uuid invoice_id FK
+        uuid subscription_id FK
+        numeric amount "DECIMAL(18,8)"
+        string status "PENDING|COMPLETED|UNDERPAID|FAILED"
+        string provider_payment_id
+    }
+
+    bill_payment_events {
+        uuid id PK
+        string provider "nowpayments"
+        string provider_event_id UK "payment_id:status"
+        string event_type
+        jsonb raw_payload
+        boolean signature_verified "HMAC-SHA512 timing-safe"
     }
 
     %% ─── FINANCE (exact-decimal, ledger-backed) ───
@@ -225,6 +247,9 @@ erDiagram
 
 - All money columns are `NUMERIC(18,8)` / `NUMERIC(10,4)` — **never** float (control plane also
   uses `decimal.js` for payout math).
+- **Payments are USDT-only** (NOWPayments, Stripe controller-disabled). Settlement requires:
+  HMAC-verified IPN + exact-key dedupe + `payment_status ∈ {confirmed, finished}` +
+  amount verification (else `UNDERPAID`, audit row, no activation).
 - All timestamps are `TIMESTAMPTZ`; internal truth is UTC; broker-server time is a display
   conversion only (`market/proxy`, `features/session.go`).
 - Financial history is append-only — corrections are compensating/reversal rows, never UPDATEs.

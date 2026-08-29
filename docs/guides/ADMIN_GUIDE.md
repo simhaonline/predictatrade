@@ -1,5 +1,5 @@
 # Admin Guide
-## v1.17.3 — 29 August 2026
+## v1.17.4 — 30 August 2026
 
 ### Overview
 
@@ -274,7 +274,7 @@ restore, client release registry (agent auto-updater manifest history), broker e
 qualification evidence (commission/latency/reject observations), and macro news ingestion
 status (FMP events sync).
 
-## 12. Reconciliation Health (v1.17.3)
+## 12. Reconciliation Health (v1.17.3 — expanded in v1.17.4 with market_closed gate)
 
 Prometheus (port 13081 `/metrics`):
 - `pat_reconciliation_acks_timeout` — delivered but never ACKed within 2 min
@@ -285,3 +285,27 @@ Alerts (ntfy): `SIGNAL_ACK_TIMEOUT`, `SIGNAL_FILL_TIMEOUT`, deduped per signal w
 10-minute re-alert window. Sustained non-zero values usually mean the Windows Agent is
 disconnected, the EA is detached, or a broker order was silently rejected — cross-check
 Admin → Signals (delivery state) and the agent's local health port (:9000 client / :9001 master).
+
+---
+
+## 13. Payments (USDT-only) & Mail (v1.17.4)
+
+**USDT-only.** Stripe checkout/webhook are controller-disabled (403/204). The
+only gateway is NOWPayments with `pay_currency:'usdt'`.
+
+Anti-scam guarantees (verified in code + DB):
+- IPN signature HMAC-SHA512 (timing-safe) — forged notices are 401'd.
+- Replay dedupe via `billing.payment_events` exact-key.
+- Transactional one-shot settlement (`FOR UPDATE` + status guard).
+- **Amount verification** — paid amount must cover the invoice expected
+  (±`NOWPAYMENTS_UNDERPAY_TOLERANCE_PCT`, default 2%) or the payment is
+  marked **UNDERPAID** with an audit row; subscription is not activated.
+- Users see live status on the billing page: awaiting (Resume link),
+  underpaid, verified-confirmed (with timestamp), failed.
+
+**Mail** — `pat-mail-relay` (Go) submits platform email from
+`pat.predictatrade.com`; the control plane uses it via `SMTP_HOST`.
+Operator DNS: A + SPF `v=spf1 a:pat.predictatrade.com -all` + DKIM
+(`pat1._domainkey`) + DMARC on predictatrade.com. Runbook:
+`mail-relay/README.md`. Rate limits: rcpt cap 25/msg, 10 MB cap, spool
+dead-letter after 24h of retries.

@@ -12,6 +12,9 @@
   - [REST & WebSocket](api/API_REFERENCE.md)
   - [OpenAPI 3.0 Spec](api/openapi.json)
 
+- **Mail Plane**
+  - [Mail Relay Runbook](https://github.com/simhaonline/predictatrade/tree/main/mail-relay)
+
 - **Database**
   - [Database Architecture](database/DATABASE_ARCHITECTURE.md)
   - [ERD (mermaid)](database/DB_ERD.md)

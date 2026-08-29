@@ -1,5 +1,85 @@
 # Predict-A-Trade Changelog
 
+## v1.17.4 (29–30 August 2026) — weekend hardening: payment verification, weekend liveness, mail plane, installer self-healing
+
+### Weekend liveness (MT4/MT5 go dark when market closed) — FIXED
+- Root cause: Master EA emits via 1s OnTimer (always alive) but Client EA's
+  presence derived ONLY from OnTick (never fires on weekend) → clients went
+  OFFLINE through every closed market ("client not working" reports).
+- Client EAs (MT4+MT5): OnTimer (15s) sends a LIVENESS ping into
+  PAT_ticks.txt (symbol/source/account/broker + market_closed:true) when no
+  real tick has flowed; piggy-backs RequestLicenseValidation so a newly
+  typed key resolves through a closed market. Live markets unaffected
+  (real ticks suppress the ping).
+- Agent: LIVENESS case registers/refreshes terminals (dashboard ONLINE,
+  license resolves) and forwards connectivity-only event.
+- Engine: [AGENT-LIVENESS] logged, permit gate hydrated; NEVER treated as
+  market data (stale-data rules strict).
+- Verified live: 153 MT4 + 153 MT5 LIVENESS pings in 15 minutes.
+
+### Master EA weekend snapshot (market_closed) — FIXED
+- Master EAs return bid/ask=0 when the market is closed and silently
+  bailed → "connected but not sending data". Now: last-known price cached
+  on every live tick; closed-market snapshots STILL emit with
+  market_closed:true (liveness-only). MT4+MT5.
+- Engine: MarketSnapshot.MarketClosed parsed; /api/v1/agents/status
+  exposes market_closed; a live stream of closed-market snapshots counts
+  as HEALTHY (distinguishes 'agents dead' from 'market closed').
+
+### STALE-TERMINAL fixes (agent v1.2.44)
+- MASTER_DEINIT now unregisters the terminal immediately (previously
+  lingered until prune → :9001 showed online after closing charts).
+  EAs now include account in the deinit payload.
+- Removed duplicated prune; the heartbeatLoop sweeps every 2s both roles.
+- Telemetry honesty: data-role 'candles' counter counts only real
+  MASTER_TICK/MARKET_SNAPSHOT sends (was counting heartbeats — masked a
+  dead feed as alive).
+
+### installer v1.2.43+ — customer-proof self-healing
+- Same one-line install handles everything: SHA256-verified download with
+  Defender-allow repair + 4x retry; self-healing start loop (3 rounds)
+  re-asserts exclusions, re-creates service, verifies Running + health 200,
+  prints agent log lines on failure; late-retry safety net re-registers the
+  service; -Unattended (irm|iex never blocks) + -LicenseKey forwarding.
+- Defender Tamper Protection detection: installer VERIFIES exclusions via
+  Get-MpPreference and prints ACTION REQUIRED manual steps when silently
+  blocked (the 'update blocked but old one worked' root cause).
+
+### BE-6 + RBAC + payments
+- market_closed-aware DataQualityGate: EA market_closed flag flows
+  EA→agent→Tick→gate; EXECUTABLE evaluation vetoes with
+  MARKET_CLOSED_LIVENESS_DATA (fail-closed; observed weekend burst produced
+  8 EXECUTABLE signals on last-known prices — no longer possible).
+- RBAC: access JWT now embeds permissions[] (role_permissions ⋈ memberships
+  ⋈ permissions); PermissionGuard case-insensitive; RISK_MANAGE key fixed
+  to DB canonical 'risk:modify'. PUT /admin/risk-config works for ADMIN
+  (was 403 for everyone — latent since guard rollout). Live-verified 200.
+
+### Payments — USDT-only + anti-scam (product decision: Stripe off)
+- Stripe routes gated behind PAT_ENABLE_STRIPE (default off):
+  checkout → 403 'USDT-only', webhook → 204; NOWPayments = sole gateway.
+- Anti-underpaid: IPN settlement now verifies gateway-reported paid amount
+  against invoice expected (tolerance NOWPAYMENTS_UNDERPAY_TOLERANCE_PCT,
+  default 2%); underpay → payment UNDERPAID + audit row, subscription NOT
+  activated; optional NOWPAYMENTS_REQUIRE_AMOUNT=strict.
+- Subscriber visibility: GET /billing/payments (DB-truth) + billing-page
+  USDT status banner (awaiting_payment with Resume link, underpaid,
+  confirmed-with-timestamp, failed) — mirror of settlement exactly.
+
+### Mail plane — pat-mail-relay (new container)
+- Go send-only SMTP submission relay: AUTH PLAIN required (SMTP_USERS),
+  From-domain enforced (predictatrade.com), no open relay; SQLite spool +
+  retry/backoff + dead-letter; direct-MX or SMARTHOST outbound; STARTTLS/465.
+- Fixed during E2E: SMTP AUTH PLAIN corrupted by whole-line uppercase
+  (base64 case-sensitive) — now uppercase command token only.
+- docker-compose service + control.env SMTP_HOST=pat-mail-relay;
+  operator DNS runbook (MX/SPF pat1 DKIM/DMARC) in mail-relay/README.md.
+- E2E verified: AUTH 235 → queue → 'delivered msg 1'.
+
+### Sessions
+- Admin console session continues on admin@predictatrade.com (operator-held
+  password set 2026-08-29; rotate in a maintenance window).
+
 ## v1.17.3 (29 August 2026) — BE-6 reconciliation + NestJS 12 + Windows Agent verification
 
 ### BE-6 — Signal↔execution fill-level reconciliation (closes the remaining PARTIAL)

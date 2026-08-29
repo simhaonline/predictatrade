@@ -2,7 +2,7 @@
 
 Multi-plane XAUUSD trading signal generation and analytics platform.
 
-**Version:** v1.17.3 | **Date:** 29 August 2026 | **Status:** GO — launch-blockers closed; NestJS 12 upgrade complete; CI 6/6 jobs green; dashboards runtime-audited (all 38 pages); Windows Agent v1.2.40 + installers verified; residual: connect MT5 clients (EA attach + license key) and one demo fill test
+**Version:** v1.17.4 | **Date:** 30 August 2026 | **Status:** GO — all prior items closed + weekend-hardened: MT4/MT5 online through closed market (EAs LIVENESS), market_closed-aware signal gate, stale-terminal fixes, USDT-only payments with anti-scam settlement verification + subscriber status banner, mail relay (pat.predictatrade.com) live; v1.2.44 agents; see realtime/CHANGELOG v1.17.4
 
 ## Quick Start
 

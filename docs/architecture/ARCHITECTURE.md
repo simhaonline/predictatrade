@@ -1,5 +1,5 @@
 # Predict-A-Trade Architecture
-## v1.17.3 — 29 August 2026
+## v1.17.4 — 30 August 2026
 
 > Visual flows: tick→signal sequence, execution reconciliation, auth, licensing, payments,
 > update/rollback, backup/DR are in **[FLOW_DIAGRAMS.md](FLOW_DIAGRAMS.md)** (Mermaid).

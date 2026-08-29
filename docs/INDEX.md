@@ -1,5 +1,5 @@
 # Predict-A-Trade Documentation Index
-## v1.17.3 — 29 August 2026
+## v1.17.4 — 30 August 2026
 
 ### Architecture
 - [Architecture & Boundaries](architecture/ARCHITECTURE.md) — 13+ services, NestJS 12/ESM notes, plane boundaries, BE-6 reconciliation, recent changes
@@ -17,6 +17,10 @@
 ### Database
 - [Database Architecture](database/DATABASE_ARCHITECTURE.md) — 16 schemas, 210+ tables live, 65 migrations (unique prefixes), hypertables + retention, money/time invariants
 - [ERD (mermaid)](database/DB_ERD.md) — entity relationships for IAM, licensing, commercial, finance, trading, market, audit + invariants
+
+### Mail & Payments
+- [Mail Relay Runbook](../../mail-relay/README.md) — pat.predictatrade.com send-only SMTP relay: deployment, DNS (MX/SPF/DKIM/DMARC), env reference
+- Payments policy: **USDT-only** (NOWPayments; Stripe disabled at controller). Anti-scam: HMAC IPN + amount verification + UNDERPAID handling — see [API Reference](api/API_REFERENCE.md) §5 and the user billing banner.
 
 ### Deployment & Operations
 - [Docker Deployment](operations/DOCKER_DEPLOYMENT.md) — Step-by-step Docker Compose guide (includes live terminal, broker timezone)
@@ -40,4 +44,4 @@
 
 ### Current status (living documents)
 - [Implementation Status](reports/IMPLEMENTATION_STATUS.md) — per-requirement implementation ledger (29 Aug)
-- [Changelog](../../realtime/CHANGELOG.md) — version history (v1.17.3 current)
+- [Changelog](../../realtime/CHANGELOG.md) — version history (v1.17.4 current)

@@ -1,5 +1,5 @@
 # REST & WebSocket API Reference
-## v1.17.3 — 29 August 2026
+## v1.17.4 — 30 August 2026
 
 Two backends share the API surface:
 
@@ -68,6 +68,19 @@ Admin (under `/admin`): `/admin/subscriptions`, `/admin/subscriptions/{payments|
 
 ## 5. Billing (`/billing`) — `billing.controller.ts`
 
+> **Payments policy (v1.17.4): USDT-only.** Stripe is disabled at the controller:
+> `/billing/stripe/checkout` → `403 USDT-only`, `/billing/webhook/stripe` → 204
+> (unless operator sets `PAT_ENABLE_STRIPE=true`). **Anti-scam settlement:** IPN
+> requires `x-nowpayments-sig` HMAC-SHA512 (timing-safe compare), exact-key
+> replay dedupe (`billing.payment_events`), transactional one-shot settlement,
+> and **amount verification** — the gateway-reported paid amount must cover the
+> invoice expected within `NOWPAYMENTS_UNDERPAY_TOLERANCE_PCT` (default 2%),
+> otherwise the payment is marked **UNDERPAID** (audit row; subscription NOT
+> activated). Users see the live state on the billing page banner
+> (awaiting_payment / underpaid / confirmed / failed) via `GET
+> /billing/payments`. `NOWPAYMENTS_REQUIRE_AMOUNT=strict` refuses settlement
+> when the gateway omits amounts.
+
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | /billing/invoices | JWT | Own invoices (branded PDF available via `/invoices/{id}/html`) |
@@ -75,6 +88,9 @@ Admin (under `/admin`): `/admin/subscriptions`, `/admin/subscriptions/{payments|
 | GET | /billing/invoices/{id} | Owner/Admin | Invoice |
 | GET | /billing/invoices/{id}/html | Owner/Admin | Rendered HTML invoice |
 | POST | /billing/invoices/{id}/mark-paid | Admin | Manual settlement |
+| GET | /billing/payments | JWT | USDT payment status (dashboard banner) — `display_status` ∈ awaiting_payment/confirmed/underpaid/failed, `amount`, gateway event, NOWPayments `hosted_url` |
+| POST | /billing/stripe/checkout | JWT | **DISABLED (USDT-only)** — 403 unless `PAT_ENABLE_STRIPE=true` |
+| POST | /billing/webhook | HMAC | Legacy Stripe webhook — 204 when Stripe disabled |
 | POST | /billing/webhook | HMAC | Stripe webhook — raw-body HMAC verified |
 | POST | /billing/nowpayments/create-invoice | JWT | Crypto invoice via NOWPayments |
 | POST | /billing/webhook/nowpayments | HMAC | NOWPayments IPN callback |
@@ -191,7 +207,7 @@ Guest-preview suite (`/guest`): `session`, `status`, `register`, `otp/resend`, `
 | GET | /api/v1/market/state | None | Full market state incl. Regime |
 | GET | /api/v1/market/indicators | JWT | Indicators only |
 | GET | /api/v1/candles | JWT | Cached candles (TimescaleDB ⇢ Valkey ⇢ in-memory ladder) |
-| GET | /api/v1/agents/status | Admin | Agent count, mt4/mt5 links, snapshot_count, `data_health` (NO_DATA/HEALTHY/STALE/CRITICAL), `last_snapshot_at` |
+| GET | /api/v1/agents/status | Admin | Agent count, mt4/mt5 links, snapshot_count, `data_health` (NO_DATA/HEALTHY/STALE/CRITICAL), `market_closed` (true when Master EA reports closed-market liveness snapshots), `last_snapshot_at` |
 | GET | /api/v1/engines/status | JWT | 5 strategy engines + liveness |
 | GET | /api/v1/system-health | Admin | Engine + DB + feeds + agents rollup |
 | GET | /api/v1/liquidity/** | JWT | Devil Liquidity marks/qualification |
@@ -211,7 +227,7 @@ Guest-preview suite (`/guest`): `session`, `status`, `register`, `otp/resend`, `
 | /ws | platform edge | JWT | Browser realtime (live-terminal relay) |
 
 **Server → client events:** `signal`, `signal_update`, `tick`, `engine_status`, `market_alert`,
-`LICENSE_STATUS`, `CLOSE_POSITION`, `EMERGENCY_STOP`, `KILL_SWITCH`, `REQUEST_SNAPSHOT`.
+`LICENSE_STATUS`, `CLOSE_POSITION`, `EMERGENCY_STOP`, `KILL_SWITCH`, `REQUEST_SNAPSHOT`; client EAs also emit a `LIVENESS` ping (connectivity-only, `market_closed:true`) that the agent forwards upstream during closed markets, `LIVENESS` (client-EA closed-market connectivity ping — agent→engine) — the status page and agents/status now also expose `market_closed`.
 
 **Signal object** (abridged — full field list in §9 of old reference and `realtime/internal/types`):
 `ID`, `Direction`, `StrategyID`, `SignalClass` (ADVISORY|EXECUTABLE), `RawScore`,
