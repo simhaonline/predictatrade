@@ -9,6 +9,7 @@ import { SignalPipeline } from "@/components/user-command-center/signal-pipeline
 import { GrowthPanel } from "@/components/user-command-center/growth-panel";
 import { MarketContextPanel } from "@/components/market-context/market-context-panel";
 import { IconChartLine, IconActivity, IconTrendingUp, IconLayoutGrid } from "@tabler/icons-react";
+import { MarketStatusBanner } from "@/components/market-status-banner";
 
 type Mode = "MARKET" | "TRADING" | "GROWTH" | "COMMAND_CENTER";
 
@@ -38,6 +39,7 @@ export default function UserLiveDashboardPage() {
 
   return (
     <div className="space-y-4">
+      <MarketStatusBanner />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

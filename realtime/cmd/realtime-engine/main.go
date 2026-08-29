@@ -418,6 +418,25 @@ func startHealthMonitor(
 	}
 }
 
+
+// nextMarketOpen computes the next FX market open (broker-time aware).
+// FX week: Sun 22:00 UTC → Fri 21:55 UTC. On weekend, next open is the
+// upcoming Sunday 22:00 UTC. During weekday closed-hours (21:00-22:00 UTC
+// Fri, or after Fri 21:55) → next Sunday.
+func nextMarketOpen(nowUTC time.Time) time.Time {
+	y, m, d := nowUTC.UTC().Date()
+	today := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+	weekday := today.Weekday()
+	// next Sunday 22:00 (strictly in the future)
+	daysToSunday := (7 - int(weekday)) % 7
+	nextSunday := today.AddDate(0, 0, daysToSunday).Add(22 * time.Hour)
+	if nextSunday.After(nowUTC) {
+		return nextSunday
+	}
+	// today is Sunday after 22:00 → next week's Sunday
+	return today.AddDate(0, 0, 7).Add(22 * time.Hour)
+}
+
 // dataFeedOutage reports whether the market-data (snapshot) feed is in an
 // outage: at least one agent is connected (execution OR Master Node/data) but
 // the snapshot-built market state is missing or critically stale. A lone tick is
@@ -3258,6 +3277,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 						candRoundTripCost := decimal.NewFromFloat(spreadNow + cfg.SlippageCostPoints + cfg.CommissionCostPoints)
 						candEntitlement := gates.ResolveEntitlementState(gateRegistry)
 						candDecision := engine.DecideWithAdvanced(buildAdvancedInput(sigengine.DecisionInput{
+							MarketClosed: globalAgentProvider != nil && globalAgentProvider.IsMarketClosed(), NextMarketOpen: nextMarketOpen(time.Now().UTC()),
 							StrategyID: strat.ID(), Direction: advDir, Timeframe: candle.Timeframe,
 							RawScore: sig.RawScore, LongScore: sig.LongScore, ShortScore: sig.ShortScore,
 							Tick: mergedState.LastTick, Regime: mergedState.Regime.Current, ATR: mergedState.Indicators.ATR,
@@ -3630,6 +3650,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			}
 		}
 		decision := engine.DecideWithAdvanced(buildAdvancedInput(sigengine.DecisionInput{
+			MarketClosed: globalAgentProvider != nil && globalAgentProvider.IsMarketClosed(), NextMarketOpen: nextMarketOpen(time.Now().UTC()),
 			StrategyID: strat.ID(), Direction: stratResult.Direction,
 			Timeframe: candle.Timeframe, // scope gates to the triggering timeframe
 			RawScore:  stratResult.RawScore, LongScore: stratResult.LongScore, ShortScore: stratResult.ShortScore,

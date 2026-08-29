@@ -239,6 +239,7 @@ type PositionDetail struct {
 // It does NOT generate fake data. If no agent is connected, it produces NO ticks
 // and the system degrades to NO-TRADE (SOW: data quality gate fails closed).
 type AgentProvider struct {
+	marketClosed bool // last snapshot says broker market closed (liveness-only)
 	name      string
 	mu        sync.Mutex
 	agents    map[string]chan *AgentTickMessage // agentID → tick channel
@@ -939,6 +940,7 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		p.snapshotMu.Lock()
 		p.lastSnapshot = &snapshot
 		p.snapshotCount++
+		p.marketClosed = snapshot.MarketClosed || snapshot.Session.IsWeekend
 		p.snapshotMu.Unlock()
 		// Track snapshot receipt separately so a lone tick cannot mask a dead
 		// snapshot feed (snapshots build the market state for signal generation).
@@ -1170,6 +1172,17 @@ func (p *AgentProvider) updateLastSnapshot() {
 	p.lastMarketDataMu.Lock()
 	p.lastSnapshotAt = time.Now().UTC()
 	p.lastMarketDataMu.Unlock()
+}
+
+// IsMarketClosed reports whether the latest Master snapshot flagged the
+// broker market as closed (weekend/holiday liveness-only data).
+func (p *AgentProvider) IsMarketClosed() bool {
+	p.snapshotMu.RLock()
+	defer p.snapshotMu.RUnlock()
+	if p.lastSnapshot != nil {
+		return p.lastSnapshot.MarketClosed || p.lastSnapshot.Session.IsWeekend
+	}
+	return p.marketClosed
 }
 
 // LastMarketDataAt returns the time the engine last received any live market

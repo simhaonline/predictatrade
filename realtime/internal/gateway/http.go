@@ -929,11 +929,26 @@ func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) 
 		"data_stale_secs":       staleSecs,
 		"data_health":           dataHealth,
 		"market_closed":         marketClosed,
+		"next_market_open_utc":  nextMarketOpenUTC(time.Now().UTC()).Format(time.RFC3339),
 		"mt4_connected":        h.agentHub.MT4ConnectedCount(),
 		"mt5_connected":        h.agentHub.MT5ConnectedCount(),
 		"timestamp":            time.Now().UTC().Format(time.RFC3339),
 		"server_time":          time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+// nextMarketOpenUTC computes the next FX re-open (Sun 22:00 UTC) for the
+// client-facing weekend countdown (check.md #1).
+func nextMarketOpenUTC(now time.Time) time.Time {
+	y, m, d := now.UTC().Date()
+	today := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+	wd := today.Weekday()
+	days := (7 - int(wd)) % 7
+	nextSunday := today.AddDate(0, 0, days).Add(22 * time.Hour)
+	if nextSunday.After(now) {
+		return nextSunday
+	}
+	return today.AddDate(0, 0, 7).Add(22 * time.Hour)
 }
 
 // handleNews exposes the current news risk level and upcoming economic events

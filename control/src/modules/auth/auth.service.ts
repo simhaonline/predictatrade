@@ -92,10 +92,17 @@ export class AuthService {
     if (existing.rows.length > 0) throw new ConflictException('Email already registered');
     const passwordHash = await bcrypt.hash(dto.password, 12);
     const userId = crypto.randomUUID();
+    // New users land in PENDING — an admin must approve them before they can
+    // log in (login hard-blocks non-ACTIVE at auth.service.ts:198).
     await this.pool.query(
       `INSERT INTO iam.users (id, email, password_hash, full_name, status, email_verified, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, 'ACTIVE', false, now(), now())`,
+       VALUES ($1, $2, $3, $4, 'PENDING', false, now(), now())`,
       [userId, dto.email, passwordHash, dto.displayName || dto.email.split('@')[0]],
+    );
+    await this.pool.query(
+      `INSERT INTO audit.audit_events (actor_type, actor_id, action, entity_type, entity_id, reason, new_value)
+       VALUES ('system', $2, 'iam.user.registered_pending_approval', 'user', $1, 'Awaiting admin approval', '{"status":"PENDING"}'::jsonb)`,
+      [userId, userId],
     );
     if (dto.referralCode) {
       const referrer = await this.pool.query(

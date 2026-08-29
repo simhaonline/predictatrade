@@ -8,6 +8,7 @@ import { IconUsers, IconReceipt, IconCoin, IconChartBar, IconShield, IconDeviceD
 import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
 import { useState, useEffect, useRef } from "react";
+import { MarketStatusBanner } from "@/components/market-status-banner";
 
 export default function AdminDashboardPage() {
   // --- Data queries ---
@@ -195,6 +196,7 @@ export default function AdminDashboardPage() {
   if (isLoading) {
     return (
       <div className="space-y-4">
+        <MarketStatusBanner />
         <h1 className="text-xl font-bold text-pat-text-primary">Real-Time Console</h1>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
           {Array.from({ length: 6 }).map((_, i) => (

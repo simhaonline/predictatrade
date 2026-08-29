@@ -295,6 +295,7 @@ const (
 	NTBrokerProfileMismatch NoTradeReason = "BROKER_PROFILE_MISMATCH"
 	NTGateDegraded          NoTradeReason = "GATE_DEGRADED"
 	NTGateUnknown           NoTradeReason = "GATE_UNKNOWN"
+	NTMarketClosed          NoTradeReason = "MARKET_CLOSED"
 
 	// Phase 2: Granular NO-TRADE reason codes (SOW Section 32)
 	NTNoDirection            NoTradeReason = "NT_NO_DIRECTION"
@@ -387,6 +388,12 @@ type Signal struct {
 	TTL                   time.Duration
 	Status                SignalStatus
 	ReasonCodes           []NoTradeReason
+	// HumanReason is the subscriber-facing one-line explanation (never
+	// fabricated): e.g. "Market closed — no signals until broker re-opens".
+	HumanReason string
+	// MarketClosed / NextMarketOpen: set only on the market-closed short-circuit
+	// NO-TRADE so clients can show a re-open countdown.
+	NextMarketOpen *time.Time
 	Evidence              []EvidenceContribution
 	GateResults           []GateEvaluation
 	// AiVerification records the AI/LLM verification outcome for the signal.

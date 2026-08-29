@@ -32,6 +32,12 @@ type DecisionInput struct {
 	LongScore          decimal.Decimal // Pre-computed by strategy
 	ShortScore         decimal.Decimal // Pre-computed by strategy
 	Tick               *types.Tick
+	// MarketClosed: broker market is closed (weekend/holiday). Signal
+	// generation MUST short-circuit — check.md 2026-08-30: emitting signals on
+	// stale last-known prices reads as engine inaccuracy. One hard, honest
+	// NO-TRADE reason; no strategy/gate churn, no rows.
+	MarketClosed    bool
+	NextMarketOpen  time.Time
 	Regime             types.Regime
 	Session            string
 	SessionAllowed     bool
@@ -108,6 +114,31 @@ type DecisionResult struct {
 // 3. Produce BUY/SELL/NO-TRADE
 func (e *Engine) Decide(input DecisionInput) DecisionResult {
 	result := DecisionResult{}
+
+	// MARKET-CLOSED SHORT-CIRCUIT (check.md 2026-08-30 #2): no signal generation
+	// at all when the broker market is closed. Weekend data is liveness-only —
+	// any directional output (ADVISORY/CANDIDATE/EXECUTABLE) on last-known
+	// prices reads as engine inaccuracy. Return a single honest NO-TRADE.
+	if input.MarketClosed {
+		sig := &types.Signal{
+			ID:          uuid.New().String(),
+			StrategyID:  input.StrategyID,
+			Direction:   types.DirectionNoTrade,
+			Grade:       types.GradeNoTrade,
+			RawScore:    input.RawScore,
+			LongScore:   input.LongScore,
+			ShortScore:  input.ShortScore,
+			Status:      types.SignalConfirmed,
+			ReasonCodes: []types.NoTradeReason{types.NTMarketClosed},
+			HumanReason: "Market closed — no signals generated until broker re-opens",
+		}
+		if !input.NextMarketOpen.IsZero() {
+			sig.NextMarketOpen = &input.NextMarketOpen
+		}
+		result.Signal = sig
+		result.AllGatesPass = false
+		return result
+	}
 
 	// P1-001: Round prices to broker digits before gate evaluation and signal output.
 	// This prevents impossible price levels that don't match broker tick size.
