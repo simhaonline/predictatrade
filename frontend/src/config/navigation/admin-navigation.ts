@@ -36,6 +36,7 @@ export const adminNavigation: NavItem[] = [
   { label: 'Subscription Management', href: '/admin/subscriptions', icon: IconReceipt, section: 'Customers & Billing' },
   { label: 'Plans & Entitlements', href: '/admin/plans-entitlements', icon: IconListCheck, section: 'Customers & Billing' },
   { label: 'Billing & Invoices', href: '/admin/billing', icon: IconCoin, section: 'Customers & Billing' },
+  { label: 'Payments', href: '/admin/payments', icon: IconWallet, section: 'Customers & Billing' },
   { label: 'Commission Operations', href: '/admin/commission-operations', icon: IconCoin, section: 'Customers & Billing' },
   { label: 'Payout Operations', href: '/admin/payout-operations', icon: IconWallet, section: 'Customers & Billing' },
   { label: 'Referrals & Affiliates', href: '/admin/referrals', icon: IconUsers, section: 'Customers & Billing' },
