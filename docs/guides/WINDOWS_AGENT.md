@@ -1,5 +1,5 @@
 # Windows Agent Guide
-## v1.2.40 — 29 August 2026
+## v1.2.41 — 29 August 2026
 
 ### Overview
 
@@ -262,3 +262,22 @@ The uninstaller kills the agent and cleans IPC files, but the MetaTrader EAs are
 - **Support email**: support@predictatrade.com
 - **GitHub**: https://github.com/simhaonline/predictatrade
 - **Status page**: https://status.predictatrade.com
+
+### v1.2.41 — co-located roles IPC race fix (29 Aug 2026)
+
+**Symptom seen in production:** Master Node agent "connected but not sending
+data"; dashboard flapped online/offline; engine `snapshot_count` frozen.
+
+**Root cause:** both services (exec + data) ran identical consume loops over
+the same `Common\Files` folders and raced each other via atomic rename on
+`PAT_master_data.txt` (and `PAT_ticks.txt`). Whichever service renamed first
+kept the data; the other saw nothing — including the data agent the engine
+listens to for snapshots on :13091.
+
+**Fix:** role-gated consumers — only `role=data` reads master data; only
+`role=exec` reads client ticks. Heartbeat + signal files unchanged.
+
+**Operator action:** reinstall both services (or let the auto-updater swap to
+v1.2.41); the service names/env are unchanged. After restart, verify in
+`C:\PredictATrade\Master\logs\` within 30s:
+`[IPC] PAT_master_data.txt present (N bytes) — forwarding to engine`.
