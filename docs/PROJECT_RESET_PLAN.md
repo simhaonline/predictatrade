@@ -58,7 +58,10 @@ lock the v1 offering. Agent-install troubleshooting is parked.
 
 ---
 
-## Status — 2026-08-28 (new standalone `pat-engine/`)
+## Status — 2026-08-28 (standalone `pat-engine`)
+
+> NOTE: `pat-engine` was extracted from this monorepo to a standalone project at
+> `/srv/pat-engine` (its own git repo). It is no longer a subdirectory here.
 
 Decision shifted from "reset in place" to "build a clean standalone engine, reference
 only, no existing service/DB, current repo untouched" (user direction). Delivered and

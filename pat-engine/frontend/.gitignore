@@ -1,9 +1,0 @@
-node_modules
-.next
-out
-npm-debug.log*
-.DS_Store
-
-# Next.js build artifacts
-tsconfig.tsbuildinfo
-next-env.d.ts
