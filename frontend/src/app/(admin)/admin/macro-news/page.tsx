@@ -31,7 +31,7 @@ function fmt(ts: string | null) {
 export default function AdminMacroNewsPage() {
   const { data, isLoading, isError, error } = useQuery<MacroNewsData>({
     queryKey: ["admin-macro-news"],
-    queryFn: async () => (await customInstance.get("/admin/macro-news")).data as MacroNewsData,
+    queryFn: async () => (await customInstance.get("/news")).data as MacroNewsData,
   });
 
   return (
