@@ -958,6 +958,22 @@ func (a *Agent) onTickFromEA(tick MT5Tick) {
 func (a *Agent) onLicenseCheck(msg LicenseCheckMsg) {
 	log.Printf("License check requested: account=%s broker=%s key=%s", msg.Account, msg.Broker, maskSecret(msg.LicenseKey))
 
+	// Propagate the EA-provided key into the agent's own license config so that
+	// device activation (registerTerminalWithBackend -> /devices/activate) uses
+	// it. This is what makes typing the license key ONCE in the MT4/MT5 EA the
+	// only manual step — the agent then activates the device automatically,
+	// instead of requiring a separate PAT_LICENSE_KEY env var on the agent.
+	if msg.LicenseKey != "" {
+		a.config.LicenseKey = msg.LicenseKey
+		// Terminals detected before the key arrived were skipped by
+		// registerTerminalWithBackend (it bails when no license key is set).
+		// Re-register them now so the control plane binds the license to the
+		// device and subsequent validation verdicts become ACTIVE.
+		for _, t := range a.pipeManager.GetTerminals() {
+			go a.registerTerminalWithBackend(*t)
+		}
+	}
+
 	// Build the API URL for license validation
 	validateURL := strings.Replace(a.config.APIURL, "/api/v1", "/api/v1/licensing/validate", 1)
 	if !strings.Contains(validateURL, "licensing/validate") {

@@ -17,7 +17,13 @@
 param(
     [ValidateSet("client","master")][string]$Mode = "client",
     [string]$EngineHost = "live.predictatrade.com",
-    [string]$BaseUrl = "https://downloads.predictatrade.com/windows-agent"
+    [string]$BaseUrl = "https://downloads.predictatrade.com/windows-agent",
+    # License key for this device. When supplied, it is written to the agent's
+    # PAT_LICENSE_KEY machine env so the agent auto-activates the device on first
+    # run. NOTE: typing the key once in the MT4/MT5 EA is ALSO sufficient — the
+    # agent propagates the EA-provided key into activation automatically. This flag
+    # is only for fully unattended / scripted installs.
+    [string]$LicenseKey = ""
 )
 
 # ─── Config ───
@@ -163,6 +169,17 @@ Write-Host "  OK: Local health port = $HealthPort"
 # stale value and make reinstalls deterministic.
 $ApiBaseUrl = "https://api.predictatrade.com/api/v1"
 [Environment]::SetEnvironmentVariable("PAT_API_URL", $ApiBaseUrl, "Machine") | Out-Null
+Write-Host "  OK: Control API URL = $ApiBaseUrl"
+
+# Step 2e: Optionally persist the license key so the agent auto-activates the device
+# on first run (unattended installs). When empty, the agent still activates
+# automatically using the key you type into the MT4/MT5 EA — no manual env needed.
+if ($LicenseKey -ne "") {
+    [Environment]::SetEnvironmentVariable("PAT_LICENSE_KEY", $LicenseKey, "Machine") | Out-Null
+    Write-Host "  OK: License key persisted (PAT_LICENSE_KEY)"
+} else {
+    Write-Host "  INFO: No -LicenseKey supplied — type the key once in the MT4/MT5 EA; the agent will auto-activate."
+}
 Write-Host "  OK: Control API URL = $ApiBaseUrl"
 
 # Step 2e: Tell the auto-updater the exact Windows service name to stop/start when
