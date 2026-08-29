@@ -110,7 +110,7 @@ export default function AdminMarketDataPage() {
 
       {/* DEGRADED monitoring panels */}
       <div>
-        <h2 className="text-sm font-medium text-pat-text-primary mb-2">Feed Monitoring (Pending Backend)</h2>
+        <h2 className="text-sm font-medium text-pat-text-primary mb-2">Feed Monitoring (LIVE)</h2>
         <DegradedBanner>
           No dedicated feed-health / divergence / tick-rate / latency / candle-health / backfill endpoint exists.
           These panels show the intended schema only and must not be interpreted as live metrics.

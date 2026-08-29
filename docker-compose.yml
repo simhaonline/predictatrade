@@ -246,7 +246,7 @@ services:
   # ─── Reverse Proxy Layer ───
   nginx:
     image: nginx:alpine
-    container_name: pat-nginx
+    # nginx proxy needs reload
     ports:
       - "80:80"
       - "443:443"

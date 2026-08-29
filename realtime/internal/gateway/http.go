@@ -89,6 +89,7 @@ func (h *HTTPServer) registerRoutes() {
 	h.mux.HandleFunc("/api/v1/trades", h.handleTrades)
 	h.mux.HandleFunc("/api/v1/market/state", h.handleMarketState)
 	h.mux.HandleFunc("/api/v1/candles", h.handleCandles)
+	h.mux.HandleFunc("/api/v1/feeds", h.handleFeeds)
 	h.mux.HandleFunc("/api/v1/strategies", h.handleStrategies)
 	h.mux.HandleFunc("/api/v1/market/snapshot", h.handleMarketSnapshot)
 	h.mux.HandleFunc("/api/v1/agents/status", h.handleAgentsStatus)
