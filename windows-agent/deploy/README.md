@@ -53,6 +53,14 @@ The installer:
 1. **Master Node EA** — attach to an **XAUUSD** chart (data collection; no license required).
 2. **Execution EA** — attach to an **XAUUSD** chart with your license key (places/Closes trades from signals).
 
+Download the latest EA sources (v1.17.2 MasterAppend fix) from:
+- https://downloads.predictatrade.com/windows-agent/PredictATrade_MasterNode_MT5.mq5
+- https://downloads.predictatrade.com/windows-agent/PredictATrade_MT5.mq5
+(older MT4: PredictATrade_MasterNode_MT4.mq4 / PredictATrade_MT4.mq4)
+
+Copy them into each terminal's `MQL5\Experts\` (or `MQL4\Experts\`) folder
+and compile in MetaEditor (F7) before attaching.
+
 > The EA can be on **any chart timeframe** (M1/M5/M15/H1…). Execution is by
 > symbol + price levels, not chart timeframe, so a client chart on M15 still
 > executes an M5 signal correctly.
