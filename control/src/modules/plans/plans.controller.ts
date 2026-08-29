@@ -14,7 +14,7 @@ export class PlansController {
   @Get(':id')
   async findById(@Param('id') id: string) { return this.plansService.findById(id); }
 
-  @Post(':id')
+  @Patch(':id')
   @UseGuards(AdminGuard)
   async update(@Param('id') id: string, @Body() body: Record<string, any>) {
     return this.plansService.update(id, body);
