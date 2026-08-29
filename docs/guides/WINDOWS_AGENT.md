@@ -264,6 +264,7 @@ The uninstaller kills the agent and cleans IPC files, but the MetaTrader EAs are
 - **Status page**: https://status.predictatrade.com
 
 ### v1.2.41 — co-located roles IPC race fix (29 Aug 2026)
+<!-- also applies to 1.2.42 Defender verification -->
 
 **Symptom seen in production:** Master Node agent "connected but not sending
 data"; dashboard flapped online/offline; engine `snapshot_count` frozen.
@@ -281,3 +282,29 @@ listens to for snapshots on :13091.
 v1.2.41); the service names/env are unchanged. After restart, verify in
 `C:\PredictATrade\Master\logs\` within 30s:
 `[IPC] PAT_master_data.txt present (N bytes) — forwarding to engine`.
+
+### "Windows Defender blocked the update" (v1.2.42 context)
+
+**Why now:** the agent ships unsigned. On the machine where it was first
+installed, the old binary had been manually allowed — Defender's allow-list
+applies to that exact byte-hash. Every **new build has a new hash**, so
+Defender runs a fresh verdict and quarantines it unless the folder exclusion
+is active.
+
+**Why the installer "OK" lies:** Windows 10/11 **Tamper Protection** silently
+blocks `Add-MpPreference` — the exclusion is never added even though the
+command "succeeds". v1.2.42's installer now *verifies* the exclusion via
+`Get-MpPreference` and prints an `ACTION REQUIRED` block with manual steps if
+it isn't active.
+
+**One-time fix on the trading machine (as Administrator):**
+```powershell
+# Manual exclusion (UI equivalent works too)
+Add-MpPreference -ExclusionPath "C:\PredictATrade"
+Add-MpPreference -ExclusionPath "C:\ProgramData\PredictATrade"
+# If Add-MpPreference fails with a red error → Tamper Protection; use UI:
+# Windows Security → Virus & threat protection → Manage settings → Exclusions
+```
+Then: restore the quarantined exe from **Protection history** (or re-run the
+installer), and the service will start. This is one-time per machine — future
+updates with exclusions *verified active* pass cleanly.
