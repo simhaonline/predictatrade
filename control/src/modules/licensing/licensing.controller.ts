@@ -24,6 +24,13 @@ export class LicensingController {
     return this.licensingService.listLicenses(userId);
   }
 
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionGuard)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @Get('admin-licenses')
+  async listAllLicenses() {
+    return this.licensingService.listLicensesAll();
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('devices')
   async listDevices(@CurrentUser('sub') userId: string) {

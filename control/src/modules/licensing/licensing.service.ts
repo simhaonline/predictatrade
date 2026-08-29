@@ -684,4 +684,17 @@ export class LicensingService {
     );
     return r.rows;
   }
+
+  /** Admin fleet list (check.md #6 — user-scoped returned empty for admins) */
+  async listLicensesAll() {
+    const r = await this.pool.query(
+      `SELECT l.*, p.name as plan_name, u.email as user_email, u.full_name as user_name,
+              (SELECT count(*) FROM licensing.devices d WHERE d.bound_license_id = l.id AND d.deleted_at IS NULL) as device_count
+       FROM licensing.licenses l
+       LEFT JOIN control.plans p ON l.plan_id = p.id
+       LEFT JOIN iam.users u ON l.user_id = u.id
+       ORDER BY l.created_at DESC LIMIT 200`
+    );
+    return r.rows;
+  }
 }
