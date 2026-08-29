@@ -87,6 +87,9 @@ ulong   g_barEventSequence = 0;     // monotonic sequence for bar_closed events
 //=== Global State ===
 string  g_symbol;
 string  g_connection   = "OFFLINE";
+double  g_lastKnownBid = 0;   // last valid price — used for weekend market_closed snapshots
+double  g_lastKnownAsk = 0;
+bool    g_marketClosedAlerted = false;
 string  g_accountID     = "—";
 string  g_broker        = "";
 uint    g_lastTickSend   = 0;
@@ -514,6 +517,8 @@ void SendTickToAgent()
     double ask = SymbolInfoDouble(g_symbol, SYMBOL_ASK);
     if(bid <= 0 || ask <= 0) return;
 
+    g_lastKnownBid = bid;
+    g_lastKnownAsk = ask;
     g_tickCount++;
 
     long vol = 0;
@@ -532,6 +537,7 @@ void SendTickToAgent()
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";
     msg += ",\"node\":\"MASTER\"";
+    if(marketClosed) msg += ",\"market_closed\":true";
     // Broker session timezone — collected live so the engine works on Broker TF
     // (not UTC). TimeGMTOffset() returns the broker's GMT offset in seconds.
     msg += ",\"broker_offset\":" + IntegerToString(TimeGMTOffset() / 3600);
@@ -554,7 +560,26 @@ void SendMarketSnapshot()
 
     double bid = SymbolInfoDouble(g_symbol, SYMBOL_BID);
     double ask = SymbolInfoDouble(g_symbol, SYMBOL_ASK);
-    if(bid <= 0 || ask <= 0) return;
+
+    // Weekend/holiday: with the market closed, brokers return 0 prices. The
+    // previous behaviour silently returned — the operator saw "Master Node
+    // connected but not sending data" while the Client EAs showed OFFLINE,
+    // and we lost liveness entirely. Now we STILL emit a snapshot (last known
+    // price + market_closed flag) so liveness and connectivity stay observable
+    // through the closed market. The engine treats market_closed snapshots as
+    // liveness-only (no signal evaluation on stale prices).
+    bool marketClosed = (bid <= 0 || ask <= 0);
+    if(marketClosed)
+    {
+        if(g_lastKnownBid <= 0 || g_lastKnownAsk <= 0) return; // genuinely no price yet (EA just attached)
+        bid = g_lastKnownBid;
+        ask = g_lastKnownAsk;
+    }
+    else
+    {
+        g_lastKnownBid = bid;
+        g_lastKnownAsk = ask;
+    }
 
     g_snapshotCount++;
 
@@ -567,6 +592,7 @@ void SendMarketSnapshot()
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";
     msg += ",\"node\":\"MASTER\"";
+    if(marketClosed) msg += ",\"market_closed\":true";
     // Broker session timezone — collected live so the engine works on Broker TF
     // (not UTC). TimeGMTOffset() returns the broker's GMT offset in seconds.
     msg += ",\"broker_offset\":" + IntegerToString(TimeGMTOffset() / 3600);
@@ -872,6 +898,7 @@ void SendMasterInit()
     msg += "\"type\":\"MASTER_INIT\"";
     msg += ",\"ea_version\":\"1.00\"";
     msg += ",\"node\":\"MASTER\"";
+    if(marketClosed) msg += ",\"market_closed\":true";
     msg += ",\"platform\":\"MT5\"";
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
     msg += ",\"account\":\"" + g_accountID + "\"";
@@ -999,3 +1026,5 @@ void UpdatePanel()
     Comment(p);
 }
 //+------------------------------------------------------------------+
+// v1.17.3 weekend liveness (2026-08-29): market_closed snapshot support — see
+// SendMarketSnapshot(). Compiled EA: recompile in MetaEditor (F7) after update.

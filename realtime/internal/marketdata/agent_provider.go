@@ -78,6 +78,11 @@ type MarketSnapshot struct {
 	Broker      string          `json:"broker"`
 	Account     string          `json:"account"`
 	Node        string          `json:"node"`
+	// MarketClosed is set by the Master Node EA when the broker market is
+	// closed (weekend/holiday): bid/ask are 0 and the snapshot carries the
+	// last-known price. Liveness-only — the engine must NOT evaluate signals
+	// on stale closed-market prices.
+	MarketClosed bool `json:"market_closed"`
 	// BrokerOffset is the broker's UTC offset in hours, reported live by the
 	// Master Node (TimeGMTOffset). Authoritative broker session timezone.
 	BrokerOffset int `json:"broker_offset"`

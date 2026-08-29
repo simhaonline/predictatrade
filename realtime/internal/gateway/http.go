@@ -896,13 +896,24 @@ func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) 
 	// HEALTHY (<90s), STALE (>=90s), CRITICAL (>=180s), NO_DATA (never received).
 	dataHealth := "NO_DATA"
 	staleSecs := int64(-1)
+	marketClosed := false
 	if !lastSnapshotAt.IsZero() {
 		age := int64(time.Since(lastSnapshotAt).Seconds())
 		staleSecs = age
+		// A closed market (weekend/holiday) means the broker streams no quotes;
+		// the Master Node emits liveness-only snapshots (market_closed=true,
+		// last-known price). A live feed of those snapshots still counts as
+		// HEALTHY connectivity — the operator must see the difference between
+		// "agents dead" and "market simply closed".
+		if snap := h.agentProvider.GetLastSnapshot(); snap != nil {
+			if s, ok := snap.(*marketdata.MarketSnapshot); ok && s != nil {
+				marketClosed = s.MarketClosed
+			}
+		}
 		switch {
-		case age >= 180:
+		case !marketClosed && age >= 180:
 			dataHealth = "CRITICAL"
-		case age >= 90:
+		case !marketClosed && age >= 90:
 			dataHealth = "STALE"
 		default:
 			dataHealth = "HEALTHY"
@@ -917,6 +928,7 @@ func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) 
 		"last_snapshot_at":      lastSnapshotAt.UTC().Format(time.RFC3339),
 		"data_stale_secs":       staleSecs,
 		"data_health":           dataHealth,
+		"market_closed":         marketClosed,
 		"mt4_connected":        h.agentHub.MT4ConnectedCount(),
 		"mt5_connected":        h.agentHub.MT5ConnectedCount(),
 		"timestamp":            time.Now().UTC().Format(time.RFC3339),

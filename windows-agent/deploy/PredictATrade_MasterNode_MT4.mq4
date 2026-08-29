@@ -59,6 +59,8 @@ string g_tfNames[TF_COUNT] = {"M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1", 
 //=== Global State ===
 string  g_symbol;
 string  g_connection   = "OFFLINE";
+double  g_lastKnownBid = 0;   // last valid price — weekend market_closed snapshots
+double  g_lastKnownAsk = 0;
 string  g_accountID     = "—";
 string  g_broker        = "";
 uint    g_lastTickSend   = 0;
@@ -280,6 +282,9 @@ void SendTickToAgent()
     double ask = MarketInfo(g_symbol, MODE_ASK);
     if(bid <= 0 || ask <= 0) return;
 
+    g_lastKnownBid = bid;
+    g_lastKnownAsk = ask;
+
     g_tickCount++;
 
     string msg = "MASTER_TICK|{\"type\":\"MASTER_TICK\"";
@@ -297,6 +302,7 @@ void SendTickToAgent()
     // Broker session timezone — collected live so the engine works on Broker TF
     // (not UTC). TimeGMTOffset() returns the broker's GMT offset in seconds.
     msg += ",\"broker_offset\":" + IntegerToString(TimeGMTOffset() / 3600);
+    if(marketClosed) msg += ",\"market_closed\":true";
     msg += "}\n";
 
     MasterAppend(msg);
@@ -316,7 +322,18 @@ void SendMarketSnapshot()
 
     double bid = MarketInfo(g_symbol, MODE_BID);
     double ask = MarketInfo(g_symbol, MODE_ASK);
-    if(bid <= 0 || ask <= 0) return;
+    bool marketClosed = (bid <= 0 || ask <= 0);
+    if(marketClosed)
+    {
+        if(g_lastKnownBid <= 0 || g_lastKnownAsk <= 0) return; // EA just attached — no price known yet
+        bid = g_lastKnownBid;
+        ask = g_lastKnownAsk;
+    }
+    else
+    {
+        g_lastKnownBid = bid;
+        g_lastKnownAsk = ask;
+    }
 
     g_snapshotCount++;
 
