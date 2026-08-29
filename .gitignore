@@ -101,3 +101,4 @@ realtime/calibration/calibration_*_live.json
 
 # Client broker statement (PII: contains account number) — keep local only
 report.xlsx
+*.tsbuildinfo
