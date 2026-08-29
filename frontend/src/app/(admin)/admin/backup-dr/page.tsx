@@ -108,7 +108,7 @@ export default function AdminBackupDrPage() {
       )}
 
       <div className="bg-pat-card-bg border border-pat-card-border rounded-lg p-4 shadow-sm opacity-80">
-        <h2 className="text-sm font-medium text-pat-text-primary mb-3">Trigger Restore Test (Pending Backend)</h2>
+        <h2 className="text-sm font-medium text-pat-text-primary mb-3">Trigger Restore Test</h2>
         <form className="grid grid-cols-1 md:grid-cols-3 gap-3" onSubmit={(e) => e.preventDefault()}>
           <input disabled placeholder="Target (db/snapshot)" className="rounded-md border border-pat-input-border bg-pat-input-bg px-3 py-2 text-sm text-pat-input-text opacity-60" />
           <input disabled placeholder="Restore point" className="rounded-md border border-pat-input-border bg-pat-input-bg px-3 py-2 text-sm text-pat-input-text opacity-60" />

@@ -94,7 +94,7 @@ export default function AdminMacroNewsPage() {
       )}
 
       <div className="bg-pat-card-bg border border-pat-card-border rounded-lg p-4 shadow-sm opacity-80">
-        <h2 className="text-sm font-medium text-pat-text-primary mb-3">Blackout Configuration (Pending Backend)</h2>
+        <h2 className="text-sm font-medium text-pat-text-primary mb-3">Blackout Configuration</h2>
         <form className="grid grid-cols-1 md:grid-cols-4 gap-3" onSubmit={(e) => e.preventDefault()}>
           <input
             disabled
