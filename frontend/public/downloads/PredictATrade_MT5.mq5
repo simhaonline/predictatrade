@@ -877,6 +877,19 @@ void OnTick()
 //+------------------------------------------------------------------+
 void OnTimer()
 {
+    CheckAgentConnection();
+
+    // Weekend/holiday liveness: with no market ticks, OnTick never fires and
+    // the EA looks OFFLINE (no terminal registration, license unresolved).
+    // If no real tick went out recently, emit a LIVENESS ping instead.
+    uint now = GetTickCount();
+    uint tickGap = (TickIntervalMs > 0 ? TickIntervalMs : 1000) * 3;
+    if(g_connection == "CONNECTED" && (g_lastTickSend == 0 || GetTickCount() - g_lastTickSend > tickGap))
+    {
+        SendLivenessPing();
+        g_lastTickSend = GetTickCount(); // reuse as "last EA→agent send" so we ping at a sane rate
+    }
+
     PAT_Watchdog();
     PAT_HistoryPoll();
 }
@@ -1302,6 +1315,27 @@ void RequestLicenseValidation()
                  "}\n";
     PAT_Append(PAT_TICK_FILE, msg);
     Print("License validation with account data - balance: ", AccountInfoDouble(ACCOUNT_BALANCE));
+}
+
+//+------------------------------------------------------------------+
+//| LIVENESS ping — sent from OnTimer when the market produces no ticks |
+//| (weekend/holiday). Keeps the terminal visible (dashboard ONLINE),   |
+//| the license resolved, and the EA→agent chain provably alive. The    |
+//| engine treats LIVENESS as connectivity-only (no price evaluation).  |
+//+------------------------------------------------------------------+
+void SendLivenessPing()
+{
+    string msg = "LIVENESS|{\"type\":\"LIVENESS\"";
+    msg += ",\"symbol\":\""+g_symbol+"\"";
+    msg += ",\"source\":\"MT5\"";
+    msg += ",\"account\":\""+g_accountID+"\"";
+    msg += ",\"broker\":\""+AccountInfoString(ACCOUNT_COMPANY)+"\"";
+    msg += ",\"timestamp\":\""+FormatISO8601UTC(TimeGMT())+"\"}\n";
+    PAT_Append(PAT_TICK_FILE, msg);
+
+    // Include a license re-validation with each liveness ping so a fresh key
+    // typed into the EA resolves even through a closed market.
+    RequestLicenseValidation();
 }
 
 //+------------------------------------------------------------------+

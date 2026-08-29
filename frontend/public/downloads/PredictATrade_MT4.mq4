@@ -822,6 +822,16 @@ void OnTick()
 //+------------------------------------------------------------------+
 void OnTimer()
 {
+    CheckAgentConnection();
+
+    uint now = GetTickCount();
+    uint tickGap = (TickIntervalMs > 0 ? TickIntervalMs : 1000) * 3;
+    if(g_connection == "CONNECTED" && (g_lastTickSend == 0 || GetTickCount() - g_lastTickSend > tickGap))
+    {
+        SendLivenessPing();
+        g_lastTickSend = GetTickCount();
+    }
+
     PAT_Watchdog();
     PAT_HistoryPoll();
 }
@@ -1483,6 +1493,24 @@ void RequestLicenseValidation()
                  "}\n";
     PAT_Append(PAT_TICK_FILE, msg);
     Print("License validation requested - balance: ", AccountBalance());
+}
+
+//+------------------------------------------------------------------+
+//| LIVENESS ping — OnTimer fallback when the market produces no ticks |
+//| (weekend/holiday): keeps terminal visible + license resolvable.    |
+//+------------------------------------------------------------------+
+void SendLivenessPing()
+{
+    string msg = "LIVENESS|{\"type\":\"LIVENESS\"";
+    msg += ",\"symbol\":\""+g_symbol+"\"";
+    msg += ",\"source\":\"MT4\"";
+    msg += ",\"account\":\""+g_accountID+"\"";
+    msg += ",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) + "\"";
+    msg += ",\"market_closed\":true";
+    msg += ",\"timestamp\":\""+FormatISO8601UTC(TimeGMT())+"\"}\n";
+    PAT_Append(PAT_TICK_FILE, msg);
+
+    RequestLicenseValidation();
 }
 
 //+------------------------------------------------------------------+

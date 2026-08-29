@@ -884,6 +884,28 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		default:
 		}
 
+	case "LIVENESS":
+		// Client EA weekend/holiday liveness ping (no market ticks): proves the
+		// EA→agent→engine chain is alive while the market is closed. Hydrate the
+		// execution-permit gate exactly like an active agent, but do NOT feed
+		// any price path — market_closed payloads carry no valid price.
+		if p.agentConnectFn != nil {
+			p.agentConnectFn(agentID, "LIVENESS")
+		}
+		var lv struct {
+			AgentID      string `json:"agent_id"`
+			Symbol       string `json:"symbol"`
+			Source       string `json:"source"`
+			Account      string `json:"account"`
+			Broker       string `json:"broker"`
+			MarketClosed bool   `json:"market_closed"`
+		}
+		if err := json.Unmarshal(data, &lv); err == nil {
+			log.Printf("[AGENT-LIVENESS] agent=%s terminal=%s:%s symbol=%s market_closed=true",
+				agentID, lv.Source, lv.Account, lv.Symbol)
+		}
+		return
+
 	case "AGENT_TELEMETRY":
 		// Client agent health/usage snapshot for server-side observability.
 		// Logged (not processed) so ops can see fleet state; never affects trading.
