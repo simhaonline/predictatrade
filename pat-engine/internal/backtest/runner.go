@@ -75,11 +75,11 @@ func EvalStrategy(states []*types.MarketState, pol *broker.BrokerPolicy, lic *li
 		pnl := Simulate(states, i, d.Signal.Direction, d.Signal.EntryPrice, d.Signal.StopLoss,
 			d.Signal.TP1, d.Signal.TP2, d.Signal.TP3, maxBars, exec)
 		r.Trades++
-		if pnl > 0 {
+		if pnl.PnL > 0 {
 			r.Wins++
-			r.GrossWin += pnl
+			r.GrossWin += pnl.PnL
 		} else {
-			r.GrossLoss += -pnl
+			r.GrossLoss += -pnl.PnL
 		}
 	}
 	if r.GrossLoss > 0 {

@@ -160,6 +160,17 @@ func main() {
 		return
 	}
 
+	// Additional honest gate: is the edge STABLE across walk-forward folds? A single
+	// train/test split can flatter a config; we only publish when the edge repeats
+	// out-of-sample and the calibrated probability stays reliable.
+	rep := backtest.WalkForwardCalibrationForStrategy(states, 250, 30000, pol, lic, "TP1_BEFORE_SL", stratID, best.cfg)
+	fmt.Print(backtest.SummarizeStability(rep))
+	if !rep.Stable {
+		fmt.Println("\nRESULT: candidate had an OOS edge on the single split but is NOT walk-forward stable.")
+		fmt.Println("Nothing written. We do not publish an unstable/uncalibrated config.")
+		return
+	}
+
 	out := envOr("CALIBRATION_OUT", "data/calibrated_"+stratID+".json")
 	b, _ := json.MarshalIndent(best.cfg, "", "  ")
 	if err := os.WriteFile(out, b, 0o644); err != nil {
@@ -170,6 +181,19 @@ func main() {
 	fmt.Printf("  SL=%0.0f TP1=%0.0f ADX=%0.0f RR=%0.1f SpreadATR=%0.1f\n",
 		best.cfg.ATRMultiplierSL, best.cfg.ATRMultiplierTP1, best.cfg.MinADX, best.cfg.MinRR, best.cfg.SpreadATRGate)
 	fmt.Printf("  TRAIN PF=%.2f (n=%d)  TEST PF=%.2f (n=%d)\n", best.trainPF, best.trainTrades, best.testPF, best.testTrades)
+
+	// Also fit + write the multi-target calibration model (named probabilities),
+	// gated by the same stability verdict.
+	calTargets := []string{"TP1_BEFORE_SL", "TP2_BEFORE_SL", "DIRECTION_CORRECT"}
+	model := backtest.FitCalibrationAll(states, pol, lic, calTargets)
+	modelOut := envOr("CALIBRATION_MODEL_OUT", "data/calibration_model.json")
+	if mb, err := model.Bytes(); err != nil {
+		fmt.Println("model serialize error:", err)
+	} else if err := os.WriteFile(modelOut, mb, 0o644); err != nil {
+		fmt.Println("model write error:", err)
+	} else {
+		fmt.Printf("fitted multi-target calibration model written to %s\n", modelOut)
+	}
 }
 
 func envOr(k, def string) string {

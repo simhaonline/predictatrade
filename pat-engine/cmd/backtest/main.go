@@ -100,8 +100,20 @@ func main() {
 		fmt.Printf("train states : %d\n", len(train))
 		fmt.Printf("test  states : %d\n", len(test))
 
-		model := backtest.FitCalibration(train, pol, lic)
-		fmt.Print(backtest.ValidateCalibration(model, test, pol, lic))
+		calTargets := []string{"TP1_BEFORE_SL", "TP2_BEFORE_SL", "DIRECTION_CORRECT"}
+		// One combined model carries every named target (Fit routes by target).
+		model := backtest.FitCalibrationAll(train, pol, lic, calTargets)
+		for _, t := range calTargets {
+			fmt.Printf("\n--- target %s ---\n", t)
+			fmt.Print(backtest.ValidateCalibration(model, test, pol, lic, t))
+		}
+
+		// Walk-forward stability check (honest stability gate before publishing).
+		fmt.Print("\n=== WALK-FORWARD CALIBRATION STABILITY ===\n")
+		for _, t := range calTargets {
+			rep := backtest.WalkForwardCalibration(states, 250, 30000, pol, lic, t)
+			fmt.Print(backtest.SummarizeStability(rep))
+		}
 
 		out := os.Getenv("CALIBRATION_OUT")
 		if out == "" {
@@ -113,7 +125,7 @@ func main() {
 		} else if err := os.WriteFile(out, b, 0o644); err != nil {
 			fmt.Println("model write error:", err)
 		} else {
-			fmt.Printf("fitted model written to %s\n", out)
+			fmt.Printf("fitted multi-target model written to %s\n", out)
 		}
 		return
 	}

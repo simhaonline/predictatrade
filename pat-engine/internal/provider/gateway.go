@@ -43,6 +43,16 @@ type SignalDTO struct {
 	SuggestedLot          float64 `json:"SuggestedLot"`
 	RawScore              float64 `json:"RawScore"`
 	CalibratedProbability float64 `json:"CalibratedProbability"`
+	// Calibrated lists additional named-target probabilities beyond the primary
+	// CalibratedProbability (e.g. TP2_BEFORE_SL, DIRECTION_CORRECT).
+	Calibrated []calibratedTarget `json:"Calibrated,omitempty"`
+}
+
+// calibratedTarget mirrors types.NamedProb in DTO form.
+type calibratedTarget struct {
+	Target string  `json:"target"`
+	Prob   float64 `json:"prob"`
+	Model  string  `json:"model"`
 }
 
 // Gateway keeps a rolling window of bars per symbol and emits signals.
@@ -211,7 +221,8 @@ func (g *Gateway) bestExecutable(state *types.MarketState) *emit {
 		// Attach the calibrated probability (named target, never raw score). When no
 		// model is loaded this marks the signal UNCALIBRATED rather than guessing.
 		d.Signal.Regime = state.Regime
-		calibrate.Attach(&d.Signal, g.model)
+		feat := calibrate.FeaturesFromState(state)
+		calibrate.Attach(&d.Signal, g.model, feat)
 		dto := SignalDTO{
 			ID:          best.ID,
 			Direction:   string(d.Signal.Direction),
@@ -225,6 +236,12 @@ func (g *Gateway) bestExecutable(state *types.MarketState) *emit {
 			TP3:         exec.RoundToDigits(d.Signal.TP3),
 			RawScore:    d.Signal.RawScore,
 			CalibratedProbability: d.Signal.CalibratedProbability,
+		}
+		if len(d.Signal.Calibrated) > 0 {
+			dto.Calibrated = make([]calibratedTarget, 0, len(d.Signal.Calibrated))
+			for _, c := range d.Signal.Calibrated {
+				dto.Calibrated = append(dto.Calibrated, calibratedTarget{Target: c.Target, Prob: c.Prob, Model: c.Model})
+			}
 		}
 		b, _ := json.Marshal(dto)
 		best.line = "SIGNAL|" + string(b)

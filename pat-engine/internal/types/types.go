@@ -144,6 +144,21 @@ type Signal struct {
 	// "TP1_BEFORE_SL" (price reaches the 1R partial target before the SL).
 	ProbabilityTarget string
 	// ProbabilityModel names the calibrator that produced the value
-	// ("empirical-region", "UNCALIBRATED", ...).
+	// ("empirical-direct", "empirical-context", "empirical-region",
+	// "empirical-strategy", "UNCALIBRATED", ...). The prefix conveys the
+	// calibration confidence level.
 	ProbabilityModel string
+
+	// Calibrated lists additional named-target probabilities beyond the primary
+	// ProbabilityTarget (e.g. TP2_BEFORE_SL, DIRECTION_CORRECT). Empty when the
+	// model cannot calibrate or only the primary target was requested.
+	Calibrated []NamedProb
+}
+
+// NamedProb pairs a prediction target with its calibrated probability and the
+// confidence level of the calibrator that produced it.
+type NamedProb struct {
+	Target string  `json:"target"`
+	Prob   float64 `json:"prob"`
+	Model  string  `json:"model"`
 }

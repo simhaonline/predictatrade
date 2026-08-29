@@ -228,9 +228,24 @@ func BuildSnapshots(bars []Bar) []*types.MarketState {
 // the next targets (2R/3R). A trade is counted a WIN once it reaches 1R (because
 // the position is then risk-free at BE) — this is the genuine edge, not the prior
 // "must reach 3R–5R" rule that turned scratches into full -1R losses.
-func Simulate(states []*types.MarketState, i int, dir types.Direction, entry, sl, tp1, tp2, tp3 float64, maxBars int, exec broker.ExecutionProfile) float64 {
+// SimResult is the outcome of a single simulated signal. It reports the net P&L and
+// the precise, target-level events used to calibrate named prediction targets.
+type SimResult struct {
+	PnL         float64
+	TP1Hit      bool // 1R partial reached before SL
+	TP2Hit      bool // 2R reached before SL
+	TP3Hit      bool // 3R reached before SL
+	SLHit       bool // stop hit first
+	DirCorrect  bool // price moved >= 0.5R in the signal direction before SL
+}
+
+// Simulate models the outcome of an executable signal and returns the full
+// SimResult (net P&L plus the target-level events the calibrator consumes). It walks
+// forward bars using the honest cost-aware exit model described in BuildSnapshots.
+func Simulate(states []*types.MarketState, i int, dir types.Direction, entry, sl, tp1, tp2, tp3 float64, maxBars int, exec broker.ExecutionProfile) SimResult {
+	res := SimResult{}
 	if i+1 >= len(states) {
-		return 0
+		return res
 	}
 	// Round-turn transaction cost in price units (1-lot basis).
 	cost := 0.0
@@ -241,6 +256,12 @@ func Simulate(states []*types.MarketState, i int, dir types.Direction, entry, sl
 	}
 	cost += exec.CommissionPrice(1.0) * 2 // round-turn commission (price units / lot)
 
+	slDist := entry - sl
+	if dir == types.DirSell {
+		slDist = sl - entry
+	}
+	halfR := 0.5 * slDist
+
 	const half = 0.5
 	raw := func() float64 {
 		stop := sl
@@ -250,12 +271,19 @@ func Simulate(states []*types.MarketState, i int, dir types.Direction, entry, sl
 		for j := i + 1; j < len(states) && j <= i+maxBars; j++ {
 			b := states[j]
 			if dir == types.DirBuy {
+				if !res.DirCorrect && b.High-entry >= halfR {
+					res.DirCorrect = true
+				}
 				if !partial && b.High >= tp1 {
 					partial = true
+					res.TP1Hit = true
 					be = true
 					stop = entry // move remainder to breakeven
 				}
 				if be {
+					if b.High >= tp2 {
+						res.TP2Hit = true
+					}
 					if b.High > best {
 						best = b.High
 					}
@@ -263,6 +291,7 @@ func Simulate(states []*types.MarketState, i int, dir types.Direction, entry, sl
 						stop = trail
 					}
 					if b.High >= tp3 {
+						res.TP3Hit = true
 						return half*(tp1-entry) + half*(tp3-entry)
 					}
 					if b.High >= tp2 {
@@ -272,15 +301,23 @@ func Simulate(states []*types.MarketState, i int, dir types.Direction, entry, sl
 						return half*(tp1-entry) + half*(stop-entry)
 					}
 				} else if b.Low <= stop {
+					res.SLHit = true
 					return sl - entry
 				}
 			} else {
+				if !res.DirCorrect && entry-b.Low >= halfR {
+					res.DirCorrect = true
+				}
 				if !partial && b.Low <= tp1 {
 					partial = true
+					res.TP1Hit = true
 					be = true
 					stop = entry
 				}
 				if be {
+					if b.Low <= tp2 {
+						res.TP2Hit = true
+					}
 					if b.Low < best {
 						best = b.Low
 					}
@@ -288,6 +325,7 @@ func Simulate(states []*types.MarketState, i int, dir types.Direction, entry, sl
 						stop = trail
 					}
 					if b.Low <= tp3 {
+						res.TP3Hit = true
 						return half*(entry-tp1) + half*(entry-tp3)
 					}
 					if b.Low <= tp2 {
@@ -297,6 +335,7 @@ func Simulate(states []*types.MarketState, i int, dir types.Direction, entry, sl
 						return half*(entry-tp1) + half*(entry-stop)
 					}
 				} else if b.High >= stop {
+					res.SLHit = true
 					return entry - sl
 				}
 			}
@@ -322,7 +361,8 @@ func Simulate(states []*types.MarketState, i int, dir types.Direction, entry, sl
 		}
 		return entry - last
 	}()
-	return raw - cost
+	res.PnL = raw - cost
+	return res
 }
 
 func maxF(a, b float64) float64 {
