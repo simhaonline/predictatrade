@@ -64,6 +64,10 @@ type AgentTickMessage struct {
 	// BrokerOffset is the broker's UTC offset in hours, reported live by the
 	// Master Node (TimeGMTOffset). Used to align candles to broker session TF.
 	BrokerOffset int `json:"broker_offset"`
+	// MarketClosed: snapshot was liveness-only (broker market closed). The tick
+	// derived from it carries the last-known price — data-quality gate must
+	// fail closed.
+	MarketClosed bool `json:"market_closed"`
 }
 
 // MarketSnapshot is a comprehensive market data message from the Master Node EA.
@@ -685,6 +689,7 @@ func (p *AgentProvider) processAgentTicks(agentID string, ch chan *AgentTickMess
 				SourceTimestamp:  sourceTime,
 				GatewayTimestamp: time.Now().UTC(),
 				Quality:          types.QualityAuthoritative, // Real MT5 data is AUTHORITATIVE
+				MarketClosed:     msg.MarketClosed,
 			}
 			NormalizeTick(tick)
 
@@ -1004,6 +1009,9 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 				// Carry the Master Node's live broker offset onto the synthetic
 				// tick so ProcessTick also observes it (belt-and-suspenders).
 				BrokerOffset: snapshot.BrokerOffset,
+				// A closed-market snapshot is liveness-only: any tick derived
+				// from it must be gated out of EXECUTABLE evaluation.
+				MarketClosed: snapshot.MarketClosed,
 			}
 			p.mu.Lock()
 			ch, ok := p.agents[agentID]

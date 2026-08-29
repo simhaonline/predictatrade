@@ -58,6 +58,11 @@ type Tick struct {
 	GatewayTimestamp time.Time
 	Quality          QualityState
 	Sequence         uint64
+	// MarketClosed marks liveness-only data produced while the broker market is
+	// closed (weekend/holiday): the price is the last-known close, not a live
+	// quote. Data-quality gate fails closed on this — no EXECUTABLE evaluation
+	// from stale weekend prices.
+	MarketClosed bool
 }
 
 // QualityState represents data quality classification (SOW Section 6A.8).

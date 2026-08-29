@@ -46,6 +46,16 @@ func (g *DataQualityGate) Evaluate(input GateInput, state GateState) GateEvaluat
 		return eval
 	}
 
+	// Weekend/holiday liveness data (broker market closed): the price carried is
+	// the LAST-KNOWN close, not a live quote. Liveness is fine; executable
+	// evaluation is not. Fail closed so no EXECUTABLE signal can be produced
+	// from stale closed-market prices (observed 2026-08-29 on a weekend burst).
+	if input.Tick.MarketClosed {
+		eval.Result = types.GateVeto
+		eval.ReasonCodes = []string{"MARKET_CLOSED_LIVENESS_DATA"}
+		return eval
+	}
+
 	eval.Result = types.GatePass
 	return eval
 }
