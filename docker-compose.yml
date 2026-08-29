@@ -273,6 +273,42 @@ services:
       - pat-net
     restart: always
 
+  # ─── Mail plane: send-only submission relay (pat.predictatrade.com) ───
+  # Go SMTP server. Control plane (nodemailer) submits here on :587 with AUTH;
+  # relay delivers to internet MX (direct) or SMARTHOST with retry/backoff.
+  # DNS (operator): A pat.predictatrade.com + SPF/DKIM(pat1)/DMARC on
+  # predictatrade.com — see mail-relay/DEPLOY.md. NEVER an open relay: AUTH
+  # required, From-domain enforced to ALLOWED_FROM_DOMAINS.
+  mail-relay:
+    build: ./mail-relay
+    image: pat-mail-relay
+    container_name: pat-mail-relay
+    environment:
+      SMTP_LISTEN: ":587"
+      SMTP_TLS_LISTEN: ":465"
+      SMTP_USERS: "${PAT_MAIL_USERS:-no-reply@predictatrade.com:5imhA#2026}"
+      ALLOWED_FROM_DOMAINS: "predictatrade.com"
+      MAIL_DOMAIN: "pat.predictatrade.com"
+      DKIM_SELECTOR: "pat1"
+      DKIM_DNS_DOMAIN: "predictatrade.com"
+      DKIM_PRIVATE_KEY_PATH: "/etc/pat-mail/dkim.key"
+      SQLITE_PATH: "/var/lib/pat-mail/spool.db"
+      SMARTHOST: "${PAT_MAIL_SMARTHOST:-}"
+    volumes:
+      - ./mail-relay/certs:/etc/pat-mail:ro
+      - pat-mail-spool:/var/lib/pat-mail
+    ports:
+      - "587:587"
+      - "465:465"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 587"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - pat-net
+    restart: always
+
   # ─── Monitoring Layer ───
   prometheus:
     image: prom/prometheus:latest
@@ -336,6 +372,7 @@ services:
     restart: always
 
 volumes:
+  pat-mail-spool:
   # Docker-managed named volumes — created automatically on first `docker compose up`.
   # Do NOT set external:true here; the "volume already exists" warning is cosmetic
   # and harmless (it means the volume survived a previous down/rm). external:true
