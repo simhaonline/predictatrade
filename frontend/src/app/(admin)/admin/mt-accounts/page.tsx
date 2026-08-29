@@ -5,8 +5,10 @@ import { useState } from "react";
 import { IconServer, IconAlertTriangle } from "@tabler/icons-react";
 import {
   fetchMtAccounts,
+  fetchAllMtAccountsAdmin,
   createMtAccount,
   type MtAccountDevice,
+  type AdminMtAccount,
   type CreateMtAccountBody,
 } from "@/lib/admin-mt-accounts-api";
 
@@ -29,8 +31,14 @@ export default function AdminMtAccountsPage() {
     clientType: "MT5",
   });
 
-  const { data: accounts, isLoading, error } = useQuery<MtAccountDevice[]>({
+  // Fleet-wide (admin) + user-scoped both queried; UI prefers fleet rows.
+  const adminQ = useQuery<AdminMtAccount[]>({
     queryKey: ["admin-mt-accounts"],
+    queryFn: fetchAllMtAccountsAdmin,
+    refetchInterval: 20000,
+  });
+  const { data: accounts, isLoading, error } = useQuery<MtAccountDevice[]>({
+    queryKey: ["mt-accounts"],
     queryFn: fetchMtAccounts,
     refetchInterval: 20000,
   });
@@ -70,10 +78,36 @@ export default function AdminMtAccountsPage() {
           <IconServer size={16} /> Linked Accounts (LIVE)
         </h2>
         {isLoading && <div className="text-xs text-pat-text-muted">Loading accounts...</div>}
-        {!isLoading && rows.length === 0 && (
-          <div className="text-xs text-pat-text-muted">
-            No MT accounts returned for the current session. (Endpoint is user-scoped; admin-wide listing depends on a future admin endpoint.)
+        {!isLoading && rows.length === 0 && (adminQ.data?.length ?? 0) > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-pat-text-muted border-b border-pat-border">
+                  <th className="px-3 py-2 font-medium">Login</th>
+                  <th className="px-3 py-2 font-medium">Broker</th>
+                  <th className="px-3 py-2 font-medium">Server</th>
+                  <th className="px-3 py-2 font-medium">Client</th>
+                  <th className="px-3 py-2 font-medium">License</th>
+                  <th className="px-3 py-2 font-medium">User</th>
+                </tr>
+              </thead>
+              <tbody>
+                {adminQ.data!.map((a) => (
+                  <tr key={a.id} className="border-b border-pat-border/50">
+                    <td className="px-3 py-2 font-mono text-pat-text-primary">{a.account_number ?? "—"}</td>
+                    <td className="px-3 py-2 text-pat-text-secondary">{a.broker ?? "—"}</td>
+                    <td className="px-3 py-2 text-pat-text-secondary">{a.broker_server ?? "—"}</td>
+                    <td className="px-3 py-2 text-pat-text-secondary">{a.client_type ?? "—"}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-pat-text-secondary">{a.license_key ?? "—"}</td>
+                    <td className="px-3 py-2 text-pat-text-secondary">{a.user_email ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+        )}
+        {!isLoading && rows.length === 0 && (adminQ.data?.length ?? 0) === 0 && (
+          <div className="text-xs text-pat-text-muted">No MT accounts linked anywhere yet. Accounts appear when a device activates with a bound MT account.</div>
         )}
         {rows.length > 0 && (
           <div className="overflow-x-auto">
@@ -119,7 +153,7 @@ export default function AdminMtAccountsPage() {
       <div className="bg-pat-card-bg border border-pat-card-border rounded-lg p-4 shadow-sm">
         <h2 className="text-sm font-medium text-pat-text-primary mb-3">Register MT Account</h2>
         <DegradedBanner>
-          The create endpoint is user-scoped and requires a valid bound device id. If the current session has no
+          Fleet-wide listing via /licensing/admin-mt-accounts. Registration remains device-scoped (POST /licensing/mt-accounts). and requires a valid bound device id. If the current session has no
           eligible device, the request will be rejected by the backend (honest error shown, no fake success).
         </DegradedBanner>
         <form

@@ -212,6 +212,7 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="space-y-4">
+      <MarketStatusBanner />
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-pat-text-primary">Real-Time Console</h1>
         <div className="flex items-center gap-2 text-xs">

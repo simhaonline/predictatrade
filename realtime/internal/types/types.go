@@ -389,7 +389,7 @@ type Signal struct {
 	Status                SignalStatus
 	ReasonCodes           []NoTradeReason
 	// HumanReason is the subscriber-facing one-line explanation (never
-	// fabricated): e.g. "Market closed — no signals until broker re-opens".
+	// fabricated): e.g. "Market closed — no signals until market re-opens".
 	HumanReason string
 	// MarketClosed / NextMarketOpen: set only on the market-closed short-circuit
 	// NO-TRADE so clients can show a re-open countdown.

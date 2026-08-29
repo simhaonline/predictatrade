@@ -42,6 +42,15 @@ export class LicensingController {
     return this.licensingService.listMtAccounts(userId);
   }
 
+  // Admin-wide listing (check.md #4): the user-scoped endpoint returns empty
+  // for admin sessions; admins need the fleet view (all linked MT accounts).
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionGuard)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @Get('admin-mt-accounts')
+  async listAllMtAccounts() {
+    return this.licensingService.listAllMtAccounts();
+  }
+
   @UseGuards(JwtAuthGuard)
   @Post('mt-accounts')
   async registerTerminal(@CurrentUser('sub') userId: string, @Body() body: any) {

@@ -664,4 +664,24 @@ export class LicensingService {
       allowed_execution_modes: row.allowed_execution_modes || [],
       license_key: row.license_key,
     };
-  }}
+  }
+
+  /**
+   * Admin-wide MT accounts listing (check.md 2026-08-30 #4): the user-scoped
+   * query returned empty for admin sessions. Admin sees ALL linked MetaTrader
+   * accounts with bound license + device context.
+   */
+  async listAllMtAccounts() {
+    const r = await this.pool.query(
+      `SELECT ma.*, l.license_key, l.status AS license_status, u.email AS user_email,
+              d.hardware_id, da.broker_server, da.client_type
+       FROM licensing.mt_accounts ma
+       LEFT JOIN licensing.licenses l ON ma.license_id = l.id
+       LEFT JOIN iam.users u ON ma.user_id = u.id
+       LEFT JOIN licensing.devices d ON ma.device_id = d.id
+       LEFT JOIN licensing.device_activations da ON da.mt_account_login = ma.account_number
+       ORDER BY ma.created_at DESC LIMIT 200`
+    );
+    return r.rows;
+  }
+}

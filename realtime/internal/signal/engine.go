@@ -130,7 +130,7 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 			ShortScore:  input.ShortScore,
 			Status:      types.SignalConfirmed,
 			ReasonCodes: []types.NoTradeReason{types.NTMarketClosed},
-			HumanReason: "Market closed — no signals generated until broker re-opens",
+			HumanReason: "Market closed — no signals generated until the market re-opens",
 		}
 		if !input.NextMarketOpen.IsZero() {
 			sig.NextMarketOpen = &input.NextMarketOpen
