@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	cryptorand "crypto/rand"
 	"crypto/hmac"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"crypto/tls"
+	"github.com/google/uuid"
 
 	"github.com/gorilla/websocket"
 )
@@ -35,7 +35,7 @@ func logf(format string, args ...any) {
 
 type Agent struct {
 	config           *Config
-	role             string // "exec" (Client) or "data" (Master Node) — data role never executes orders
+	role             string               // "exec" (Client) or "data" (Master Node) — data role never executes orders
 	handler          serverMessageHandler // role-specific server-message behavior
 	deviceID         string
 	deviceKey        *ecdsa.PrivateKey
@@ -53,8 +53,8 @@ type Agent struct {
 	processedSignals map[string]bool // idempotency: track processed signal IDs
 	clockDriftMs     int64           // clock drift (server - local) in ms
 
-	halted    bool       // W8: set by KILL_SWITCH — stop forwarding and disconnect
-	stopOnce  sync.Once  // guards stopChan close against double-close
+	halted   bool      // W8: set by KILL_SWITCH — stop forwarding and disconnect
+	stopOnce sync.Once // guards stopChan close against double-close
 
 	statusMu      sync.RWMutex
 	backendName   string // display URL of the backend the agent connects to
@@ -89,7 +89,7 @@ type SignalEvent struct {
 }
 
 type HeartbeatData struct {
-	DeviceID        string     `json:"agent_id"`
+	DeviceID string `json:"agent_id"`
 	// DeviceIDCP is the control-plane device id (licensing.devices.id) assigned
 	// at activation. The engine uses it to correlate this live agent connection
 	// to a dashboard-visible device row. Empty when activation has not completed.
@@ -200,11 +200,11 @@ type AgentStatus struct {
 	LastSignal        string `json:"last_signal"`
 	ClockDriftMs      int64  `json:"clock_drift_ms"`
 	// Delivery telemetry (role-specific)
-	CandlesDelivered      int64  `json:"candles_delivered"`       // Master Node → engine
-	LastCandleDelivered   string `json:"last_candle_delivered"`
-	SignalsDelivered      int64  `json:"signals_delivered"`       // Client → EA
-	LastSignalDelivered   string `json:"last_signal_delivered"`
-	GeneratedAt           string `json:"generated_at"`
+	CandlesDelivered    int64  `json:"candles_delivered"` // Master Node → engine
+	LastCandleDelivered string `json:"last_candle_delivered"`
+	SignalsDelivered    int64  `json:"signals_delivered"` // Client → EA
+	LastSignalDelivered string `json:"last_signal_delivered"`
+	GeneratedAt         string `json:"generated_at"`
 }
 
 // getStatus returns a consistent snapshot of the agent's live state.
@@ -243,25 +243,25 @@ func (a *Agent) getStatus() AgentStatus {
 	a.deliveryMu.Unlock()
 
 	return AgentStatus{
-		Version:           AgentVersion,
-		DeviceID:          a.deviceID,
-		Mode:              a.role,
-		UptimeSeconds:     int64(time.Since(sa).Seconds()),
-		BackendURL:        bname,
-		BackendConnected:  conn != nil,
-		LicenseStatus:     licStatus,
-		LicensePlan:       licPlan,
-		MT4Connected:      mt4,
-		MT5Connected:      mt5,
-		TerminalConnected: mt4 || mt5,
-		LastHeartbeat:     lhb.UTC().Format(time.RFC3339),
-		LastSignal:        a.lastSignal.UTC().Format(time.RFC3339),
-		ClockDriftMs:      a.clockDriftMs,
-		CandlesDelivered:  candlesDelivered,
+		Version:             AgentVersion,
+		DeviceID:            a.deviceID,
+		Mode:                a.role,
+		UptimeSeconds:       int64(time.Since(sa).Seconds()),
+		BackendURL:          bname,
+		BackendConnected:    conn != nil,
+		LicenseStatus:       licStatus,
+		LicensePlan:         licPlan,
+		MT4Connected:        mt4,
+		MT5Connected:        mt5,
+		TerminalConnected:   mt4 || mt5,
+		LastHeartbeat:       lhb.UTC().Format(time.RFC3339),
+		LastSignal:          a.lastSignal.UTC().Format(time.RFC3339),
+		ClockDriftMs:        a.clockDriftMs,
+		CandlesDelivered:    candlesDelivered,
 		LastCandleDelivered: lastCandleAt.UTC().Format(time.RFC3339),
-		SignalsDelivered:  signalsDelivered,
+		SignalsDelivered:    signalsDelivered,
 		LastSignalDelivered: lastSignalAt.UTC().Format(time.RFC3339),
-		GeneratedAt:       time.Now().UTC().Format(time.RFC3339),
+		GeneratedAt:         time.Now().UTC().Format(time.RFC3339),
 	}
 }
 
@@ -518,22 +518,22 @@ func (a *Agent) sendHeartbeatToBackend() error {
 	if a.pipeManager != nil {
 		for _, t := range a.pipeManager.GetTerminals() {
 			term := map[string]interface{}{
-				"client_type":      t.ClientType,
-				"broker":           t.Broker,
-				"server":           t.Server,
-				"account":          t.Account,
-				"symbol":           t.Symbol,
-				"connected":        true,
-				"balance":          t.Balance,
-				"equity":           t.Equity,
-				"profit":           t.Profit,
-				"currency":         t.Currency,
-				"leverage":         t.Leverage,
-				"open_positions":   t.OpenPositions,
-				"buy_positions":    t.BuyPositions,
-				"sell_positions":   t.SellPositions,
-				"total_lots":       t.TotalLots,
-				"floating_pnl":     t.FloatingPnL,
+				"client_type":    t.ClientType,
+				"broker":         t.Broker,
+				"server":         t.Server,
+				"account":        t.Account,
+				"symbol":         t.Symbol,
+				"connected":      true,
+				"balance":        t.Balance,
+				"equity":         t.Equity,
+				"profit":         t.Profit,
+				"currency":       t.Currency,
+				"leverage":       t.Leverage,
+				"open_positions": t.OpenPositions,
+				"buy_positions":  t.BuyPositions,
+				"sell_positions": t.SellPositions,
+				"total_lots":     t.TotalLots,
+				"floating_pnl":   t.FloatingPnL,
 			}
 			// Attach genuine XAUUSD market status when this terminal trades XAUUSD
 			// and we have a real tick. Do not fabricate missing data.
@@ -877,12 +877,21 @@ func (a *Agent) sendToServer(data []byte) error {
 	if a.conn == nil {
 		return fmt.Errorf("not connected")
 	}
-	// Master Node (data role) → count live candle/data delivery to the engine.
+	// Count live data delivery to the engine — but ONLY real market data.
+	// Counting every send here inflated the telemetry "candles" field with
+	// heartbeats/telemetry (uptime/60 ≈ candles), masking a dead Master feed
+	// as healthy during the 2026-08-29 co-located-roles incident.
 	if a.role == "data" {
-		a.deliveryMu.Lock()
-		a.candlesDelivered++
-		a.lastCandleAt = time.Now()
-		a.deliveryMu.Unlock()
+		var t struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(data, &t) == nil &&
+			(t.Type == "MASTER_TICK" || t.Type == "MARKET_SNAPSHOT") {
+			a.deliveryMu.Lock()
+			a.candlesDelivered++
+			a.lastCandleAt = time.Now()
+			a.deliveryMu.Unlock()
+		}
 	}
 	return a.conn.WriteMessage(websocket.TextMessage, data)
 }
