@@ -60,7 +60,7 @@ export class SubscriptionsService {
     const r = await this.pool.query(
       `INSERT INTO billing.subscriptions
        (id, user_id, plan_id, status, billing_interval, billing_period_start, billing_period_end, selected_strategies)
-       VALUES ($1, $2, $3, $4, $5, now(), now() + CASE WHEN $5 = 'ANNUAL' THEN interval '1 year' ELSE interval '1 month' END, $6::jsonb)
+       VALUES ($1, $2, $3, $4, $5::text, now(), now() + CASE WHEN $5::text = 'ANNUAL' THEN interval '1 year' ELSE interval '1 month' END, $6::jsonb)
        RETURNING *`,
       [id, userId, dto.planId, plan.rows[0].code === 'FREE' ? 'ACTIVE' : 'INCOMPLETE', billingInterval, JSON.stringify(decision.selected)],
     );
