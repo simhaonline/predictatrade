@@ -207,6 +207,61 @@ export class NowPaymentsService {
       return { received: true, status };
     }
 
+    // ─── AMOUNT VERIFICATION (anti-underpaid-scam, 2026-08-29) ───
+    // NOWPayments reports the crypto actually received in the IPN. A scammer
+    // pattern is paying a tiny USDT amount on the invoice address and relying
+    // on the gateway still reaching 'confirmed'. We only settle when the paid
+    // amount covers the expected price (NOWPayments price_paid/actually_paid
+    // in the invoice currency, USD) within a configured tolerance, or an
+    // overpay. Underpaid marks the payment UNDERPAID and does NOT activate.
+    const pay = await this.pool.query(
+      `SELECT p.*, i.total AS invoice_total
+       FROM billing.payments p
+       LEFT JOIN billing.invoices i ON i.id = p.invoice_id
+       WHERE p.provider = 'nowpayments' AND p.provider_payment_id = $1
+       LIMIT 1`,
+      [gatewayPaymentRef],
+    );
+    const paymentPrecheck = pay.rows[0];
+    if (paymentPrecheck) {
+      const expected = Number(paymentPrecheck.amount ?? 0) || Number(paymentPrecheck.invoice_total ?? 0) || 0;
+      const actualCandidates = [
+        record.actually_paid, record.price_paid, record.pay_amount,
+        record.actually_paid_in_usd, record.price_amount_paid,
+      ].map(Number).filter((v) => Number.isFinite(v) && v > 0);
+      const tolerancePct = Number(process.env.NOWPAYMENTS_UNDERPAY_TOLERANCE_PCT || '2');
+      if (expected > 0 && actualCandidates.length > 0) {
+        const actual = Math.max(...actualCandidates);
+        const minOk = expected * (1 - (Number.isFinite(tolerancePct) ? tolerancePct : 2) / 100);
+        if (actual + 1e-9 < minOk) {
+          // Underpaid — record, notify-log, do NOT settle; idempotent via
+          // payment_events dedupe above (the UNDERPAID transition is one-shot
+          // guarded by the payments.status <> 'UNDERPAID' case below).
+          await this.pool.query(
+            `UPDATE billing.payments SET status = 'UNDERPAID', updated_at = now()
+             WHERE provider = 'nowpayments' AND provider_payment_id = $1 AND status NOT IN ('COMPLETED','UNDERPAID')`,
+            [gatewayPaymentRef],
+          );
+          await this.pool.query(
+            `INSERT INTO audit.audit_events (actor_type, action, entity_type, entity_id, reason, new_value)
+             VALUES ('system', 'billing.nowpayments.underpaid', 'payment', $1, $2, $3::jsonb)`,
+            [paymentPrecheck.id, `Underpaid: got ${actual} USD, expected >= ${minOk} USD`,
+             JSON.stringify({ gateway_payment_ref: gatewayPaymentRef, actual, expected })],
+          );
+          this.logger.warn(`IPN underpaid: ${actual} < ${minOk} USD for ${gatewayPaymentRef} — NOT settling`);
+          return { received: true, status: 'underpaid' };
+        }
+        // Overpay tolerance: accepted (credit applied in full) — no upper bound.
+      }
+      // If the gateway omitted the paid amount entirely we keep the legacy
+      // behavior (settle) — but this is logged for review; set
+      // NOWPAYMENTS_REQUIRE_AMOUNT=strict to refuse settling without amounts.
+      if (actualCandidates.length === 0 && process.env.NOWPAYMENTS_REQUIRE_AMOUNT === 'strict') {
+        this.logger.warn(`IPN amount missing for ${gatewayPaymentRef} — strict mode NOT settling`);
+        return { received: true, status: 'amount_unverified' };
+      }
+    }
+
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');

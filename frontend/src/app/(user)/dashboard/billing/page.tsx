@@ -10,6 +10,18 @@ import { IconCalendar, IconCheck, IconLock } from "@tabler/icons-react";
 
 interface Plan { id: string; code: "FREE" | "STANDARD" | "PRO" | "ELITE"; name: string; monthly_price: string; annual_price: string | null; allowed_strategies: string[]; annual_savings_percent: number | null; legacy?: boolean; }
 interface Invoice { id: string; invoice_number: string; total: number | string; items_total?: number | string; status: string; created_at: string; due_date: string; }
+interface PaymentStatus {
+  id: string;
+  subscription_id?: string;
+  status: string;
+  display_status: "awaiting_payment" | "confirmed" | "underpaid" | "failed";
+  gateway_event?: string | null;
+  amount: string | number;
+  currency: string;
+  hosted_url?: string | null;
+  created_at: string;
+  processed_at?: string | null;
+}
 interface Entitlements { code?: string; }
 interface Subscription {
   id: string;
@@ -38,6 +50,15 @@ export default function UserBillingPage() {
   const [autoRenew, setAutoRenew] = useState(true);
   const [usdtNotice, setUsdtNotice] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  // USDT payment verification status — server-truth from billing.payments.
+  // The banner mirrors settlement state exactly (no optimistic lies): the only
+  // "confirmed" path is a signature-verified, amount-verified gateway event.
+  const paymentsQ = useQuery({
+    queryKey: ["usdt-payments"],
+    queryFn: async () => ((await customInstance.get("/billing/payments")).data as PaymentStatus[]) || [],
+    refetchInterval: 30_000,
+  });
+  const latestPayment = paymentsQ.data?.[0];
   const plansQ = useQuery({ queryKey: ["plans"], queryFn: async () => (await customInstance.get("/plans")).data as Plan[] });
   const entitlementsQ = useQuery({ queryKey: ["subscription-entitlements"], queryFn: async () => (await customInstance.get("/subscriptions/entitlements")).data as Entitlements });
   const invoicesQ = useQuery({ queryKey: ["user-invoices"], queryFn: async () => ((await customInstance.get("/billing/invoices")).data as Invoice[]) || [] });
@@ -129,6 +150,44 @@ export default function UserBillingPage() {
 
   return (
     <div className="space-y-6">
+      {/* USDT payment verification status — server-truth banner (anti-scam
+          transparency: state changes only after signature+amount verified) */}
+      {paymentsQ.data && latestPayment && (
+        latestPayment.display_status === "awaiting_payment" ? (
+          <div role="status" className="rounded-lg border border-pat-warning/40 bg-pat-warning/5 px-4 py-3 text-sm">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <span className="text-pat-text-primary">⏳ Awaiting your USDT payment — expected {latestPayment.amount} {latestPayment.currency}</span>
+              <div className="flex gap-2">
+                {latestPayment.hosted_url && (
+                  <a href={latestPayment.hosted_url} className="rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground">Resume payment</a>
+                )}
+                <button onClick={() => queryClient.invalidateQueries({ queryKey: ["usdt-payments"] })} className="rounded border border-pat-border px-3 py-1.5 text-xs">Refresh status</button>
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-pat-text-secondary">Crypto payments need network confirmations; this banner updates automatically once verified.</p>
+          </div>
+        ) : latestPayment.display_status === "underpaid" ? (
+          <div role="alert" className="rounded-lg border border-pat-danger/40 bg-pat-danger/5 px-4 py-3 text-sm">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <span className="text-pat-danger">⚠️ Payment underpaid — received less than the required {latestPayment.amount} USD equivalent. Subscription not activated.</span>
+              <div className="flex gap-2">
+                {latestPayment.hosted_url && (
+                  <a href={latestPayment.hosted_url} className="rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground">Pay remaining</a>
+                )}
+                <a href="/dashboard/support" className="rounded border border-pat-border px-3 py-1.5 text-xs">Contact support</a>
+              </div>
+            </div>
+          </div>
+        ) : latestPayment.display_status === "failed" ? (
+          <div role="alert" className="rounded-lg border border-pat-danger/40 bg-pat-danger/5 px-4 py-3 text-sm text-pat-danger">
+            Payment failed. <a href="/dashboard/support" className="underline">Contact support</a> if you were charged.
+          </div>
+        ) : latestPayment.display_status === "confirmed" ? (
+          <div role="status" className="rounded-lg border border-pat-success/40 bg-pat-success/5 px-4 py-3 text-sm text-pat-text-secondary">
+            ✅ USDT payment confirmed ({latestPayment.amount} USD-equivalent){latestPayment.processed_at ? ` — verified ${new Date(latestPayment.processed_at).toLocaleString()}` : ""}. Subscription active.
+          </div>
+        ) : null
+      )}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-pat-text-primary">Plans & Subscription</h1>

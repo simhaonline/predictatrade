@@ -42,6 +42,40 @@ export class BillingService {
     return r.rows;
   }
 
+  /**
+   * Subscriber-visible USDT payment status (anti-scam transparency):
+   * one row per payment attempt with gateway status, amounts, and the hosted
+   * NOWPayments URL to finish/abandoned checkout. Sensitive gateway ids are
+   * truncated; payment_status is derived from billing.payments + the latest
+   * payment_event so the dashboard mirrors settlement truth exactly.
+   */
+  async listPaymentsForUser(userId: string) {
+    const r = await this.pool.query(
+      `SELECT p.id, p.subscription_id, p.invoice_id, p.provider,
+              p.amount, p.currency, p.status,
+              (SELECT event_type FROM billing.payment_events pe
+                WHERE pe.provider = p.provider
+                  AND pe.provider_event_id LIKE p.provider_payment_id || ':%'
+                ORDER BY pe.received_at DESC LIMIT 1) AS gateway_event,
+              i.provider_hosted_url AS hosted_url,
+              p.created_at, p.processed_at
+       FROM billing.payments p
+       LEFT JOIN billing.invoices i ON i.id = p.invoice_id
+       WHERE p.user_id = $1
+       ORDER BY p.created_at DESC LIMIT 20`,
+      [userId],
+    );
+    return r.rows.map((row) => ({
+      ...row,
+      // User-friendly payment status for the dashboard banner:
+      display_status:
+        row.status === 'COMPLETED' ? 'confirmed'
+        : row.status === 'UNDERPAID' ? 'underpaid'
+        : row.status === 'FAILED' ? 'failed'
+        : 'awaiting_payment',
+    }));
+  }
+
   /** True when the subscription belongs to the given user. */
   async assertSubscriptionOwnership(userId: string, subscriptionId: string) {
     const r = await this.pool.query(

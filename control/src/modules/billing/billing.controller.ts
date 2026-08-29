@@ -20,6 +20,18 @@ export class BillingController {
     return this.billingService.listInvoices(userId);
   }
 
+  /**
+   * USDT payment status for the user's dashboard (subscriber-visible).
+   * Returns the latest payment per subscription with the NOWPayments hosted
+   * URL to resume an abandoned checkout, plus the exact amount and gateway
+   * status — driven from DB truth (billing.payments), never client-side.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('payments')
+  async listPayments(@CurrentUser('sub') userId: string) {
+    return this.billingService.listPaymentsForUser(userId);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Post('invoices/generate')
   async generateInvoice(
