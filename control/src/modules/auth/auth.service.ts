@@ -660,10 +660,11 @@ export class AuthService {
     return crypto.createHash('sha256').update(token).digest('hex');
   }
 
-  /** Generate access JWT + opaque refresh token. Includes user role for RBAC. */
+  /** Generate access JWT + opaque refresh token. Includes user role + permissions for RBAC. */
   private async generateTokens(userId: string, email: string): Promise<SessionTokens> {
     // Look up the user's role from memberships/roles
     let role = 'USER';
+    const perms: string[] = [];
     try {
       const roleResult = await this.pool.query(
         `SELECT r.name as role_name FROM iam.memberships m
@@ -682,7 +683,22 @@ export class AuthService {
     } catch {
       // Role lookup failure is non-fatal — default to USER
     }
-    const accessToken = this.jwtService.sign({ sub: userId, email, role, purpose: 'access' }, { expiresIn: ACCESS_TOKEN_EXPIRY });
+    // Load the user's permission names (role_permissions ⋈ permissions) into
+    // the token so @RequirePermissions guards can evaluate without a DB hit.
+    try {
+      const permResult = await this.pool.query(
+        `SELECT DISTINCT p.name FROM iam.role_permissions rp
+         JOIN iam.roles r ON rp.role_id = r.id
+         JOIN iam.memberships m ON m.role_id = r.id
+         JOIN iam.permissions p ON p.id = rp.permission_id
+         WHERE m.user_id = $1`,
+        [userId],
+      );
+      for (const row of permResult.rows) perms.push(row.name);
+    } catch {
+      // Permission lookup failure is non-fatal — role-based checks still apply
+    }
+    const accessToken = this.jwtService.sign({ sub: userId, email, role, permissions: perms, purpose: 'access' }, { expiresIn: ACCESS_TOKEN_EXPIRY });
     const refreshToken = this.generateRefreshToken();
     return { accessToken, refreshToken };
   }

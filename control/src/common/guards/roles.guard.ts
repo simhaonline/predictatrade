@@ -34,7 +34,7 @@ export enum Permission {
   LICENSE_MANAGE = 'license:manage',
   BILLING_MANAGE = 'billing:manage',
   USER_MANAGE = 'user:manage',
-  RISK_MANAGE = 'risk:manage',
+  RISK_MANAGE = 'risk:modify',  // DB iam.permissions canonical key (risk:modify); admin PUT /admin/risk-config
 }
 
 export const PERMISSIONS_KEY = 'permissions';
@@ -85,10 +85,12 @@ export class PermissionGuard implements CanActivate {
       throw new ForbiddenException('Authentication required');
     }
 
-    const userPerms: Permission[] = Array.isArray(req.user.permissions)
-      ? (req.user.permissions as Permission[])
+    const userPerms: string[] = Array.isArray(req.user.permissions)
+      ? (req.user.permissions as string[])
       : [];
-    const missing = required.filter((p) => !userPerms.includes(p));
+    const missing = required.filter(
+      (p) => !userPerms.some((u) => u.toLowerCase() === String(p).toLowerCase()),
+    );
     if (missing.length > 0) {
       throw new ForbiddenException(`Missing permission: ${missing.join(' ')}`);
     }
