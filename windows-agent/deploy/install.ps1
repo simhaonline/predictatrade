@@ -60,14 +60,55 @@ function Add-DefenderExclusions {
         return
     }
     $excl = @($InstallDir, (Join-Path $env:ProgramData 'PredictATrade'))
+    $addedOk = $false
     foreach ($p in $excl) {
         if (-not (Test-Path $p)) { New-Item -ItemType Directory -Path $p -Force | Out-Null }
-        try { Add-MpPreference -ExclusionPath $p -ErrorAction Stop }
+        try { Add-MpPreference -ExclusionPath $p -ErrorAction Stop; $addedOk = $true }
         catch { Write-Host "  WARN: Could not add Defender exclusion for $p`: $_" }
     }
-    # Also relax SmartScreen/PUA for the agent paths if possible.
-    try { Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction SilentlyContinue } catch {}
-    Write-Host "  OK: Windows Defender exclusions applied (pre-download)."
+    # VERIFY the exclusions actually landed. On Windows 10/11 consumer editions
+    # with Tamper Protection ON (default), Add-MpPreference is SILENTLY BLOCKED
+    # (no exception, no effect) — the "OK" above would be a lie and the fresh
+    # binary would be quarantined on download. Detect that and tell the operator
+    # exactly what to click. (2026-08-29: user's update was blocked this way —
+    # the previous release's binary was already in the allowed list, but a new
+    # byte-hash triggers a fresh Defender verdict.)
+    try {
+        $mps = Get-MpPreference -ErrorAction Stop
+        $have = @()
+        foreach ($p in $excl) {
+            $want = $p.TrimEnd('\')
+            $hit = $false
+            foreach ($e in @($mps.ExclusionPath)) {
+                if ($e -and $e.TrimEnd('\') -ieq $want) { $hit = $true; break }
+            }
+            if (-not $hit) {
+                Write-Host ""
+                Write-Host "  ============================================================"
+                Write-Host "  ACTION REQUIRED — Defender exclusion NOT active: $p"
+                Write-Host "  Tamper Protection silently blocks Add-MpPreference on most"
+                Write-Host "  Windows 10/11 machines. Add the exclusion MANUALLY, then re-run:"
+                Write-Host "    1. Windows Security > Virus & threat protection"
+                Write-Host "    2. Manage settings > Exclusions > Add an exclusion"
+                Write-Host "    3. Folder: $p"
+                Write-Host "       Folder: $env:ProgramData\PredictATrade"
+                Write-Host "  Without this, Windows Defender WILL quarantine pat-agent.exe"
+                Write-Host "  / pat-master.exe on download (unsigned binary, new hash)."
+                Write-Host "  ==========================================================="
+                Write-Host ""
+            } else {
+                Write-Host "  OK: Defender exclusion verified active: $p"
+            }
+        }
+        # Report Tamper Protection state for triage (informational).
+        try {
+            $tp = (Get-MpComputerStatus -ErrorAction Stop).IsTamperProtected
+            Write-Host "  INFO: Tamper Protection = $tp (ON means only UI/manual exclusion works)"
+        } catch {}
+    } catch {
+        Write-Host "  WARN: Could not read Defender preferences to verify exclusions: $_"
+    }
+    Write-Host "  OK: Windows Defender exclusion step finished ($addedOk added)."
 }
 
 # Mode-specific identity (separate Windows services & ports so a Client and a
@@ -129,7 +170,7 @@ if (-not $isAdmin) {
 # ─── NOW RUNNING AS ADMIN ───
 Write-Host ""
 Write-Host "=========================================="
-Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.41"
+Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.42"
 Write-Host "=========================================="
 Write-Host ""
 
@@ -499,7 +540,7 @@ try {
     $serverVersion = (Invoke-WebRequest -Uri "$RootUrl/version.txt" -UseBasicParsing -TimeoutSec 10).Content.Trim()
     Write-Host "  Server version: v$serverVersion"
 } catch {
-    $serverVersion = "1.2.41"
+    $serverVersion = "1.2.42"
     Write-Host "  WARN: Could not fetch server version — using default v$serverVersion"
 }
 Set-Content -Path (Join-Path $InstallDir "version.txt") -Value $serverVersion -NoNewline

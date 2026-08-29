@@ -318,6 +318,10 @@ echo [update] Removing Mark-of-the-Web (Unblock-File) so Defender/SmartScreen wo
 powershell -NoProfile -Command "Unblock-File -Path '%s' -ErrorAction SilentlyContinue" 2>nul
 echo [update] Ensuring Windows Defender exclusion for the install directory...
 powershell -NoProfile -Command "Add-MpPreference -ExclusionPath '%s' -ErrorAction SilentlyContinue" 2>nul
+echo [update] VERIFY: if Tamper Protection blocks the line above, the exclusion is NOT active.
+echo [update] If the service fails to start now, add a Defender folder exclusion MANUALLY:
+echo [update]   Windows Security ^> Virus ^& threat protection ^> Exclusions ^> Folder: %s
+echo [update] then run: sc start %s
 
 echo [update] Updating version file...
 echo %s> "%s"
@@ -342,7 +346,8 @@ echo [update] Done.
 		manifest.Version, versionFile,
 		nssmPath, nssmPath, serviceName,
 		serviceName,
-		backupPath, backupPath)
+		backupPath, backupPath,
+		installDir, serviceName)
 
 	// Write the batch script
 	batchPath := filepath.Join(installDir, "pat_update_helper.bat")
