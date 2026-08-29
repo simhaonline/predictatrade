@@ -103,3 +103,4 @@ realtime/calibration/calibration_*_live.json
 report.xlsx
 *.tsbuildinfo
 mail-relay/mail-relay
+infra/env/ADMIN_CREDENTIALS.local.md
