@@ -341,6 +341,7 @@ class TestMarnieFib:
         ind = {
             "ema9": ema9, "ema21": ema21, "atr": 10.0, "rsi": 60.0,
             "macd_main": 1.0, "macd_signal": 0.0, "adx": 30.0,
+            "vwap": close,  # VWAP parity with close keeps the fib path pure
         }
         return candles, ind
 

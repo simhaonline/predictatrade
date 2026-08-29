@@ -7,7 +7,11 @@ is skipped rather than failing, so CI without a DB still passes.
 """
 import os
 import pytest
-import psycopg2
+
+psycopg2 = pytest.importorskip(
+    "psycopg2",
+    reason="psycopg2 not installed (optional DB e2e test — needs local TimescaleDB)",
+)
 
 DB_URL = os.environ.get(
     "PAT_DB_URL",

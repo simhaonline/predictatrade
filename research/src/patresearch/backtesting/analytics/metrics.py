@@ -91,7 +91,18 @@ def calculate_metrics(trades: List[TradeRecord],
         if duration > 0:
             years = duration / (365.25 * 24 * 3600)
             if years > 0 and metrics.total_return_pct != 0:
-                metrics.cagr = ((metrics.final_balance / initial_balance) ** (1 / years) - 1) * 100
+                ratio = metrics.final_balance / initial_balance
+                if ratio > 0:
+                    try:
+                        # CAGR needs a positive ratio and a sane exponent; a
+                        # blown account (ratio<=0) or extreme compounding
+                        # (tiny `years`) overflows float math — fall back to
+                        # the simple annualized return.
+                        metrics.cagr = ((ratio) ** (1 / years) - 1) * 100
+                    except OverflowError:
+                        metrics.cagr = metrics.total_return_pct
+                else:
+                    metrics.cagr = metrics.total_return_pct
 
     # Win/loss
     wins = [p for p in pnls if p > 0]
@@ -157,7 +168,9 @@ def calculate_metrics(trades: List[TradeRecord],
         equities = [ep.equity if hasattr(ep, 'equity') else ep.get('equity', initial_balance) for ep in equity_curve]
         running_max = np.maximum.accumulate(equities)
         drawdowns = [(1 - e / m) * 100 for e, m in zip(equities, running_max) if m > 0]
-        metrics.max_drawdown_pct = max(drawdowns) if drawdowns else 0.0
+        # float() — np.maximum.accumulate yields np.float64 which psycopg2
+        # cannot adapt (it renders as np.float64(...) into SQL).
+        metrics.max_drawdown_pct = float(max(drawdowns)) if drawdowns else 0.0
 
     # Calmar ratio
     if metrics.max_drawdown_pct > 0:

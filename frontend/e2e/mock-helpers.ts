@@ -64,42 +64,17 @@ export function setupApiMocking(page: Page, token: string, user: MockUser) {
   // protection. In production the control plane sets it (HttpOnly) via
   // Set-Cookie on /auth/login; the route mock cannot do that, so set it
   // client-side for the e2e origin. Value is a mock JWT — no secret.
-  page.addInitScript((jwt: string) => {
-    document.cookie = `pat_access_token=${jwt}; path=/; max-age=900; samesite=lax`;
-  }, token);
-
-  // Mock login
-  page.route('**/api/v1/auth/login', async (route: Route) => {
-    const body = route.request().postDataJSON();
-    if (body?.email === 'admin@predictatrade.com') {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          accessToken: token,
-          user: { id: user.id, email: user.email, displayName: user.full_name },
-        }),
-      });
-    } else if (body?.email === 'superadmin@predictatrade.com') {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          accessToken: token,
-          user: { id: user.id, email: user.email, displayName: user.full_name },
-        }),
-      });
-    } else {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          accessToken: token,
-          user: { id: user.id, email: user.email, displayName: user.full_name },
-        }),
-      });
-    }
-  });
+  // Guard: skip re-seed once logged out (sessionStorage flag set by the
+  // /auth/logout mock) so the proxy correctly treats the user as anonymous
+  // on the next navigation — otherwise the proxy bounces /login back to the
+  // admin dashboard and the logout flows never observe "logged out".
+  page.addInitScript(
+    ({ jwt, seedKey }: { jwt: string; seedKey: string }) => {
+      if (sessionStorage.getItem(seedKey) === 'logged-out') return;
+      document.cookie = `pat_access_token=${jwt}; path=/; max-age=900; samesite=lax`;
+    },
+    { jwt: token, seedKey: 'pat-e2e-logout' },
+  );
 
   // Mock /auth/me
   page.route('**/api/v1/auth/me', async (route: Route) => {
@@ -119,16 +94,41 @@ export function setupApiMocking(page: Page, token: string, user: MockUser) {
     });
   });
 
-  // Mock /auth/logout — clear the seeded proxy cookie so the next navigation
-  // is treated as unauthenticated (mirrors the production cookie expiry).
+  // Mock /auth/logout — mark the session logged-out and clear the seeded
+  // proxy cookie so the next navigation is treated as unauthenticated
+  // (mirrors the production cookie expiry). The flag must clear on a new
+  // login so sequential-login flows work.
   page.route('**/api/v1/auth/logout', async (route: Route) => {
+    // Clear the cookie BEFORE fulfilling: logout() navigates to /login
+    // immediately after the response, and an evaluate() after fulfill can
+    // race (and lose to) that navigation.
+    await page.evaluate(() => {
+      sessionStorage.setItem('pat-e2e-logout', 'logged-out');
+      document.cookie = 'pat_access_token=; path=/; max-age=0; samesite=lax';
+    });
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ success: true }),
     });
-    await page.evaluate(() => {
-      document.cookie = 'pat_access_token=; path=/; max-age=0; samesite=lax';
+  });
+
+  // Mock login — clear the logged-out flag and RE-SEED the proxy cookie:
+  // the addInitScript guard skips seeding while the logout flag exists, so
+  // the second login in a sequential flow would otherwise land on /login
+  // with no cookie and bounce back to the login page.
+  page.route('**/api/v1/auth/login', async (route: Route) => {
+    await page.evaluate((jwt: string) => {
+      sessionStorage.removeItem('pat-e2e-logout');
+      document.cookie = `pat_access_token=${jwt}; path=/; max-age=900; samesite=lax`;
+    }, token);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        accessToken: token,
+        user: { id: user.id, email: user.email, displayName: user.full_name },
+      }),
     });
   });
 

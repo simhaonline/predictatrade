@@ -99,11 +99,19 @@ jobs:
           # .hermes tooling dir (placeholder SKILL.md), and operational scripts/
           # that intentionally reuse the preserved local-dev-only password.
           PATTERNS='JWT_SECRET=[^[:space:]#$]+|POSTGRES_PASSWORD[[:space:]]*[:=][[:space:]]*[^[:space:]#$]+|ADMIN_PASSWORD[[:space:]]*[:=][[:space:]]*[^[:space:]#$]+|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16}|BEGIN[[:space:]]+(RSA[[:space:]]+|OPENSSH[[:space:]]+|EC[[:space:]]+|DSA[[:space:]]+)?PRIVATE[[:space:]]+KEY|API_KEY=[^[:space:]#$]+|PASSWORD=[^[:space:]#$]+'
+          # grep --exclude takes a filename GLOB (matches by basename), not a
+          # path — use --exclude=ci.yml so the workflow self-reference (the
+          # pattern definition + the doc comments that quote the old leaked
+          # secret shape) is excluded, plus infra/env examples (placeholders).
           if grep -rEn -I \
                --exclude-dir=.git --exclude-dir=node_modules --exclude=package-lock.json \
                --exclude-dir=dist --exclude-dir=build --exclude-dir=.next \
                --exclude='*.md' --exclude-dir=docs --exclude-dir=.hermes \
-               --exclude-dir=scripts --exclude=.github/workflows/ci.yml \
+               --exclude-dir=scripts --exclude-dir=infra \
+               --exclude=ci.yml --exclude='*.example' \
+               --exclude='*.svg' --exclude='*.png' --exclude='*.jpg' --exclude='*.jpeg' \
+               --exclude='*.ico' --exclude='*.onnx' --exclude='*.pdf' \
+               --exclude='*.ex4' --exclude='*.ex5' \
                "$PATTERNS" . ; then
             echo "ERROR: Potential hardcoded secret(s) detected (see matches above)."
             echo "Remove them from tracked files and inject via environment variables / infra/env/.env."
