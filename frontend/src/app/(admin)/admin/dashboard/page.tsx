@@ -9,6 +9,7 @@ import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
 import { useState, useEffect, useRef } from "react";
 import { MarketStatusBanner } from "@/components/market-status-banner";
+import { strategyLabel } from "@/lib/strategy-labels";
 
 export default function AdminDashboardPage() {
   // --- Data queries ---
@@ -385,9 +386,9 @@ export default function AdminDashboardPage() {
                 (s: Record<string, unknown>) => String(s.Direction || s.direction || "") !== "NO-TRADE"
               ).length;
               return (
-                <div key={name} className="flex items-center justify-between rounded-md bg-pat-bg-surface-secondary px-3 py-2">
+                <div key={strategyLabel(name)} className="flex items-center justify-between rounded-md bg-pat-bg-surface-secondary px-3 py-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-pat-text-primary">{name.replace(/_/g, " ")}</span>
+                    <span className="text-xs text-pat-text-primary">{strategyLabel(name)}</span>
                     <span className="text-[10px] text-pat-text-muted">({stratSignals.length} signals, {directionalCount} directional)</span>
                   </div>
                   <StatusBadge status={isActive ? "active" : "inactive"} size="sm" />

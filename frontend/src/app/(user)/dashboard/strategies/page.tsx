@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import { IconBolt, IconLock, IconDeviceFloppy } from "@tabler/icons-react";
 import { DegradedNote } from "@/components/ui/tabs";
+import { strategyLabel } from "@/lib/strategy-labels";
 
 const STRATEGIES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"];
 interface Entitlements { code: string; selected_strategies?: string[]; allowed_strategies?: string[]; }

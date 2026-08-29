@@ -4,6 +4,7 @@ import { customInstance } from "@/lib/axios-instance";
 import StatusBadge from "@/components/ui/status-badge";
 import { toast } from "sonner";
 import { IconBolt } from "@tabler/icons-react";
+import { strategyLabel } from "@/lib/strategy-labels";
 
 interface TradingState {
   trading_halted: boolean;
@@ -62,11 +63,11 @@ export default function AdminStrategiesPage() {
         {STRATEGY_NAMES.map((name) => {
           const isActive = activeStrategies.includes(name);
           return (
-            <div key={name} className="bg-pat-bg-surface border border-pat-border rounded-lg p-5">
+            <div key={strategyLabel(name)} className="bg-pat-bg-surface border border-pat-border rounded-lg p-5">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <IconBolt size={18} className={isActive ? "text-pat-success" : "text-pat-text-muted"} />
-                  <span className="text-sm font-semibold text-pat-text-primary">{name}</span>
+                  <span className="text-sm font-semibold text-pat-text-primary">{strategyLabel(name)}</span>
                 </div>
                 <StatusBadge status={isActive ? "ACTIVE" : "INACTIVE"} size="sm" />
               </div>

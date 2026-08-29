@@ -8,6 +8,7 @@ import { useState, useEffect } from "react";
 import { getGlobalWs, type WsMessage } from "@/lib/websocket";
 import { IconChevronDown, IconChevronUp, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import SignalEvidencePanel from "@/components/signal/signal-evidence";
+import { strategyLabel } from "@/lib/strategy-labels";
 
 const PAGE_SIZE = 20;
 
@@ -166,7 +167,7 @@ export default function AdminSignalsPage() {
         {STRATEGY_TABS.map((tab) => (
           <button key={tab} onClick={() => setActiveTab(tab)}
             className={`text-xs px-3 py-1.5 rounded transition-colors whitespace-nowrap ${activeTab === tab ? "bg-primary text-primary-foreground" : "bg-pat-bg-surface-secondary text-pat-text-primary hover:bg-pat-bg-surface-secondary"}`}>
-            {tab === "ALL" ? "All" : tab.replace(/_/g, " ")}
+            {tab === "ALL" ? "All" : tab}
           </button>
         ))}
       </div>

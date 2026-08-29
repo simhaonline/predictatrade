@@ -7,6 +7,7 @@ import { useState, useEffect, useMemo } from "react";
 import { getGlobalWs, type WsMessage } from "@/lib/websocket";
 import { IconChevronRight, IconChevronDown, IconChevronLeft } from "@tabler/icons-react";
 import SignalEvidencePanel from "@/components/signal/signal-evidence";
+import { strategyLabel } from "@/lib/strategy-labels";
 
 // Interface matches the actual Go engine API response (PascalCase)
 interface EngineSignal {
@@ -226,7 +227,7 @@ export default function UserSignalsPage() {
                             {row.Executable && <span className="text-[9px] px-1 py-0.5 rounded-full bg-pat-success/15 text-pat-success">EXEC</span>}
                           </div>
                         </td>
-                        <td className="px-3 py-3 text-xs text-pat-text-secondary">{row.StrategyID?.replace(/_/g, " ")}</td>
+                        <td className="px-3 py-3 text-xs text-pat-text-secondary">{strategyLabel(row.StrategyID)}</td>
                         <td className="px-3 py-3 text-xs text-pat-text-primary tabular-nums">{num(row.RawScore) > 0 ? num(row.RawScore).toFixed(1) : "—"}</td>
                         <td className="px-3 py-3 text-xs text-pat-text-primary" title="Calibrated probability — shows 'Pending' until calibration model is validated">
                           {num(row.CalibratedProbability) > 0 ? `${(num(row.CalibratedProbability) * 100).toFixed(1)}%` : "Pending"}
@@ -318,7 +319,7 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
         className="rounded-md border border-pat-input-border bg-pat-input-bg px-2 py-1.5 text-sm text-pat-input-text outline-none focus:border-primary"
       >
         {options.map((o) => (
-          <option key={o} value={o}>{o === "ALL" ? "All" : o.replace(/_/g, " ")}</option>
+          <option key={o} value={o}>{o === "ALL" ? "All" : o}</option>
         ))}
       </select>
     </label>

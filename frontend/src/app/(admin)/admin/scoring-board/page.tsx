@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
+import { strategyLabel } from "@/lib/strategy-labels";
 
 interface GoSignal {
   ID: string;
@@ -117,9 +118,9 @@ export default function AdminScoringBoardPage() {
           {strategies.map((strat) => {
             const sig = latestByStrategy[strat];
             return (
-              <div key={strat} className="rounded-md bg-pat-bg-surface-secondary/50 px-4 py-3">
+              <div key={strategyLabel(strat)} className="rounded-md bg-pat-bg-surface-secondary/50 px-4 py-3">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-pat-text-primary">{strat}</span>
+                  <span className="text-sm font-medium text-pat-text-primary">{strategyLabel(strat)}</span>
                   <span className={`text-xs font-bold px-2 py-0.5 rounded ${
                     sig?.Direction === "BUY" ? "bg-pat-success/10 text-pat-success" :
                     sig?.Direction === "SELL" ? "bg-pat-danger/10 text-pat-danger" :

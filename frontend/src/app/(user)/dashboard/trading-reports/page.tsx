@@ -7,6 +7,7 @@ import {
   IconTerminal2, IconInfoCircle,
 } from "@tabler/icons-react";
 import { format } from "date-fns";
+import { strategyLabel } from "@/lib/strategy-labels";
 
 interface EngineSignal {
   ID: string; Direction: string; StrategyID: string; Status: string;
@@ -420,8 +421,8 @@ export default function UserTradingReportsPage() {
                   if (!r) return null;
                   const wr = r.count > 0 ? (r.wins / r.count) * 100 : 0;
                   return (
-                    <tr key={strat} className="border-b border-pat-border/30 hover:bg-pat-bg-surface-secondary/20">
-                      <td className="py-2 px-3 text-pat-text-primary font-medium text-xs">{strat.replace(/_/g, " ")}</td>
+                    <tr key={strategyLabel(strat)} className="border-b border-pat-border/30 hover:bg-pat-bg-surface-secondary/20">
+                      <td className="py-2 px-3 text-pat-text-primary font-medium text-xs">{strategyLabel(strat)}</td>
                       <td className="py-2 px-3 text-center text-pat-text-secondary tabular-nums">{r.count}</td>
                       <td className="py-2 px-3 text-center text-pat-success tabular-nums">{r.wins}</td>
                       <td className="py-2 px-3 text-center text-pat-danger tabular-nums">{r.losses}</td>
@@ -466,7 +467,7 @@ export default function UserTradingReportsPage() {
                   const resultColor = t.is_win ? "text-pat-success" : t.is_loss ? "text-pat-danger" : "text-pat-text-muted";
                   return (
                     <tr key={t.id} className="border-b border-pat-border/30 hover:bg-pat-bg-surface-secondary/20">
-                      <td className="py-1.5 px-2 text-pat-text-secondary">{t.strategy_id?.replace(/_/g, " ")}</td>
+                      <td className="py-1.5 px-2 text-pat-text-secondary">{strategyLabel(t.strategy_id)}</td>
                       <td className={`py-1.5 px-2 font-bold ${dirColor}`}>{t.direction || "—"}</td>
                       <td className="py-1.5 px-2 text-right font-mono text-pat-text-primary tabular-nums">{parseFloat(t.entry_price || "0") > 0 ? parseFloat(t.entry_price).toFixed(2) : "—"}</td>
                       <td className="py-1.5 px-2 text-right font-mono text-pat-text-primary tabular-nums">{parseFloat(t.exit_price || "0") > 0 ? parseFloat(t.exit_price).toFixed(2) : "—"}</td>
@@ -502,7 +503,7 @@ export default function UserTradingReportsPage() {
             <tbody>
               {strategyStats.map((stat) => (
                 <tr key={stat.strategy} className="border-b border-pat-border/30 hover:bg-pat-bg-surface-secondary/20">
-                  <td className="py-2 px-3 text-pat-text-primary font-medium text-xs">{stat.strategy.replace(/_/g, " ")}</td>
+                  <td className="py-2 px-3 text-pat-text-primary font-medium text-xs">{stat.strategy}</td>
                   <td className="py-2 px-3 text-center text-pat-text-secondary tabular-nums">{stat.total}</td>
                   <td className="py-2 px-3 text-center text-pat-success tabular-nums">{stat.directional}</td>
                   <td className="py-2 px-3 text-center text-pat-text-muted tabular-nums">{stat.noTrade}</td>
@@ -547,7 +548,7 @@ export default function UserTradingReportsPage() {
                   return (
                     <tr key={s.ID} className="border-b border-pat-border/30 hover:bg-pat-bg-surface-secondary/20">
                       <td className="py-1.5 px-2"><span className={`font-bold ${dirColor(s.Direction)}`}>{s.Direction}</span>{s.Executable && <span className="ml-1 text-[9px] text-pat-success">EXEC</span>}</td>
-                      <td className="py-1.5 px-2 text-pat-text-secondary">{s.StrategyID?.replace(/_/g, " ")}</td>
+                      <td className="py-1.5 px-2 text-pat-text-secondary">{strategyLabel(s.StrategyID)}</td>
                       <td className="py-1.5 px-2 text-right text-pat-text-primary tabular-nums">{parseFloat(s.RawScore || "0").toFixed(1)}</td>
                       <td className="py-1.5 px-2 text-right font-mono text-pat-text-primary tabular-nums">{entry > 0 ? entry.toFixed(2) : "—"}</td>
                       <td className="py-1.5 px-2 text-right font-mono text-pat-danger tabular-nums">{sl > 0 ? sl.toFixed(2) : "—"}</td>

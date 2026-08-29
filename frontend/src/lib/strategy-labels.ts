@@ -15,3 +15,13 @@ export function strategyLabel(id: string | undefined | null): string {
 
 // Human-readable display name map for UI (id → label)
 export function displayNameFor(id: string): string { return strategyLabel(id); }
+
+// Replace every raw strategy ID the user can see with its display name.
+// Use this when the UI receives an ID from the backend (signals, tabs, tables).
+export function pretty(idOrLabel: string): string {
+  // if it's already one of the nice labels just return it
+  for (const label of Object.values(STRATEGY_DISPLAY_NAMES)) {
+    if (idOrLabel === label || idOrLabel.replace(/_/g, " ").toLowerCase() === label.toLowerCase()) return idOrLabel;
+  }
+  return strategyLabel(idOrLabel);
+}
