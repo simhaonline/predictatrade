@@ -13,7 +13,30 @@
 
     Usage (local build):  .\install-windows-agent.ps1 -EngineHost 10.0.0.5
     Usage (release server): .\install-windows-agent.ps1 -BaseUrl https://files.predictatrade.com/pat-engine -EngineHost api.predictatrade.com
-#>
+
+    ============================================================================
+    WARNING — WHICH INSTALLER SHOULD YOU USE?
+    ----------------------------------------------------------------------------
+    This script installs pat-engine's *reference* data feeder (pat-windows-agent.exe,
+    built from pat-engine/cmd/agent). That binary generates SYNTHETIC bars, POSTs
+    them to <host>/candles, and then EXITS. It does NOT open a WebSocket to
+    /ws/v1/agent, does NOT serve the 127.0.0.1:9000 health/status page, and has NO
+    MetaTrader file-pipe integration. It will therefore never appear as a connected
+    device on the engine and will never show MT4/MT5 status. It is a dev/test tool
+    only.
+
+    For the PRODUCTION Windows Agent (the one that connects to the engine over
+    /ws/v1/agent + /ws/v1/data, serves the 9000 page, and bridges signals to/from
+    the MT4/MT5 Client EA) use the windows-agent project installer instead:
+
+        cd windows-agent\deploy
+        .\install.ps1 -Mode client          # add -EngineHost <your.server> if not live.predictatrade.com
+
+    Also note: the default -EngineHost is "localhost" — that ONLY works if the
+    pat-engine gateway is running on the same Windows box. Point it at your real
+    server (e.g. live.predictatrade.com) or the agent will feed nobody.
+    ============================================================================
+ #>
 [CmdletBinding()]
 param(
     [string]$EngineHost = "localhost",
