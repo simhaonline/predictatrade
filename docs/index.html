@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Predict-A-Trade XAUUSD — Documentation</title>
-  <meta name="description" content="Predict-A-Trade v1.16.0 — Multi-plane XAUUSD trading platform documentation">
+  <meta name="description" content="Predict-A-Trade v1.17.3 — Multi-plane XAUUSD trading platform documentation">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#0a0a0a">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
@@ -74,9 +74,13 @@
       topMargin: 0
     }
   </script>
+  <!-- Mermaid support (render diagrams in FLOW_DIAGRAMS/DB_ERD) -->
+  <script src="//cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <!-- Docsify core -->
   <script src="//cdn.jsdelivr.net/npm/docsify@4/lib/docsify.min.js"></script>
   <!-- Plugins -->
+  <script src="//cdn.jsdelivr.net/npm/docsify-mermaid@1/dist/docsify-mermaid.min.js"></script>
+  <script>mermaid.initialize({ startOnLoad: true, securityLevel: 'loose' });</script>
   <script src="//cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
   <script src="//cdn.jsdelivr.net/npm/docsify@4/lib/plugins/zoom-image.min.js"></script>
   <script src="//cdn.jsdelivr.net/npm/docsify-darklight-theme@3/dist/index.min.js"></script>

@@ -1,5 +1,65 @@
 # Predict-A-Trade Changelog
 
+## v1.17.3 (29 August 2026) — BE-6 reconciliation + NestJS 12 + Windows Agent verification
+
+### BE-6 — Signal↔execution fill-level reconciliation (closes the remaining PARTIAL)
+- **Fill leg wired:** `TRADE_RESULT` now calls `reconciler.RecordFill(signalID, brokerTicket)` on
+  successful persist, closing the ACK→fill lifecycle gap (previously only persisted to DB).
+- **Monitor goroutine** (`startReconciliationMonitor`, main.go): 30s loop over
+  `UnacknowledgedOlderThan` (ACK TTL 2m) + `UnfilledOlderThan` (fill TTL 10m); per-signal deduped
+  ntfy alerts (10min re-alert window); Prometheus gauges
+  `pat_reconciliation_acks_timeout`, `pat_reconciliation_fills_timeout`,
+  `pat_reconciliation_tracked_signals`; `PruneOlderThan` bounds registry growth.
+  Fail-observing only — never blocks signal generation or delivery (SOW §24).
+- **Chargeability semantics tested:** fallback-UUID TRADE_RESULT (old EAs) cannot close the
+  delivery leg; CANCELLED/terminal statuses exempt from fill-gap reporting.
+- **Devil Liquidity duplicate-mark fix (production bug found via full-suite race run):**
+  the candle right after a displacement (e.g. the reversal leg) could itself register a second
+  mark at a different level with the same intent (median body shifted after the first mark),
+  double-charging the level and nondeterministically flipping
+  `TestBullishMarkDetectionAndReversal` (map-random `AllMarks()` order). Fix in
+  `detect()`: duplicate guard compares levels normalized by the mark's DETECTION ATR and
+  suppresses marks within `RECLAIM_MAX_BARS × timeframe duration` of an existing young mark.
+  Legitimate far-future marks still allowed (regression tests included, 100-iteration loop).
+
+### Control plane
+- **NestJS 10→12**, TypeScript 6, Jest 30 (`--experimental-vm-modules`; Nest 12 is ESM-only).
+  Production dependency audit: 0 high/critical (js-yaml 5.4.1, multer 2.2.0, lodash eliminated).
+- **FIX: POST /subscriptions 500** — PG17 could not infer `$5` (billing_interval) used both as
+  column value and inside the `CASE` producing `billing_period_end`; explicit `$5::text` casts.
+  Verified live: FREE-plan subscription created, invoice generated.
+- `control/.npmrc` pins `legacy-peer-deps=true` (`@nestjs/throttler@6.5.0` peers declare ≤11;
+  API surface verified compatible at runtime — 167/167 tests on Nest 12).
+
+### CI
+- YAML indentation bug in the security job (dependency-audit step nested inside the previous
+  `run:` block) made GitHub fail workflow creation — 30 consecutive failed runs, 0 jobs.
+- Secret-scan self-exclusion: `grep --exclude` takes a basename glob — `--exclude=ci.yml`
+  now excludes the workflow's own pattern definitions. Excludes also cover infra env examples
+  and binary asset globs.
+- Python: `psycopg2` importorskip in the optional DB e2e test; CAGR OverflowError fallback for
+  blown accounts/tiny year fractions (metrics.py); `max_drawdown_pct` coerced `float()` —
+  psycopg2 cannot adapt `np.float64` (rendered `np.float64(...)` INTO the SQL).
+- MARNIE_FIB integration fixture: added `vwap` key (added to indicators in d197250).
+- Frontend e2e: mock seeds/honors the `pat_access_token` proxy cookie incl. logout/login
+  sequencing; nav specs updated to current 35/17 items; `panel-label` expectations aligned with
+  the intentionally-empty label; logo/footer specs aligned; 13 pre-existing lint errors fixed
+  (no-explicit-any, impure Date.now() in render, sync setState in effects).
+- **Status: 6/6 jobs green** (go, nestjs, frontend, python, windows-agent, security).
+
+### Windows Agent
+- v1.2.40 verified live: binaries + update-manifest checksums byte-match the served artifacts;
+  installer env contract (`PAT_LIVE_WS_URL`, `PAT_DATA_WS_URL`, `PAT_API_URL`,
+  `PAT_LICENSE_KEY`, `PAT_SERVICE_NAME`, `PAT_LOG_DIR`, `PAT_HEALTH_PORT`) fully wired.
+- EA sources (Master + Client, MT4+MT5, v1.17.2 `MasterAppend` fix) now served from
+  `https://downloads.predictatrade.com/windows-agent/*.mq5|*.mq4` (nginx locations added);
+  deploy README lists URLs + compile step.
+
+### Dashboards
+- Full runtime audit of all 38 pages (25 admin + 19 user incl. layout routes) against the live
+  edge with USER and ADMIN tokens — every page's data endpoints 200. Fixes: `POST /subscriptions`
+  (above), stale e2e specs, 13 lint errors, sidebar unit test drift ('Signal Panel' → 'Signal Monitor').
+
 ## v1.17.2 (27 August 2026) — CRITICAL: Master Node snapshot delivery (IPC truncation race)
 ### Problem
 - The Go engine received `MASTER_TICK` from the Master Node EA but **never** a

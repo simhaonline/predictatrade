@@ -1,5 +1,5 @@
 # Risk Gates
-## v1.17.2 — 28 August 2026
+## v1.17.3 — 29 August 2026
 
 ### Gate Pipeline (16 gates, ordered execution)
 

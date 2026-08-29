@@ -2,7 +2,7 @@
 
 Multi-plane XAUUSD trading signal generation and analytics platform.
 
-**Version:** v1.17.2 | **Date:** 28 August 2026 | **Launch verdict:** CONDITIONAL GO — all launch-blockers remediated (see `docs/reports/MACROSCOPIC_AUDIT_REVISIT_2026-08-28.md`); residual: schedule NestJS 12 upgrade (js-yaml transitive HIGH) + operator MFA enrollment + end-to-end fill test
+**Version:** v1.17.3 | **Date:** 29 August 2026 | **Status:** GO — launch-blockers closed; NestJS 12 upgrade complete; CI 6/6 jobs green; dashboards runtime-audited (all 38 pages); Windows Agent v1.2.40 + installers verified; residual: connect MT5 clients (EA attach + license key) and one demo fill test
 
 ## Quick Start
 
@@ -106,6 +106,15 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 - **Signal Class:** ADVISORY vs EXECUTABLE classification with color coding
 - **Multi-tab strategy filtering:** All 5 strategy engines (including MARNIE_FIB) with directional sub-filters
 
+## v1.17.3 Features (29 August 2026)
+
+- **NestJS 10→12 + TypeScript 6 + Jest 30** — closes the last supply-chain residual (js-yaml prototype-pollution HIGH); production dependency tree now 0 high/critical (lodash eliminated, multer 2.2.0, express 5 via platform-express@12). Jest 30 required because Nest 12 is ESM-only (`--experimental-vm-modules`).
+- **BE-6 fill-level reconciliation (closed)** — TRADE_RESULT now closes the ACK→fill leg keyed by broker ticket; 30s reconciliation monitor with ACK TTL (2m) and fill TTL (10m), per-signal deduped ntfy alerts, Prometheus gauges `pat_reconciliation_{acks_timeout,fills_timeout,tracked_signals}`, retention pruning. Fail-observing only — never blocks trading.
+- **Devil Liquidity duplicate-mark fix** — the reversal candle could itself re-qualify as a NEW displacement mark (median body shifts after the first mark), double-charging the same level. Guard: level match normalized by the mark's DETECTION ATR + recency window (`RECLAIM_MAX_BARS` x timeframe duration).
+- **CI rebuilt** — YAML indentation bug (30 consecutive failed runs, 0 jobs) fixed; secret-scan self-exclusion glob fixed; control `.npmrc` legacy-peer-deps documented; psycopg2 importorskip; 6/6 jobs green.
+- **Dashboards runtime-audited (38/38 pages)** — every ADMIN and USER page probed against the live edge with USER + ADMIN tokens; fixed: `POST /subscriptions` 500 (PG17 `$5` type inference), stale e2e specs (cookie seeding, nav counts), 13 pre-existing lint errors.
+- **Windows Agent v1.2.40 verified live** — binaries + manifests served byte-exact; installer env contract (7 vars) fully wired; EA sources (v1.17.2 MasterAppend fix) now downloadable from downloads.predictatrade.com.
+
 ## Plane Boundaries (mandatory)
 
 | Plane | Location | Authority | Must NOT become |
@@ -116,15 +125,16 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 | Python Research | research/ | Backtesting, calibration, ML | Live tick dependency |
 | Windows/MQL Edge | windows-agent/, mql/ | Order execution | Primary intelligence |
 
-## Current Status (28 August 2026)
+## Current Status (29 August 2026)
 
 | Check | Status |
 |-------|:------:|
-| Go tests (28/28 packages) | PASS |
-| Frontend tests (70) | PASS |
-| Python tests (127) | PASS |
-| TypeScript check | PASS |
-| All services running | PASS |
+| Go tests (28/28 packages, race) | PASS |
+| Control tests (NestJS 12, Jest 30) 167/167 | PASS |
+| Frontend tests 84/84 + e2e 18/18 | PASS |
+| Python tests 139/139 (incl. live TimescaleDB) | PASS |
+| CI — 6/6 jobs green | PASS |
+| All 13 containers healthy | PASS |
 | 16 risk gates active | PASS |
 | SL enforcement server-side | ACTIVE |
 | Broker symbol validation (P0-001) | ACTIVE |
@@ -132,11 +142,15 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 | Math parity (MAPE < 0.0001) | PASS |
 | 49/49 geometry validations | PASS |
 | Launch blockers (SEC-1/DB-1/DB-2/DB-5/BE-5/BE-4) | ALL CLOSED |
+| BE-6 reconciliation monitor (ACK + fill legs) | LIVE |
+| Supply chain (NestJS 12, 0 high/critical prod) | CLOSED |
+| Dashboards wiring (38/38 pages runtime-probed) | PASS |
+| Windows Agent v1.2.40 + installers + EA downloads | VERIFIED |
 | Migration integrity (65 files, unique prefixes) | PASS |
 | Secrets out of git (env-file injection) | PASS |
-| MQL EAs compiled | Operator action |
-| Production API keys | Operator action |
-| Backup/restore tested | Operator action |
+| MT5 clients connected (EA attach + license) | Operator action |
+| Demo fill test (one signal round-trip) | Operator action |
+| Backup/restore drill | Operator action |
 
 ## Go Realtime Plane
 

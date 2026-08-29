@@ -1,6 +1,6 @@
 # Incident Response Plan
 
-## Predict-A-Trade v1.17.2 — 28 August 2026
+## Predict-A-Trade v1.17.3 — 29 August 2026
 
 ### 1. Purpose and Scope
 

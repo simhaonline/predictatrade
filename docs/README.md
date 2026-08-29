@@ -1,6 +1,6 @@
 # Predict-A-Trade XAUUSD — Documentation
 
-> Multi-plane XAUUSD algorithmic trading platform · v1.17.2 · GO (100/100)
+> Multi-plane XAUUSD algorithmic trading platform · v1.17.3 · GO — CI 6/6 green, dashboards runtime-audited, Windows Agent verified
 
 Welcome to the official documentation for Predict-A-Trade — a production-grade XAUUSD trading signal generation platform. Use the sidebar to navigate, or start with the sections below.
 
@@ -38,9 +38,12 @@ Welcome to the official documentation for Predict-A-Trade — a production-grade
 | Technical Indicators | 42 (35 live, 7 warming) |
 | Evidence Pillars | 13 |
 | Risk Gates | 16 (per-strategy/timeframe isolated) |
-| Services (Docker) | 11 |
-| Test Packages | 28/28 PASS |
-| Production Readiness | 100/100 |
+| Services (Docker) | 13 healthy |
+| Tests | Go 28 pkgs · control 167 · frontend 84 + e2e 18 · Python 139 — all PASS |
+| CI jobs | 6/6 green |
+| API surface | 64 documented paths (OpenAPI 3.0 in [`api/openapi.json`](api/openapi.json)) |
+| Dashboard pages | 38 runtime-audited (25 admin + 19 user routes) |
+| Windows Agent | v1.2.40, binaries + manifests byte-verified live |
 
 ## Repository
 

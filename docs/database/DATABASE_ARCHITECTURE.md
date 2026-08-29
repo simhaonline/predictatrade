@@ -1,49 +1,78 @@
 # Database Architecture
-## v1.17.2 — 28 August 2026
+## v1.17.3 — 29 August 2026
 
 ### Stack
-- PostgreSQL 17 + TimescaleDB (hypertables)
-- pgvector (AI embeddings)
-- pgcrypto (encryption)
+- PostgreSQL 17 + TimescaleDB (hypertables) — `timescale/timescaledb-ha:pg17`
+- pgvector (AI embeddings) · pgcrypto (PII encryption at rest)
+- Exact-decimal money: `NUMERIC(18,8)` / `NUMERIC(10,4)` everywhere; `decimal.js` in the control plane
+- Valkey 8 = hot/cache only — **never** sole durable financial or trading truth
 
-### Schemas
-| Schema | Purpose | Key Tables |
+### Schemas (16 application schemas, 210+ tables — verified live)
+
+| Schema | Purpose | Key tables |
 |--------|---------|------------|
-| iam | Users, roles, sessions, devices | users, roles, sessions, devices |
-| billing | Subscriptions, plans, licenses | subscriptions, plans, licenses |
-| finance | Commissions, payouts, ledger | ledger_entries, payouts |
-| trading | Signals, orders, trade results | signals, orders, positions, trade_results, strategies |
-| market | Candles (hypertable), COT, ticks | candles, cot_data, ticks |
-| calibration | Model versions, predictions | model_versions, predictions |
-| ptb | PTB intelligence | synthesis, performance |
-| compliance | Audit events, client telemetry | client_event_log, audit_events |
-| backtest | Backtesting results | backtest_runs, backtest_results |
+| `iam` | Users, roles, memberships, sessions, API creds | users, roles, memberships, sessions, login_events, api_credentials, consent_records |
+| `licensing` | Licenses, devices, MT accounts | licenses, devices, license_devices, device_activations, device_credentials, mt_accounts, mt_connections, entitlement_leases, license_events, client_releases |
+| `billing` | Subscriptions, invoices, payments | subscriptions, invoices, payments, coupons, subscription_events |
+| `finance` | Commissions, payouts, ledger | commission_ledger, commission_rules, commission_caps, payouts, ledger_entries, affiliate_wallets |
+| `control` | Plans + commercial flags + operations | plans, commercial_feature_flags, platform_operations |
+| `referral` | Affiliate tree + risk | affiliate_profiles, affiliate_risk_flags, referral_* |
+| `trading` | Signals, execution, results, backtests | signals, trade_results, execution_commands, positions, exit_profiles, blocked_signals, broker_execution_profiles, cross_market_* (12), backtest_* (7), bar_processing_log |
+| `market` | Time-series + macro | candles (hypertable), candles_m5/h1_agg, ticks, cot_* (8), economic_events, data_capabilities, data_provenance_log |
+| `calibration` | Model registry + predictions | calibration_profiles, calibration_reports, model_versions |
+| `ptb` / `ai` | PTB intelligence + feature flags + ML | ptb_feature_flags, ai.* model artifacts |
+| `compliance` | GDPR + client telemetry | gdpr_operations (088), consent-driven client_event_log |
+| `audit` | Audit events + migration history | audit_events, client_events, migration_history |
+| `research` | Feature parity / quant studies | feature_parity_runs, parity artifacts |
+| `live_preview` | Anonymous 5-minute preview funnel | anonymous_trials, funnel_stats |
+| `support` | Tickets | support.* |
+| `system` | Framework tables | roles/permissions seeds |
 
-### Recent Schema Changes (v1.17.x)
+Entity relationships for the core domains: **[DB_ERD.md](DB_ERD.md)** (mermaid `erDiagram`).
 
-**Migration renumbering + reconciliation (v1.17.2):** The 7 duplicate-prefix migration pairs were renumbered to unique sequences 089–095 and `audit.migration_history` reconciled to match disk (65 files). `scripts/check_migrations.sh` now passes (no duplicate prefixes, history == disk). See `database/migrations/MIGRATION_ORDER.md`.
+### Hypertables & retention
 
-**GDPR erasure/retention (v1.17.2):** Migration `088_gdpr_erasure_retention.sql` adds `compliance.gdpr_operations`; the control plane exposes admin-only erase/anonymize/retention endpoints via `compliance/gdpr.service.ts`.
+| Hypertable | Chunk interval | Retention |
+|---|---|---|
+| `market.candles` | 1 day | 081_market_candles_retention (per-timeframe policies) |
+| `audit.client_event_log` | 1 day | 064_audit_retention_and_logging |
+| `market.cot_raw_reports` | 7 days | COT ingestion lifecycle (011) |
 
-**trade_results table:** New table for real executed-trade metrics (P&L, R:R realized, entry/exit prices, broker ticket IDs). Populated by backfill from broker telemetry and live execution. Trading Reports dashboard queries this table exclusively — no estimated/derived values are substituted for real fills.
+### Migration discipline (65 files, unique prefixes)
 
-**Agent connection state bridging:** The Go engine bridges live agent WebSocket heartbeat status into `compliance.agent_status` for unified agent monitoring from the admin dashboard. Fields: agent_id, version, connected, last_seen, license_status.
+- Forward-only SQL under `database/migrations/001…095`; `audit.migration_history` is reconciled
+  to disk by `scripts/check_migrations.sh` (also enforced in CI).
+- The 7 duplicate-prefix pairs were renumbered to `089–095` (v1.17.2) — never rewrite applied
+  history; `MIGRATION_ORDER.md` is the canonical sequence.
+- Dual mechanism removed: `initdb.d` no longer auto-runs migrations (DB-5); `scripts/migrate.sh`
+  is the only runner.
 
-**Migration 085:** `085_set_plan_risk_caps.sql` — sets per-plan risk caps for seed capital protection (5% daily loss limit enforcement per plan tier).
+### Recent schema changes
 
-### Migrations
-- 65 migrations applied (001-095), all with unique sequence prefixes
-- Located in `database/migrations/` (canonical order in `MIGRATION_ORDER.md`)
-- Run via `./scripts/migrate.sh up` (single source of truth — `initdb.d` auto-run removed)
-- All migrations are idempotent (IF NOT EXISTS guards)
-- `scripts/check_migrations.sh` is the CI guard: fails on duplicate prefixes or history-vs-disk drift
-- `audit.migration_history` reconciled to match disk (65 = 65)
+**v1.17.3 — runtime-probe fixes:**
+- `billing.subscriptions` INSERT explicit `$5::text` cast — PG17 strict parameter-type inference
+  rejected the mixed use of `billing_interval` as column value and `CASE` operand (500 on
+  create); subscription creation verified end-to-end.
 
-### Hypertables
-- market.candles: 1-hour chunks, TimescaleDB compression
-- Retention policy: 3 years on market.candles (v1.16.0) ✅
+**v1.17.2 — carryovers:**
+- Renumbered migrations 089–095 + `migration_history` reconciliation.
+- `088_gdpr_erasure_retention` → `compliance.gdpr_operations`; GDPR erase/anonymize in control.
+- `trading.trade_results` populated exclusively by real broker fills (EA `TRADE_RESULT`
+  enrichment, never synthetic); Trading Reports read only this table.
+- Agent connection state bridged into `compliance.agent_status` by the Go engine
+  (id, version, connected, last_seen, license_status).
+- `072_backtest_artifact_payload` — equity/metrics JSONB artifacts per run.
+- `082_elite_marnie_fib_strategy` — MARNIE_FIB strategy registration (ELITE).
+- `085_set_plan_risk_caps` — `per_trade_risk_pct` / loss caps on plans (engine `LicenseRiskCaps`).
 
-### Money Types
-- All financial columns use `NUMERIC(18,8)` — no float/double anywhere
-- Ledger entries: double-entry with RESERVED → SETTLED state machine
-- Trade P&L stored as `NUMERIC(18,8)` in trading.trade_results
+### Data model invariants
+
+1. **Money:** `NUMERIC` only; ledger mutations are append-only; corrections are compensating
+   rows (`finance.ledger_entries.revokes`).
+2. **Time:** `TIMESTAMPTZ` everywhere; UTC internal truth; broker time = display conversion.
+3. **Referential:** FKs enforced at DB level; soft-delete via `deleted_at`; GDPR hard erasure
+   replaces rows with `deleted_<uuid>@anonymized.local` tombstones (verified in `iam.users`).
+4. **Indices:** btree on all FKs; GIN on jsonb query paths (`signals.reason_codes`,
+   `data_capabilities`); hypertable time+space partition keys on `candles(time, symbol, timeframe)`.
+5. **Backups:** `pg_dump --format=custom` nightly + off-host copy; `scripts/backup/restore_test.sh`
+   validates row counts and latest timestamps (`backup_metadata` audit trail).

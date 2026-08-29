@@ -1,5 +1,8 @@
 # Predict-A-Trade Architecture
-## v1.17.2 — 28 August 2026
+## v1.17.3 — 29 August 2026
+
+> Visual flows: tick→signal sequence, execution reconciliation, auth, licensing, payments,
+> update/rollback, backup/DR are in **[FLOW_DIAGRAMS.md](FLOW_DIAGRAMS.md)** (Mermaid).
 
 ### Signal Flow
 
@@ -46,22 +49,43 @@ The broker server runs in GMT+3 (standard XAUUSD FX broker time, no DST). All se
 | Python Research | research/ | Backtesting, calibration | Live tick dependency |
 | MQL Edge | mql/ | Order execution | Primary intelligence |
 
-### Services (11 LIVE + 1 OPT-IN)
+### Services (13 LIVE + 1 OPT-IN)
 
 | Service | Port | Tech | Status |
 |---------|:----:|------|:------:|
-| Realtime Engine | 13081 | Go | LIVE |
-| Control Plane | 13080 | NestJS | LIVE |
-| Frontend | 13082 | Next.js | LIVE |
-| Status Page | 13083 | Go | LIVE |
+| Realtime Engine | 13081 | Go 1.25 | LIVE |
+| Realtime data-WS | 13091 | Go (Master Node ingest) | LIVE |
+| Control Plane | 13080 | NestJS 12 | LIVE |
+| Frontend | 13082 | Next.js 16.3 | LIVE |
+| Status Page | 13083 | Node | LIVE |
 | Live Terminal | 13090 | Go | LIVE |
 | PostgreSQL | 5432 | TimescaleDB | LIVE |
 | Valkey | 6379 | Cache | LIVE |
 | Prometheus | 9090 | Metrics | LIVE |
 | Grafana | 3001 | Dashboards | LIVE |
 | ntfy | 8091 | Alerts | LIVE |
-| Nginx | 80/443 | Reverse proxy | LIVE |
+| Nginx | 80/443 | Reverse proxy/TLS | LIVE |
+| Backtest service | 8088 | Python (FastAPI) | LIVE |
 | NATS | 4222/8222 | Ingest bus (optional) | OPT-IN (`NATS_URL`) |
+
+### NestJS 12 / ESM notes (v1.17.3)
+
+- Control plane upgraded NestJS 10→12 with TypeScript 6 + Jest 30; Nest 12 packages are
+  ESM-only, so the Jest runtime requires `NODE_OPTIONS=--experimental-vm-modules`
+  (Node 24.19) — baked into `npm test` and CI.
+- `@nestjs/throttler@6.5.0` peer-declares ≤11 but is runtime-compatible with 12
+  (API surface verified, 167/167 tests); `control/.npmrc` pins `legacy-peer-deps=true`.
+- PostgreSQL 17 strict parameter-type inference surfaced a real bug in
+  `POST /subscriptions` (untyped `$5` used as column + CASE operand) — fixed with
+  `$5::text` casts; subscription creation verified end-to-end.
+
+### BE-6 Reconciliation (v1.17.3)
+
+Signal↔execution lifecycle is now fully observed end-to-end:
+`RecordDelivery` (broadcast) → `RecordAcknowledgement` (verified EXECUTION_ACK) →
+`RecordFill` (TRADE_RESULT, keyed by broker ticket). A 30s monitor emits
+`pat_reconciliation_{acks_timeout,fills_timeout,tracked_signals}` gauges + deduped ntfy
+alerts (ACK TTL 2m, fill TTL 10m) and prunes reconciled records. Fail-observing only.
 
 ### Recent Architectural Changes (v1.17.x)
 

@@ -1,136 +1,237 @@
-# REST API & WebSocket Reference
-## v1.17.2 — 28 August 2026
+# REST & WebSocket API Reference
+## v1.17.3 — 29 August 2026
 
 Two backends share the API surface:
+
 | Service | Base URL | Port | Stack |
 |---------|----------|:----:|-------|
-| NestJS Control Plane | /api/v1 | 13080 | NestJS |
-| Go Realtime Engine | / | 13081 | Go |
+| NestJS Control Plane | `/api/v1` | 13080 | NestJS 12 |
+| Go Realtime Engine | `/` (direct) or `/api/v1/*` via `api.` edge | 13081 (+13091 data) | Go 1.25 |
 
-All mutations require JWT. Admin requires AdminGuard. WebSocket requires JWT or agent token.
+**Machine-readable spec:** [`openapi.json`](openapi.json) (OpenAPI 3.0, 64 paths — generated from
+the control plane's `@nestjs/swagger` decorators; also served from `control/openapi.json`).
+
+**Auth:** JWT Bearer for users/admins; agent tokens for the Windows edge; HMAC signatures for
+payment webhooks. Admin routes additionally pass `AdminGuard` (+ `RolesGuard`/`PermissionGuard`
+where role-scoped). All responses are JSON; errors are
+`{"message": string|string[], "error": string, "statusCode": int}`.
 
 ---
 
-## NestJS Control Plane — REST
+## 1. Auth (`/auth`) — `auth.controller.ts`
 
-### Auth (/auth)
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | /auth/register | Public | Register, returns JWT + refresh |
-| POST | /auth/login | Public | Login, returns JWT + refresh |
-| POST | /auth/verify-otp | JWT | Verify MFA OTP |
-| POST | /auth/refresh | Refresh Token | Refresh access token |
-| GET | /auth/me | JWT | Current user |
-| POST | /auth/logout | JWT | Invalidate session |
-| POST | /auth/mfa/setup | JWT | Enable MFA — returns TOTP secret |
-| POST | /auth/forgot | Public | Request password reset |
+| POST | /auth/register | Public | Register; seeds consent records; returns JWT + refresh cookie |
+| POST | /auth/login | Public (throttled 10/min) | Returns `{accessToken, user, mfaRequired?}`; privileged roles require MFA enrollment |
+| POST | /auth/verify-otp | Public challenge | Verify TOTP for login (`challengeId`, `method`) |
+| POST | /auth/mfa/setup | JWT | Enroll authenticator — returns TOTP secret + otpauth URL |
+| POST | /auth/mfa/verify | JWT | Confirm enrollment with a code |
+| POST | /auth/refresh | Cookie | Rotate access token (single-flight, shared across tabs) |
+| GET | /auth/me | JWT | Current user (fresh role) |
+| POST | /auth/logout | JWT | Invalidate session, clear refresh cookie |
+| POST | /auth/forgot | Public | Request password reset (tokenized email) |
 | POST | /auth/reset | Public | Reset password with token |
 
-### Users (/users)
+## 2. Users (`/users`) — `users.controller.ts`
+
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | /users/me | JWT | Current profile |
-| PATCH | /users/me | JWT | Update profile |
-| GET | /users/:id | JWT | User by ID (self or admin) |
-| GET | /users | Admin | List users (paginated) |
+| PATCH | /users/me | JWT | Update `displayName` / `timezone` |
+| GET | /users/{id} | Self or Admin | User detail |
+| GET | /users | Admin | Paginated list |
 
-### Plans (/plans)
+## 3. Plans (`/plans`) — `plans.controller.ts`
+
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | /plans | Public | Active plans |
-| GET | /plans/:id | Public | Plan details |
+| GET | /plans | Public | Active plans incl. `allowed_strategies`, price, caps |
+| GET | /plans/{id} | Public | Plan detail |
 
-### Subscriptions (/subscriptions)
+## 4. Subscriptions (`/subscriptions`) — `subscriptions.controller.ts`
+
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | /subscriptions | JWT | Current subscription |
-| POST | /subscriptions | JWT | Create/upgrade |
-| DELETE | /subscriptions | JWT | Cancel |
-| GET | /subscriptions/entitlements | JWT | Selected strategies + features |
+| GET | /subscriptions | JWT | Current subscription (with plan code) |
+| POST | /subscriptions | JWT | Create/upgrade. Server re-validates request against
+`entitlement-policy.ts` (`AT_LEAST_ONE_STRATEGY_REQUIRED`, `STRATEGY_NOT_ENTITLED`,
+`plan_strategy_limit`). FREE → status ACTIVE + paid invoice; paid → INCOMPLETE until webhook |
+| PATCH | /subscriptions/strategies | JWT | Update selected strategies (entitlement-validated) |
+| POST | /subscriptions/{id}/pause | JWT | Pause own subscription |
+| POST | /subscriptions/{id}/resume | JWT | Resume |
+| POST | /subscriptions/{id}/cancel | JWT | Cancel |
+| GET | /subscriptions/entitlements | JWT | `{code, allowed_strategies, selected_strategies, features, caps}` |
+| GET | /subscriptions/strategies | JWT | Strategy entitlement matrix (admin console variant `/admin` scope) |
 
-### Devices (/devices)
+Admin (under `/admin`): `/admin/subscriptions`, `/admin/subscriptions/{payments|refunds|chargebacks|coupons|provider}`.
+
+## 5. Billing (`/billing`) — `billing.controller.ts`
+
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | /devices | JWT | Bound devices |
-| POST | /devices/activate | JWT | Activate device |
-| DELETE | /devices/:id | JWT | Remove device |
+| GET | /billing/invoices | JWT | Own invoices (branded PDF available via `/invoices/{id}/html`) |
+| GET | /billing/invoices/generate | Admin | Invoices for a subscription (`subscriptionId` query) |
+| GET | /billing/invoices/{id} | Owner/Admin | Invoice |
+| GET | /billing/invoices/{id}/html | Owner/Admin | Rendered HTML invoice |
+| POST | /billing/invoices/{id}/mark-paid | Admin | Manual settlement |
+| POST | /billing/webhook | HMAC | Stripe webhook — raw-body HMAC verified |
+| POST | /billing/nowpayments/create-invoice | JWT | Crypto invoice via NOWPayments |
+| POST | /billing/webhook/nowpayments | HMAC | NOWPayments IPN callback |
 
-### Backtests (/backtests) — Admin
+## 6. Commissions (`/commissions`) — `commissions.controller.ts`
+
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | /backtests | Admin | List backtests |
-| POST | /backtests | Admin | Start backtest |
-| GET | /backtests/:id | Admin | Results |
+| GET | /commissions/summary | JWT | Own commission summary |
+| GET | /commissions | JWT | Own ledger (filterable) |
+| GET | /commissions/admin/all | Admin | Full ledger page |
+| GET | /commissions/admin/summary | Admin | Totals + status breakdown |
+| POST/PUT | /commissions/admin/rules… | Admin | Rule CRUD (`admin/rules`, clear/hold/release per entry) |
+
+## 7. Payouts (`/payouts`) — `payouts.controller.ts`
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | /payouts | JWT | Own payouts |
+| POST | /payouts/request | JWT | Request withdrawal (idempotency-keyed) |
+| GET | /payouts/admin/all | Admin | Queue |
+| GET | /payouts/admin/stats | Admin | Totals by status |
+| POST | /payouts/{id}/approve · /reject · /process · /reconcile · /retry | Admin | State machine transitions |
+
+## 8. Referrals (`/referrals`) — `referrals.controller.ts`
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | /referrals/code | JWT | Referral code + link |
+| GET | /referrals/network | JWT | Downline tree + stats |
+| GET | /referrals/commissions | JWT | Per-referral earnings |
+
+## 9. Licensing (`/licensing`) — `licensing.controller.ts`
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | /licensing/validate | Public/agent | Validate a license key (optionally device-bound) → `{valid, status, plan, allowed_strategies}` |
+| GET/POST | /licensing/devices | Agent/Admin | List / register devices (hardware fingerprint) |
+| POST | /licensing/devices/{id}/heartbeat · /revoke | Agent/Admin | Telemetry / revoke |
+| GET/POST | /licensing/mt-accounts | Agent/Admin | MT account bindings |
+| GET | /licensing/licenses | Admin | All licenses + status |
+
+Device-auth suite (`/devices`): `activate`, `refresh`, `heartbeat`, `sessions`, `devices/{id}`,
+`devices/{id}/revoke` — used by the Windows Agent for activation sessions.
+
+## 10. Operations (`/operations`) — Admin — `operations.controller.ts`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /operations/state | Trading state (halted? signals paused?) |
+| GET | /operations/active | Active platform operations |
+| POST | /operations/halt-trading · /resume-trading | Full execution halt (body `{reason}` required) |
+| POST | /operations/pause-signals · /resume-signals | Signal generation pause (body `{reason}` required) |
+| POST | /operations/strategy/{id}/enable · /disable | Per-strategy kill switch |
+| GET | /operations/ai/models · /ai/training-jobs · /ai/inference | ML registry views |
+| POST | /operations/ai/model/{id}/activate · /deactivate | Model activation (cannot self-promote) |
+
+## 11. Admin (`/admin`) — `admin.controller.ts` + `admin-extras.controller.ts`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /admin/overview | User/subscription/commission headline metrics |
+| GET/PATCH | /admin/users · /admin/users/{id}/status | User management |
+| GET | /admin/health · /admin/subscriptions · /admin/commissions(+summary) · /admin/payouts(+stats) · /admin/plans · /admin/licenses · /admin/devices · /admin/activations | Console data grids |
+| GET | /admin/subscriptions/{payments|refunds|chargebacks|coupons|provider} | Billing ops |
+| GET | /admin/trading-reports | Aggregated from `trading.trade_results` (real fills only) |
+| GET | /admin/regime-diagnostics *(realtime)* | Regime engine state |
+| GET/PUT | /admin/risk-config | Global risk configuration |
+| GET | /admin/signal-accuracy | Signal quality metrics |
+| GET | /admin/backup-dr · /admin/releases · /admin/broker-qualification · /admin/macro-news | Admin-extras views |
+| GET/PUT | /admin/feature-flags · /feature-flags/{id} | PTB feature-flag registry (`trading.ptb_feature_flags`; mode `OFF|SHADOW|ACTIVE|DISABLED|UNSUPPORTED|RESEARCH`, `id` is a UUID) |
+
+## 12. Audit & Compliance
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | /audit | JWT | Own client events (paginated) |
+| GET | /audit/client | JWT | Alias — activity log page |
+| GET | /audit/events | Admin | Full audit stream |
+| — | GDPR erase/anonymize/retention | Admin only | `compliance/gdpr.service.ts` (migration 088) |
+
+## 13. Backtests (`/backtest`) — `backtest.controller.ts`
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | /backtest/data | JWT | Available datasets + history (synthetic or TimescaleDB-sourced) |
+| GET | /backtest/runs | JWT | Own runs |
+| GET | /backtest/runs/{runId} | JWT | Run + trades |
+| POST | /backtest/run | JWT | Start backtest (engine-validated config) |
+| GET | /backtest/runs/{runId}/download | JWT | CSV export |
+
+## 14. Health & Guest
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | /health | None | Control plane liveness + DB check |
+| GET | /api/docs | Internal | Swagger UI (production: blocked externally) |
+
+Guest-preview suite (`/guest`): `session`, `status`, `register`, `otp/resend`, `otp/verify`,
+`unsubscribe`, `unsubscribe-status` — anonymous 5-minute live preview funnel.
 
 ---
 
-## Go Realtime Engine — REST + WS
+## 15. Go Realtime Engine
 
-### REST (port 13081)
+### REST (direct :13081, or via `api.predictatrade.com` edge)
+
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | /health | None | Health check — returns `{"status":"ok"}` |
-| GET | /api/v1/signals | JWT | Current signals (limit 50 default, max 200). Plan-filtered: admin sees all, authenticated sees entitled strategies, unauthenticated sees ADVISORY-only |
-| GET | /api/v1/signals?limit=N | JWT | Signals with explicit limit (1-200) |
-| GET | /api/v1/trades | JWT | REAL executed trades from trading.trade_results. Strategy-filterable via `?strategy=STANDARD_SCALPING` |
-| GET | /api/v1/market/snapshot | None | Latest XAUUSD tick + indicators snapshot |
-| GET | /api/v1/market/indicators | JWT | Live indicators |
-| GET | /api/v1/engine/status | JWT | Engine health + liveness |
-| GET | /api/v1/agents/status | Admin | Connected agent count, version, last heartbeat |
-| GET | /api/v1/system-health | Admin | Full system health including engine, market feeds, agents |
+| GET | /health | None | `{status:"ok", broker_time, time_mode:"UTC_ALIGNED"}` |
+| GET | /api/v1/signals | JWT* | Signals (limit ≤200). Admin sees all; user sees entitled strategies; anonymous sees ADVISORY-only |
+| GET | /api/v1/trades | JWT | Real fills from `trading.trade_results` (`?strategy=` filter) |
+| GET | /api/v1/market/snapshot | None | Tick + 42 indicators + VWAP bands + session |
+| GET | /api/v1/market/state | None | Full market state incl. Regime |
+| GET | /api/v1/market/indicators | JWT | Indicators only |
+| GET | /api/v1/candles | JWT | Cached candles (TimescaleDB ⇢ Valkey ⇢ in-memory ladder) |
+| GET | /api/v1/agents/status | Admin | Agent count, mt4/mt5 links, snapshot_count, `data_health` (NO_DATA/HEALTHY/STALE/CRITICAL), `last_snapshot_at` |
+| GET | /api/v1/engines/status | JWT | 5 strategy engines + liveness |
+| GET | /api/v1/system-health | Admin | Engine + DB + feeds + agents rollup |
+| GET | /api/v1/liquidity/** | JWT | Devil Liquidity marks/qualification |
+| GET | /api/v1/cross-market/** | JWT | DXY/BTC/Oil confluence + validation |
+| GET | /api/v1/devil-liquidity/marks | JWT | Mark lifecycle states |
+| GET | /api/v1/strategies | None | Enabled strategy IDs |
+| POST | /api/v1/license/validate | Agent | Proactive license validation (v1.16+) |
+| GET | /metrics | Prometheus | Scrape endpoint (`pat_*` metric families incl. `pat_reconciliation_*`, gates, engines) |
 
-### License Validation (v1.16.x)
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | /api/v1/license/validate | Agent Token | Proactive server-side license validation. No agent changes required |
+### WebSocket
 
-### WebSocket (port 13081 exec + 13091 data)
-| Path | Auth | Description |
-|------|------|-------------|
-| /ws/v1 | JWT | User signal stream |
-| /ws/v1/agent | Agent token | Windows Client Agent (execution) connection |
-| /ws/v1/data | Agent token | Windows Master Node (data-only) connection — port 13091 |
+| Path | Port | Auth | Purpose |
+|------|:----:|------|---------|
+| /ws/v1/agent | 13081 | Agent token | Windows **Client Agent** (execution): receives SIGNAL, CLOSE_POSITION, EMERGENCY_STOP, KILL_SWITCH, LICENSE_STATUS, REQUEST_SNAPSHOT; sends EXECUTION_ACK, TRADE_RESULT, SLIPPAGE_EVENT, CAPITAL_WARNING |
+| /ws/v1/data | 13091 | Agent token | Windows **Master Node** (data-only): MARKET_SNAPSHOT, MASTER_TICK, MASTER_INIT/DEINIT, LICENSE_CHECK |
+| /ws/v1 | 13081 | JWT | Browser signal stream (dashboard) |
+| /ws | platform edge | JWT | Browser realtime (live-terminal relay) |
 
-#### Server → Client Events
-| Event | Payload | Description |
-|-------|---------|-------------|
-| signal | Signal | New trading signal (includes TP1/TP2/TP3, Regime, Session, QualityGrade, ExpectancyR, SuggestedLot, RiskDollars, RiskPctOfEquity) |
-| signal_update | Signal | Signal status change |
-| tick | Tick | Real-time price |
-| engine_status | Status | Engine health change |
-| market_alert | Alert | Market event |
+**Server → client events:** `signal`, `signal_update`, `tick`, `engine_status`, `market_alert`,
+`LICENSE_STATUS`, `CLOSE_POSITION`, `EMERGENCY_STOP`, `KILL_SWITCH`, `REQUEST_SNAPSHOT`.
 
-#### Client → Server Events
-| Event | Payload | Description |
-|-------|---------|-------------|
-| subscribe | {symbols, strategies} | Filter subscription |
-| ping | {} | Keep-alive |
+**Signal object** (abridged — full field list in §9 of old reference and `realtime/internal/types`):
+`ID`, `Direction`, `StrategyID`, `SignalClass` (ADVISORY|EXECUTABLE), `RawScore`,
+`CalibratedProbability` ("Pending" until calibration VALIDATED), `EntryPrice`, `StopLoss`,
+`TP1/2/3`, `GrossRRTP1/2/3`, `Regime`, `Session`, `QualityGrade` (A+|A|B|REJECTED),
+`ExpectancyR`, `ExpectancyScore`, `SuggestedLot`, `RiskDollars`, `RiskPctOfEquity`,
+`SLDistancePoints`, `Evidence{}`, `ReasonCodes[]`, `Executable: bool`, `CreatedAt` (UTC).
 
-### Signal Object (Go Engine Response)
-| Field | Type | Description |
-|-------|------|-------------|
-| ID | UUID | Unique signal identifier |
-| Direction | string | BUY, SELL, BUY_CANDIDATE, SELL_CANDIDATE, NO-TRADE |
-| StrategyID | string | STANDARD_SCALPING, ULTRA_SCALPING, etc. |
-| RawScore | decimal | Raw composite score |
-| CalibratedProbability | decimal | Win probability (0-1; "Pending" if not validated) |
-| EntryPrice | decimal | Entry zone mid-point |
-| StopLoss | decimal | Stop loss level |
-| TP1 | decimal | Take profit level 1 |
-| TP2 | decimal | Take profit level 2 |
-| TP3 | decimal | Take profit level 3 |
-| GrossRRTP1/2/3 | decimal | Gross R:R per TP level |
-| Regime | string | TRENDING_BULLISH, TRENDING_BEARISH, RANGE, etc. |
-| Session | string | TOKYO, LONDON, NEW_YORK, OVERLAP |
-| QualityGrade | string | A+, A, B, REJECTED |
-| ExpectancyR | decimal | Expected value per unit risk |
-| ExpectancyScore | float | 0-100 quality score |
-| SuggestedLot | decimal | Engine-recommended lot (risk-capped) |
-| RiskDollars | decimal | Risk at stop distance, USD |
-| RiskPctOfEquity | decimal | Risk as % of account equity |
-| SLDistancePoints | decimal | Stop distance in points |
-| Evidence | array | Evidence contributions with pillar/feature/direction |
-| ReasonCodes | array | NO-TRADE reason codes |
-| Executable | boolean | Whether signal is EXECUTABLE (passed all gates) |
-| SignalClass | string | ADVISORY or EXECUTABLE |
-| CreatedAt | ISO 8601 | Signal creation timestamp (UTC) |
+---
+
+## 16. Rate limiting
+
+- Global: 300 req/min/IP via `ThrottlerModule` (auth/registration endpoints have stricter
+  per-route overrides).
+- Login: 10/min/route; guest-preview OTP: dedicated buckets.
+- Agents bypass browser limits (separate authenticated WS routes without `limit_conn`).
+
+## 17. Versioning & compatibility
+
+- All NestJS routes are prefixed `/api/v1` (`app.setGlobalPrefix`).
+- Machine-readable errors + `X-Correlation-Id` propagation.
+- Additive changes only within `v1`; breaking changes require `v2` prefix (SOW §80).
+- Live OpenAPI 3.0 spec: [`openapi.json`](openapi.json) (generated from control decorators).

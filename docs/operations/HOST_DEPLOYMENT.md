@@ -1,5 +1,11 @@
-# Direct Host Deployment Guide
-## v1.17.2 — 28 August 2026
+# Direct Host Deployment Guide (LEGACY — prefer Docker)
+## v1.17.3 — 29 August 2026
+
+> **DEPRECATED PATH.** The project is Docker-first: all services run under
+> `docker compose` (see [DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md)), systemd is
+> disabled and `infra/systemd/*` is retained only as a legacy reference. Use this
+> guide only when Docker is genuinely unavailable on the target host; if you do,
+> mirror the Docker service topology exactly (ports, env vars, users, log paths).
 
 Step-by-step guide to deploy Predict-A-Trade directly on a Linux host (no Docker). Use this for bare-metal, VPS, or when Docker is not available.
 

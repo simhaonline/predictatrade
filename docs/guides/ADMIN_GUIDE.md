@@ -1,5 +1,5 @@
 # Admin Guide
-## v1.17.2 — 28 August 2026
+## v1.17.3 — 29 August 2026
 
 ### Overview
 
@@ -240,3 +240,48 @@ psql -U pat_admin -d predictatrade -c "SELECT * FROM audit.migration_history ORD
 - Rotate JWT_SECRET on security incidents
 - API keys in environment variables, not in code
 - Production credentials via Docker secrets or env files
+
+---
+
+## 9. Platform Operations (Admin → Operations)
+
+Emergency and lifecycle controls, backed by `control.platform_operations` (audited):
+
+| Action | Endpoint | Effect |
+|--------|----------|--------|
+| Halt trading | `POST /operations/halt-trading {reason}` | Full execution halt — engine refuses EXECUTABLE delivery |
+| Resume trading | `POST /operations/resume-trading {reason}` | Reverts the halt record; instant action |
+| Pause signals | `POST /operations/pause-signals {reason}` | Stops new signal generation (delivery of already-sent signals continues) |
+| Resume signals | `POST /operations/resume-signals {reason}` | Reverts PAUSE_SIGNALS (verifiable in Operations → Active) |
+| Strategy kill switches | `POST /operations/strategy/{id}/enable|disable` | Per-engine enable/disable (replaces the need to redeploy config) |
+
+`{reason}` is **required** — the endpoint returns 500 without a JSON body (by design,
+operations must be attributable). Every action is persisted and visible in **Operations → Active**
+and the audit log.
+
+## 10. Feature Flags & AI Models
+
+- **Feature Flags** — PTB pillar registry (`trading.ptb_feature_flags`); modes
+  `OFF | SHADOW | ACTIVE | DISABLED | UNSUPPORTED | RESEARCH`. Editing takes the flag `id`
+  (UUID) — the UI sends the row id selected from the table, never the module name.
+- **AI Providers / Models** — read-only registry + explicit activate/deactivate per model;
+  models can never self-promote.
+
+## 11. Backup-DR, Releases, Broker Qualification, Macro News
+
+Admin-extras views (`admin-extras.controller.ts`): backup configuration + last- validated
+restore, client release registry (agent auto-updater manifest history), broker execution
+qualification evidence (commission/latency/reject observations), and macro news ingestion
+status (FMP events sync).
+
+## 12. Reconciliation Health (v1.17.3)
+
+Prometheus (port 13081 `/metrics`):
+- `pat_reconciliation_acks_timeout` — delivered but never ACKed within 2 min
+- `pat_reconciliation_fills_timeout` — ACKed but no fill/trade-result within 10 min
+- `pat_reconciliation_tracked_signals` — registry size
+
+Alerts (ntfy): `SIGNAL_ACK_TIMEOUT`, `SIGNAL_FILL_TIMEOUT`, deduped per signal with a
+10-minute re-alert window. Sustained non-zero values usually mean the Windows Agent is
+disconnected, the EA is detached, or a broker order was silently rejected — cross-check
+Admin → Signals (delivery state) and the agent's local health port (:9000 client / :9001 master).

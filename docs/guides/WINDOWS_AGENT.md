@@ -1,5 +1,5 @@
 # Windows Agent Guide
-## v1.17.2 — 28 August 2026 · Agent v1.2.40
+## v1.2.40 — 29 August 2026
 
 ### Overview
 
@@ -53,6 +53,22 @@ The thin role wrappers (`client/install.ps1`, `master/install.ps1`) download the
 ### MetaTrader EA setup
 1. **Master Node EA** — attach to an **XAUUSD** chart (data collection; no license required).
 2. **Execution EA** — attach to an **XAUUSD** chart with your license key (places/closes trades from signals).
+
+**Getting the EAs (v1.17.2 build — includes the Master Node IPC truncation fix):**
+
+Download from the downloads host and copy into the terminal's
+`MQL5\Experts\` (or `MQL4\Experts\`) folder, then compile in MetaEditor (**F7**):
+
+| File | URL |
+|------|-----|
+| Master Node (MT5) | https://downloads.predictatrade.com/windows-agent/PredictATrade_MasterNode_MT5.mq5 |
+| Client (MT5) | https://downloads.predictatrade.com/windows-agent/PredictATrade_MT5.mq5 |
+| Master Node (MT4) | https://downloads.predictatrade.com/windows-agent/PredictATrade_MasterNode_MT4.mq4 |
+| Client (MT4) | https://downloads.predictatrade.com/windows-agent/PredictATrade_MT4.mq4 |
+
+> Always re-download after an engine upgrade — the Master Node EA must match the engine's
+> IPC expectations (v1.17.2 changed `MasterAppend()` from truncating writes to appends to
+> stop snapshots being clobbered by ticks).
 
 > The EA can be on **any chart timeframe** (M1/M5/M15/H1…). Execution is by symbol + price levels, not chart timeframe, so a client chart on M15 still executes an M5 signal correctly.
 
