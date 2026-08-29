@@ -15,47 +15,47 @@ import (
 )
 
 type TerminalInfo struct {
-	ClientType     string // MT4 or MT5
-	Account        string
-	Broker         string
-	Server         string
-	Symbol         string
-	LicenseKey     string
-	ConnectedAt    time.Time
-	LastActivity   time.Time // last tick/INIT/LICENSE_CHECK/MASTER_TICK — drives liveness
-	Balance        float64
-	Equity         float64
-	Profit         float64
-	Currency       string
-	Leverage       int
-	OpenPositions  int
-	BuyPositions   int
-	SellPositions  int
-	TotalLots      float64
-	FloatingPnL    float64
+	ClientType    string // MT4 or MT5
+	Account       string
+	Broker        string
+	Server        string
+	Symbol        string
+	LicenseKey    string
+	ConnectedAt   time.Time
+	LastActivity  time.Time // last tick/INIT/LICENSE_CHECK/MASTER_TICK — drives liveness
+	Balance       float64
+	Equity        float64
+	Profit        float64
+	Currency      string
+	Leverage      int
+	OpenPositions int
+	BuyPositions  int
+	SellPositions int
+	TotalLots     float64
+	FloatingPnL   float64
 }
 
 type PipeManager struct {
-	commonDirs  []string
-	mu          sync.Mutex
-	wsSender    func([]byte) error
-	onTick      func(MT5Tick)
-	running     bool
-	stopChan    chan struct{}
-	apiURL      string
-	role          string // "exec" (client) or "data" (master) — set by agent
-	licStatus     string
-	licPlan       string
-	licKey        string
-	licStrategies []string
-	terminals   map[string]*TerminalInfo // keyed by "MT4:<account>" or "MT5:<account>"
-	onTerminalConnect func(TerminalInfo) // callback when a new terminal connects
-	onLicense   func(LicenseCheckMsg)    // callback to validate a license against the server
+	commonDirs        []string
+	mu                sync.Mutex
+	wsSender          func([]byte) error
+	onTick            func(MT5Tick)
+	running           bool
+	stopChan          chan struct{}
+	apiURL            string
+	role              string // "exec" (client) or "data" (master) — set by agent
+	licStatus         string
+	licPlan           string
+	licKey            string
+	licStrategies     []string
+	terminals         map[string]*TerminalInfo // keyed by "MT4:<account>" or "MT5:<account>"
+	onTerminalConnect func(TerminalInfo)       // callback when a new terminal connects
+	onLicense         func(LicenseCheckMsg)    // callback to validate a license against the server
 	// deviceID is the control-plane device id (licensing.devices.id) assigned at
 	// activation. Injected into MASTER_INIT/LICENSE_CHECK forwarded to the engine
 	// so the engine can correlate this live agent to a dashboard-visible device.
-	deviceID    string
-	deviceIDFn  func() string
+	deviceID   string
+	deviceIDFn func() string
 }
 
 type LicenseCheckMsg struct {
@@ -159,6 +159,27 @@ func (pm *PipeManager) safeRun(fn func()) {
 	fn()
 }
 
+// masterReadAllowedFor reports whether a pipe manager with the given role may
+// consume PAT_master_data.txt (written by Master Node EAs).
+//
+// Co-located roles regression (2026-08-29): both agent services previously ran
+// identical consume loops, racing each other via rename — the exec agent could
+// steal the Master Node's snapshot file so the data agent (the only one the
+// engine listens to for snapshots on :13091) received nothing. The dashboard
+// flapped online/offline depending on who won each rename. Only the data role
+// may consume master data; the exec role must skip it entirely.
+func masterReadAllowedFor(role string) bool {
+	return role == "data"
+}
+
+// clientTickReadAllowedFor mirrors masterReadAllowedFor for
+// PAT_ticks.txt (written by the CLIENT EAs): only the exec (client) role may
+// consume it. A data agent consuming client ticks would both double-count them
+// and race the exec agent out of its own deliveries.
+func clientTickReadAllowedFor(role string) bool {
+	return role == "exec"
+}
+
 func (pm *PipeManager) Start() {
 	pm.running = true
 	// Only use folders that already exist. MetaTrader creates its
@@ -179,9 +200,13 @@ func (pm *PipeManager) Start() {
 	cleanupLegacyIpc()
 
 	go pm.safeRun(pm.heartbeatLoop)
-	go pm.safeRun(pm.readLoop)
-	go pm.safeRun(pm.licenseLoop)  // Continuously write license response
-	go pm.safeRun(pm.masterReadLoop) // Read master node data (indicators, bars, snapshots)
+	if clientTickReadAllowedFor(pm.role) {
+		go pm.safeRun(pm.readLoop) // PAT_ticks.txt — client EAs write; exec role only
+	}
+	go pm.safeRun(pm.licenseLoop) // Continuously write license response
+	if masterReadAllowedFor(pm.role) {
+		go pm.safeRun(pm.masterReadLoop) // PAT_master_data.txt — data role only (rename-race fix)
+	}
 
 	log.Printf("File IPC started at %d folder(s): %v", len(pm.commonDirs), pm.commonDirs)
 }
@@ -519,19 +544,19 @@ func (pm *PipeManager) processMessage(line string) {
 		log.Printf("EA init: %s", payload)
 		// Extract license key and account data from init message
 		var initMsg struct {
-			LicenseKey string  `json:"license_key"`
-			Account    string  `json:"account"`
-			Broker     string  `json:"broker"`
-			Symbol     string  `json:"symbol"`
-			Balance    float64 `json:"balance"`
-			Equity     float64 `json:"equity"`
-			Profit     float64 `json:"profit"`
-			Currency   string  `json:"currency"`
-			Leverage   int     `json:"leverage"`
-			OpenPos    int     `json:"open_positions"`
-			BuyPos     int     `json:"buy_positions"`
-			SellPos    int     `json:"sell_positions"`
-			TotalLots  float64 `json:"total_lots"`
+			LicenseKey  string  `json:"license_key"`
+			Account     string  `json:"account"`
+			Broker      string  `json:"broker"`
+			Symbol      string  `json:"symbol"`
+			Balance     float64 `json:"balance"`
+			Equity      float64 `json:"equity"`
+			Profit      float64 `json:"profit"`
+			Currency    string  `json:"currency"`
+			Leverage    int     `json:"leverage"`
+			OpenPos     int     `json:"open_positions"`
+			BuyPos      int     `json:"buy_positions"`
+			SellPos     int     `json:"sell_positions"`
+			TotalLots   float64 `json:"total_lots"`
 			FloatingPnL float64 `json:"floating_pnl"`
 		}
 		if json.Unmarshal([]byte(payload), &initMsg) == nil && initMsg.LicenseKey != "" {
@@ -565,7 +590,7 @@ func (pm *PipeManager) processMessage(line string) {
 					ClientType: clientType, Account: initMsg.Account, Broker: initMsg.Broker,
 					Symbol: initMsg.Symbol, LicenseKey: initMsg.LicenseKey, ConnectedAt: time.Now(),
 					LastActivity: time.Now(),
-					Balance: initMsg.Balance, Equity: initMsg.Equity, Profit: initMsg.Profit,
+					Balance:      initMsg.Balance, Equity: initMsg.Equity, Profit: initMsg.Profit,
 					Currency: initMsg.Currency, Leverage: initMsg.Leverage,
 					OpenPositions: initMsg.OpenPos, BuyPositions: initMsg.BuyPos, SellPositions: initMsg.SellPos,
 					TotalLots: initMsg.TotalLots, FloatingPnL: initMsg.FloatingPnL,
@@ -633,7 +658,7 @@ func (pm *PipeManager) processMessage(line string) {
 				Symbol:        lic.Symbol,
 				LicenseKey:    lic.LicenseKey,
 				ConnectedAt:   time.Now(),
-				LastActivity:   time.Now(),
+				LastActivity:  time.Now(),
 				Balance:       accountData.Balance,
 				Equity:        accountData.Equity,
 				Profit:        accountData.Profit,
