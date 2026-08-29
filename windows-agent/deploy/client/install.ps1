@@ -8,7 +8,7 @@
     Usage:  irm https://downloads.predictatrade.com/windows-agent/client/install.ps1 | iex
 #>
 
-param([string]$EngineHost = "live.predictatrade.com")
+param([string]$EngineHost = "live.predictatrade.com", [string]$LicenseKey = "")
 
 $root = "https://downloads.predictatrade.com/windows-agent"
 $tmp  = Join-Path $env:TEMP ("pat_install_" + [guid]::NewGuid().ToString("N") + ".ps1")
@@ -18,5 +18,5 @@ try {
     Write-Host "[install-client] ERROR: failed to download installer: $_"
     exit 1
 }
-$p = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy","Bypass","-NoProfile","-File","`"$tmp`"","-Mode","client","-EngineHost",$EngineHost,"-BaseUrl","$root/client" -Verb RunAs -Wait -PassThru
+$p = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy","Bypass","-NoProfile","-File","`"$tmp`"","-Mode","client","-EngineHost",$EngineHost,"-LicenseKey",$LicenseKey,"-Unattended","-BaseUrl","$root/client" -Verb RunAs -Wait -PassThru
 exit $p.ExitCode

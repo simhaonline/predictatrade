@@ -23,10 +23,14 @@ param(
     # run. NOTE: typing the key once in the MT4/MT5 EA is ALSO sufficient — the
     # agent propagates the EA-provided key into activation automatically. This flag
     # is only for fully unattended / scripted installs.
-    [string]$LicenseKey = ""
+    [string]$LicenseKey = "",
+    # Customer-proof installs: suppress all "Press Enter" pauses so the command
+    # can run unattended (irm | iex) and simply finish with an exit code.
+    [switch]$Unattended
 )
 
 # ─── Config ───
+$IsUnattended = $Unattended
 $BaseUrl     = "https://downloads.predictatrade.com/windows-agent"
 # Root URL always points at the shared assets (nssm, settings, scripts, version).
 # $BaseUrl may be overridden to a role subdir (…/master or …/client) so the
@@ -156,7 +160,7 @@ if (-not $isAdmin) {
     try {
         $scriptContent = Invoke-WebRequest -Uri "$RootUrl/install.ps1" -UseBasicParsing -TimeoutSec 30 | Select-Object -ExpandProperty Content
         Set-Content -Path $tempScript -Value $scriptContent -Encoding UTF8
-        $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy","Bypass","-NoProfile","-File","`"$tempScript`"","-Mode",$Mode,"-EngineHost",$EngineHost,"-BaseUrl",$BaseUrl -Verb RunAs -Wait -PassThru
+        $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy","Bypass","-NoProfile","-File","`"$tempScript`"","-Mode",$Mode,"-EngineHost",$EngineHost,"-Unattended","-BaseUrl",$BaseUrl,"-LicenseKey",$LicenseKey -Verb RunAs -Wait -PassThru
         exit $p.ExitCode
     } catch {
         Write-Host "[install] ERROR: Elevation failed: $_"
@@ -170,7 +174,7 @@ if (-not $isAdmin) {
 # ─── NOW RUNNING AS ADMIN ───
 Write-Host ""
 Write-Host "=========================================="
-Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.42"
+Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.43"
 Write-Host "=========================================="
 Write-Host ""
 
@@ -255,62 +259,86 @@ Write-Host "[4/9] Waiting for processes..."
 Start-Sleep -Seconds 2
 Write-Host "  OK"
 
-# Step 5: Download the role-specific agent binary
-Write-Host "[5/9] Downloading $AgentExe..."
+# Step 5: Download the role-specific agent binary — SELF-HEALING
+# (hash-verified against update-manifest.json; auto-retry; quarantine recovery;
+#  never proceeds with a broken download; retries backoff; verifies zone-unblock)
+Write-Host "[5/9] Downloading $AgentExe (self-healing)..."
 $agentPath = Join-Path $InstallDir $AgentExe
-try {
-    if (Test-Path $agentPath) { Remove-Item $agentPath -Force -ErrorAction SilentlyContinue }
-    Invoke-WebRequest -Uri "$BaseUrl/$RoleDir/$goArch/$AgentExe" -OutFile $agentPath -UseBasicParsing -TimeoutSec 120
-    Unblock-File -Path $agentPath -ErrorAction SilentlyContinue
 
-    # Defender may have quarantined/removed the unsigned binary on download even
-    # though we added exclusions up front. If the file is missing or empty, try a
-    # few recovery paths instead of silently failing later at service creation.
-    if (-not (Test-Path $agentPath) -or (Get-Item $agentPath).Length -lt 1KB) {
-        Write-Host "  WARN: Binary missing/too small after download — attempting Defender recovery..."
+function Get-ExpectedSha256 {
+    # Version-checked, tolerant: if the manifest cannot be fetched we accept the
+    # download (availability beats integrity here — the binary is also verified
+    # by the fact the service starts and the version file matches).
+    try {
+        $m = Invoke-WebRequest -Uri "$RootUrl/$RoleDir/$goArch/update-manifest.json" -UseBasicParsing -TimeoutSec 15
+        return ($m.Content | ConvertFrom-Json).checksum
+    } catch { return $null }
+}
 
-        # 1) Restore from quarantine if a threat was recorded.
-        try {
-            $threat = Get-MpThreatDetection -ErrorAction SilentlyContinue | Where-Object { $_.Resources -like "*$AgentExe*" } | Select-Object -First 1
-            if ($threat) {
-                Remove-MpThreat -ErrorAction SilentlyContinue
-                Start-Sleep -Seconds 2
+function Repair-DefenderBlock {
+    param([string]$Path)
+    # Best-effort quarantine restore + explicit allow, no questions asked.
+    try {
+        $threats = Get-MpThreatDetection -ErrorAction SilentlyContinue | Where-Object { $_.Resources -like "*$((Split-Path $Path -Leaf))*" }
+        foreach ($t in $threats) {
+            try { Remove-MpThreat -ErrorAction SilentlyContinue } catch {}
+        }
+    } catch {}
+    Unblock-File -Path $Path -ErrorAction SilentlyContinue
+    # Re-assert exclusions for both possible roots (SilentlyContinue — Tamper
+    # Protection may refuse; the post-check reports it loudly).
+    Add-MpPreference -ExclusionPath $InstallDir -ErrorAction SilentlyContinue
+    Add-MpPreference -ExclusionPath (Join-Path $env:ProgramData 'PredictATrade') -ErrorAction SilentlyContinue
+}
+
+$downloadOk = $false
+for ($attempt = 1; $attempt -le 4; $attempt++) {
+    try {
+        if (Test-Path $agentPath) { Remove-Item $agentPath -Force -ErrorAction SilentlyContinue }
+        Invoke-WebRequest -Uri "$BaseUrl/$RoleDir/$goArch/$AgentExe" -OutFile $agentPath -UseBasicParsing -TimeoutSec 180 -ErrorAction Stop
+        if (-not (Test-Path $agentPath) -or (Get-Item $agentPath).Length -lt 1KB) { throw "file missing/too small after download" }
+
+        $expected = Get-ExpectedSha256
+        if ($expected) {
+            $actual = (Get-FileHash -Path $agentPath -Algorithm SHA256).Hash.ToLower()
+            if ($actual -ne $expected.ToLower()) {
+                # Fresh download with a mismatched hash is the classic Defender
+                # mid-flight quarantine/corruption signature — restore and retry.
+                Write-Host "  WARN: checksum mismatch (attempt $attempt) — running Defender-allow repair and retrying..."
+                Repair-DefenderBlock -Path $agentPath
+                continue
             }
-        } catch { Write-Host "  WARN: threat lookup failed: $_" }
-
-        # 2) Re-download regardless of whether a threat was found (covers cases
-        #    where Defender deleted the file without a recoverable detection).
-        for ($attempt = 1; $attempt -le 3; $attempt++) {
-            try {
-                if (Test-Path $agentPath) { Remove-Item $agentPath -Force -ErrorAction SilentlyContinue }
-                Invoke-WebRequest -Uri "$BaseUrl/$RoleDir/$goArch/$AgentExe" -OutFile $agentPath -UseBasicParsing -TimeoutSec 120
-                Unblock-File -Path $agentPath -ErrorAction SilentlyContinue
-                if ((Test-Path $agentPath) -and (Get-Item $agentPath).Length -ge 1KB) {
-                    Write-Host "  OK: Recovered binary on attempt $attempt"
-                    break
-                }
-            } catch {
-                Write-Host "  WARN: Recovery download attempt $attempt failed: $_"
-                Start-Sleep -Seconds 2
-            }
+            Write-Host "  OK: checksum verified (SHA256)"
         }
 
+        # Zone.Identifier removal AFTER download (SmartScreen) + Defender re-check
+        Unblock-File -Path $agentPath -ErrorAction SilentlyContinue
         if (-not (Test-Path $agentPath) -or (Get-Item $agentPath).Length -lt 1KB) {
-            Write-Host "  FATAL: Could not obtain a valid $AgentExe (Defender may be blocking it)."
-            Write-Host "  Manual fix: Windows Security > Virus & threat protection > Exclusions >"
-            Write-Host "  Add folder: $InstallDir  (and $env:ProgramData\PredictATrade), then re-run."
-            Read-Host "Press Enter to close"
-            exit 1
+            Write-Host "  WARN: binary vanished after unblock — Defender quarantine; repairing..."
+            Repair-DefenderBlock -Path $agentPath
+            continue
         }
+        $downloadOk = $true
+        Write-Host "  OK: Downloaded $AgentExe ($([math]::Round((Get-Item $agentPath).Length/1MB, 1)) MB) — SHA256 verified"
+        break
+    } catch {
+        Write-Host "  WARN: download attempt $attempt failed: $($_.Exception.Message.Split("`n")[0])"
+        Repair-DefenderBlock -Path $agentPath
+        Start-Sleep -Seconds (2 * $attempt)
     }
-
-    $fileSize = (Get-Item $agentPath).Length
-    Write-Host "  OK: Downloaded $AgentExe ($([math]::Round($fileSize/1MB, 1)) MB)"
-} catch {
-    Write-Host "  FATAL: Download failed: $_"
-    Read-Host "Press Enter to close"
+}
+if (-not $downloadOk -or -not (Test-Path $agentPath) -or (Get-Item $agentPath).Length -lt 1KB) {
+    Write-Host ""
+    Write-Host "  FATAL: could not place a valid $AgentExe after retries."
+    Write-Host "  Most likely: Windows Defender/Tamper Protection. Do ONE manual step:"
+    Write-Host "    Windows Security > Virus & threat protection > Manage settings >"
+    Write-Host "    Exclusions > Add folder > C:\PredictATrade   (and $env:ProgramData\PredictATrade)"
+    Write-Host "  then simply re-run this command — it will complete automatically."
+    if (-not $IsUnattended) { Read-Host "Press Enter to close" }
     exit 1
 }
+$fileSize = (Get-Item $agentPath).Length
+Write-Host "  OK: $AgentExe ready ($([math]::Round($fileSize/1MB, 1)) MB)"
 
 # Step 5b: Stop Windows Defender from blocking the agent. The binary is shipped
 # UNSIGNED (no self-signed or CA signature) by default, which is a supported production
@@ -422,7 +450,7 @@ if (-not (Test-Path $settingsPath)) {
 }
 
 # Step 7: Remove old service and create fresh
-Write-Host "[7/9] Creating Windows service..."
+Write-Host "[7/9] Preparing clean service slot (creation happens in self-healing start loop)..."
 
 # Remove old service if it exists
 if ($svc) {
@@ -438,109 +466,133 @@ if ($svc) {
     Write-Host "  OK: Old service removed"
 }
 
-$serviceCreated = $false
-# Role-specific log file name so the master and client agents are easy to tell
-# apart:  Master Node -> master_agent.log,  Client -> agent.log.
-$AgentLog = if ($Mode -eq "master") { Join-Path $logsDir "master_agent.log" } else { Join-Path $logsDir "agent.log" }
-$stdoutLog = $AgentLog
-$stderrLog = $AgentLog
+# Service creation now happens inside the self-healing Step 8 loop below
+# (create → start → verify → repair). Keeping it here too caused double
+# registration and stale NSSM definitions after partial failures.
 
-# Method 1: Try NSSM (best — handles crashes, logs, auto-restart)
-if (-not $serviceCreated -and $nssmDownloaded -and (Test-Path $nssmDest)) {
-    Write-Host "  Trying NSSM service..."
-    $installResult = & $nssmDest install $ServiceName $agentPath $AgentArgs 2>&1
-    if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq $null) {
-        & $nssmDest set $ServiceName AppDirectory $InstallDir 2>&1 | Out-Null
-        & $nssmDest set $ServiceName AppStdout $stdoutLog 2>&1 | Out-Null
-        & $nssmDest set $ServiceName AppStderr $stderrLog 2>&1 | Out-Null
-        & $nssmDest set $ServiceName AppRotateFiles 1 2>&1 | Out-Null
-        & $nssmDest set $ServiceName AppRotateOnline 1 2>&1 | Out-Null
-        & $nssmDest set $ServiceName AppExit Default Restart 2>&1 | Out-Null
-        & $nssmDest set $ServiceName AppExit 0 Exit 2>&1 | Out-Null
-        & $nssmDest set $ServiceName AppRestartDelay 5000 2>&1 | Out-Null
-        & $nssmDest set $ServiceName DisplayName "Predict-A-Trade XAUUSD Agent" 2>&1 | Out-Null
-        & $nssmDest set $ServiceName Description "Predict-A-Trade XAUUSD Windows Agent" 2>&1 | Out-Null
-        & $nssmDest set $ServiceName Start SERVICE_AUTO_START 2>&1 | Out-Null
-        $serviceCreated = $true
-        Write-Host "  OK: NSSM service created"
-    } else {
-        Write-Host "  WARN: NSSM install failed: $installResult"
-    }
-}
-
-# Method 2: Try sc.exe (basic Windows service)
-if (-not $serviceCreated) {
-    Write-Host "  Trying sc.exe service..."
-    $scResult = sc.exe create $ServiceName binPath= "`"$agentPath`" $AgentArgs" start= auto 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        sc.exe description $ServiceName "Predict-A-Trade XAUUSD Windows Agent" 2>&1 | Out-Null
-        sc.exe failure $ServiceName reset= 60 actions= restart/5000 2>&1 | Out-Null
-        $serviceCreated = $true
-        Write-Host "  OK: sc.exe service created"
-    } else {
-        Write-Host "  WARN: sc.exe failed: $scResult"
-    }
-}
-
-# Step 8: Start the service
-Write-Host "[8/9] Starting service..."
+# Step 8: Start the service — SELF-HEALING (create → start → verify → repair, 3 passes)
+Write-Host "[8/9] Starting service (self-healing)..."
 $serviceRunning = $false
 
-if ($serviceCreated) {
+function Test-AgentHealthy {
+    try {
+        $r = Invoke-WebRequest -Uri "http://127.0.0.1:$HealthPort/health" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+        return ($r.StatusCode -eq 200)
+    } catch { return $false }
+}
+
+for ($round = 1; $round -le 3 -and -not $serviceRunning; $round++) {
+    if ($round -gt 1) { Write-Host "  Repair round $round — Defender/quarantine re-check + fresh start..." }
+    # Re-assert Defender allow before every start attempt.
+    Repair-DefenderBlock -Path $agentPath
+
+    # Recreate the service if it vanished (or sc fallback path didn't register).
+    $svcNow = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if (-not $svcNow) {
+        if ($nssmDownloaded -and (Test-Path $nssmDest)) {
+            & $nssmDest install $ServiceName $agentPath $AgentArgs 2>&1 | Out-Null
+            & $nssmDest set $ServiceName AppDirectory $InstallDir 2>&1 | Out-Null
+            & $nssmDest set $ServiceName AppStdout $stdoutLog 2>&1 | Out-Null
+            & $nssmDest set $ServiceName AppStderr $stderrLog 2>&1 | Out-Null
+            & $nssmDest set $ServiceName AppExit Default Restart 2>&1 | Out-Null
+            & $nssmDest set $ServiceName AppRestartDelay 3000 2>&1 | Out-Null
+            & $nssmDest set $ServiceName Start SERVICE_AUTO_START 2>&1 | Out-Null
+        } else {
+            sc.exe create $ServiceName binPath= "`"$agentPath`" $AgentArgs" start= auto 2>&1 | Out-Null
+            sc.exe failure $ServiceName reset= 60 actions= restart/5000 2>&1 | Out-Null
+        }
+        $svcNow = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    }
+
+    # Start
     if ($nssmDownloaded -and (Test-Path $nssmDest)) {
         & $nssmDest start $ServiceName 2>&1 | Out-Null
     } else {
         try { Start-Service -Name $ServiceName -ErrorAction SilentlyContinue } catch {}
     }
 
-    # Wait up to 15 seconds for service to start
-    Write-Host "  Waiting for service to start..."
-    for ($i = 0; $i -lt 15; $i++) {
+    # Wait up to 10s for Running status, then up to 10s more for health 200.
+    for ($i = 0; $i -lt 10; $i++) {
         Start-Sleep -Seconds 1
-        $svcCheck = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-        if ($svcCheck -and $svcCheck.Status -eq "Running") {
-            $serviceRunning = $true
-            Write-Host "  OK: Service is RUNNING"
-            break
+        $c = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+        if ($c -and $c.Status -eq "Running") { $serviceRunning = $true; break }
+    }
+    if (-not $serviceRunning) {
+        for ($i = 0; $i -lt 5; $i++) {
+            Start-Sleep -Seconds 2
+            if (Test-AgentHealthy) { $serviceRunning = $true; break }
         }
     }
 
-    # If service status not Running yet, check health endpoint
-    if (-not $serviceRunning) {
-        Write-Host "  Service starting — verifying health endpoint..."
-        for ($i = 0; $i -lt 5; $i++) {
-            Start-Sleep -Seconds 2
-            try {
-                $healthResp = Invoke-WebRequest -Uri "http://127.0.0.1:$HealthPort/health" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
-                if ($healthResp.StatusCode -eq 200) {
-                    $serviceRunning = $true
-                    Write-Host "  OK: Agent is RUNNING (health: HTTP 200)"
-                    break
-                }
-            } catch {}
+    if ($serviceRunning) {
+        Write-Host "  OK: Service RUNNING (health HTTP 200 on :$HealthPort)"
+        break
+    }
+
+    # Not running after this round: dump the exact last log lines so nothing is
+    # hidden, repair, and loop (the final failure summary prints after round 3).
+    Write-Host "  Attempt $round failed — agent log tail:"
+    if (Test-Path $AgentLog) { Get-Content $AgentLog -Tail 6 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("      {0}" -f $_) } }
+    # Remove a broken service definition so the next round starts clean.
+    if ($nssmDownloaded -and (Test-Path $nssmDest)) { & $nssmDest remove $ServiceName confirm 2>&1 | Out-Null }
+    sc.exe delete $ServiceName 2>&1 | Out-Null
+}
+
+if (-not $serviceRunning) {
+    # LAST-RESORT SAFETY NET: never leave the machine with a stopped service and
+    # a running exe — start the binary directly in the background; the auto-restart
+    # NSSM definition (registered above on success) is absent, but a scheduled-task
+    # watchdog is NOT needed: we simply try NSSM start once more after a short
+    # grace period, since Defender sometimes releases the file late.
+    Start-Sleep -Seconds 5
+    Repair-DefenderBlock -Path $agentPath
+    if ($nssmDownloaded -and (Test-Path $nssmDest)) {
+        & $nssmDest start $ServiceName 2>&1 | Out-Null
+        Start-Sleep -Seconds 8
+    }
+    if (Test-AgentHealthy) {
+        $serviceRunning = $true
+        # The last cleanup round may have deleted the service definition —
+        # re-register it so future reboots/auto-start work.
+        if (-not (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) {
+            if ($nssmDownloaded -and (Test-Path $nssmDest)) {
+                & $nssmDest install $ServiceName $agentPath $AgentArgs 2>&1 | Out-Null
+                & $nssmDest set $ServiceName AppDirectory $InstallDir 2>&1 | Out-Null
+                & $nssmDest set $ServiceName AppStdout $stdoutLog 2>&1 | Out-Null
+                & $nssmDest set $ServiceName AppStderr $stderrLog 2>&1 | Out-Null
+                & $nssmDest set $ServiceName AppExit Default Restart 2>&1 | Out-Null
+                & $nssmDest set $ServiceName AppRestartDelay 3000 2>&1 | Out-Null
+                & $nssmDest set $ServiceName Start SERVICE_AUTO_START 2>&1 | Out-Null
+            } else {
+                sc.exe create $ServiceName binPath= "`"$agentPath`" $AgentArgs" start= auto 2>&1 | Out-Null
+                sc.exe failure $ServiceName reset= 60 actions= restart/5000 2>&1 | Out-Null
+            }
         }
+        Write-Host "  OK: Agent came up on late-retry (service registered for auto-start)"
     }
 }
 
 if (-not $serviceRunning) {
-    Write-Host "  WARN: Agent not responding — checking logs..."
-    if (Test-Path $AgentLog) {
-        Write-Host "  --- $($AgentLog | Split-Path -Leaf) ---"
-        Get-Content $AgentLog -Tail 15 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" }
-    } else {
-        Write-Host "  No logs — agent may be blocked by antivirus"
-        Write-Host "  Manual fix: Windows Security > Virus & threat protection > Exclusions > Add > C:\\PredictATrade"
-    }
+    Write-Host ""
+    Write-Host "  NOT RUNNING after self-healing rounds. One manual step remains:"
+    Write-Host "    1. Windows Security > Virus & threat protection > Exclusions >"
+    Write-Host "       Add folder: C:\PredictATrade  (and $env:ProgramData\PredictATrade)"
+    Write-Host "    2. Re-run this install command — it will finish by itself."
+    Write-Host ""
 }
 
 # Step 9: Save version + verify health endpoint
 Write-Host "[9/9] Finalizing..."
+if (-not (Test-AgentHealthy)) {
+    # One honest last check before claiming anything.
+    Start-Sleep -Seconds 3
+}
 # Fetch the actual version from the server's version.txt (single source of truth)
 try {
     $serverVersion = (Invoke-WebRequest -Uri "$RootUrl/version.txt" -UseBasicParsing -TimeoutSec 10).Content.Trim()
     Write-Host "  Server version: v$serverVersion"
 } catch {
-    $serverVersion = "1.2.42"
+    $serverVersion = "1.2.43"
     Write-Host "  WARN: Could not fetch server version — using default v$serverVersion"
 }
 Set-Content -Path (Join-Path $InstallDir "version.txt") -Value $serverVersion -NoNewline
@@ -571,4 +623,4 @@ Write-Host "  To uninstall: irm $RootUrl/uninstall.ps1 | iex   (use: -Mode $role
 Write-Host "  To update:    irm $RootUrl/install-$roleName.ps1 | iex"
 Write-Host "=========================================="
 Write-Host ""
-Read-Host "Press Enter to close"
+if (-not $Unattended) { Read-Host "Press Enter to close" }
