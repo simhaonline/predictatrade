@@ -1,9 +1,17 @@
-import { Body, Controller, Post, Headers, UseGuards, Req, Param } from '@nestjs/common';
+import { Body, Controller, Post, Headers, UseGuards, Req, Param, HttpCode, HttpStatus, ForbiddenException } from '@nestjs/common';
 import { Request } from 'express';
 import { RawBodyRequest } from '@nestjs/common';
 import { StripeService } from './stripe.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+
+// PAT-PAYMENTS polycoin policy (2026-08-29): USDT via NOWPayments is the ONLY
+// active payment method. Stripe is DEACTIVATED at the controller level so the
+// endpoints cannot be reached even if STRIPE_SECRET_KEY is provisioned later.
+// Re-enable by setting PAT_ENABLE_STRIPE=true on the control service.
+function stripeEnabled(): boolean {
+  return process.env.PAT_ENABLE_STRIPE === 'true';
+}
 
 @Controller('billing')
 export class StripeController {
@@ -21,6 +29,9 @@ export class StripeController {
       cancel_url?: string;
     },
   ) {
+    if (!stripeEnabled()) {
+      throw new ForbiddenException('Payments are USDT-only via crypto checkout. Stripe is disabled.');
+    }
     const result = await this.stripeService.createCheckoutSession({
       planId: body?.plan_id,
       billingInterval: body?.billing_interval ?? 'MONTHLY',
@@ -32,7 +43,13 @@ export class StripeController {
   }
 
   @Post('webhook/stripe')
+  @HttpCode(HttpStatus.NO_CONTENT)
   async stripeWebhook(@Req() req: RawBodyRequest<Request>, @Headers('stripe-signature') signature: string) {
+    if (!stripeEnabled()) {
+      // Stripe disabled: acknowledge loudly so their retries stop instead of
+      // erroring (a stray 500 would keep the sender retrying forever).
+      return;
+    }
     // Public by design: the Stripe-Signature HMAC-SHA256 verification inside
     // handleWebhook is the only authentication for gateway callbacks. Pass the
     // RAW body so the signature matches exactly what Stripe computed.
