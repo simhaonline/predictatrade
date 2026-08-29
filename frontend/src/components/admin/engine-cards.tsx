@@ -8,7 +8,7 @@ const ENGINE_LABELS: Record<string, string> = {
   ULTRA_SCALPING: "Ultra Scalping",
   STANDARD_SWING: "Standard Swing",
   TREND_SWING: "Trend Swing",
-  MARNIE_FIB: "Marnie Fib",
+  MARNIE_FIB: "EQFE",
 };
 
 const HEALTH_STYLES: Record<string, string> = {
