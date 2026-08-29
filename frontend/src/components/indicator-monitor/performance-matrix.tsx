@@ -8,7 +8,7 @@ interface PerformanceMatrixProps {
   strategies: string[];
 }
 
-export function PerformanceMatrix({ performance }: PerformanceMatrixProps) {
+export function PerformanceMatrix({ performance, marketClosed }: { performance: PerformanceMetric[]; marketClosed?: boolean }) {
   const [sortBy, setSortBy] = useState<"hitRate" | "avgRMultiple" | "signalFrequency">("hitRate");
 
   const sorted = useMemo(() => {
@@ -84,7 +84,7 @@ export function PerformanceMatrix({ performance }: PerformanceMatrixProps) {
         </div>
         <div className="rounded-lg border border-pat-border bg-pat-bg-surface p-4">
           <h3 className="text-sm font-semibold text-pat-text-primary mb-3">Needs Attention</h3>
-          <NeedsAttention performance={performance} />
+          <NeedsAttention performance={performance} marketClosed={marketClosed} />
         </div>
       </div>
 
@@ -136,19 +136,24 @@ function RankingList({ metrics }: { metrics: PerformanceMetric[] }) {
  * 2. Indicators contributing to signals but performing poorly
  * 3. Indicators flagged as stale/disabled by liveness
  */
-function NeedsAttention({ performance }: { performance: PerformanceMetric[] }) {
+function NeedsAttention({ performance, marketClosed }: { performance: PerformanceMetric[]; marketClosed?: boolean }) {
   const items: string[] = [];
 
-  // 1. Strategies with zero directional signals
-  const strategies = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"];
-  const stratSignalCounts = new Map<string, number>();
-  for (const m of performance) {
-    stratSignalCounts.set(m.strategy, (stratSignalCounts.get(m.strategy) ?? 0) + m.tradeCount);
-  }
-  for (const st of strategies) {
-    const count = stratSignalCounts.get(st) ?? 0;
-    if (count === 0) {
-      items.push(`No directional signals from ${st.replace(/_/g, " ")} — engine may need calibration or market conditions are unfavorable`);
+  // 1. Strategies with zero directional signals — EXPECTED during closed
+  // market (check.md 2026-08-30 #3): say so once, auto-calibration note.
+  if (marketClosed) {
+    items.push("Market closed — no directional signals expected until re-open. Auto-calibration (walk-forward refresh) runs automatically at re-open.");
+  } else {
+    const strategies = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"];
+    const stratSignalCounts = new Map<string, number>();
+    for (const m of performance) {
+      stratSignalCounts.set(m.strategy, (stratSignalCounts.get(m.strategy) ?? 0) + m.tradeCount);
+    }
+    for (const st of strategies) {
+      const count = stratSignalCounts.get(st) ?? 0;
+      if (count === 0) {
+        items.push(`No directional signals from ${st.replace(/_/g, " ")} — auto-calibration queued (walk-forward refresh at re-open); otherwise market conditions are unfavorable`);
+      }
     }
   }
 

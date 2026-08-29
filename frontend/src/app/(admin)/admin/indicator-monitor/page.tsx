@@ -139,7 +139,7 @@ export default function IndicatorMonitorPage() {
       )}
 
       {tab === "performance" && (
-        <PerformanceMatrix performance={performance} strategies={strategies} />
+        <PerformanceMatrix performance={performance} marketClosed={(snapshot as unknown as { session?: { is_weekend?: boolean } })?.session?.is_weekend || false} />
       )}
 
       {tab === "charts" && (
