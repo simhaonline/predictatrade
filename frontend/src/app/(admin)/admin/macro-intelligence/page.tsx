@@ -101,7 +101,7 @@ export default function AdminMacroIntelligencePage() {
       <div>
         <h1 className="text-xl font-bold text-pat-text-primary">Macro Intelligence</h1>
         <p className="text-sm text-pat-text-secondary mt-1">Cross-market confluence engine status, driver health, and shadow validation progress.</p>
-        {macro?.confluence?.mode === "SHADOW" || macro?.confluence?.status === "SHADOW" ? (
+        {macro?.mode === "SHADOW" ? (
           <div role="status" className="mt-3 rounded-lg border border-pat-info/40 bg-pat-info/5 px-4 py-3 text-xs">
             <b>SHADOW mode active.</b> Cross-market signals are computed and validated against real outcomes but do NOT veto any trades until promoted to ACTIVE via Feature Flags (needs 30 usable validation days minimum). Stale cells below mean that driver has not refreshed since startup — they age during closed market and refresh on ticks.
           </div>
