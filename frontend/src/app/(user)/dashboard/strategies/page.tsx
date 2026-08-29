@@ -7,6 +7,9 @@ import { DegradedNote } from "@/components/ui/tabs";
 
 const STRATEGIES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"];
 interface Entitlements { code: string; selected_strategies?: string[]; allowed_strategies?: string[]; }
+// Free/preview plans: all strategies viewable in the dashboard (selection gated separately),
+// live.predictatrade.com is time-gated 11:00–13:00 broker time (GMT+3) / 08:00–10:00 UTC.
+const VIEWING_ALL_PLANS = new Set(["FREE", "TRIAL"]);
 
 export default function UserStrategiesPage() {
   const query = useQuery<Entitlements>({
@@ -20,7 +23,10 @@ export default function UserStrategiesPage() {
   if (query.isLoading) return <div className="text-sm text-pat-text-secondary">Loading strategy preferences…</div>;
   if (query.isError) return <div className="rounded border border-pat-danger/30 p-4 text-sm text-pat-danger">Strategy preferences are unavailable.</div>;
 
-  const allowed = query.data?.allowed_strategies ?? query.data?.selected_strategies ?? ["STANDARD_SCALPING"];
+  const code = query.data?.code;
+  const allowed = VIEWING_ALL_PLANS.has(code ?? "") || !query.data?.allowed_strategies
+    ? ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"]  // view-only set
+    : (query.data?.allowed_strategies ?? query.data?.selected_strategies ?? ["STANDARD_SCALPING"]);
   const initial = query.data?.selected_strategies ?? query.data?.allowed_strategies ?? ["STANDARD_SCALPING"];
   const selected = local ?? initial;
 

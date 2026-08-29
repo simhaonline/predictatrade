@@ -10,6 +10,7 @@ import { GrowthPanel } from "@/components/user-command-center/growth-panel";
 import { MarketContextPanel } from "@/components/market-context/market-context-panel";
 import { IconChartLine, IconActivity, IconTrendingUp, IconLayoutGrid } from "@tabler/icons-react";
 import { MarketStatusBanner } from "@/components/market-status-banner";
+import { isLivePreviewOpen } from "@/lib/guest-access";
 
 type Mode = "MARKET" | "TRADING" | "GROWTH" | "COMMAND_CENTER";
 
@@ -37,6 +38,17 @@ export default function UserLiveDashboardPage() {
     { id: "COMMAND_CENTER", label: "Command Center", icon: IconLayoutGrid },
   ];
 
+  if (!isLivePreviewOpen()) {
+    return (
+      <div className="p-4 md:p-6 space-y-4">
+        <h1 className="text-xl font-bold text-pat-text-primary">Live Dashboard</h1>
+        <div className="rounded-lg border border-pat-warning/40 bg-pat-warning/5 p-4">
+          <div className="text-sm text-pat-text-primary">🔒 Live streaming restricted to 11:00–13:00 GMT+3 daily.</div>
+          <p className="text-xs text-pat-text-secondary mt-1">Upgrade to a paid plan to unlock 24/7 access, or come back during the open window. Signal and account access still requires active subscription.</p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="space-y-4">
       <MarketStatusBanner />

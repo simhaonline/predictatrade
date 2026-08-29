@@ -1,0 +1,21 @@
+// live.predictatrade.com access gate per plan policy:
+// FREE / anonymous visitors see the live dashboard only 11:00–13:00 GMT+3
+// (= 08:00–10:00 UTC). Paid users bypass the gate.
+const OPEN_UTC_HOURS = [8, 9];  // 11,12 in GMT+3 (08:00–09:59 UTC)
+
+export function isLivePreviewOpen(now = new Date()): boolean {
+  const h = now.getUTCHours();
+  return OPEN_UTC_HOURS.includes(h);
+}
+
+export function nextLiveOpenUTC(now = new Date()): string | null {
+  if (isLivePreviewOpen(now)) return null;
+  const d = new Date(now);
+  // advance until we hit an open hour boundary at next hour start
+  d.setUTCMinutes(0, 0, 0);
+  do {
+    d.setUTCHours(d.getUTCHours() + 1);
+    if (isLivePreviewOpen(d)) return d.toISOString();
+  } while (d.getTime() - now.getTime() < 1000 * 60 * 60 * 24 * 7);
+  return null;
+}
