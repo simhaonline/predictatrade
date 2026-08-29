@@ -99,7 +99,7 @@ export default function AdminSignalsPage() {
   });
 
   // Reset page when filters change
-  useEffect(() => { setPage(0); }, [activeTab, directionFilter]);
+  useEffect(() => { const id = setTimeout(() => setPage(0), 0); return () => clearTimeout(id); }, [activeTab, directionFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredSignals.length / PAGE_SIZE));
   const pagedSignals = filteredSignals.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);

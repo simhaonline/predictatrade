@@ -17,17 +17,17 @@ test.describe('User Login Flow', () => {
     // Topbar should show user name
     await expect(page.locator('[data-testid="topbar-user-name"]')).toContainText('Simha User');
 
-    // Sidebar footer should say "User Panel"
-    await expect(page.locator('[data-testid="panel-label"]')).toContainText('User Panel');
+    // Sidebar footer panel label is intentionally empty (removed by design)
+    await expect(page.locator('[data-testid="panel-label"]')).toHaveText('');
 
     // Sidebar should contain user-specific items
-    await expect(page.locator('nav[aria-label="Main navigation"]')).toContainText('MT4/MT5 Client');
+    await expect(page.locator('nav[aria-label="Main navigation"]')).toContainText('MetaTrader Client');
     await expect(page.locator('nav[aria-label="Main navigation"]')).toContainText('Referral & Earnings');
     await expect(page.locator('nav[aria-label="Main navigation"]')).toContainText('Billing & Subscription');
 
     // Sidebar should NOT contain admin-only items
-    await expect(page.locator('nav[aria-label="Main navigation"]')).not.toContainText('Signal Panel');
-    await expect(page.locator('nav[aria-label="Main navigation"]')).not.toContainText('Scoring Board');
+    await expect(page.locator('nav[aria-label="Main navigation"]')).not.toContainText('Signal Monitor');
+    await expect(page.locator('nav[aria-label="Main navigation"]')).not.toContainText('Risk Center');
     await expect(page.locator('nav[aria-label="Main navigation"]')).not.toContainText('Platform Operations');
     await expect(page.locator('nav[aria-label="Main navigation"]')).not.toContainText('System Health');
   });

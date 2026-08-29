@@ -47,6 +47,7 @@ test.describe('Direct URL RBAC', () => {
 
     await page.waitForURL('**/admin/dashboard', { timeout: 10000 });
     expect(page.url()).toContain('/admin/dashboard');
-    await expect(page.locator('[data-testid="panel-label"]')).toContainText('Admin Panel');
+    // Sidebar renders admin-only items for SUPER_ADMIN
+    await expect(page.locator('nav[aria-label="Main navigation"]')).toContainText('Signal Monitor');
   });
 });

@@ -49,6 +49,9 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+      # CI-3: e2e tests are a HARD gate (Playwright against the built app).
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
 
   python:
     name: Python Research Plane

@@ -60,6 +60,14 @@ export const USER_USER: MockUser = {
  * Intercepts all /api/v1/* calls and returns mock responses.
  */
 export function setupApiMocking(page: Page, token: string, user: MockUser) {
+  // Seed the pat_access_token cookie the server proxy reads for route
+  // protection. In production the control plane sets it (HttpOnly) via
+  // Set-Cookie on /auth/login; the route mock cannot do that, so set it
+  // client-side for the e2e origin. Value is a mock JWT — no secret.
+  page.addInitScript((jwt: string) => {
+    document.cookie = `pat_access_token=${jwt}; path=/; max-age=900; samesite=lax`;
+  }, token);
+
   // Mock login
   page.route('**/api/v1/auth/login', async (route: Route) => {
     const body = route.request().postDataJSON();
@@ -111,12 +119,16 @@ export function setupApiMocking(page: Page, token: string, user: MockUser) {
     });
   });
 
-  // Mock /auth/logout
+  // Mock /auth/logout — clear the seeded proxy cookie so the next navigation
+  // is treated as unauthenticated (mirrors the production cookie expiry).
   page.route('**/api/v1/auth/logout', async (route: Route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ success: true }),
+    });
+    await page.evaluate(() => {
+      document.cookie = 'pat_access_token=; path=/; max-age=0; samesite=lax';
     });
   });
 

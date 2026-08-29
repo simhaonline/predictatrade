@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { setupApiMocking, ADMIN_TOKEN, ADMIN_USER, USER_TOKEN, USER_USER } from './mock-helpers';
 
 test.describe('Navigation Separation', () => {
-  test('admin sidebar has exactly 18 items with correct labels', async ({ page }) => {
+  test('admin sidebar has exactly 35 items with correct labels', async ({ page }) => {
     setupApiMocking(page, ADMIN_TOKEN, ADMIN_USER);
 
     await page.goto('/login');
@@ -12,14 +12,19 @@ test.describe('Navigation Separation', () => {
     await page.waitForURL('**/admin/dashboard', { timeout: 10000 });
 
     const navLinks = page.locator('nav[aria-label="Main navigation"] a');
-    await expect(navLinks).toHaveCount(18);
+    await expect(navLinks).toHaveCount(35);
 
     const expectedLabels = [
-      'Live Dashboard', 'Signal Panel', 'Indicator Panel', 'Strategy Panel',
-      'Scoring Board', 'Activations', 'License Management', 'User Onboarding',
-      'Subscription Management', 'Billing & Payouts', 'Referral & Commissions',
-      'Device Auth', 'Trading Reports', 'Backtesting Reports', 'Logs & Audit',
-      'Platform Operations', 'System Health', 'Settings',
+      'Real-Time Console', 'Signal Monitor', 'Indicator Monitor', 'Strategy Panel',
+      'Regime Diagnostics', 'Scoring Board', 'Risk Center', 'MT Accounts',
+      'Device Auth', 'License Management', 'Activations', 'Users & Onboarding',
+      'Subscription Management', 'Plans & Entitlements', 'Billing & Invoices',
+      'Commission Operations', 'Payout Operations', 'Referrals & Affiliates',
+      'Finance & Referral Reports', 'Market Data', 'Macro Calendar',
+      'Macro Intelligence', 'AI Providers', 'Devil Liquidity',
+      'Broker Qualification', 'Signal Accuracy', 'Releases', 'Backup & DR',
+      'Feature Flags', 'Trading Reports', 'Backtesting', 'Platform Operations',
+      'Logs & Audit', 'System Health', 'Settings',
     ];
 
     for (const label of expectedLabels) {
@@ -27,7 +32,7 @@ test.describe('Navigation Separation', () => {
     }
   });
 
-  test('user sidebar has exactly 9 items with correct labels', async ({ page }) => {
+  test('user sidebar has exactly 17 items with correct labels', async ({ page }) => {
     setupApiMocking(page, USER_TOKEN, USER_USER);
 
     await page.goto('/login');
@@ -37,12 +42,13 @@ test.describe('Navigation Separation', () => {
     await page.waitForURL('**/dashboard/live', { timeout: 10000 });
 
     const navLinks = page.locator('nav[aria-label="Main navigation"] a');
-    await expect(navLinks).toHaveCount(9);
+    await expect(navLinks).toHaveCount(17);
 
     const expectedLabels = [
-      'Live Dashboard', 'Signals', 'MT4/MT5 Client', 'Strategy Preferences',
-      'Trading Reports', 'Backtest', 'Referral & Earnings', 'Billing & Subscription',
-      'Settings',
+      'Real-Time Console', 'Signal Accuracy', 'Signals', 'MetaTrader Client',
+      'Strategy Preferences', 'Trading Reports', 'Backtest', 'Devil Liquidity',
+      'Referral & Earnings', 'Billing & Subscription', 'Payouts', 'License',
+      'Security', 'Activity Log', 'Notifications', 'Settings', 'Support',
     ];
 
     for (const label of expectedLabels) {

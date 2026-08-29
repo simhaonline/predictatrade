@@ -36,6 +36,8 @@ interface UserDevice {
   fingerprint_hash: string | null;
   license_key: string | null;
   license_status: string | null;
+  client_type?: string;
+  connection_status?: string;
   max_devices?: number;
   max_mt_accounts?: number;
   activations: DeviceActivation[] | null;
@@ -67,15 +69,15 @@ export default function UserMtClientPage() {
       // Derive terminal status from the user's own registered devices
       // Each device has client_type (MT4/MT5) and connection_status
       const userDevices = devices || [];
-      const mt4Devices = userDevices.filter((d: any) => d.client_type === "MT4");
-      const mt5Devices = userDevices.filter((d: any) => d.client_type === "MT5");
-      const onlineDevices = userDevices.filter((d: any) => d.connection_status === "ONLINE");
+      const mt4Devices = userDevices.filter((d) => d.client_type === "MT4");
+      const mt5Devices = userDevices.filter((d) => d.client_type === "MT5");
+      const onlineDevices = userDevices.filter((d) => d.connection_status === "ONLINE");
       return {
         agents_connected: onlineDevices.length,
         agents_online: onlineDevices.length > 0,
         snapshot_count: 0,
-        mt4_connected: mt4Devices.filter((d: any) => d.connection_status === "ONLINE").length,
-        mt5_connected: mt5Devices.filter((d: any) => d.connection_status === "ONLINE").length,
+        mt4_connected: mt4Devices.filter((d) => d.connection_status === "ONLINE").length,
+        mt5_connected: mt5Devices.filter((d) => d.connection_status === "ONLINE").length,
         backend_reachable: true,
       };
     },

@@ -29,7 +29,7 @@ describe('Admin Sidebar', () => {
   it('shows admin navigation items including Signal Panel', async () => {
     const { default: Sidebar } = await import('@/components/layout/sidebar');
     render(<Sidebar />);
-    expect(screen.getByText('Signal Panel')).toBeInTheDocument();
+    expect(screen.getByText('Signal Monitor')).toBeInTheDocument();
     expect(screen.getByText('Indicator Monitor')).toBeInTheDocument();
     expect(screen.getByText('Scoring Board')).toBeInTheDocument();
     expect(screen.getByText('Platform Operations')).toBeInTheDocument();

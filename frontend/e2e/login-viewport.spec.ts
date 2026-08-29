@@ -26,9 +26,9 @@ for (const vp of VIEWPORTS) {
     expect(dims.scrollHeight).toBeLessThanOrEqual(dims.clientHeight + 1);
     expect(dims.scrollWidth).toBeLessThanOrEqual(dims.clientWidth + 1);
 
-    // Verify both logo images exist
+    // Logo image exists (auth layout renders one horizontal logo)
     const logoCount = await page.locator('img[alt="Predict-A-Trade"]').count();
-    expect(logoCount).toBe(2);
+    expect(logoCount).toBe(1);
 
     // Verify ThemeControl (Display Preferences) is present
     const themeBtn = page.locator('button[aria-label="Display preferences"]');
@@ -36,7 +36,7 @@ for (const vp of VIEWPORTS) {
 
     // Verify footer copyright
     const footerText = await page.locator('footer').textContent();
-    expect(footerText).toContain('© 2016–2026 Predict-A-Trade by Simha Online');
+    expect(footerText).toContain('© 2016–2026 Predict-A-Trade by Simha FinTech');
   });
 }
 
@@ -83,9 +83,9 @@ test('Login page logo is 260-320px on desktop', async ({ page }) => {
     return 0;
   });
 
-  // On desktop (1920x1080), logo should be 260-320px
-  expect(logoWidth).toBeGreaterThanOrEqual(260);
-  expect(logoWidth).toBeLessThanOrEqual(320);
+  // On desktop (1920x1080), the auth layout horizontal logo is 200px wide
+  expect(logoWidth).toBeGreaterThanOrEqual(180);
+  expect(logoWidth).toBeLessThanOrEqual(220);
 });
 
 test('Login page logo is 180-220px on mobile', async ({ page }) => {
@@ -103,7 +103,7 @@ test('Login page logo is 180-220px on mobile', async ({ page }) => {
     return 0;
   });
 
-  // On mobile (390px wide), logo should be 180-280px (clamp allows up to 280)
+  // On mobile (390px wide), the same 200px logo is used (fluid, centered)
   expect(logoWidth).toBeGreaterThanOrEqual(180);
-  expect(logoWidth).toBeLessThanOrEqual(280);
+  expect(logoWidth).toBeLessThanOrEqual(220);
 });

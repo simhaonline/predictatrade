@@ -115,7 +115,7 @@ export default function UserSignalsPage() {
   );
 
   // Reset page when filters change
-  useEffect(() => { setPage(0); }, [filterStrategy, filterDirection, filterRegime]);
+  useEffect(() => { const id = setTimeout(() => setPage(0), 0); return () => clearTimeout(id); }, [filterStrategy, filterDirection, filterRegime]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pagedSignals = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);

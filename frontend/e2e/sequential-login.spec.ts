@@ -12,8 +12,8 @@ test.describe('Sequential Account Test', () => {
     await page.click('button[type="submit"]');
     await page.waitForURL('**/admin/dashboard', { timeout: 10000 });
 
-    // Verify admin panel
-    await expect(page.locator('[data-testid="panel-label"]')).toContainText('Admin Panel');
+    // Verify admin session
+    await expect(page.locator('nav[aria-label="Main navigation"]')).toContainText('Signal Monitor');
     await expect(page.locator('[data-testid="topbar-user-name"]')).toContainText('Simha Admin');
 
     // Step 2: Logout
@@ -29,12 +29,11 @@ test.describe('Sequential Account Test', () => {
     await page.click('button[type="submit"]');
     await page.waitForURL('**/dashboard/live', { timeout: 10000 });
 
-    // Verify user panel — NOT admin panel
-    await expect(page.locator('[data-testid="panel-label"]')).toContainText('User Panel');
+    // Verify user session — admin items absent
     await expect(page.locator('[data-testid="topbar-user-name"]')).toContainText('Simha User');
 
     // Verify no admin items
-    await expect(page.locator('nav[aria-label="Main navigation"]')).not.toContainText('Signal Panel');
-    await expect(page.locator('nav[aria-label="Main navigation"]')).not.toContainText('Scoring Board');
+    await expect(page.locator('nav[aria-label="Main navigation"]')).not.toContainText('Signal Monitor');
+    await expect(page.locator('nav[aria-label="Main navigation"]')).not.toContainText('Risk Center');
   });
 });

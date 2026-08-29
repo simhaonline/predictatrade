@@ -29,7 +29,6 @@ export function MarketHeader() {
 
   // Update clock display every second
   useEffect(() => {
-    setMounted(true);
     const interval = setInterval(() => setClockTick(t => t + 1), 1000);
     return () => clearInterval(interval);
   }, []);

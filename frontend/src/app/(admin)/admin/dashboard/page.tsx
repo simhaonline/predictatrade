@@ -65,7 +65,7 @@ export default function AdminDashboardPage() {
   });
 
   // --- WebSocket for live signals ---
-  const [liveSignals, setLiveSignals] = useState<{ id: string; direction: string; strategy: string; probability: number; timestamp: string }[]>([]);
+  const [liveSignals, setLiveSignals] = useState<{ id: string; direction: string; strategy: string; probability: number; timestamp: string; qualityGrade?: string }[]>([]);
   const [wsState, setWsState] = useState<ConnectionState>('CONNECTING');
   const sigBuffer = useRef<{ id: string; direction: string; strategy: string; probability: number; timestamp: string }[]>([]);
   const ws = getGlobalWs();
@@ -101,6 +101,7 @@ export default function AdminDashboardPage() {
         strategy: String(s.StrategyID || s.strategy || s.Strategy || ""),
         probability: Number(s.CalibratedProbability || s.calibratedProbability || s.Probability || 0),
         timestamp: String(s.CreatedAt || s.created_at || s.Timestamp || ""),
+        qualityGrade: s.QualityGrade !== undefined ? String(s.QualityGrade) : s.qualityGrade !== undefined ? String(s.qualityGrade) : undefined,
       }));
       sigBuffer.current = allLatest;
       queueMicrotask(() => setLiveSignals(allLatest));
@@ -356,7 +357,7 @@ export default function AdminDashboardPage() {
                     <span className="text-xs text-pat-text-muted">{s.strategy.replace(/_/g, ' ')}</span>
                   </div>
                   <div className="flex items-center gap-3">
-                    {(s as any).qualityGrade && <span className="text-[9px] px-1 py-0.5 rounded-full border bg-pat-info/15 text-pat-info">{(s as any).qualityGrade}</span>}
+                    {s.qualityGrade && <span className="text-[9px] px-1 py-0.5 rounded-full border bg-pat-info/15 text-pat-info">{s.qualityGrade}</span>}
                     <span className="text-xs text-pat-text-secondary">{(Number(s.probability) * 100).toFixed(1)}%</span>
                     <span className="text-xs text-pat-text-muted">{s.timestamp ? format(new Date(s.timestamp), "HH:mm:ss") : "—"}</span>
                   </div>

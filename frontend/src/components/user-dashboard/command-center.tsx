@@ -169,7 +169,14 @@ function GlobalMarketHeader({ snapshot, wsState, marketState }: {
   const rsi = Number(indicators.rsi || 0);
   const source = snapshot?.source || "—";
   const tickTime = tick?.time;
-  const tickAgeSec = tickTime ? Math.max(0, (Date.now() - new Date(tickTime).getTime()) / 1000) : null;
+  // Date.now() inside an interval-driven state (not during render) keeps the
+  // impure-call lint happy while still refreshing the staleness snack live.
+  const [nowMs, setNowMs] = useState(() => 0);
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const tickAgeSec = tickTime && nowMs ? Math.max(0, (nowMs - new Date(tickTime).getTime()) / 1000) : null;
   const snack = !tick ? "UNKNOWN"
     : tickAgeSec !== null && tickAgeSec < 60 ? "LIVE"
     : tickAgeSec !== null && tickAgeSec < 300 ? "DEGRADED"
