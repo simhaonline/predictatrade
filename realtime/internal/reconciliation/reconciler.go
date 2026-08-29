@@ -135,6 +135,14 @@ func (r *Reconciler) RecentSignals(limit int) []*SignalRecord {
 	return result
 }
 
+// Tracked returns the number of signals currently registered. Used by the
+// reconciliation monitor to expose registry size as a metric.
+func (r *Reconciler) Tracked() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.signals)
+}
+
 // UnacknowledgedOlderThan returns signals that were delivered but never
 // acknowledged within ttl, measured from first delivery. This is the delivery
 // leg of reconciliation (BE-6): a signal that left the server but the edge

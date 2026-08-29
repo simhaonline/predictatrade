@@ -8,10 +8,10 @@ import "testing"
 // NOT an outage; a lone tick without snapshots must not suppress the outage.
 func TestDataFeedOutage(t *testing.T) {
 	cases := []struct {
-		name           string
-		critical       bool
-		agents         int
-		want           bool
+		name     string
+		critical bool
+		agents   int
+		want     bool
 	}{
 		{"no agents, critical", true, 0, false},
 		{"no agents, fresh", false, 0, false},

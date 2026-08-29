@@ -33,7 +33,6 @@ import (
 	"github.com/predictatrade/realtime/internal/hedging"
 	"github.com/predictatrade/realtime/internal/marketdata"
 	"github.com/predictatrade/realtime/internal/observability"
-	"github.com/predictatrade/realtime/pkg/bus"
 	"github.com/predictatrade/realtime/internal/ptb"
 	"github.com/predictatrade/realtime/internal/reconciliation"
 	"github.com/predictatrade/realtime/internal/recovery"
@@ -43,6 +42,7 @@ import (
 	sigengine "github.com/predictatrade/realtime/internal/signal"
 	"github.com/predictatrade/realtime/internal/strategy"
 	"github.com/predictatrade/realtime/internal/strategy/engines"
+	"github.com/predictatrade/realtime/pkg/bus"
 	"github.com/predictatrade/realtime/pkg/health"
 	"github.com/predictatrade/realtime/pkg/macro"
 	"github.com/predictatrade/realtime/pkg/mlengine"
@@ -426,7 +426,100 @@ func dataFeedOutage(critical bool, agentsConnected int) bool {
 	return agentsConnected > 0 && critical
 }
 
-func newIngestBus(provider *marketdata.AgentProvider) (bus.IngestBus, bus.IngestSubscriber) {	if url := os.Getenv("NATS_URL"); url != "" {
+// startReconciliationMonitor runs the BE-6 reconciliation loop. Every check it
+// evaluates both lifecycle legs — delivery→ACK and ACK→fill — exports the gap
+// counts as Prometheus gauges, and alerts via ntfy only for NEW violations
+// (per-signal dedup so a persistent gap never spams). Fully closed records are
+// pruned so the registry cannot grow unbounded. Read-only over the reconciler:
+// it never blocks signal generation or delivery (SOW §24).
+func startReconciliationMonitor(
+	reconciler *reconciliation.Reconciler,
+	enqueueNotification func(eventType notifications.EventType, severity, title, message string),
+) {
+	const (
+		checkInterval = 30 * time.Second
+		// ACK TTL: the edge must confirm execution within 2 minutes of delivery.
+		ackTTL = 2 * time.Minute
+		// Fill TTL: after a verified ACK (order sent) the broker fill/result
+		// should arrive within 10 minutes (covers manual/close flows and
+		// slow MARKET_SNAPSHOT reconnects).
+		fillTTL = 10 * time.Minute
+		// Retention for fully-reconciled (acked+filled) records.
+		retention = time.Hour
+	)
+
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+
+	ackAlerted := make(map[string]time.Time)
+	fillAlerted := make(map[string]time.Time)
+	reAlertAfter := 10 * time.Minute // re-alert an unresolved gap hourly-ish
+
+	for range ticker.C {
+		if reconciler == nil {
+			return
+		}
+
+		now := time.Now().UTC()
+
+		unacked := reconciler.UnacknowledgedOlderThan(ackTTL)
+		unfilled := reconciler.UnfilledOlderThan(fillTTL)
+
+		observability.ReconciliationAcksTimeout.Set(float64(len(unacked)))
+		observability.ReconciliationFillsTimeout.Set(float64(unfilledCount(unfilled)))
+		observability.ReconciliationTracked.Set(float64(reconciler.Tracked()))
+
+		for _, rec := range unacked {
+			if !shouldAlert(ackAlerted, rec.Signal.ID, now, reAlertAfter) {
+				continue
+			}
+			msg := fmt.Sprintf("signal %s (%s %s) delivered %s ago but no EXECUTION_ACK — check agent/EA connectivity",
+				rec.Signal.ID, rec.Signal.StrategyID, rec.Signal.Direction,
+				now.Sub(rec.DeliveredAt).Round(time.Second))
+			observability.Log.Warn().Str("signal_id", rec.Signal.ID).
+				Str("strategy_id", string(rec.Signal.StrategyID)).
+				Str("leg", "delivery_ack").Msg("[RECONCILE] ACK timeout — " + msg)
+			enqueueNotification(notifications.EventType("SIGNAL_ACK_TIMEOUT"), "warning",
+				"Signal ACK timeout", msg)
+		}
+
+		for _, rec := range unfilled {
+			if !shouldAlert(fillAlerted, rec.Signal.ID, now, reAlertAfter) {
+				continue
+			}
+			msg := fmt.Sprintf("signal %s (%s %s) ACKed %s ago but no fill/trade result — possible rejected order or silent broker failure",
+				rec.Signal.ID, rec.Signal.StrategyID, rec.Signal.Direction,
+				now.Sub(rec.AcknowledgedAt).Round(time.Second))
+			observability.Log.Warn().Str("signal_id", rec.Signal.ID).
+				Str("strategy_id", string(rec.Signal.StrategyID)).
+				Str("leg", "ack_fill").Msg("[RECONCILE] fill timeout — " + msg)
+			enqueueNotification(notifications.EventType("SIGNAL_FILL_TIMEOUT"), "warning",
+				"Signal fill timeout", msg)
+		}
+
+		// Bound memory: prune fully-reconciled records past retention.
+		reconciler.PruneOlderThan(retention)
+	}
+}
+
+// shouldAlert reports whether a gap deserves (re-)alerting: first time it is
+// observed, or again after reAlertAfter has elapsed while still unresolved.
+func shouldAlert(alerted map[string]time.Time, signalID string, now time.Time, reAlertAfter time.Duration) bool {
+	if last, ok := alerted[signalID]; ok && now.Sub(last) < reAlertAfter {
+		return false
+	}
+	alerted[signalID] = now
+	return true
+}
+
+// unfilledCount is a tiny helper keeping the Set() call asymmetric-safe with
+// the UnacknowledgedOlderThan len() call.
+func unfilledCount(recs []*reconciliation.SignalRecord) int {
+	return len(recs)
+}
+
+func newIngestBus(provider *marketdata.AgentProvider) (bus.IngestBus, bus.IngestSubscriber) {
+	if url := os.Getenv("NATS_URL"); url != "" {
 		nb, err := bus.NewNatsBus(url, "pat.ingest.agent")
 		if err != nil {
 			observability.Log.Error().Err(err).Msg("NATS_URL set but connect failed; falling back to in-process ingest bus")
@@ -1428,6 +1521,12 @@ func main() {
 	// nudges connected agents (REQUEST_SNAPSHOT) to resend a fresh snapshot.
 	go startHealthMonitor(healthManager, staleChecker, agentHub, dataAgentHub, agentProvider, notifMgr, enqueueNotification)
 
+	// BE-6: signal↔execution reconciliation monitor. A signal that was
+	// delivered but never ACKed, or ACKed but never filled, must surface in
+	// observability + ntfy instead of disappearing silently. Fail-closed in the
+	// SOW sense: this observes and reports — it never blocks trading.
+	go startReconciliationMonitor(reconciler, enqueueNotification)
+
 	// ─── Proactive License Validation ───
 	// Server-side: validates licenses for connected agents using agent_user_bindings
 	// table and sends LICENSE_STATUS via WebSocket. No Windows Agent changes needed.
@@ -1641,6 +1740,16 @@ func main() {
 			log.Info().Str("signal_id", tr.SignalID).Str("strategy_id", tr.StrategyID).
 				Str("exit", reason).Float64("pnl", tr.RealizedPnL).Str("dir", direction).
 				Bool("sl_correct", tr.SLCorrect).Msg("Trade outcome reconciled")
+
+			// BE-6: close the fill leg of reconciliation with the REAL broker
+			// outcome. FillID is the broker ticket so the gap report can point
+			// at the exact position. Only charge when the signal_id is a real
+			// signal (the fallback UUID generated for old EAs will not match a
+			// tracked record — RecordFill is a no-op in that case, so no guard
+			// needed here, but logging keeps the audit trail honest).
+			if globalReconciler != nil {
+				globalReconciler.RecordFill(signalID, fmt.Sprintf("%d", tr.Ticket))
+			}
 
 			// Feed the real trade outcome into the recovery manager so consecutive-
 			// loss halts actually protect the live account (DecideWithAdvanced reads
@@ -2208,8 +2317,8 @@ func main() {
 				if isAgentProvider && agentProvider != nil {
 					// Write agent status to both WebSocket and Valkey
 					agentStatus := gateway.AgentStatus{
-					AgentsConnected:     agentHub.AgentCount(),
-					AgentsOnline:        agentProvider.HasConnectedAgents(),
+						AgentsConnected:     agentHub.AgentCount(),
+						AgentsOnline:        agentProvider.HasConnectedAgents(),
 						DataAgentsConnected: dataAgentHub.AgentCount(),
 						SnapshotCount:       agentProvider.GetSnapshotCount(),
 						Timestamp:           time.Now().UTC(),

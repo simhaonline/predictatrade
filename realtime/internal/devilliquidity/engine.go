@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/predictatrade/realtime/internal/types"
 	"github.com/shopspring/decimal"
 )
 
@@ -284,6 +285,43 @@ func (e *Engine) detect(c *CandleInput, o, h, l, cl, rng, body, bodyRatio,
 	displacementOK := bodyRatio >= cfg.MinBodyRatio &&
 		rangeATR >= cfg.MinRangeATR &&
 		bodyExp >= cfg.MinBodyExpansion
+
+	// Duplicate-mark guard: skip detection when a young, non-terminal mark for
+	// this (symbol, timeframe) already exists. Without this, the candle right
+	// after a displacement (e.g. the reversal leg) can itself qualify as a new
+	// displacement — the median body shifted after the first mark — and a second
+	// mark is registered with a different level but the same intent, so the
+	// level gets double-charged. Range-based level comparison is not enough:
+	// ATR doubles after the first displacement, so level distance must be
+	// normalized by the mark's DETECTION ATR, and a recency guard covers the
+	// reversal-candle case where the new "level" is a full displacement away.
+	for _, m := range e.marks {
+		if m.Symbol != c.Symbol || m.Timeframe != c.Timeframe {
+			continue
+		}
+		if isTerminal(m.State) {
+			continue
+		}
+		// Level match normalized by the ATR at the existing mark's detection.
+		atrRef := m.DetectedATR
+		if atrRef <= 0 {
+			atrRef = m.ATR
+		}
+		if atrRef > 0 && m.MarkPrice > 0 &&
+			abs(m.MarkPrice-cl) <= cfg.TouchToleranceATR*atrRef {
+			return
+		}
+		// Recency: a displacement within RECLAIM_MAX_BARS of the existing mark
+		// is continuation of the same move, not a new mark.
+		interval := types.Timeframe(c.Timeframe).Duration()
+		if interval <= 0 {
+			interval = 5 * time.Minute // conservative default (M5)
+		}
+		age := c.Time.Sub(m.DetectedAt)
+		if age >= 0 && age <= time.Duration(cfg.ReclaimMaxBars)*interval {
+			return
+		}
+	}
 
 	// Bullish: close>open, essentially no lower wick, close near high.
 	if cl > o &&
