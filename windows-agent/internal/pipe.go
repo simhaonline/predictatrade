@@ -491,6 +491,59 @@ func (pm *PipeManager) processMessage(line string) {
 	payload := line[sep+1:]
 
 	switch msgType {
+	case "LIVENESS":
+		// Client EA weekend/holiday liveness ping (no market ticks): keep the
+		// terminal registered (dashboard ONLINE) and the license resolvable.
+		// No price payload — nothing is forwarded to the engine's price path.
+		var lv struct {
+			Symbol  string `json:"symbol"`
+			Source  string `json:"source"`
+			Account string `json:"account"`
+			Broker  string `json:"broker"`
+		}
+		if err := json.Unmarshal([]byte(payload), &lv); err != nil {
+			return
+		}
+		clientType := "MT5"
+		if strings.ToUpper(lv.Source) == "MT4" {
+			clientType = "MT4"
+		}
+		if lv.Account != "" && pm.wsSender != nil {
+			// Reuse the TICK registration path by synthesizing an INIT-style
+			// registration: easiest correct path is a terminal entry plus a
+			// control-plane registration event.
+			terminalKey := clientType + ":" + lv.Account
+			pm.mu.Lock()
+			isNew := pm.terminals[terminalKey] == nil
+			if isNew {
+				pm.terminals[terminalKey] = &TerminalInfo{
+					ClientType: clientType, Account: lv.Account,
+					Broker: lv.Broker, Symbol: lv.Symbol,
+					ConnectedAt: time.Now(), LastActivity: time.Now(),
+				}
+			} else {
+				pm.terminals[terminalKey].LastActivity = time.Now()
+			}
+			term := *pm.terminals[terminalKey]
+			pm.mu.Unlock()
+			if isNew {
+				log.Printf("Terminal registered from LIVENESS: %s account=%s broker=%s (market closed)", clientType, lv.Account, lv.Broker)
+				if pm.onTerminalConnect != nil {
+					go pm.onTerminalConnect(term)
+				}
+			}
+			// Forward to engine as LIVENESS so backend telemetry marks the
+			// terminal alive; engine treats it as connectivity-only.
+			data, _ := json.Marshal(map[string]interface{}{
+				"type": "LIVENESS", "agent_id": pm.currentDeviceID(),
+				"symbol": lv.Symbol, "source": clientType,
+				"account": lv.Account, "broker": lv.Broker,
+				"market_closed": true,
+			})
+			pm.wsSender(data)
+		}
+		return
+
 	case "TICK":
 		var tick MT5Tick
 		if err := json.Unmarshal([]byte(payload), &tick); err != nil {
@@ -959,6 +1012,22 @@ func (pm *PipeManager) processMasterMessage(line string) {
 
 	case "MASTER_DEINIT":
 		log.Printf("Master Node deinit: %s", payload)
+		// Remove the terminal immediately so the dashboard shows OFFLINE the
+		// moment a chart is closed / EA removed (previously the entry lingered
+		// until the 60s prune — user-visible as "closed terminal still online").
+		var deinitMsg struct {
+			Symbol  string `json:"symbol"`
+			Account string `json:"account"`
+		}
+		if err := json.Unmarshal([]byte(payload), &deinitMsg); err == nil && deinitMsg.Account != "" {
+			pm.mu.Lock()
+			for key := range pm.terminals {
+				if strings.HasSuffix(key, ":"+deinitMsg.Symbol) || strings.HasSuffix(key, ":"+deinitMsg.Account) {
+					delete(pm.terminals, key)
+				}
+			}
+			pm.mu.Unlock()
+		}
 		if pm.wsSender != nil {
 			pm.wsSender([]byte(payload))
 		}

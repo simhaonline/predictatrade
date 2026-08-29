@@ -204,7 +204,7 @@ int OnInit()
 {
     EventKillTimer();
     MasterWrite("MASTER_DEINIT|{\"reason\":" + IntegerToString((long)reason) +
-                ",\"symbol\":\"" + g_symbol + "\"}\n");
+                ",\"symbol\":\"" + g_symbol + "\",\"account\":\"" + g_accountID + "\"}\n");
 
     //--- Release indicator handles
     if(g_hRSI != INVALID_HANDLE)       IndicatorRelease(g_hRSI);

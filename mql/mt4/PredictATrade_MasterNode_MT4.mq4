@@ -136,7 +136,7 @@ int OnInit()
 {
     EventKillTimer();
     MasterWrite("MASTER_DEINIT|{\"reason\":" + IntegerToString((long)reason) +
-                ",\"symbol\":\"" + g_symbol + "\"}\n");
+                ",\"symbol\":\"" + g_symbol + "\",\"account\":\"" + g_accountID + "\"}\n");
     Comment("");
 }
 
