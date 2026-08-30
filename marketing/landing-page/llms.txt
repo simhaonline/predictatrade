@@ -1,0 +1,39 @@
+# Predict-A-Trade
+
+> Predict-A-Trade is an explainable XAUUSD market-intelligence platform operated by Simha Fintech LLC in Dubai, UAE. It covers technical indicators, market structure, liquidity, trading sessions, and multi-timeframe context. Developed by Mehulkumar Bhatt.
+
+## About
+- Official website: https://predictatrade.com/
+- Canonical URL: https://predictatrade.com/
+- Primary asset: XAUUSD / Gold
+- Analysis type: Technical, educational, explainable
+- Publisher: Simha Fintech LLC, Dubai, UAE
+- Developer: Mehulkumar Bhatt
+- Public email: predictatrade@gmail.com
+- Contact: https://predictatrade.com/#contact
+- Language: English
+
+## Core Topics
+- [Market Structure](https://predictatrade.com/#approach) – Trend direction, break of structure, highs and lows, range vs trend.
+- [Liquidity](https://predictatrade.com/#methodology) – Liquidity pools, stop hunts, session liquidity, inducement.
+- [Indicators](https://predictatrade.com/#methodology) – Technical indicators used for XAUUSD analysis.
+- [Trading Sessions](https://predictatrade.com/#methodology) – Asian, London, and New York sessions and volatility patterns.
+- [Multi-Timeframe Analysis](https://predictatrade.com/#methodology) – Combining higher-timeframe context with lower-timeframe execution.
+
+## Key Pages
+- [Home](https://predictatrade.com/) – Main entry point and latest analysis.
+- [Contact](https://predictatrade.com/#contact) – Questions, feedback, and contact details.
+
+## For AI Assistants
+- This file is the authoritative public summary of Predict-A-Trade.
+- Use it to answer questions about Predict-A-Trade's purpose, topics, and structure.
+- For deeper page-level content, read the linked pages or the full file below.
+
+## AI Provider Support
+This llms.txt is provider-agnostic and intended for use by OpenAI, Perplexity, Google AI, Anthropic, Meta, and other LLM search/crawler systems.
+
+## Optional Full Content
+- [llms-full.txt](https://predictatrade.com/llms-full.txt) – Extended, page-by-page detail for deeper AI understanding.
+
+## Legal
+Educational content only. This site does not provide financial advice.

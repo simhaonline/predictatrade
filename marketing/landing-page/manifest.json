@@ -1,0 +1,14 @@
+{
+  "name": "Predict-A-Trade — Market Intelligence",
+  "short_name": "Predict-A-Trade",
+  "description": "Explainable XAUUSD and gold market intelligence through indicators, structure, liquidity, sessions, and multi-timeframe context.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f6f4ef",
+  "theme_color": "#f6f4ef",
+  "icons": [
+    {"src": "/media/icon-192.webp", "sizes": "192x192", "type": "image/webp", "purpose": "any maskable"},
+    {"src": "/media/icon-512.webp", "sizes": "512x512", "type": "image/webp", "purpose": "any maskable"}
+  ]
+}
