@@ -19,6 +19,8 @@ export const adminNavigation: NavItem[] = [
   // ── Trading Operations ──
   { label: 'Real-Time Console', href: '/admin/dashboard', icon: IconDashboard, section: 'Trading Operations' },
   { label: 'Signal Monitor', href: '/admin/signals', icon: IconChartLine, section: 'Trading Operations' },
+  { label: 'Pipeline Monitor', href: '/admin/pipeline-monitor', icon: IconListCheck, section: 'Trading Operations' },
+  { label: 'Agent Mesh', href: '/admin/agent-mesh', icon: IconBroadcast, section: 'Trading Operations' },
   { label: 'Scoring Board', href: '/admin/scoring-board', icon: IconChartBar, section: 'Trading Operations' },
   { label: 'Strategy Panel', href: '/admin/strategies', icon: IconBolt, section: 'Trading Operations' },
   { label: 'Devil Liquidity', href: '/admin/devil-liquidity', icon: IconDroplet, section: 'Trading Operations' },
