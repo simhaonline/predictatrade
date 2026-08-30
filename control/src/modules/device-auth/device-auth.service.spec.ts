@@ -4,6 +4,8 @@ import { jest } from '@jest/globals';
 import { UnauthorizedException, ConflictException, NotFoundException } from '@nestjs/common';
 import * as crypto from 'crypto';
 
+const jwtMock = { sign: jest.fn(() => 'mock.jwt.token'), verify: jest.fn() } as any;
+
 describe('DeviceAuthService', () => {
   let service: DeviceAuthService;
   let pool: any;
@@ -13,7 +15,7 @@ describe('DeviceAuthService', () => {
       connect: jest.fn(),
       query: jest.fn(),
     };
-    service = new DeviceAuthService(pool, { get: (k: string) => process.env[k] ?? 'pat_local_dev_secret_change_in_production' } as any);
+    service = new DeviceAuthService(pool, { get: (k: string) => process.env[k] ?? 'pat_local_dev_secret_change_in_production' } as any, jwtMock);
   });
 
   describe('activate', () => {
@@ -207,7 +209,7 @@ describe('DeviceAuthService HMAC Verification', () => {
 
   beforeEach(() => {
     pool = { connect: jest.fn(), query: jest.fn() };
-    service = new DeviceAuthService(pool, { get: (k: string) => process.env[k] ?? 'pat_local_dev_secret_change_in_production' } as any);
+    service = new DeviceAuthService(pool, { get: (k: string) => process.env[k] ?? 'pat_local_dev_secret_change_in_production' } as any, jwtMock);
   });
 
   describe('verifyRequestSignature', () => {
