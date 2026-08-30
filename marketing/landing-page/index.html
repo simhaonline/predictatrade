@@ -136,29 +136,7 @@
         </main>
       </noscript>
     </div>
-    <style>
-      .live-market{background:#171714;color:#f6f4ef;padding:clamp(48px,8vw,96px) 6vw}
-      .live-market-inner{max-width:1180px;margin:0 auto}
-      .live-market-kicker{color:#f0a07c;font:800 11px/1 Arial,sans-serif;letter-spacing:.16em;text-transform:uppercase}
-      .live-market h2{font:700 clamp(34px,5vw,64px)/1 Fraunces,Georgia,serif;letter-spacing:-.05em;margin:14px 0 16px;max-width:760px}
-      .live-market p{color:#c8c5bb;font-size:17px;line-height:1.6;max-width:720px;margin:0 0 28px}
-      .live-market-note{color:#8b8579;font-size:13px;margin:14px 0 0}
-      .live-market-note a{color:#f0a07c}
-      .live-market-frame{position:relative;width:100%;border-radius:18px;overflow:hidden;box-shadow:0 24px 60px #0006;border:1px solid #2a2a24;background:#0e0e0c}
-      .live-market-frame iframe{display:block;width:100%;height:640px;border:0}
-      @media(max-width:760px){.live-market-frame iframe{height:560px}}
-    </style>
-    <section id="live-market" class="live-market" aria-labelledby="live-market-title">
-      <div class="live-market-inner">
-        <div class="live-market-kicker">Live XAUUSD intelligence</div>
-        <h2 id="live-market-title">The signal, in real time.</h2>
-        <p>XAUUSD context streamed from the Predict-A-Trade realtime engine — broker-aligned bid, ask and spread with a concise signal summary. No simulated prices.</p>
-        <div class="live-market-frame">
-          <iframe src="https://live.predictatrade.com/live-widget.html" title="Predict-A-Trade live XAUUSD widget" loading="lazy"></iframe>
-        </div>
-        <p class="live-market-note">Live demo uses anonymous trial access. Open the full <a href="https://live.predictatrade.com">Live Dashboard</a> for complete signals.</p>
-      </div>
-    </section>
+
     <style>
       .platform{background:#f6f4ef;border-top:1px solid #dedbd2;color:#171714;padding:clamp(48px,8vw,96px) 6vw}
       .platform-inner{max-width:1180px;margin:0 auto}
@@ -264,7 +242,7 @@
     </section>
     <script>
       (function(){
-        var ids=['live-market','platform','psychology','astro'];
+        var ids=['platform','psychology','astro'];
         function place(){
           var root=document.getElementById('root');
           var anchor=document.getElementById('contact')||document.querySelector('#root footer')||document.querySelector('footer');
