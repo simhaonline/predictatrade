@@ -6,7 +6,7 @@
  *  - Network-first for navigations/static with cache fallback so the shell
  *    still opens when the network is down. Cached pages are labeled stale.
  */
-const CACHE = 'pat-shell-v1';
+const CACHE = 'pat-shell-v2'; // bump to invalidate old cached chunks
 const SHELL_ASSETS = ['/', '/offline'];
 
 self.addEventListener('install', (event) => {
