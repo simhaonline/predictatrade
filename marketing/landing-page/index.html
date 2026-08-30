@@ -147,9 +147,6 @@
       .strategy{background:#fffefa;border:1px solid #dedbd2;border-radius:14px;padding:22px}
       .strategy h3{font:700 20px/1.1 Fraunces,Georgia,serif;margin:0 0 9px}
       .strategy p{color:#68665e;font-size:14px;line-height:1.55;margin:0}
-      .platform-risk{background:#171714;color:#f6f4ef;border-radius:16px;padding:28px;margin-top:24px}
-      .platform-risk h3{font:700 22px/1.1 Fraunces,Georgia,serif;margin:0 0 10px;color:#f0a07c}
-      .platform-risk p{color:#c8c5bb;font-size:15px;line-height:1.6;margin:0}
       @media(max-width:760px){.platform-grid{grid-template-columns:1fr}}
     </style>
     <section id="platform" class="platform" aria-labelledby="platform-title">
@@ -162,10 +159,6 @@
           <article class="strategy"><h3>ULTRA_SCALPING</h3><p>Higher-frequency scalping with tighter context and stricter total-cost limits.</p></article>
           <article class="strategy"><h3>STANDARD_SWING</h3><p>Multi-session swing context with broader timeframe alignment and wider exit geometry.</p></article>
           <article class="strategy"><h3>TREND_SWING</h3><p>Trend-following swing profile that waits for multi-timeframe confirmation before signalling.</p></article>
-        </div>
-        <div class="platform-risk">
-          <h3>Server-side risk enforcement</h3>
-          <p>The backend — not the client — is the authority for stop-loss and take-profit. It verifies EXECUTION_ACK against the server-sent SL, monitors positions for missing SL, and can issue CLOSE_POSITION, EMERGENCY_STOP and KILL_SWITCH. Spread, slippage, margin, news and session restrictions are enforced before any signal is delivered.</p>
         </div>
       </div>
     </section>
