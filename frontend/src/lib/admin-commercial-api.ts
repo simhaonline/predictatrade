@@ -11,9 +11,9 @@ export async function fetchPlanById(id: string) {
   return res.data;
 }
 
-// Optimistic/degrading write — backend Plan write API pending.
+// Plan update — backend exposes PATCH /api/v1/plans/:id (POST returns 405).
 export async function updatePlan(id: string, payload: Record<string, unknown>) {
-  const res = await customInstance.post(`/plans/${id}`, payload);
+  const res = await customInstance.patch(`/plans/${id}`, payload);
   return res.data;
 }
 

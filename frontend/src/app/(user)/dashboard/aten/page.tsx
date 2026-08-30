@@ -92,7 +92,7 @@ export default function AtenPage() {
         </div>
       </div>
       {node.children && expanded[node.name] !== false && node.children.map((child) => renderNode(child, depth + 1))}
-etod      {node.children && node.children.length > 0 && (
+      {node.children && node.children.length > 0 && (
         <button onClick={() => setExpanded(e => ({ ...e, [node.name]: !e[node.name] }))} className="text-xs text-pat-info mt-1">
           {expanded[node.name] === false ? <IconChevronRight size={12} className="inline" /> : <IconChevronDown size={12} className="inline" />}
           {expanded[node.name] === false ? " expand" : " collapse"}
