@@ -76,7 +76,7 @@ export default function AdminStrategiesPage() {
                 {name === "ULTRA_SCALPING" && "M1 + M5 · Threshold 85 · Min RR 1.0 · Cooldown 15m"}
                 {name === "STANDARD_SWING" && "M15/M30/H1 + H4/D1 · Threshold 55 · Min RR 1.8 · Cooldown 120m"}
                 {name === "TREND_SWING" && "H1/H4 + D1/W1 · Threshold 50 · Min RR 2.5 · Cooldown 360m"}
-                {name === "MARNIE_FIB" && "H1 · Threshold 70 · Min RR 2.5 · Cooldown 60m · SHADOW"}
+                {name === "MARNIE_FIB" && "EQFE · Equilibrium Fibonacci Engine · H1 · SHADOW"}
               </p>
               <button
                 onClick={() => isActive ? disableMutation.mutate(name) : enableMutation.mutate(name)}

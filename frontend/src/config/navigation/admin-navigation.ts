@@ -16,49 +16,56 @@ export interface NavItem {
 }
 
 export const adminNavigation: NavItem[] = [
-  // ── Real-Time Operations ──
-  { label: 'Real-Time Console', href: '/admin/dashboard', icon: IconDashboard, section: 'Real-Time Operations' },
-  { label: 'Signal Monitor', href: '/admin/signals', icon: IconChartLine, section: 'Real-Time Operations' },
-  { label: 'Indicator Monitor', href: '/admin/indicator-monitor', icon: IconActivity, section: 'Real-Time Operations' },
-  { label: 'Strategy Panel', href: '/admin/strategies', icon: IconBolt, section: 'Real-Time Operations' },
-  { label: 'Regime Diagnostics', href: '/admin/regime-diagnostics', icon: IconChartBar, section: 'Real-Time Operations' },
-  { label: 'Scoring Board', href: '/admin/scoring-board', icon: IconChartBar, section: 'Real-Time Operations' },
+  // ── Trading Operations ──
+  { label: 'Real-Time Console', href: '/admin/dashboard', icon: IconDashboard, section: 'Trading Operations' },
+  { label: 'Signal Monitor', href: '/admin/signals', icon: IconChartLine, section: 'Trading Operations' },
+  { label: 'Scoring Board', href: '/admin/scoring-board', icon: IconChartBar, section: 'Trading Operations' },
+  { label: 'Strategy Panel', href: '/admin/strategies', icon: IconBolt, section: 'Trading Operations' },
+  { label: 'Devil Liquidity', href: '/admin/devil-liquidity', icon: IconDroplet, section: 'Trading Operations' },
+  { label: 'Regime Diagnostics', href: '/admin/regime-diagnostics', icon: IconActivity, section: 'Trading Operations' },
+  { label: 'Backtesting', href: '/admin/backtesting', icon: IconTestPipe, section: 'Trading Operations' },
+  { label: 'Trading Reports', href: '/admin/trading-reports', icon: IconFileAnalytics, section: 'Trading Operations' },
 
-  // ── Risk & Safety ──
-  { label: 'Risk Center', href: '/admin/risk-center', icon: IconAlertTriangle, section: 'Risk & Safety' },
-  { label: 'MT Accounts', href: '/admin/mt-accounts', icon: IconServer, section: 'Risk & Safety' },
-  { label: 'Device Auth', href: '/admin/device-auth', icon: IconDeviceDesktop, section: 'Risk & Safety' },
-  { label: 'License Management', href: '/admin/licenses', icon: IconShield, section: 'Risk & Safety' },
-  { label: 'Activations', href: '/admin/activations', icon: IconKey, section: 'Risk & Safety' },
+  // ── Signal Quality ──
+  { label: 'Indicator Monitor', href: '/admin/indicator-monitor', icon: IconActivity, section: 'Signal Quality' },
+  { label: 'Signal Accuracy', href: '/admin/signal-accuracy', icon: IconListCheck, section: 'Signal Quality' },
 
-  // ── Customers & Billing ──
-  { label: 'Users & Onboarding', href: '/admin/users', icon: IconUsers, section: 'Customers & Billing' },
-  { label: 'Subscription Management', href: '/admin/subscriptions', icon: IconReceipt, section: 'Customers & Billing' },
-  { label: 'Plans & Entitlements', href: '/admin/plans-entitlements', icon: IconListCheck, section: 'Customers & Billing' },
-  { label: 'Billing & Invoices', href: '/admin/billing', icon: IconCoin, section: 'Customers & Billing' },
-  { label: 'Payments', href: '/admin/payments', icon: IconWallet, section: 'Customers & Billing' },
-  { label: 'Commission Operations', href: '/admin/commission-operations', icon: IconCoin, section: 'Customers & Billing' },
-  { label: 'Payout Operations', href: '/admin/payout-operations', icon: IconWallet, section: 'Customers & Billing' },
-  { label: 'Referrals & Affiliates', href: '/admin/referrals', icon: IconUsers, section: 'Customers & Billing' },
-  { label: 'Finance & Referral Reports', href: '/admin/finance-referral-reports', icon: IconReportMoney, section: 'Customers & Billing' },
+  // ── Risk & Compliance ──
+  { label: 'Risk Center', href: '/admin/risk-center', icon: IconAlertTriangle, section: 'Risk & Compliance' },
 
-  // ── Market & Intelligence ──
-  { label: 'Market Data', href: '/admin/market-data', icon: IconBroadcast, section: 'Market & Intelligence' },
-  { label: 'Macro Calendar', href: '/admin/macro-news', icon: IconWorld, section: 'Market & Intelligence' },
-  { label: 'Macro Intelligence', href: '/admin/macro-intelligence', icon: IconActivity, section: 'Market & Intelligence' },
-  { label: 'AI Providers', href: '/admin/ai-providers', icon: IconBrain, section: 'Market & Intelligence' },
-  { label: 'Devil Liquidity', href: '/admin/devil-liquidity', icon: IconDroplet, section: 'Market & Intelligence' },
-  { label: 'Broker Qualification', href: '/admin/broker-qualification', icon: IconBuildingBank, section: 'Market & Intelligence' },
+  // ── Customer Management ──
+  { label: 'Users & Onboarding', href: '/admin/users', icon: IconUsers, section: 'Customer Management' },
+  { label: 'Subscription Management', href: '/admin/subscriptions', icon: IconReceipt, section: 'Customer Management' },
+  { label: 'License Management', href: '/admin/licenses', icon: IconShield, section: 'Customer Management' },
+  { label: 'Activations', href: '/admin/activations', icon: IconKey, section: 'Customer Management' },
 
-  // ── Platform & System ──
-  { label: 'Signal Accuracy', href: '/admin/signal-accuracy', icon: IconChartBar, section: 'Platform & System' },
-  { label: 'Releases', href: '/admin/releases', icon: IconRocket, section: 'Platform & System' },
-  { label: 'Backup & DR', href: '/admin/backup-dr', icon: IconDatabase, section: 'Platform & System' },
-  { label: 'Feature Flags', href: '/admin/feature-flags', icon: IconFlag, section: 'Platform & System' },
-  { label: 'Trading Reports', href: '/admin/trading-reports', icon: IconFileAnalytics, section: 'Platform & System' },
-  { label: 'Backtesting', href: '/admin/backtesting', icon: IconTestPipe, section: 'Platform & System' },
-  { label: 'Platform Operations', href: '/admin/operations', icon: IconTool, section: 'Platform & System' },
-  { label: 'Logs & Audit', href: '/admin/logs', icon: IconClipboardList, section: 'Platform & System' },
-  { label: 'System Health', href: '/admin/health', icon: IconHeartbeat, section: 'Platform & System' },
-  { label: 'Settings', href: '/admin/settings', icon: IconSettings, section: 'Platform & System' },
+  // ── Devices & Infrastructure ──
+  { label: 'Device Auth', href: '/admin/device-auth', icon: IconDeviceDesktop, section: 'Devices & Infrastructure' },
+  { label: 'MT Accounts', href: '/admin/mt-accounts', icon: IconServer, section: 'Devices & Infrastructure' },
+
+  // ── Finance ──
+  { label: 'Plans & Entitlements', href: '/admin/plans-entitlements', icon: IconListCheck, section: 'Finance' },
+  { label: 'Billing & Invoices', href: '/admin/billing', icon: IconCoin, section: 'Finance' },
+  { label: 'Payments', href: '/admin/payments', icon: IconWallet, section: 'Finance' },
+  { label: 'Payout Operations', href: '/admin/payout-operations', icon: IconReportMoney, section: 'Finance' },
+  { label: 'Commission Operations', href: '/admin/commission-operations', icon: IconCoin, section: 'Finance' },
+  { label: 'Referrals & Affiliates', href: '/admin/referrals', icon: IconUsers, section: 'Finance' },
+  { label: 'Finance & Referral Reports', href: '/admin/finance-referral-reports', icon: IconFileAnalytics, section: 'Finance' },
+
+  // ── Market Data & Intelligence ──
+  { label: 'Market Data', href: '/admin/market-data', icon: IconBroadcast, section: 'Market Data & Intelligence' },
+  { label: 'Macro Calendar', href: '/admin/macro-news', icon: IconWorld, section: 'Market Data & Intelligence' },
+  { label: 'Macro Intelligence', href: '/admin/macro-intelligence', icon: IconChartBar, section: 'Market Data & Intelligence' },
+  { label: 'AI Providers', href: '/admin/ai-providers', icon: IconBrain, section: 'Market Data & Intelligence' },
+  { label: 'Broker Qualification', href: '/admin/broker-qualification', icon: IconBuildingBank, section: 'Market Data & Intelligence' },
+
+  // ── System Operations ──
+  { label: 'Platform Operations', href: '/admin/operations', icon: IconTool, section: 'System Operations' },
+  { label: 'Logs & Audit', href: '/admin/logs', icon: IconClipboardList, section: 'System Operations' },
+  { label: 'System Health', href: '/admin/health', icon: IconHeartbeat, section: 'System Operations' },
+  { label: 'Feature Flags', href: '/admin/feature-flags', icon: IconFlag, section: 'System Operations' },
+  { label: 'Backup & DR', href: '/admin/backup-dr', icon: IconDatabase, section: 'System Operations' },
+  { label: 'Releases', href: '/admin/releases', icon: IconRocket, section: 'System Operations' },
+  { label: 'Settings', href: '/admin/settings', icon: IconSettings, section: 'System Operations' },
 ];
+
