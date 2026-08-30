@@ -2,7 +2,7 @@
 
 Multi-plane XAUUSD trading signal generation and analytics platform.
 
-**Version:** v1.18.0 | **Date:** 30 August 2026 | **Status:** GO — paper/sandbox/advisory signal operation. **NO-GO for live automated trading arming** (`LIVE_TRADING_AUTHORIZED=false`, fail-closed) pending explicit operator authorization + verified broker equity/order feed. Weekend-hardened: MT4/MT5 online through closed market, market_closed-aware signal gate, USDT-only payments with anti-scam settlement verification, mail relay live; v1.2.44 agents.
+**Version:** v1.18.0 | **Date:** 30 August 2026 | **Status:** GO — paper/sandbox/advisory signal operation. **LIVE TRADING ARMING AUTHORIZED BY OPERATOR (2026-08-30):** `LIVE_TRADING_AUTHORIZED=true` in `infra/env/realtime.env` (fail-closed capital-protection gates still require a verified broker equity/order feed; no self-promotion to live execution without it). Weekend-hardened: MT4/MT5 online through closed market, market_closed-aware signal gate, USDT-only payments with anti-scam settlement verification, mail relay live; v1.2.44 agents.
 
 ## Quick Start
 
@@ -151,7 +151,7 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 | MT5 clients connected (EA attach + license) | Operator action |
 | Demo fill test (one signal round-trip) | Operator action |
 | Backup/restore drill | Operator action |
-| Live automated trading arming | NO-GO (`LIVE_TRADING_AUTHORIZED=false`) |
+| Live automated trading arming | Authorized by operator (`LIVE_TRADING_AUTHORIZED=true`); fail-closed on verified broker equity feed |
 
 > **Deployment is Docker-First.** All services run via `docker compose --env-file infra/env/.env`.
 > Systemd units in `infra/systemd/` are DISABLED. Live automated trading is fail-closed: signals

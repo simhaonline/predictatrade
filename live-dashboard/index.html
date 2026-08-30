@@ -1147,7 +1147,13 @@ function renderSignals() {
     const dirRaw = (s.Direction || s.direction || "").toUpperCase();
     const dir = dirRaw.includes("BUY") ? "BUY" : dirRaw.includes("SELL") ? "SELL" : "NO_TRADE";
     const cardCls = dir === "BUY" ? "buy" : dir === "SELL" ? "sell" : "no-trade";
-    const strat = (s.StrategyID || s.strategy || "").replace(/_/g, " ");
+    const rawStrat = (s.StrategyID || s.strategy || "").replace(/_/g, " ");
+    const STRAT_LABELS = {
+      "MARNIE_FIB": "EQFE", "MARNIE FIB": "EQFE",
+      "STANDARD_SCALPING": "Standard Scalping", "ULTRA_SCALPING": "Ultra Scalping",
+      "STANDARD_SWING": "Standard Swing", "TREND_SWING": "Trend Swing", "ATEN": "ATEN",
+    };
+    const strat = STRAT_LABELS[rawStrat] || rawStrat;
     const ts = (s.CreatedAt || s.created_at || s.timestamp || "");
     return `<div class="signal-feed-card ${cardCls}">
       <div class="sig-head-row">

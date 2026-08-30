@@ -167,7 +167,7 @@ export default function AdminSignalsPage() {
         {STRATEGY_TABS.map((tab) => (
           <button key={tab} onClick={() => setActiveTab(tab)}
             className={`text-xs px-3 py-1.5 rounded transition-colors whitespace-nowrap ${activeTab === tab ? "bg-primary text-primary-foreground" : "bg-pat-bg-surface-secondary text-pat-text-primary hover:bg-pat-bg-surface-secondary"}`}>
-            {tab === "ALL" ? "All" : tab}
+            {tab === "ALL" ? "All" : strategyLabel(tab)}
           </button>
         ))}
       </div>
@@ -240,7 +240,7 @@ export default function AdminSignalsPage() {
                       <td className="px-3 py-3">
                         <span className={`text-xs font-bold ${dirClass(row.Direction)}`}>{row.Direction}</span>
                       </td>
-                      <td className="px-3 py-3 text-xs text-pat-text-secondary whitespace-nowrap">{row.StrategyID}</td>
+                      <td className="px-3 py-3 text-xs text-pat-text-secondary whitespace-nowrap">{strategyLabel(row.StrategyID)}</td>
                       <td className="px-3 py-3 text-xs text-pat-text-primary">{row.Symbol}</td>
                       <td className="px-3 py-3 text-xs text-pat-text-primary">{fmtProb(row.CalibratedProbability)}</td>
                       <td className="px-3 py-3 text-xs text-pat-text-secondary">{fmtScore(row.RawScore)}</td>

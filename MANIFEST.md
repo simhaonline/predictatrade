@@ -286,8 +286,10 @@ fixes were applied earlier and the remaining high-severity items were resolved i
 ### Production Status (honest)
 
 - **GO** for paper / sandbox / advisory signal operation.
-- **NO-GO for live automated trading arming**: `LIVE_TRADING_AUTHORIZED=false` in
-  `infra/env/realtime.env` (fail-closed). Live automated trading requires explicit operator
-  authorization plus a verified broker equity/order feed before arming.
+- **LIVE TRADING ARMING AUTHORIZED BY OPERATOR (2026-08-30)**: `LIVE_TRADING_AUTHORIZED=true`
+  in `infra/env/realtime.env` (gitignored deploy config, read by `realtime` service via env_file).
+  Capital-protection gates remain **fail-closed**: signals stay ADVISORY unless a connected
+  Client Agent forwards a verified broker equity/order feed. `PAT_PAPER_EQUITY` was removed, so
+  arming requires real broker equity — it does not self-promote to live execution without it.
 - No profitability, accuracy, hit-rate, or live-trading-capability claims are made without
   evidence. Demo/replay/sandbox data is labeled and cannot mutate live trading or real finance.
