@@ -477,7 +477,7 @@ Write-Host "[7/9] Preparing clean service slot (creation happens in self-healing
 # Remove old service if it exists
 if ($svc) {
     Write-Host "  Removing old service..."
-    if $useNssm {
+    if ($useNssm) {
         & $nssmDest stop $ServiceName 2>&1 | Out-Null
         & $nssmDest remove $ServiceName confirm 2>&1 | Out-Null
     }
@@ -511,7 +511,7 @@ for ($round = 1; $round -le 3 -and -not $serviceRunning; $round++) {
     # Recreate the service if it vanished (or sc fallback path didn't register).
     $svcNow = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if (-not $svcNow) {
-        if $useNssm {
+        if ($useNssm) {
             & $nssmDest install $ServiceName $agentPath $AgentArgs 2>&1 | Out-Null
             & $nssmDest set $ServiceName AppDirectory $InstallDir 2>&1 | Out-Null
             & $nssmDest set $ServiceName AppStdout $stdoutLog 2>&1 | Out-Null
@@ -527,7 +527,7 @@ for ($round = 1; $round -le 3 -and -not $serviceRunning; $round++) {
     }
 
     # Start
-    if $useNssm {
+    if ($useNssm) {
         & $nssmDest start $ServiceName 2>&1 | Out-Null
     } else {
         try { Start-Service -Name $ServiceName -ErrorAction SilentlyContinue } catch {}
@@ -556,7 +556,7 @@ for ($round = 1; $round -le 3 -and -not $serviceRunning; $round++) {
     Write-Host "  Attempt $round failed — agent log tail:"
     if (Test-Path $AgentLog) { Get-Content $AgentLog -Tail 6 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("      {0}" -f $_) } }
     # Remove a broken service definition so the next round starts clean.
-    if $useNssm { & $nssmDest remove $ServiceName confirm 2>&1 | Out-Null }
+    if ($useNssm) { & $nssmDest remove $ServiceName confirm 2>&1 | Out-Null }
     sc.exe delete $ServiceName 2>&1 | Out-Null
 }
 
@@ -568,7 +568,7 @@ if (-not $serviceRunning) {
     # grace period, since Defender sometimes releases the file late.
     Start-Sleep -Seconds 5
     Repair-DefenderBlock -Path $agentPath
-    if $useNssm {
+    if ($useNssm) {
         & $nssmDest start $ServiceName 2>&1 | Out-Null
         Start-Sleep -Seconds 8
     }
@@ -577,7 +577,7 @@ if (-not $serviceRunning) {
         # The last cleanup round may have deleted the service definition —
         # re-register it so future reboots/auto-start work.
         if (-not (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) {
-            if $useNssm {
+            if ($useNssm) {
                 & $nssmDest install $ServiceName $agentPath $AgentArgs 2>&1 | Out-Null
                 & $nssmDest set $ServiceName AppDirectory $InstallDir 2>&1 | Out-Null
                 & $nssmDest set $ServiceName AppStdout $stdoutLog 2>&1 | Out-Null

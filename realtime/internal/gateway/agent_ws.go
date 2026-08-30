@@ -375,6 +375,16 @@ func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	if !authed {
+		// Legacy baseline: when NO auth mechanism is configured and the agent
+		// presented no credential, accept the connection. This is the state that
+		// existed before per-device agent identity was introduced, so existing
+		// deployed agents keep working without a forced upgrade. A credential
+		// that WAS presented (valid or not) is still verified/rejected above.
+		if os.Getenv("AGENT_WS_TOKEN") == "" && !jwtAttempted(r) {
+			authed = true
+		}
+	}
+	if !authed {
 		http.Error(w, "agent authentication required", http.StatusUnauthorized)
 		return
 	}
@@ -569,4 +579,18 @@ func agentAuthJWT(r *http.Request) (string, bool) {
 		return sub, true
 	}
 	return "", false
+}
+
+// jwtAttempted reports whether the agent presented a JWT (Bearer header or
+// ?token=), regardless of validity. Used to distinguish "no credential" (fail
+// open to the legacy baseline) from "a credential was sent but invalid"
+// (must be rejected).
+func jwtAttempted(r *http.Request) bool {
+	if strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+		return true
+	}
+	if r.URL.Query().Get("token") != "" {
+		return true
+	}
+	return false
 }
