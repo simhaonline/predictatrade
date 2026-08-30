@@ -226,25 +226,40 @@
       .astro-inner{max-width:1180px;margin:0 auto}
       .astro-kicker{color:#f0a07c;font:800 11px/1 Arial,sans-serif;letter-spacing:.16em;text-transform:uppercase}
       .astro h2{font:700 clamp(34px,5vw,64px)/1 Fraunces,Georgia,serif;letter-spacing:-.05em;margin:14px 0 16px;max-width:820px}
-      .astro-lead{color:#c8c5bb;font-size:17px;line-height:1.6;max-width:760px;margin:0 0 28px}
+      .astro-lead{color:#c8c5bb;font-size:17px;line-height:1.6;max-width:780px;margin:0 0 28px}
       .astro-grid{display:grid;gap:14px;grid-template-columns:repeat(3,minmax(0,1fr))}
       .astro-card{background:#171714;border:1px solid #2a2a24;border-radius:14px;padding:22px}
       .astro-card h3{font:700 20px/1.1 Fraunces,Georgia,serif;margin:0 0 9px;color:#f0a07c}
       .astro-card p{color:#c8c5bb;font-size:14px;line-height:1.55;margin:0}
-      .astro-note{color:#8b8579;font-size:13px;margin:20px 0 0}
+      .astro-sub{color:#f0a07c;font:700 14px/1.4 Fraunces,Georgia,serif;margin:30px 0 12px;letter-spacing:.02em}
+      .astro-body{color:#c8c5bb;font-size:15px;line-height:1.65;max-width:840px;margin:0 0 8px}
+      .astro-list{list-style:none;padding:0;margin:14px 0 0;display:grid;gap:12px;max-width:880px}
+      .astro-list li{position:relative;padding-left:30px;color:#c8c5bb;font-size:15px;line-height:1.6}
+      .astro-list li::before{content:'';position:absolute;left:0;top:7px;width:13px;height:13px;border-radius:50%;background:#a74824;box-shadow:0 0 0 4px rgba(167,72,36,.18)}
+      .astro-list b{color:#f6f4ef}
+      .astro-note{color:#8b8579;font-size:13px;margin:22px 0 0}
       @media(max-width:860px){.astro-grid{grid-template-columns:1fr}}
     </style>
     <section id="astro" class="astro" aria-labelledby="astro-title">
       <div class="astro-inner">
-        <div class="astro-kicker">Elite · In development</div>
+        <div class="astro-kicker">Elite plan · Astro-Financial Engine</div>
         <h2 id="astro-title">Divine Intelligence: the Astro-Financial Engine.</h2>
-        <p class="astro-lead">Planned for the Elite plan — a Vedic + Western astro-financial layer that blends classical timing with the realtime engine, offered as context alongside — never instead of — technical and risk evidence.</p>
+        <p class="astro-lead">Our Astro Module is a timing and context layer for XAUUSD that blends classical astrological frameworks with the realtime engine. It is built to add a second, independent dimension of evidence — not to override the technical, structural and risk signals that already drive decisions.</p>
         <div class="astro-grid">
-          <div class="astro-card"><h3>Vedic astrology</h3><p>Planetary periods (dashas), transits, nakshatra and lunar context used to frame broader timing windows for XAUUSD.</p></div>
-          <div class="astro-card"><h3>Western + Gann + Elliott</h3><p>Western astro, Gann date/angle context and Elliott wave structure combined into a single timing read.</p></div>
-          <div class="astro-card"><h3>ML fusion</h3><p>A calibration layer that weights astro context against price action and risk gates — explainable, not mystical.</p></div>
+          <div class="astro-card"><h3>Vedic foundation</h3><p>Planetary periods (dashas), transits, nakshatra and lunar context are used to frame broader timing windows and higher-probability regimes for gold.</p></div>
+          <div class="astro-card"><h3>Western + Gann + Elliott</h3><p>Western astro, Gann date and angle context, and Elliott wave structure are combined into one timing read that can confirm or question the price picture.</p></div>
+          <div class="astro-card"><h3>ML fusion layer</h3><p>A calibration model weights the astro context against price action, volatility and risk gates — explainable, not mystical.</p></div>
         </div>
-        <p class="astro-note">This module is in active research and development. It will ship as decision-support context under the same hard-risk envelope — NO-TRADE remains a valid result.</p>
+        <div class="astro-sub">How it works</div>
+        <ul class="astro-list">
+          <li><b>Independent input.</b> The module computes its own astro-timing context from a verified ephemeris and classical rules — fully separate from the price and structure pipeline.</li>
+          <li><b>Fusion, not replacement.</b> A calibrated layer combines astro context with technical and liquidity evidence. It raises or lowers conviction; it never single-handedly triggers a trade.</li>
+          <li><b>Risk always wins.</b> Every output passes through the same server-side hard gates — spread, slippage, margin, news, session and NO-TRADE logic. Astro context cannot bypass a risk veto.</li>
+          <li><b>Explainable by design.</b> Each read shows which astro factors contributed and how they were weighted, so the user can audit the reasoning instead of trusting a black box.</li>
+        </ul>
+        <div class="astro-sub">Why it stays honest</div>
+        <p class="astro-body">We treat the Astro Module as decision-support, not prediction. It is calibrated on historical cycles with explicit sample-size and out-of-sample checks, and it is labelled as context at every step. When the weight of evidence is weak, NO-TRADE remains a valid — and expected — result.</p>
+        <p class="astro-note">Status: in active research and development for the Elite plan. It will ship as a context layer under the existing hard-risk envelope, with full explainability and no fabricated certainty.</p>
       </div>
     </section>
     <script>
