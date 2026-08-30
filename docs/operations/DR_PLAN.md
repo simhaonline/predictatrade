@@ -95,7 +95,7 @@ This Disaster Recovery Plan covers all Predict-A-Trade production services deplo
 | pat-realtime | Go 1.26 engine | Built | realtime/Dockerfile |
 | pat-control | NestJS | Built | control/Dockerfile |
 | pat-frontend | Next.js 16 | Built | frontend/Dockerfile |
-| pat-live-terminal | Go terminal | Built | live-terminal.Dockerfile |
+| pat-live-terminal | Go terminal | Built | live-terminal/Dockerfile |
 | pat-status | Status service | Built | status/Dockerfile |
 | pat-nginx | Nginx Alpine | Built | Custom + nginx:alpine |
 | pat-prometheus | Prometheus | prom/prometheus:latest | Docker Hub |

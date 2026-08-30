@@ -64,7 +64,7 @@ services:
   live-terminal:
     build:
       context: .
-      dockerfile: live-terminal.Dockerfile
+      dockerfile: live-terminal/Dockerfile
     container_name: pat-live-terminal
     env_file:
       - ./infra/env/realtime.env

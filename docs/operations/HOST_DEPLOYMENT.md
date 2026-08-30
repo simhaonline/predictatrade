@@ -141,7 +141,7 @@ ls .next/BUILD_ID
 
 ```bash
 cd /srv/predictatrade/xauusd
-# Requires the live-terminal.Dockerfile context
+# Requires the live-terminal/Dockerfile context
 # Build the binary manually:
 cd realtime
 go build -o bin/live-terminal ./cmd/live-terminal
