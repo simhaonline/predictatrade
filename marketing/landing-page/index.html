@@ -412,12 +412,13 @@
     </section>
     <script>
       (function(){
-        var ids=['platform','psychology','astro','proof','trust','glossary','pricing','founder','faq','disclaimer'];
+        var ids=['platform','psychology','astro','proof','trust','glossary','pricing','founder','faq'];
         function place(){
           var root=document.getElementById('root');
           var anchor=document.getElementById('contact')||document.querySelector('#root footer')||document.querySelector('footer');
           if(!root||!anchor) return false;
           ids.forEach(function(id){var el=document.getElementById(id); if(el && el.parentNode!==anchor.parentNode) anchor.parentNode.insertBefore(el,anchor);});
+          var disc=document.getElementById('disclaimer'); if(disc) document.body.appendChild(disc);
           return true;
         }
         function tryPlace(){ if(!place()){ var t=setInterval(function(){ if(place()) clearInterval(t); },300); setTimeout(function(){clearInterval(t);},6000);} }
