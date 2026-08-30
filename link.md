@@ -1,1 +1,1 @@
-https://github.com/MakazhanAlpamys/Soup
+https://github.com/tauricresearch/tradingagents
