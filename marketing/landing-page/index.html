@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f6f4ef" />
     <meta name="description" content="Predict-A-Trade provides explainable XAUUSD and gold trading signals and market intelligence through technical indicators, market structure, liquidity, sessions, and multi-timeframe analysis." />
-    <meta name="author" content="Mehulkumar Bhatt" />
-    <meta name="publisher" content="Simha Fintech LLC" />
+    <meta name="author" content="Predict-A-Trade" />
+    <meta name="publisher" content="Predict-A-Trade" />
     <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta name="googlebot" content="index, follow, max-image-preview:large" />
     <meta property="og:type" content="website" />
@@ -38,14 +38,12 @@
       {
         "@context": "https://schema.org",
         "@type": "Organization",
-        "name": "Simha Fintech LLC",
+        "name": "Predict-A-Trade",
         "alternateName": "Predict-A-Trade",
         "url": "https://predictatrade.com/",
         "logo": "https://predictatrade.com/media/predict-a-trade_horizontal.png",
         "description": "Explainable XAUUSD market intelligence covering indicators, market structure, liquidity, sessions, and multi-timeframe context.",
-        "founder": {"@type": "Person", "name": "Mehulkumar Bhatt"},
         "sameAs": ["https://www.instagram.com/predictatrade", "https://www.facebook.com/predictatrade", "https://x.com/predictatrade"],
-        "address": {"@type": "PostalAddress", "addressLocality": "Dubai", "addressCountry": "AE"},
         "email": "predictatrade@gmail.com",
         "contactPoint": {
           "@type": "ContactPoint",
@@ -73,23 +71,19 @@
           {"@type": "Question", "name": "Do you guarantee profits?", "acceptedAnswer": {"@type": "Answer", "text": "No. Trading involves risk and past performance is not indicative of future results. NO-TRADE is a valid, expected outcome when conviction is weak."}},
           {"@type": "Question", "name": "What is BOS / CHoCH / FVG?", "acceptedAnswer": {"@type": "Answer", "text": "Break of Structure, Change of Character, and Fair Value Gap — standard price-structure concepts we use to read trend and liquidity. They are explained inside the platform, not assumed."}},
           {"@type": "Question", "name": "How do I start?", "acceptedAnswer": {"@type": "Answer", "text": "Create a free account with $10,000 virtual funds, open the live demo, and explore the strategies and risk envelope with no obligation."}},
-          {"@type": "Question", "name": "Is my data private?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Subscriptions, signals and ledgers are handled in the control plane; the realtime path never depends on billing and your market data stays isolated."}}
+          {"@type": "Question", "name": "Is my data private?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Subscriptions, signals and ledgers are handled in the control plane; the realtime path never depends on billing and your market data stays isolated."}},
+          {"@type": "Question", "name": "What is XAUUSD?", "acceptedAnswer": {"@type": "Answer", "text": "XAUUSD is the market ticker for gold priced in US dollars. It is one of the most traded instruments in the world and the sole focus of Predict-A-Trade's analysis."}},
+          {"@type": "Question", "name": "Are you a broker or do you manage my money?", "acceptedAnswer": {"@type": "Answer", "text": "No. Predict-A-Trade is analysis and education. You keep your account with your own broker and make your own trading decisions."}},
+          {"@type": "Question", "name": "How are signals delivered?", "acceptedAnswer": {"@type": "Answer", "text": "Signals and context are delivered in real time through the platform and dashboard. Execution, if you connect it, stays on your own broker."}},
+          {"@type": "Question", "name": "Is this automated trading?", "acceptedAnswer": {"@type": "Answer", "text": "No. We provide decision-support. The system can enforce risk on a connected account, but you remain in control of every trade."}},
+          {"@type": "Question", "name": "Is there a free trial?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. The free plan includes $10,000 in virtual funds and full access to the demo environment — no credit card required."}},
+          {"@type": "Question", "name": "What does NO-TRADE mean?", "acceptedAnswer": {"@type": "Answer", "text": "When conviction is weak or risk gates are breached, the system intentionally issues no signal. NO-TRADE is a valid, expected outcome — not a failure."}},
+          {"@type": "Question", "name": "Can I use it with MetaTrader?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. It connects through a lightweight Windows bridge (MT4/MT5), while your execution remains on your broker."}},
+          {"@type": "Question", "name": "Which timeframes do the strategies cover?", "acceptedAnswer": {"@type": "Answer", "text": "From minute-scale scalping to multi-session swing — each product is tuned to a different decision horizon and signal lifetime."}}
         ]
       }
     </script>
-    <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "Person",
-        "name": "Mehulkumar Bhatt",
-        "url": "https://predictatrade.com/",
-        "worksFor": {
-          "@type": "Organization",
-          "name": "Simha Fintech LLC",
-          "url": "https://predictatrade.com/"
-        }
-      }
-    </script>
+
     <script type="module" crossorigin src="/assets/index-c4adef1e.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-BJBN36Jh.css">
     <link rel="stylesheet" href="/cookie-consent.css">
@@ -278,38 +272,52 @@
       <div class="xsec-inner">
         <div class="xsec-kicker">Methodology &amp; proof</div>
         <h2 id="proof-title">Real engineering, not a black box.</h2>
-        <p class="xsec-lead">Predict-A-Trade is built as four cooperating planes — a Go real-time engine, a Python research plane, a NestJS control plane, and a Next.js presentation layer with a lightweight Windows/MQL edge. Below is the genuine method and the discipline we hold it to.</p>
+        <p class="xsec-lead">Predict-A-Trade pairs a continuously updating calculation engine with specialist analysis agents and a strict, real-time risk layer. Every output is explainable, versioned and evidence-led — never a mystical black box.</p>
 
         <h3 style="font:700 18px/1.2 Fraunces,Georgia,serif;margin:28px 0 12px">Strategy products</h3>
         <div class="xcards">
-          <div class="xcard"><h3>Standard Scalping</h3><p>M5 decision horizon, 10-minute signal TTL, tight stop-loss. Balanced short-horizon execution.</p></div>
-          <div class="xcard"><h3>Ultra Scalping</h3><p>M1 decision horizon, 5-minute TTL. Higher-frequency, structure-light, strict cost limits.</p></div>
-          <div class="xcard"><h3>Standard Swing</h3><p>H1 decision horizon, 60-minute TTL. Multi-session swing with broader alignment.</p></div>
-          <div class="xcard"><h3>Trend Swing</h3><p>H4 decision horizon, 240-minute TTL. Trend-following, waits for multi-timeframe confirmation.</p></div>
-          <div class="xcard"><h3>EQFE <small>Equilibrium Fibonacci Engine</small></h3><p>H1 Fibonacci confluence engine that runs in SHADOW to reinforce the primary products. Not a standalone signal until promoted.</p></div>
-          <div class="xcard"><h3>ATEN <small>Aetherial Technical Engine Node</small></h3><p>Vedic (nakshatra, hora, dasha) fused with Western-Tropical signals — Elite-only, ~10% ensemble weight. Inputs are derived (not market-authoritative) and cannot override the risk gates.</p></div>
+          <div class="xcard"><h3>Standard Scalping</h3><p>Short-horizon, tight-risk scalping for fast gold moves.</p></div>
+          <div class="xcard"><h3>Ultra Scalping</h3><p>Higher-frequency scalping with strict cost controls.</p></div>
+          <div class="xcard"><h3>Standard Swing</h3><p>Multi-session swing trading for broader moves.</p></div>
+          <div class="xcard"><h3>Trend Swing</h3><p>Trend-following swing that waits for confirmation.</p></div>
+          <div class="xcard"><h3>EQFE <small>Equilibrium Fibonacci Engine</small></h3><p>Fibonacci confluence that reinforces the core products.</p></div>
+          <div class="xcard"><h3>ATEN <small>Aetherial Technical Engine Node</small></h3><p>Vedic + Western-Tropical timing context (Elite).</p></div>
+        </div>
+
+        <h3 style="font:700 18px/1.2 Fraunces,Georgia,serif;margin:28px 0 12px">How the engine works</h3>
+        <div class="xcards">
+          <div class="xcard"><h3>Real-time mathematics</h3><p>Indicators, structure, session and risk metrics are recalculated on every market tick, so the context behind a signal is always current — not a stale snapshot.</p></div>
+          <div class="xcard"><h3>Specialist AI agents</h3><p>Separate agents each score one dimension — momentum, structure, sentiment and timing — then a reconciling layer combines them with explicit, auditable weighting.</p></div>
+          <div class="xcard"><h3>Explainable output</h3><p>Each signal shows which factors contributed and how strongly, so you can inspect the reasoning instead of trusting a single number.</p></div>
         </div>
 
         <h3 style="font:700 18px/1.2 Fraunces,Georgia,serif;margin:28px 0 12px">Signal context</h3>
-        <p class="xsec-lead" style="margin-bottom:14px">Every read combines momentum (EMA 9–200, SMA 50–200, MACD, ADX, RSI, ATR, Stochastic, CCI, Bollinger Bands), market structure (BOS, CHoCH, fractal swings, trend classification), multi-timeframe alignment (M1–D1 weighted scoring, −100 to +100), and context (session detection, liquidity sweeps, FVGs, order blocks, news risk).</p>
+        <p class="xsec-lead" style="margin-bottom:14px">Every read combines momentum (trend, volatility and oscillator families), market structure (swings, breakouts and order-flow context), multi-timeframe alignment (scored across minute to daily charts), and session, liquidity and news context.</p>
 
-        <h3 style="font:700 18px/1.2 Fraunces,Georgia,serif;margin:28px 0 12px">Server-side risk envelope</h3>
+        <h3 style="font:700 18px/1.2 Fraunces,Georgia,serif;margin:28px 0 12px">Risk envelope</h3>
         <div class="xcards">
-          <div class="xcard"><h3>SL/TP enforcement</h3><p>The backend — not the client — verifies EXECUTION_ACK against the server-sent stop, monitors positions for missing SL, and can issue CLOSE_POSITION.</p></div>
-          <div class="xcard"><h3>Emergency controls</h3><p>EMERGENCY_STOP and KILL_SWITCH close all positions and halt; an agent is suspended after 3 SL violations.</p></div>
-          <div class="xcard"><h3>Hard gates</h3><p>Spread, slippage, margin, news, session/rollover, aggregate exposure, net R:R, total cost-to-target, exit geometry and TTL are enforced before any signal is delivered. NO-TRADE is valid.</p></div>
+          <div class="xcard"><h3>Stop &amp; target enforcement</h3><p>Stop-loss and take-profit are enforced server-side, monitored continuously, and can be closed automatically if they go missing.</p></div>
+          <div class="xcard"><h3>Emergency controls</h3><p>A single halt can close all activity and disconnect execution when something looks wrong.</p></div>
+          <div class="xcard"><h3>Hard gates</h3><p>Spread, slippage, margin, news, session, exposure, reward/risk and time-to-live are checked before any signal is delivered. NO-TRADE is valid.</p></div>
         </div>
 
-        <h3 style="font:700 18px/1.2 Fraunces,Georgia,serif;margin:28px 0 12px">How we validate (leakage-safe)</h3>
+        <h3 style="font:700 18px/1.2 Fraunces,Georgia,serif;margin:28px 0 12px">How we validate</h3>
         <div class="xcards">
-          <div class="xcard"><h3>Frozen, versioned data</h3><p>Dataset provenance and strategy/feature/target/exit/broker-cost versions are frozen before any run.</p></div>
+          <div class="xcard"><h3>Frozen, versioned data</h3><p>Dataset provenance and strategy/feature/target/exit/cost versions are frozen before any run.</p></div>
           <div class="xcard"><h3>No leakage</h3><p>Look-ahead, target leakage and post-outcome filtering are prevented so results can't peek at the future.</p></div>
           <div class="xcard"><h3>Cost-aware simulation</h3><p>Every run models bid/ask, spread, slippage, commission, latency, carry and missed/partial fills — results reflect real trading cost, not idealised fills.</p></div>
-          <div class="xcard"><h3>Walk-forward + locked OOS</h3><p>Backtest, walk-forward and locked out-of-sample slices; golden feature tests ensure Go/Python parity.</p></div>
-          <div class="xcard"><h3>Calibrated probability</h3><p>Subscriber-facing probability is calibrated via Brier/ECE/reliability with Wilson sample-sufficiency checks — raw score is never presented as probability.</p></div>
-          <div class="xcard"><h3>Stress &amp; promotion</h3><p>Bootstrap/Monte Carlo/stress, baselines and ablations; promotion only via paper/shadow with drift evidence.</p></div>
+          <div class="xcard"><h3>Walk-forward + out-of-sample</h3><p>Backtest, walk-forward and locked out-of-sample slices confirm behaviour beyond the data it was tuned on.</p></div>
+          <div class="xcard"><h3>Calibrated confidence</h3><p>Confidence is calibrated against outcomes with sample-size checks — a raw score is never presented as a probability.</p></div>
+          <div class="xcard"><h3>Stress &amp; promotion</h3><p>Monte Carlo/stress, baselines and ablations; promotion only via paper/shadow with drift evidence.</p></div>
         </div>
-        <p class="xnote">Every profile is configuration-backed, versioned and historically reproducible. We do not publish guaranteed returns, and models cannot self-promote.</p>
+
+        <h3 style="font:700 18px/1.2 Fraunces,Georgia,serif;margin:28px 0 12px">EQFE — Equilibrium Fibonacci Engine</h3>
+        <p class="xsec-lead" style="margin-bottom:14px">EQFE is a Fibonacci-based confluence engine that runs on the H1 horizon. It operates in a shadow mode to reinforce the primary products and is not promoted to a standalone signal source until its evidence is independently validated.</p>
+
+        <h3 style="font:700 18px/1.2 Fraunces,Georgia,serif;margin:28px 0 12px">ATEN — Aetherial Technical Engine Node</h3>
+        <p class="xsec-lead" style="margin-bottom:14px">ATEN is the Elite timing layer. It fuses Vedic astro context (nakshatra, hora and dasha bias, about 30% of its weighting) with Western-Tropical signals into one explainable composite. Its inputs are derived, not market-authoritative, it carries a modest ensemble weight, and it can never override the hard risk gates.</p>
+
+        <p class="xnote">All thresholds are versioned and reproducible. We do not publish guaranteed returns, and models cannot self-promote.</p>
       </div>
     </section>
     <section id="trust" class="xsec" aria-labelledby="trust-title">
@@ -322,7 +330,7 @@
           <div class="xcard"><h3>Risk-first</h3><p>Hard server-side gates and NO-TRADE mean we would rather say nothing than risk your capital.</p></div>
           <div class="xcard"><h3>Server-side SL/TP</h3><p>Stops are enforced by the backend, not the client — and emergency controls can halt all activity.</p></div>
           <div class="xcard"><h3>MetaTrader 4 &amp; 5 ready</h3><p>Connects through a lightweight Windows Agent (MQL4/MQL5) — your execution stays on your broker.</p></div>
-          <div class="xcard"><h3>Independent since 2016</h3><p>Built by an independent researcher, Simha Fintech LLC, Dubai — with no broker affiliation.</p></div>
+          <div class="xcard"><h3>Transparent methodology</h3><p>Every threshold is versioned and explained, so you can audit the logic rather than trust a claim.</p></div>
         </div>
       </div>
     </section>
@@ -389,6 +397,14 @@
         <div class="faq-item"><details><summary>What is BOS / CHoCH / FVG?</summary><p>Break of Structure, Change of Character, and Fair Value Gap — standard price-structure concepts we use to read trend and liquidity. They are explained inside the platform, not assumed.</p></details></div>
         <div class="faq-item"><details><summary>How do I start?</summary><p>Create a free account with $10,000 virtual funds, open the live demo, and explore the strategies and risk envelope with no obligation.</p></details></div>
         <div class="faq-item"><details><summary>Is my data private?</summary><p>Yes. Subscriptions, signals and ledgers are handled in the control plane; the realtime path never depends on billing and your market data stays isolated.</p></details></div>
+        <div class="faq-item"><details><summary>What is XAUUSD?</summary><p>XAUUSD is the market ticker for gold priced in US dollars. It is one of the most traded instruments in the world and the sole focus of Predict-A-Trade's analysis.</p></details></div>
+        <div class="faq-item"><details><summary>Are you a broker or do you manage my money?</summary><p>No. Predict-A-Trade is analysis and education. You keep your account with your own broker and make your own trading decisions.</p></details></div>
+        <div class="faq-item"><details><summary>How are signals delivered?</summary><p>Signals and context are delivered in real time through the platform and dashboard. Execution, if you connect it, stays on your own broker.</p></details></div>
+        <div class="faq-item"><details><summary>Is this automated trading?</summary><p>No. We provide decision-support. The system can enforce risk on a connected account, but you remain in control of every trade.</p></details></div>
+        <div class="faq-item"><details><summary>Is there a free trial?</summary><p>Yes. The free plan includes $10,000 in virtual funds and full access to the demo environment — no credit card required.</p></details></div>
+        <div class="faq-item"><details><summary>What does NO-TRADE mean?</summary><p>When conviction is weak or risk gates are breached, the system intentionally issues no signal. NO-TRADE is a valid, expected outcome — not a failure.</p></details></div>
+        <div class="faq-item"><details><summary>Can I use it with MetaTrader?</summary><p>Yes. It connects through a lightweight Windows bridge (MT4/MT5), while your execution remains on your broker.</p></details></div>
+        <div class="faq-item"><details><summary>Which timeframes do the strategies cover?</summary><p>From minute-scale scalping to multi-session swing — each product is tuned to a different decision horizon and signal lifetime.</p></details></div>
       </div>
     </section>
     <section id="disclaimer" class="disc" aria-label="Risk disclaimer">
