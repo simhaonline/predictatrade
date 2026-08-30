@@ -15,6 +15,7 @@ interface BrokerType {
   best_for?: string; is_active: boolean;
 }
 interface StrategyGate {
+  id: string;
   strategy_id: string; broker_account_code: string; label: string;
   cost_as_pct_of_1r: string | number; suitability: string; allowed: boolean;
 }
