@@ -46,8 +46,28 @@
         .nav-inner { display: flex; align-items: center; justify-content: space-between; padding: 14px clamp(24px, 5vw, 76px); max-width: 1440px; margin: 0 auto; }
         .brand { display: flex; align-items: center; gap: 12px; }
         .brand img { height: 30px; width: auto; display: block; }
-        /* 3-button corner menu (original) */
-        .corner-menu { display: flex; align-items: center; gap: 12px; }
+        /* Corner hamburger menu (matches old site editorial panel) */
+        .corner-menu { display: flex; align-items: center; gap: 12px; position: relative; }
+        .menu-toggle { display: inline-flex; flex-direction: column; justify-content: center; gap: 5px; width: 46px; height: 46px; padding: 0 11px; border: 1px solid var(--border); border-radius: 999px; background: #fffefa; cursor: pointer; transition: background .18s, border-color .18s; }
+        .menu-toggle:hover { border-color: var(--primary); }
+        .menu-toggle-bar { display: block; height: 2px; width: 100%; background: var(--foreground); border-radius: 2px; transition: transform .2s, opacity .2s; }
+        .menu-toggle[aria-expanded="true"] .menu-toggle-bar:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+        .menu-toggle[aria-expanded="true"] .menu-toggle-bar:nth-child(2) { opacity: 0; }
+        .menu-toggle[aria-expanded="true"] .menu-toggle-bar:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+        .menu-panel { position: fixed; top: 72px; right: clamp(16px,4vw,40px); width: min(420px, calc(100vw - 32px)); background: #f6f0e6; border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 24px 60px rgba(23,23,20,.18); padding: 26px; z-index: 60; opacity: 0; visibility: hidden; transform: translateY(-8px) scale(.98); transition: opacity .2s, transform .2s, visibility .2s; }
+        .menu-panel.open { opacity: 1; visibility: visible; transform: translateY(0) scale(1); }
+        .menu-panel-label { color: #8b8579; font: 800 11px/1 Manrope, Arial, sans-serif; letter-spacing: .16em; text-transform: uppercase; margin-bottom: 16px; }
+        .menu-panel-links { display: grid; gap: 2px; }
+        .menu-panel-links > a { display: flex; align-items: baseline; gap: 14px; border-bottom: 1px solid #ded6c8; color: var(--foreground); font: 500 clamp(24px,4vw,30px)/1.1 'Fraunces', Georgia, serif; padding: 16px 2px; text-decoration: none; transition: color .18s; }
+        .menu-panel-links > a:hover { color: var(--primary); }
+        .menu-panel-links .menu-index { color: #8b8579; font: 800 12px/1 Manrope, Arial, sans-serif; letter-spacing: .08em; transform: translateY(-6px); }
+        .menu-panel-links > a:first-child .menu-index { color: var(--primary); }
+        .menu-account-actions { display: flex; align-items: center; gap: 8px; margin-top: 18px; padding-top: 16px; border-top: 1px solid #ded6c8; }
+        .menu-sign-in { color: var(--foreground); font: 600 15px/1.2 Manrope, Arial, sans-serif; text-decoration: none; padding-right: 14px; border-right: 1px solid #cfc6b7; }
+        .menu-create-account { border: 1px solid var(--foreground); border-radius: 999px; color: var(--foreground); font: 800 11px/1 Manrope, Arial, sans-serif; text-transform: uppercase; letter-spacing: .1em; text-decoration: none; padding: 11px 16px; }
+        .menu-panel-cta { display: block; margin-top: 18px; background: var(--primary); color: #fff; text-align: center; border-radius: 999px; font-weight: 800; text-decoration: none; padding: 16px; transition: background .18s; }
+        .menu-panel-cta:hover { background: #1b4fd6; }
+        .menu-panel .ext { font-size: .7em; opacity: .7; }
         .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; padding: 11px 20px; border-radius: 999px; transition: transform 0.18s ease-out, box-shadow 0.18s ease-out, background 0.18s; cursor: pointer; border: 1px solid transparent; text-decoration: none; min-height: 44px; }
         .btn-primary { background: var(--primary); color: var(--primary-foreground); }
         .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(36, 99, 255, 0.24); }
@@ -187,7 +207,7 @@
         .site-footer { border-top: 1px solid var(--border); padding: 40px clamp(24px, 5vw, 76px) 28px; }
         .footer-inner { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: auto 1fr; gap: 28px; align-items: center; }
         .footer-brand { display: flex; flex-direction: column; gap: 10px; }
-        .footer-brand img { height: 28px; width: auto; display: block; }
+        .footer-brand img { width: 170px; height: auto; max-width: 100%; display: block; }
         .footer-brand span { font-size: 12px; color: var(--muted-foreground); }
         .footer-right { display: flex; flex-direction: column; gap: 14px; align-items: flex-end; }
         .footer-nav { display: flex; gap: 24px; flex-wrap: wrap; color: var(--muted-foreground); font-size: 12px; justify-content: flex-end; }
@@ -211,7 +231,7 @@
             .capabilities-heading { grid-template-columns: 1fr; }
             .grid-2, .grid-3, .contact-grid { grid-template-columns: 1fr; }
             .quote-inner { grid-template-columns: 1fr; gap: 40px; }
-            .corner-menu .btn-ghost { display: none; }
+            .menu-panel { top: 64px; right: 16px; padding: 20px; }
             .nav-inner { padding: 12px 18px; }
         }
         @media (max-width: 768px) {
@@ -228,6 +248,20 @@
         .fade-in { opacity: 1; }
         .js .fade-in { opacity: 0; transform: translateY(20px); transition: opacity 0.6s ease-out, transform 0.6s ease-out; }
         .js .fade-in.visible { opacity: 1; transform: translateY(0); }
+
+        /* Cookie consent banner (matches old site) */
+        .cookie-consent { display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 70; background: #171714; color: #f6f4ef; padding: 14px clamp(16px,4vw,40px); border-top: 1px solid #2a2a24; }
+        .cookie-consent.show { display: block; }
+        .cookie-inner { max-width: 1180px; margin: 0 auto; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; justify-content: space-between; }
+        .cookie-text { margin: 0; font-size: 13px; line-height: 1.5; color: #c8c5bb; max-width: 760px; }
+        .cookie-text a { color: #f0a07c; }
+        .cookie-actions { display: flex; gap: 10px; flex-shrink: 0; }
+        .cookie-accept, .cookie-reject { font: 700 12px/1 Manrope, Arial, sans-serif; text-transform: uppercase; letter-spacing: .08em; padding: 12px 18px; border-radius: 999px; cursor: pointer; border: 1px solid transparent; min-height: 44px; }
+        .cookie-accept { background: #f0a07c; color: #171714; border-color: #f0a07c; }
+        .cookie-accept:hover { background: #fff; border-color: #fff; }
+        .cookie-reject { background: transparent; color: #f6f4ef; border-color: #666257; }
+        .cookie-reject:hover { border-color: #f6f4ef; }
+        @media (max-width: 640px) { .cookie-inner { flex-direction: column; align-items: flex-start; } .cookie-actions { width: 100%; } .cookie-actions button { flex: 1; } }
     </style>
 </head>
 <body>
@@ -239,9 +273,23 @@
                 <img src="images/logo.png" alt="Predict-A-Trade">
             </a>
             <div class="corner-menu">
-                <a href="https://live.predictatrade.com" class="btn btn-outline" target="_blank" rel="noopener">Live Dashboard <span class="ext">↗</span></a>
-                <a href="https://platform.predictatrade.com" class="btn btn-ghost" target="_blank" rel="noopener">Login <span class="ext">↗</span></a>
-                <a href="https://platform.predictatrade.com" class="btn btn-primary" target="_blank" rel="noopener">Get Started <span class="ext">↗</span></a>
+                <button class="menu-toggle" id="menuToggle" aria-expanded="false" aria-controls="menuPanel" aria-label="Open menu">
+                    <span class="menu-toggle-bar"></span><span class="menu-toggle-bar"></span><span class="menu-toggle-bar"></span>
+                </button>
+                <div class="menu-panel editorial-menu" id="menuPanel" role="dialog" aria-label="Site menu">
+                    <div class="menu-panel-label">Menu</div>
+                    <div class="menu-panel-links">
+                        <a href="https://live.predictatrade.com" target="_blank" rel="noopener"><span class="menu-index">01</span>Live Dashboard <span class="ext">↗</span></a>
+                        <a href="https://platform.predictatrade.com" target="_blank" rel="noopener"><span class="menu-index">02</span>Sign in or sign up <span class="ext">↗</span></a>
+                        <a href="#methodology"><span class="menu-index">03</span>Explore methodology</a>
+                        <a href="#contact"><span class="menu-index">04</span>Contact</a>
+                    </div>
+                    <div class="menu-account-actions">
+                        <a href="https://platform.predictatrade.com" target="_blank" rel="noopener" class="menu-sign-in">Sign in <span class="ext">↗</span></a>
+                        <a href="https://platform.predictatrade.com" target="_blank" rel="noopener" class="menu-create-account">Get Started <span class="ext">↗</span></a>
+                    </div>
+                    <a href="https://live.predictatrade.com" target="_blank" rel="noopener" class="menu-panel-cta">Open Live Dashboard <span class="ext">↗</span></a>
+                </div>
             </div>
         </div>
     </nav>
@@ -532,10 +580,12 @@
             </div>
             <div class="footer-right">
                 <nav class="footer-nav" aria-label="Footer">
-                    <a href="/features/">Features</a>
-                    <a href="/risk-disclosure">Risk Disclosure</a>
-                    <a href="/privacy">Privacy</a>
-                    <a href="/terms">Terms</a>
+                    <a href="/features/">Capabilities</a>
+                    <a href="/terms-and-policies">Terms &amp; Policies</a>
+                    <a href="/privacy-policy">Privacy Policy</a>
+                    <a href="/trading-risk-disclosure">Trading Risk Disclosure</a>
+                    <a href="/cookie-policy">Cookie Policy</a>
+                    <a href="/refund-cancellation">Refund &amp; Cancellation</a>
                     <a href="mailto:predictatrade@gmail.com">Contact</a>
                 </nav>
                 <div class="footer-social" aria-label="Social media">
@@ -549,6 +599,16 @@
         </div>
         <div class="copyright">© <span id="year"></span> Predict-A-Trade. Research-Backed Trading Intelligence. All rights reserved.</div>
     </footer>
+
+    <div class="cookie-consent" id="cookieConsent" role="dialog" aria-label="Cookie consent" aria-live="polite">
+        <div class="cookie-inner">
+            <p class="cookie-text">We use cookies to improve your experience, analyze traffic, and support our research. By continuing you agree to our <a href="/cookie-policy">Cookie Policy</a>.</p>
+            <div class="cookie-actions">
+                <button class="cookie-reject" id="cookieReject" type="button">Reject non-essential</button>
+                <button class="cookie-accept" id="cookieAccept" type="button">Accept all</button>
+            </div>
+        </div>
+    </div>
 
     <script>document.documentElement.className = 'js';</script>
     <script>
@@ -597,6 +657,32 @@
             window.location.href = 'mailto:predictatrade@gmail.com?subject=' + encodeURIComponent('Contact from ' + name) + '&body=' + encodeURIComponent('Name: ' + name + '\nEmail: ' + email + '\n\n' + msg);
             note.style.color = 'var(--good)'; note.textContent = 'Thanks — your email app will open to send.';
         });
+        // Corner menu toggle (editorial panel)
+        (function () {
+            var t = document.getElementById('menuToggle');
+            var p = document.getElementById('menuPanel');
+            if (!t || !p) return;
+            function close() { p.classList.remove('open'); t.setAttribute('aria-expanded', 'false'); }
+            t.addEventListener('click', function (e) {
+                e.stopPropagation();
+                var open = p.classList.toggle('open');
+                t.setAttribute('aria-expanded', open ? 'true' : 'false');
+            });
+            document.addEventListener('click', function (e) {
+                if (p.classList.contains('open') && !p.contains(e.target) && e.target !== t && !t.contains(e.target)) close();
+            });
+            document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+            p.querySelectorAll('a').forEach(function (a) { a.addEventListener('click', close); });
+        })();
+        // Cookie consent
+        (function () {
+            var c = document.getElementById('cookieConsent');
+            if (!c) return;
+            if (!localStorage.getItem('pat_cookie_consent')) requestAnimationFrame(function () { c.classList.add('show'); });
+            function set(v) { localStorage.setItem('pat_cookie_consent', v); c.classList.remove('show'); }
+            document.getElementById('cookieAccept').addEventListener('click', function () { set('all'); });
+            document.getElementById('cookieReject').addEventListener('click', function () { set('essential'); });
+        })();
     </script>
 </body>
 </html>
