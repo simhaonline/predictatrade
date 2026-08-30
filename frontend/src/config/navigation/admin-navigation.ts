@@ -5,7 +5,7 @@ import {
   IconTool, IconHeartbeat, IconSettings, IconActivity,
   IconAlertTriangle, IconListCheck, IconAdjustments, IconWallet,
   IconReportMoney, IconBrain, IconBroadcast, IconWorld, IconRocket,
-  IconDatabase, IconFlag, IconBuildingBank, IconServer, IconDroplet,
+  IconDatabase, IconFlag, IconBuildingBank, IconServer, IconDroplet, IconSparkles,
 } from '@tabler/icons-react';
 
 export interface NavItem {
@@ -56,6 +56,7 @@ export const adminNavigation: NavItem[] = [
   { label: 'Market Data', href: '/admin/market-data', icon: IconBroadcast, section: 'Market Data & Intelligence' },
   { label: 'Macro Calendar', href: '/admin/macro-news', icon: IconWorld, section: 'Market Data & Intelligence' },
   { label: 'Macro Intelligence', href: '/admin/macro-intelligence', icon: IconChartBar, section: 'Market Data & Intelligence' },
+  { label: 'Astro Intelligence', href: '/admin/astro', icon: IconSparkles, section: 'Market Data & Intelligence' },
   { label: 'AI Providers', href: '/admin/ai-providers', icon: IconBrain, section: 'Market Data & Intelligence' },
   { label: 'Broker Qualification', href: '/admin/broker-qualification', icon: IconBuildingBank, section: 'Market Data & Intelligence' },
 
