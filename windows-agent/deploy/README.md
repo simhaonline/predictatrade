@@ -42,11 +42,13 @@ The installer:
    Agent can coexist on one device without sharing binaries/settings/logs.
 3. Persists the engine WebSocket URL as a machine environment variable
    (`PAT_SERVER_URL` for client, `PAT_DATA_WS_URL` for master).
-4. Installs the Windows Service (auto-start, restart on crash) using NSSM. NSSM
-   is **verified/reused** if one already exists on the device (PATH, the cached
-   `C:\ProgramData\PredictATrade\nssm.exe`, or the other role's folder) before
-   any download — so reinstalling/co-installing both roles never clobbers a
-   working nssm.exe.
+4. Installs the Windows Service (auto-start, restart on crash). On **x64/×86**
+   it uses NSSM, which is **verified/reused** if one already exists on the device
+   (PATH, the cached `C:\ProgramData\PredictATrade\nssm.exe`, or the other
+   role's folder) before any download — so reinstalling/co-installing both roles
+   never clobbers a working nssm.exe. On **ARM64** Windows, NSSM cannot run, so
+   the installer uses native `sc.exe` service registration instead (the agent
+   binary itself is built for arm64 and runs natively).
 5. Verifies the local health endpoint.
 
 ### MetaTrader EA setup
@@ -55,18 +57,26 @@ The installer:
 
 ### Agent authentication (`AGENT_WS_TOKEN`)
 
-The realtime engine **requires** every agent WebSocket to present the shared
-`AGENT_WS_TOKEN` secret at connection time (upgrade-time gate; a missing or
-mismatched token is rejected with HTTP 401 and the agent shows `OFFLINE`).
+> **Current deployment: no token required.** The realtime engine currently
+> accepts agent WebSocket connections **without** a token (legacy open mode), so
+> a freshly installed or updated agent connects and shows `ONLINE` with no extra
+> setup. If an agent was previously `OFFLINE`, just **restart the service** —
+> the server now accepts it:
+> ```powershell
+> Restart-Service pat-agent-client   # or pat-agent-master
+> ```
 
-Agent **v1.2.45+** reads the token from (in order):
+Optional hardening: a shared `AGENT_WS_TOKEN` may be enforced later in a
+coordinated rollout (once all agents run a token-aware build). When enforced,
+the engine rejects connections that do not present the token (HTTP 401 → agent
+shows `OFFLINE`). Agent **v1.2.45+** reads the token from (in order):
 
 1. Machine env var `AGENT_WS_TOKEN` (or `PAT_AGENT_WS_TOKEN`)
 2. `windows-agent.env` in `%ProgramData%\PredictATrade\`
 3. `windows-agent.env` next to `pat-agent.exe`
 
-Its value **must match the engine's `AGENT_WS_TOKEN`** exactly. Set it and
-restart the service:
+Its value must match the engine's `AGENT_WS_TOKEN` exactly. To opt in at that
+time, set it and restart the service:
 
 ```powershell
 [Environment]::SetEnvironmentVariable("AGENT_WS_TOKEN","<your-agent-ws-token>","Machine")
