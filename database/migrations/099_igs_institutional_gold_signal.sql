@@ -98,3 +98,25 @@ CREATE TABLE IF NOT EXISTS trading.igs_weight_versions (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (version, effective_from)
 );
+
+-- Part 5: Compression + retention (065 convention; keep tick-frequency growth bounded)
+ALTER TABLE trading.igs_component_snapshots SET (timescaledb.compress, timescaledb.compress_segmentby = 'component');
+SELECT add_compression_policy('trading.igs_component_snapshots', INTERVAL '7 days', if_not_exists => TRUE);
+SELECT add_retention_policy('trading.igs_component_snapshots', INTERVAL '90 days', if_not_exists => TRUE);
+
+ALTER TABLE trading.igs_results SET (timescaledb.compress, timescaledb.compress_segmentby = 'signal_id');
+SELECT add_compression_policy('trading.igs_results', INTERVAL '7 days', if_not_exists => TRUE);
+SELECT add_retention_policy('trading.igs_results', INTERVAL '365 days', if_not_exists => TRUE);
+
+-- Seed the default weight version row (engine ships WeightsVersion 1.0.0).
+INSERT INTO trading.igs_weight_versions (version, weights, freshness_ttl, mode, change_reason, created_by)
+VALUES (
+    '1.0.0',
+    '{"usd_regime":20,"real_yield_regime":20,"central_bank_flow":15,"etf_flows":15,"cot_positioning":12,"options_gamma":8,"institutional_research":6,"physical_demand":4}'::JSONB,
+    '{"usd_regime":600,"real_yield_regime":86400,"central_bank_flow":2592000,"cot_positioning":604800,"etf_flows":86400,"options_gamma":86400,"institutional_research":259200,"physical_demand":2592000}'::JSONB,
+    'shadow',
+    'initial check.md-tier hierarchy seed',
+    'migration'
+) ON CONFLICT (version, effective_from) DO NOTHING;
+
+GRANT INSERT, SELECT ON trading.igs_results, trading.igs_component_snapshots, trading.ai_research_reports, trading.igs_weight_versions TO pat_admin;

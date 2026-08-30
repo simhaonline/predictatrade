@@ -2,7 +2,7 @@
 
 ## Authority
 
-Canonical implementation contract: `Predict-A-Trade_FINAL_SCOPE_OF_WORK_v1.0.0.md`.
+Canonical implementation contract: the SOW preserved in `playbook.md` and the version contract in `MANIFEST.md` (the original `Predict-A-Trade_FINAL_SCOPE_OF_WORK_v1.0.0.md` file is no longer present in the repository; where this file and any older SOW copy conflict, `AGENTS.md` + current `docs/` win).
 
 This file operationalizes Codex behavior; it never replaces or weakens the SOW. If anything conflicts, the SOW wins.
 
@@ -89,7 +89,7 @@ Do not start a greenfield rewrite when a compatible subsystem exists.
 
 ## Required Skills
 
-Use repository skills under `.agents/skills/`:
+Use repository skills under `.hermes/skills/` (the actual skill library in this repo):
 
 `repo-audit`, `architecture-guardrails`, `xauusd-market-data`, `xauusd-strategy-spec`, `xauusd-quant-validation`, `trading-risk-safety`, `mt4-mt5-windows`, `control-plane-saas`, `frontend-trading-ui`, `database-migrations`, `api-contracts`, `security-supply-chain`, `observability-sre`, `release-gates`, `docs-runbooks`, `broker-execution-qualification`.
 
@@ -97,7 +97,7 @@ Skills are procedures, not permission to bypass the SOW.
 
 ## Required Subagents
 
-Use project agents under `.codex/agents/` for bounded work:
+Use bounded subagent profiles (Hermes/Codex-compatible) mapped from the roles below:
 
 `repo_explorer`, `platform_architect`, `go_realtime_engineer`, `python_quant_researcher`, `nestjs_control_engineer`, `nextjs_frontend_engineer`, `database_engineer`, `windows_mql_engineer`, `quant_validator`, `security_reviewer`, `qa_reliability_engineer`, `release_manager`, `broker_execution_validator`.
 
@@ -191,10 +191,8 @@ Final status is `PASS`, `PARTIAL` or `BLOCKED`. `PASS` is forbidden while any ap
 - `AGENTS.md` — Codex-native repository instructions.
 - `AGENT.md` — compatibility pointer only.
 - `SKILLS.md` — human-readable index.
-- `.agents/skills/*/SKILL.md` — actual Codex skills.
-- `.codex/config.toml` — Codex-native project/subagent/MCP config.
-- `.codex/agents/*.toml` — actual project subagents.
-- `.mcp.json` — portability/compatibility representation; Codex-native MCP truth is `.codex/config.toml`.
+- `.hermes/skills/*/SKILL.md` — actual repo skill library.
+- `.hermes/config.yaml` — Hermes agent/MCP config (the only agent config present; no `.codex/` or `.mcp.json` exists in this repo).
 
 ## Auto-Push Rule (CRITICAL — ALWAYS FOLLOW)
 

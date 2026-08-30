@@ -32,7 +32,16 @@ applies exactly once.
 `audit.migration_history` must equal the on-disk `database/migrations/*.sql` set.
 Run `scripts/reconcile_migrations.sh --apply` to back-fill missing rows and
 delete orphan rows. A rollback SQL is generated alongside it.
-096_ai_providers.sql
-097_playbook_exit_profiles.sql
-098_broker_account_types.sql
-099_igs_institutional_gold_signal.sql
+
+## Current inventory (as of v1.17.4)
+
+69 unique migrations on disk, `001` → `099`. Recent additions:
+
+- `096_ai_providers.sql` — AI provider registry (ollama|openai|custom)
+- `097_playbook_exit_profiles.sql` — playbook exit profiles
+- `098_broker_account_types.sql` — broker account types
+- `099_igs_institutional_gold_signal.sql` — IGS composites + AI research reports
+  + versioned weights (seed row `1.0.0/shadow`) + compression/retention policies
+
+Rollback: no `down` migrations exist by design; point-in-time recovery (PITR)
+from the 6-hourly backup is the documented rollback path (see docs/operations).

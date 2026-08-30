@@ -2,8 +2,8 @@ package gateway
 
 import (
 	"crypto/subtle"
-	"log"
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"sync"
@@ -26,9 +26,9 @@ type AgentDataProvider interface {
 const maxAgentConnections = 100
 
 type AgentConnection struct {
-	ID   string
-	conn *websocket.Conn
-	send chan []byte
+	ID       string
+	conn     *websocket.Conn
+	send     chan []byte
 	done     chan struct{} // signals both read and write goroutines to stop
 	doneOnce sync.Once     // guards close of done against double-close panics
 }
@@ -445,10 +445,10 @@ func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) 
 			// ~30 times between heartbeats, making the dashboard always show
 			// mt4_connected: 0, mt5_connected: 0 even when terminals were connected.
 			var typeCheck struct {
-				Type          string `json:"type"`
-				AgentID       string `json:"agent_id"`
-				MT4Connected  bool   `json:"mt4_connected"`
-				MT5Connected  bool   `json:"mt5_connected"`
+				Type         string `json:"type"`
+				AgentID      string `json:"agent_id"`
+				MT4Connected bool   `json:"mt4_connected"`
+				MT5Connected bool   `json:"mt5_connected"`
 			}
 			if json.Unmarshal(data, &typeCheck) == nil {
 				// Heartbeat messages have an "agent_id" field but NO "type" field.
@@ -460,17 +460,17 @@ func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) 
 					h.updateAgentTerminals(agentID, typeCheck.MT4Connected, typeCheck.MT5Connected)
 				}
 			}
-		// Route inbound agent message through the ingest bus. Default is the
-		// in-process DirectBus (behavior identical to the previous direct call);
-		// when NATS is configured the message is enqueued and dispatched by the
-		// subscriber, decoupling data-collection from the signal engine.
-		if h.ingestBus != nil {
-			if err := h.ingestBus.Publish(agentID, data); err != nil {
-				log.Printf("[AGENT-WS] ingest publish error: %v", err)
+			// Route inbound agent message through the ingest bus. Default is the
+			// in-process DirectBus (behavior identical to the previous direct call);
+			// when NATS is configured the message is enqueued and dispatched by the
+			// subscriber, decoupling data-collection from the signal engine.
+			if h.ingestBus != nil {
+				if err := h.ingestBus.Publish(agentID, data); err != nil {
+					log.Printf("[AGENT-WS] ingest publish error: %v", err)
+				}
+			} else if h.provider != nil {
+				h.provider.HandleAgentMessage(agentID, data)
 			}
-		} else if h.provider != nil {
-			h.provider.HandleAgentMessage(agentID, data)
-		}
 			ack, _ := json.Marshal(map[string]interface{}{
 				"type": "ACK", "agentId": agentID, "timestamp": time.Now().UTC(),
 			})

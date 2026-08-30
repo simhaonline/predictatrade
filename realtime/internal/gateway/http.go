@@ -4,9 +4,9 @@ import (
 	"context"
 	"sync"
 
-	"github.com/predictatrade/realtime/pkg/news"
 	"encoding/json"
 	"fmt"
+	"github.com/predictatrade/realtime/pkg/news"
 	"net/http"
 	"net/http/pprof" // pprof endpoints for diagnostics (localhost-only)
 	"strconv"
@@ -14,25 +14,25 @@ import (
 	"time"
 
 	"github.com/predictatrade/realtime/internal/cache"
-	"github.com/predictatrade/realtime/internal/devilliquidity"
-	"github.com/predictatrade/realtime/internal/observability"
 	"github.com/predictatrade/realtime/internal/crossmarket"
+	"github.com/predictatrade/realtime/internal/devilliquidity"
 	"github.com/predictatrade/realtime/internal/engstatus"
 	"github.com/predictatrade/realtime/internal/features"
 	"github.com/predictatrade/realtime/internal/marketdata"
+	"github.com/predictatrade/realtime/internal/observability"
 	"github.com/predictatrade/realtime/internal/types"
-	"github.com/shopspring/decimal"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/shopspring/decimal"
 )
 
 // HTTPServer serves REST API, health checks, and metrics.
 // Binds to 127.0.0.1 — Nginx is the public ingress.
 type HTTPServer struct {
-	hub       *WebSocketHub
-	persister *marketdata.Persister
-	states    *features.StateManager
-	agentHub  *AgentHub
-	DataAgentHub *AgentHub
+	hub           *WebSocketHub
+	persister     *marketdata.Persister
+	states        *features.StateManager
+	agentHub      *AgentHub
+	DataAgentHub  *AgentHub
 	agentProvider interface {
 		GetLastSnapshot() interface{}
 		GetSnapshotCount() uint64
@@ -41,27 +41,91 @@ type HTTPServer struct {
 		LastMarketDataAt() time.Time
 		LastSnapshotAt() time.Time
 	}
-	valkeyCache *cache.ValkeyCache
+	valkeyCache       *cache.ValkeyCache
 	crossMarketEngine *crossmarket.Engine
-	newsEngine *news.RiskEngine
-	engTracker *engstatus.Tracker
-	mux       *http.ServeMux
-	server    *http.Server
-	serverMu  sync.Mutex
+	newsEngine        *news.RiskEngine
+	engTracker        *engstatus.Tracker
+	// EmergencyHalt is the server-authoritative trading halt (v1.15.0):
+	// set by EMERGENCY_STOP / KILL_SWITCH, consulted by signal generation
+	// and delivery so no EXECUTABLE signal leaves the engine while halted.
+	EmergencyHalt *EmergencyHalt
+	mux           *http.ServeMux
+	server        *http.Server
+	serverMu      sync.Mutex
 }
 
-func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface{ GetLastSnapshot() interface{}; GetSnapshotCount() uint64; HasConnectedAgents() bool; BrokerOffsetHours() int; LastMarketDataAt() time.Time; LastSnapshotAt() time.Time }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine, newsEngine *news.RiskEngine, engTracker *engstatus.Tracker) *HTTPServer {
+// EmergencyHalt is a process-wide, thread-safe trading-halt flag.
+// EMERGENCY_STOP and KILL_SWITCH both activate it; only an explicit
+// RESUME (POST /api/v1/admin/emergency-resume with admin JWT) clears it.
+type EmergencyHalt struct {
+	mu        sync.RWMutex
+	active    bool
+	level     string // EMERGENCY_STOP | KILL_SWITCH
+	reason    string
+	timestamp time.Time
+}
+
+// Activate turns the halt on (idempotent, first-level wins for audit).
+func (e *EmergencyHalt) Activate(level, reason string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.active {
+		e.level = level
+		e.timestamp = time.Now().UTC()
+	}
+	e.active = true
+	if reason != "" {
+		e.reason = reason
+	}
+}
+
+// Resumed clears the halt (post-incident operator action).
+func (e *EmergencyHalt) Resumed(reason string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.active = false
+	e.reason = "resumed: " + reason
+}
+
+// Active reports whether trading is halted.
+func (e *EmergencyHalt) Active() bool {
+	if e == nil {
+		return false
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.active
+}
+
+// Status returns the halt state for health/admin introspection.
+func (e *EmergencyHalt) Status() (bool, string, string, time.Time) {
+	if e == nil {
+		return false, "", "", time.Time{}
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.active, e.level, e.reason, e.timestamp
+}
+
+func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface {
+	GetLastSnapshot() interface{}
+	GetSnapshotCount() uint64
+	HasConnectedAgents() bool
+	BrokerOffsetHours() int
+	LastMarketDataAt() time.Time
+	LastSnapshotAt() time.Time
+}, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine, newsEngine *news.RiskEngine, engTracker *engstatus.Tracker) *HTTPServer {
 	h := &HTTPServer{
-		agentHub: agentHub,
-		agentProvider: agentProvider,
-		valkeyCache: valkeyCache,
+		agentHub:          agentHub,
+		agentProvider:     agentProvider,
+		valkeyCache:       valkeyCache,
 		crossMarketEngine: xmEngine,
 		newsEngine:        newsEngine,
 		engTracker:        engTracker,
-		hub:       hub,
-		persister: persister,
-		states:    states,
-		mux:       http.NewServeMux(),
+		hub:               hub,
+		persister:         persister,
+		states:            states,
+		mux:               http.NewServeMux(),
 	}
 	h.registerRoutes()
 	return h
@@ -108,9 +172,12 @@ func (h *HTTPServer) registerRoutes() {
 	// Devil Liquidity / Devil's Mark engine API (prompt.md)
 	h.mux.HandleFunc("/api/v1/devil-liquidity/marks", h.handleDevilLiquidityMarks)
 
-	// Emergency controls — admin can trigger EMERGENCY_STOP / KILL_SWITCH
-	h.mux.HandleFunc("/api/v1/admin/emergency-stop", h.handleEmergencyStop)
-	h.mux.HandleFunc("/api/v1/admin/kill-switch", h.handleKillSwitch)
+	// Emergency controls — admin JWT REQUIRED (P0 SEC fix: these were
+	// previously unauthenticated). Also activate the server-side EmergencyHalt
+	// so signal generation and delivery stop, not just agent broadcast.
+	h.mux.HandleFunc("/api/v1/admin/emergency-stop", h.requireAdminAction(h.handleEmergencyStop))
+	h.mux.HandleFunc("/api/v1/admin/kill-switch", h.requireAdminAction(h.handleKillSwitch))
+	h.mux.HandleFunc("/api/v1/admin/emergency-resume", h.requireAdminAction(h.handleEmergencyResume))
 
 	// Per-strategy-engine liveness (prompt.md Sections 26, 38, 43-46)
 	h.mux.HandleFunc("/api/v1/engines/status", h.handleEnginesStatus)
@@ -169,9 +236,20 @@ func (h *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if h.agentProvider != nil {
 		brokerOff = h.agentProvider.BrokerOffsetHours()
 	}
+	haltActive, haltLevel, haltReason, haltSince := h.EmergencyHalt.Status()
+	status := "ok"
+	if haltActive {
+		status = "HALTED"
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":        "ok",
+		"status":        status,
+		"emergency_halt": map[string]interface{}{
+			"active":   haltActive,
+			"level":    haltLevel,
+			"reason":   haltReason,
+			"since":    haltSince,
+		},
 		"timestamp":     time.Now().UTC().Format(time.RFC3339),
 		"server_time":   time.Now().UTC().Format(time.RFC3339),
 		"broker_offset": brokerOff,
@@ -433,7 +511,7 @@ func (h *HTTPServer) handlePriceHistory(w http.ResponseWriter, r *http.Request) 
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		for _, spec := range []struct {
-			tf      string
+			tf       string
 			lookback time.Duration
 		}{
 			{"M15", 72 * time.Hour},
@@ -505,11 +583,16 @@ func (h *HTTPServer) handleCandles(w http.ResponseWriter, r *http.Request) {
 	// Calculate lookback period based on timeframe
 	var lookbackHours int = 48
 	switch timeframe {
-	case "M5": lookbackHours = 24
-	case "M15": lookbackHours = 72
-	case "H1": lookbackHours = 240
-	case "H4": lookbackHours = 1000
-	case "D1": lookbackHours = 8760
+	case "M5":
+		lookbackHours = 24
+	case "M15":
+		lookbackHours = 72
+	case "H1":
+		lookbackHours = 240
+	case "H4":
+		lookbackHours = 1000
+	case "D1":
+		lookbackHours = 8760
 	}
 	timeStart := time.Now().UTC().Add(-time.Duration(lookbackHours) * time.Hour)
 
@@ -937,10 +1020,10 @@ func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) 
 		"data_health":           dataHealth,
 		"market_closed":         marketClosed,
 		"next_market_open_utc":  nextMarketOpenUTC(time.Now().UTC()).Format(time.RFC3339),
-		"mt4_connected":        h.agentHub.MT4ConnectedCount(),
-		"mt5_connected":        h.agentHub.MT5ConnectedCount(),
-		"timestamp":            time.Now().UTC().Format(time.RFC3339),
-		"server_time":          time.Now().UTC().Format(time.RFC3339),
+		"mt4_connected":         h.agentHub.MT4ConnectedCount(),
+		"mt5_connected":         h.agentHub.MT5ConnectedCount(),
+		"timestamp":             time.Now().UTC().Format(time.RFC3339),
+		"server_time":           time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -980,7 +1063,6 @@ func (h *HTTPServer) handleNews(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(out)
 }
 
-
 // handleSignalResume handles client reconnect: returns missed signals for replay.
 // SOW Section 29, 47: Signal Sequence Resume Protocol.
 // Client provides last_acked_sequence, server returns still-valid unacked signals.
@@ -1007,7 +1089,7 @@ func (h *HTTPServer) handleSignalResume(w http.ResponseWriter, r *http.Request) 
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid or expired token"})
 		return
 	}
-	
+
 	// Parse last acknowledged sequence
 	lastAckSeq := int64(0)
 	if lastAckSeqStr != "" {
@@ -1017,11 +1099,11 @@ func (h *HTTPServer) handleSignalResume(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	// If no persister, return empty (no signals to replay)
 	if h.persister == nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"device_id":          deviceID,
+			"device_id":           deviceID,
 			"last_acked_sequence": lastAckSeq,
 			"missed_signals":      []interface{}{},
 			"server_time":         time.Now().UTC().Format(time.RFC3339),
@@ -1063,18 +1145,18 @@ func (h *HTTPServer) handleSignalResume(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 		missedSignals = append(missedSignals, map[string]interface{}{
-			"signal_id":      signalID,
-			"sequence":       seqNum,
-			"direction":      direction,
-			"entry":          entryPrice,
-			"stop_loss":      stopLoss,
-			"tp1":            tp1,
-			"tp2":            tp2,
-			"tp3":            tp3,
-			"strategy":       strategyID,
-			"status":         status,
-			"created_at":     createdAt,
-			"expires_at":     expiresAt,
+			"signal_id":  signalID,
+			"sequence":   seqNum,
+			"direction":  direction,
+			"entry":      entryPrice,
+			"stop_loss":  stopLoss,
+			"tp1":        tp1,
+			"tp2":        tp2,
+			"tp3":        tp3,
+			"strategy":   strategyID,
+			"status":     status,
+			"created_at": createdAt,
+			"expires_at": expiresAt,
 		})
 	}
 
@@ -1083,7 +1165,7 @@ func (h *HTTPServer) handleSignalResume(w http.ResponseWriter, r *http.Request) 
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"device_id":          deviceID,
+		"device_id":           deviceID,
 		"last_acked_sequence": lastAckSeq,
 		"missed_signals":      missedSignals,
 		"server_time":         time.Now().UTC().Format(time.RFC3339),
@@ -1099,7 +1181,7 @@ func (h *HTTPServer) handleRegimeDiagnostics(w http.ResponseWriter, r *http.Requ
 	if state == nil || state.Timestamp.IsZero() {
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status": "NO_DATA",
+			"status":  "NO_DATA",
 			"message": "No market state available",
 		})
 		return
@@ -1110,21 +1192,21 @@ func (h *HTTPServer) handleRegimeDiagnostics(w http.ResponseWriter, r *http.Requ
 	atr, _ := state.Indicators.ATR.Float64()
 
 	diag := map[string]interface{}{
-		"status":            "OK",
-		"symbol":            state.Symbol,
-		"timestamp":         state.Timestamp,
-		"current_regime":    string(state.Regime.Current),
-		"previous_regime":  string(state.Regime.Previous),
-		"regime_age":        state.Regime.Age.String(),
-		"confidence":        state.Regime.Confidence,
-		"entry_reason":      state.Regime.EntryReason,
-		"raw_regime":        string(state.Regime.RawRegime),
-		"entered_at":        state.Regime.EnteredAt,
-		"current_rsi":       rsi,
-		"current_adx":       adx,
-		"current_atr":       atr,
-		"volatility":        state.Regime.Volatility,
-		"hold_reason":       state.Regime.HoldReason,
+		"status":                "OK",
+		"symbol":                state.Symbol,
+		"timestamp":             state.Timestamp,
+		"current_regime":        string(state.Regime.Current),
+		"previous_regime":       string(state.Regime.Previous),
+		"regime_age":            state.Regime.Age.String(),
+		"confidence":            state.Regime.Confidence,
+		"entry_reason":          state.Regime.EntryReason,
+		"raw_regime":            string(state.Regime.RawRegime),
+		"entered_at":            state.Regime.EnteredAt,
+		"current_rsi":           rsi,
+		"current_adx":           adx,
+		"current_atr":           atr,
+		"volatility":            state.Regime.Volatility,
+		"hold_reason":           state.Regime.HoldReason,
 		"regime_engine_version": state.Regime.RegimeEngineVersion,
 	}
 
@@ -1153,15 +1235,14 @@ func (h *HTTPServer) handleRegimeDiagnostics(w http.ResponseWriter, r *http.Requ
 	json.NewEncoder(w).Encode(diag)
 }
 
-
 // handleSystemHealth provides a comprehensive system health check (prompt.md Section 86)
 func (h *HTTPServer) handleSystemHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	health := map[string]interface{}{
 		"timestamp": time.Now().UTC(),
 	}
-	
+
 	// PostgreSQL
 	dbConnected := false
 	dbHealthy := false
@@ -1175,13 +1256,13 @@ func (h *HTTPServer) handleSystemHealth(w http.ResponseWriter, r *http.Request) 
 		"connected": dbConnected,
 		"healthy":   dbHealthy,
 	}
-	
+
 	// TimescaleDB
 	timescaleActive := false
 	if dbConnected {
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		var extCount int
-		_ = h.persister.GetDB().QueryRowContext(ctx, 
+		_ = h.persister.GetDB().QueryRowContext(ctx,
 			"SELECT count(*) FROM pg_extension WHERE extname = 'timescaledb'").Scan(&extCount)
 		timescaleActive = extCount > 0
 		cancel()
@@ -1189,32 +1270,79 @@ func (h *HTTPServer) handleSystemHealth(w http.ResponseWriter, r *http.Request) 
 	health["timescaledb"] = map[string]interface{}{
 		"active": timescaleActive,
 	}
-	
+
 	// Valkey
 	valkeyConnected := h.valkeyCache != nil
 	health["valkey"] = map[string]interface{}{
 		"connected": valkeyConnected,
 	}
-	
+
 	// Market source
 	health["market_source"] = map[string]interface{}{
-		"agents_connected":    h.agentHub.AgentCount(),
-		"agents_online":       func() bool { mc := h.agentProvider.HasConnectedAgents(); if !mc && h.agentHub.AgentCount() > 0 { mc = true }; return mc }(),
+		"agents_connected": h.agentHub.AgentCount(),
+		"agents_online": func() bool {
+			mc := h.agentProvider.HasConnectedAgents()
+			if !mc && h.agentHub.AgentCount() > 0 {
+				mc = true
+			}
+			return mc
+		}(),
 	}
-	
+
 	// Overall ready
 	health["ready"] = dbConnected && dbHealthy
 	health["ready_reason"] = ""
 	if !dbConnected {
 		health["ready_reason"] = "database_unavailable"
 	}
-	
+
 	json.NewEncoder(w).Encode(health)
 }
 
+// requireAdminAction wraps destructive admin actions with JWT verification.
+// Only control-plane tokens with an admin role may pass. The realtime engine
+// mints no tokens itself — JWT_SECRET must match the control plane.
+func (h *HTTPServer) requireAdminAction(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			observability.Log.Warn().Str("remote", r.RemoteAddr).Msg("ADMIN ACTION DENIED — missing bearer token")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":"unauthorized","reason":"admin JWT required"}`))
+			return
+		}
+		token := strings.TrimPrefix(auth, "Bearer ")
+		if token == "" || jwtSecret == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"error":"server_misconfigured","reason":"JWT_SECRET not set — admin actions disabled"}`))
+			return
+		}
+		sub, role, err := validateJWTFull(token)
+		if err != nil {
+			observability.Log.Warn().Str("remote", r.RemoteAddr).Err(err).Msg("ADMIN ACTION DENIED — invalid JWT")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":"unauthorized","reason":"invalid token"}`))
+			return
+		}
+		roleUpper := strings.ToUpper(role)
+		if roleUpper != "ADMIN" && roleUpper != "SUPER_ADMIN" {
+			observability.Log.Warn().Str("remote", r.RemoteAddr).Str("sub", sub).Str("role", role).
+				Msg("ADMIN ACTION DENIED — insufficient role")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(`{"error":"forbidden","reason":"admin role required"}`))
+			return
+		}
+		next(w, r)
+	}
+}
 
-// handleEmergencyStop sends EMERGENCY_STOP to all connected agents.
-// This closes ALL PAT positions on ALL connected MT terminals and halts trading.
+// handleEmergencyStop sends EMERGENCY_STOP to all connected agents AND
+// activates the server-side EmergencyHalt: signal generation and delivery
+// stop immediately (v1.15.0 server enforcement authority).
 func (h *HTTPServer) handleEmergencyStop(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1228,18 +1356,21 @@ func (h *HTTPServer) handleEmergencyStop(w http.ResponseWriter, r *http.Request)
 	if reason == "" {
 		reason = "admin_manual"
 	}
+	if h.EmergencyHalt != nil {
+		h.EmergencyHalt.Activate("EMERGENCY_STOP", reason)
+	}
 	// Broadcast EMERGENCY_STOP to all agents
 	h.agentHub.BroadcastToAllAgents("EMERGENCY_STOP", map[string]interface{}{
-		"reason":   reason,
+		"reason":    reason,
 		"timestamp": time.Now().UTC(),
 	})
-	observability.Log.Warn().Str("reason", reason).Msg("EMERGENCY_STOP broadcast to all agents — closing all positions and halting trading")
+	observability.Log.Warn().Str("reason", reason).Msg("EMERGENCY_STOP: broadcast to all agents + SERVER-SIDE trading halt ACTIVE — no further EXECUTABLE signals")
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"EMERGENCY_STOP_SENT","reason":"` + reason + `"}`))
+	w.Write([]byte(`{"status":"EMERGENCY_STOP_SENT","server_halt_active":true,"reason":"` + reason + `"}`))
 }
 
-// handleKillSwitch sends KILL_SWITCH to all connected agents.
-// This closes ALL positions, halts trading, and stops the EA entirely.
+// handleKillSwitch sends KILL_SWITCH to all connected agents AND activates the
+// server-side halt (same engine-level suppression as EMERGENCY_STOP).
 func (h *HTTPServer) handleKillSwitch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1253,14 +1384,36 @@ func (h *HTTPServer) handleKillSwitch(w http.ResponseWriter, r *http.Request) {
 	if reason == "" {
 		reason = "admin_manual"
 	}
+	if h.EmergencyHalt != nil {
+		h.EmergencyHalt.Activate("KILL_SWITCH", reason)
+	}
 	// Broadcast KILL_SWITCH to all agents
 	h.agentHub.BroadcastToAllAgents("KILL_SWITCH", map[string]interface{}{
-		"reason":   reason,
+		"reason":    reason,
 		"timestamp": time.Now().UTC(),
 	})
-	observability.Log.Warn().Str("reason", reason).Msg("KILL_SWITCH broadcast to all agents — closing all positions and stopping EA")
+	observability.Log.Warn().Str("reason", reason).Msg("KILL_SWITCH: broadcast to all agents + SERVER-SIDE trading halt ACTIVE — no further EXECUTABLE signals")
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"KILL_SWITCH_SENT","reason":"` + reason + `"}`))
+	w.Write([]byte(`{"status":"KILL_SWITCH_SENT","server_halt_active":true,"reason":"` + reason + `"}`))
+}
+
+// handleEmergencyResume clears the server-side halt after incident review.
+// Explicit operator action — never automatic on restart.
+func (h *HTTPServer) handleEmergencyResume(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	reason := r.URL.Query().Get("reason")
+	if reason == "" {
+		reason = "admin_resume"
+	}
+	if h.EmergencyHalt != nil {
+		h.EmergencyHalt.Resumed(reason)
+	}
+	observability.Log.Warn().Str("reason", reason).Msg("EMERGENCY HALT RESUMED — signal generation re-enabled by operator")
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"status":"RESUMED","server_halt_active":false,"reason":"` + reason + `"}`))
 }
 
 // handleDevilLiquidityMarks returns active Devil's Marks from the global engine.
@@ -1273,10 +1426,10 @@ func (h *HTTPServer) handleDevilLiquidityMarks(w http.ResponseWriter, r *http.Re
 	}
 	eng := devilliquidity.GlobalEngine()
 	type resp struct {
-		Enabled bool                    `json:"enabled"`
-		Count   int                     `json:"count"`
+		Enabled bool                        `json:"enabled"`
+		Count   int                         `json:"count"`
 		Marks   []*devilliquidity.DevilMark `json:"marks"`
-		Stats   devilliquidity.EngineStats `json:"stats"`
+		Stats   devilliquidity.EngineStats  `json:"stats"`
 	}
 	out := resp{Enabled: false, Marks: []*devilliquidity.DevilMark{}}
 	if eng == nil {

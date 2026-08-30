@@ -6,9 +6,9 @@ Current Codex automatically discovers `AGENTS.md` / `AGENTS.override.md`, not si
 
 For Predict-A-Trade v1.0.0:
 1. Read `AGENTS.md`.
-2. Read `Predict-A-Trade_FINAL_SCOPE_OF_WORK_v1.0.0.md`.
-3. Load applicable `.agents/skills/*/SKILL.md`.
-4. Use project subagents from `.codex/agents/*.toml`.
-5. Use Codex-native MCP configuration from `.codex/config.toml`.
+2. Read the SOW preserved in `playbook.md` + version contract in `MANIFEST.md`.
+3. Load applicable `.hermes/skills/*/SKILL.md`.
+4. Use bounded subagent profiles as described in `AGENTS.md` (Required Subagents).
+5. MCP configuration lives in `.hermes/config.yaml` (no `.codex/` or `.mcp.json` in this repo).
 
 This singular file exists only for compatibility with tooling or human workflows that expect `AGENT.md`.

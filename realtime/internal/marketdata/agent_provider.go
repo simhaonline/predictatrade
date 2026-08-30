@@ -4,9 +4,9 @@
 package marketdata
 
 import (
-	"log"
-	"encoding/json"
 	"context"
+	"encoding/json"
+	"log"
 	"math"
 	"strings"
 	"sync"
@@ -52,15 +52,15 @@ func ParseSnapshotTime(s string) time.Time {
 
 // AgentTickMessage is the message format the Windows Agent sends with real MT5 tick data.
 type AgentTickMessage struct {
-	Type      string          `json:"type"`       // "TICK", "HEARTBEAT", "BAR"
-	Symbol    string          `json:"symbol"`
-	Bid       float64         `json:"bid"`
-	Ask       float64         `json:"ask"`
-	Volume    int64           `json:"volume"`
-	Timestamp string `json:"timestamp"`
-	Source    string          `json:"source"`     // "MT5", "MT4"
-	Broker    string          `json:"broker"`
-	Account   string          `json:"account"`
+	Type      string  `json:"type"` // "TICK", "HEARTBEAT", "BAR"
+	Symbol    string  `json:"symbol"`
+	Bid       float64 `json:"bid"`
+	Ask       float64 `json:"ask"`
+	Volume    int64   `json:"volume"`
+	Timestamp string  `json:"timestamp"`
+	Source    string  `json:"source"` // "MT5", "MT4"
+	Broker    string  `json:"broker"`
+	Account   string  `json:"account"`
 	// BrokerOffset is the broker's UTC offset in hours, reported live by the
 	// Master Node (TimeGMTOffset). Used to align candles to broker session TF.
 	BrokerOffset int `json:"broker_offset"`
@@ -74,14 +74,14 @@ type AgentTickMessage struct {
 // It includes ticks, multi-timeframe bars, indicators, account info, and symbol info.
 // SOW Section 9: Normalized market state for dashboard/Command Center.
 type MarketSnapshot struct {
-	Type        string          `json:"type"`
-	Symbol      string          `json:"symbol"`
-	Timestamp   string          `json:"timestamp"`
-	GMT         string          `json:"gmt"`
-	Source      string          `json:"source"`
-	Broker      string          `json:"broker"`
-	Account     string          `json:"account"`
-	Node        string          `json:"node"`
+	Type      string `json:"type"`
+	Symbol    string `json:"symbol"`
+	Timestamp string `json:"timestamp"`
+	GMT       string `json:"gmt"`
+	Source    string `json:"source"`
+	Broker    string `json:"broker"`
+	Account   string `json:"account"`
+	Node      string `json:"node"`
 	// MarketClosed is set by the Master Node EA when the broker market is
 	// closed (weekend/holiday): bid/ask are 0 and the snapshot carries the
 	// last-known price. Liveness-only — the engine must NOT evaluate signals
@@ -89,15 +89,15 @@ type MarketSnapshot struct {
 	MarketClosed bool `json:"market_closed"`
 	// BrokerOffset is the broker's UTC offset in hours, reported live by the
 	// Master Node (TimeGMTOffset). Authoritative broker session timezone.
-	BrokerOffset int `json:"broker_offset"`
-	Tick        SnapshotTick    `json:"tick"`
-	Bars        map[string]SnapshotBar `json:"bars,omitempty"`
-	Indicators  SnapshotIndicators `json:"indicators,omitempty"`
-	VWAP        SnapshotVWAP    `json:"vwap"`
-	AccountInfo SnapshotAccount `json:"account_info,omitempty"`
-	SymbolInfo  SnapshotSymbol  `json:"symbol_info,omitempty"`
-	Session     SnapshotSession `json:"session"`
-	Positions   SnapshotPositions `json:"positions,omitempty"`
+	BrokerOffset int                    `json:"broker_offset"`
+	Tick         SnapshotTick           `json:"tick"`
+	Bars         map[string]SnapshotBar `json:"bars,omitempty"`
+	Indicators   SnapshotIndicators     `json:"indicators,omitempty"`
+	VWAP         SnapshotVWAP           `json:"vwap"`
+	AccountInfo  SnapshotAccount        `json:"account_info,omitempty"`
+	SymbolInfo   SnapshotSymbol         `json:"symbol_info,omitempty"`
+	Session      SnapshotSession        `json:"session"`
+	Positions    SnapshotPositions      `json:"positions,omitempty"`
 }
 
 type SnapshotTick struct {
@@ -146,25 +146,25 @@ type SnapshotIndicators struct {
 	OsMA        float64 `json:"osma"`
 
 	// Locally-computed indicators (enriched by Go engine, prompt.md Section 1)
-	EMA100        float64 `json:"ema100,omitempty"`
-	EMA200        float64 `json:"ema200,omitempty"`
-	EMACross921   bool    `json:"ema_cross_9_21,omitempty"`
-	SMA50         float64 `json:"sma50,omitempty"`
-	SMA100        float64 `json:"sma100,omitempty"`
-	MACDHistogram float64 `json:"macd_histogram,omitempty"`
-	MACDBullCross bool    `json:"macd_bull_cross,omitempty"`
-	MACDBearCross bool    `json:"macd_bear_cross,omitempty"`
-	BollWidth     float64 `json:"boll_width,omitempty"`
-	BollBullRev   bool    `json:"boll_bull_rev,omitempty"`
-	BollBearRev   bool    `json:"boll_bear_rev,omitempty"`
-	OBV           float64 `json:"obv,omitempty"`
-	TickVolume    float64 `json:"tick_volume,omitempty"`
-	VWAP          float64 `json:"vwap,omitempty"`
-	ParabolicSAR  float64 `json:"psar,omitempty"`
-	PSARLong      bool    `json:"psar_long,omitempty"`
-	StochRSI      float64 `json:"stoch_rsi,omitempty"`
-	StochRSIK     float64 `json:"stoch_rsi_k,omitempty"`
-	StochRSID     float64 `json:"stoch_rsi_d,omitempty"`
+	EMA100          float64 `json:"ema100,omitempty"`
+	EMA200          float64 `json:"ema200,omitempty"`
+	EMACross921     bool    `json:"ema_cross_9_21,omitempty"`
+	SMA50           float64 `json:"sma50,omitempty"`
+	SMA100          float64 `json:"sma100,omitempty"`
+	MACDHistogram   float64 `json:"macd_histogram,omitempty"`
+	MACDBullCross   bool    `json:"macd_bull_cross,omitempty"`
+	MACDBearCross   bool    `json:"macd_bear_cross,omitempty"`
+	BollWidth       float64 `json:"boll_width,omitempty"`
+	BollBullRev     bool    `json:"boll_bull_rev,omitempty"`
+	BollBearRev     bool    `json:"boll_bear_rev,omitempty"`
+	OBV             float64 `json:"obv,omitempty"`
+	TickVolume      float64 `json:"tick_volume,omitempty"`
+	VWAP            float64 `json:"vwap,omitempty"`
+	ParabolicSAR    float64 `json:"psar,omitempty"`
+	PSARLong        bool    `json:"psar_long,omitempty"`
+	StochRSI        float64 `json:"stoch_rsi,omitempty"`
+	StochRSIK       float64 `json:"stoch_rsi_k,omitempty"`
+	StochRSID       float64 `json:"stoch_rsi_d,omitempty"`
 	IchimokuTenkan  float64 `json:"ichimoku_tenkan,omitempty"`
 	IchimokuKijun   float64 `json:"ichimoku_kijun,omitempty"`
 	IchimokuSenkouA float64 `json:"ichimoku_senkou_a,omitempty"`
@@ -213,26 +213,26 @@ type SnapshotSession struct {
 }
 
 type SnapshotPositions struct {
-	TotalPositions int64             `json:"total_positions"`
-	BuyCount        int64             `json:"buy_count"`
-	SellCount       int64             `json:"sell_count"`
-	TotalLots       float64           `json:"total_lots"`
-	FloatingProfit  float64           `json:"floating_profit"`
+	TotalPositions int64   `json:"total_positions"`
+	BuyCount       int64   `json:"buy_count"`
+	SellCount      int64   `json:"sell_count"`
+	TotalLots      float64 `json:"total_lots"`
+	FloatingProfit float64 `json:"floating_profit"`
 	// Per-position details for server-side SL verification (v1.09+)
-	Details         []PositionDetail  `json:"details,omitempty"`
+	Details []PositionDetail `json:"details,omitempty"`
 }
 
 // PositionDetail captures individual position SL/TP for server-side enforcement.
 type PositionDetail struct {
-	Ticket  int64   `json:"ticket"`
-	Magic   int64   `json:"magic"`
-	Type    string  `json:"type"`    // "BUY" or "SELL"
-	Volume  float64 `json:"volume"`
-	OpenPx  float64 `json:"open_price"`
-	SL      float64 `json:"sl"`
-	TP      float64 `json:"tp"`
-	Profit  float64 `json:"profit"`
-	Symbol  string  `json:"symbol"`
+	Ticket int64   `json:"ticket"`
+	Magic  int64   `json:"magic"`
+	Type   string  `json:"type"` // "BUY" or "SELL"
+	Volume float64 `json:"volume"`
+	OpenPx float64 `json:"open_price"`
+	SL     float64 `json:"sl"`
+	TP     float64 `json:"tp"`
+	Profit float64 `json:"profit"`
+	Symbol string  `json:"symbol"`
 }
 
 // AgentProvider receives real tick data from connected Windows MT5 Agents.
@@ -240,21 +240,26 @@ type PositionDetail struct {
 // and the system degrades to NO-TRADE (SOW: data quality gate fails closed).
 type AgentProvider struct {
 	marketClosed bool // last snapshot says broker market closed (liveness-only)
-	name      string
-	mu        sync.Mutex
-	agents    map[string]chan *AgentTickMessage // agentID → tick channel
-	tickChan  chan *types.Tick
-	stopChan  chan struct{}
-	running   atomic.Bool
-	validator *TickValidator
+	name         string
+	mu           sync.Mutex
+	agents       map[string]chan *AgentTickMessage // agentID → tick channel
+	tickChan     chan *types.Tick
+	stopChan     chan struct{}
+	running      atomic.Bool
+	validator    *TickValidator
 
 	// Market snapshot storage from Master Node
-	snapshotMu     sync.RWMutex
-	lastSnapshot    *MarketSnapshot
-	snapshotCount   uint64
+	snapshotMu    sync.RWMutex
+	lastSnapshot  *MarketSnapshot
+	snapshotCount uint64
 
 	// Valkey cache — write snapshots directly (not via delayed broadcast loop)
-	valkeyCache interface{ SetSnapshot(interface{}) error; SetLastSnapshot(interface{}) error; SetMarketState(interface{}) error; AddPricePoint(float64, time.Time) error }
+	valkeyCache interface {
+		SetSnapshot(interface{}) error
+		SetLastSnapshot(interface{}) error
+		SetMarketState(interface{}) error
+		AddPricePoint(float64, time.Time) error
+	}
 
 	// State manager — merge snapshot indicators/bars into market state
 	stateMgr StateUpdater
@@ -278,6 +283,11 @@ type AgentProvider struct {
 	// This hydrates the execution permit gate (terminal connected = PASS).
 	agentConnectFn func(agentID string, msgType string)
 
+	// PositionSLCheckFn — v1.15.0 SL enforcement monitor. Called on every
+	// broker snapshot so the server can CLOSE_POSITION for PAT positions
+	// missing SL. Set by main.go to avoid import cycle.
+	positionSLCheckFn func(agentID string, positions *SnapshotPositions)
+
 	// LicenseValidateFn — validates a license key against the DB and sends
 	// a LICENSE_STATUS response back to the agent. Set by main.go.
 	// deviceID (when provided by the agent) is the control-plane device id
@@ -287,19 +297,19 @@ type AgentProvider struct {
 
 	// TradeResultFn — receives EA exit-reconciliation records (TRADE_RESULT)
 	// for persistence into the expected-vs-actual outcome table. Set by main.go.
-	tradeResultFn   func(agentID string, data []byte)
-	executionAckFn  func(agentID string, data []byte)
+	tradeResultFn  func(agentID string, data []byte)
+	executionAckFn func(agentID string, data []byte)
 
 	// Broker session alignment. The Master Node sends the broker's server
 	// time per tick; we derive the broker UTC offset from it so candles align
 	// to BROKER session boundaries (not UTC). cfgOffset is an operator override
 	// (BROKER_UTC_OFFSET); otherwise the offset is taken from the Master Node's
 	// authoritative live time (masterOffset) and falls back to auto-detection.
-	cfgOffset      int
-	brokerOffset   atomic.Int32 // auto-detected from naive broker-local ticks
-	masterOffset   atomic.Int32 // authoritative offset reported by Master Node
-	offsetMu       sync.Mutex
-	offsetSamples  map[int]int
+	cfgOffset     int
+	brokerOffset  atomic.Int32 // auto-detected from naive broker-local ticks
+	masterOffset  atomic.Int32 // authoritative offset reported by Master Node
+	offsetMu      sync.Mutex
+	offsetSamples map[int]int
 
 	// Capital-protection log de-duplication. The EA emits CAPITAL_WARNING /
 	// CAPITAL_PROTECTION on every tick while the account sits in the triggered
@@ -313,9 +323,9 @@ type AgentProvider struct {
 	// laggy, or flooding EA cannot consume shared engine resources or starve
 	// other clients (defense-in-depth on top of the immutable-snapshot
 	// StateManager and per-client account-state isolation).
-	guardMu              sync.Mutex
-	agentMsgCount        map[string]int
-	agentWindowStart     map[string]time.Time
+	guardMu               sync.Mutex
+	agentMsgCount         map[string]int
+	agentWindowStart      map[string]time.Time
 	agentQuarantinedUntil map[string]time.Time
 
 	// Redundant-message de-duplication: identical repeated messages of low-value
@@ -472,16 +482,21 @@ func truncateForLog(data []byte) string {
 
 // LicenseValidationResult holds the result of license key validation.
 type LicenseValidationResult struct {
-	Valid       bool   `json:"valid"`
-	Status      string `json:"status"`       // ACTIVE, EXPIRED, REVOKED, NOT_FOUND
-	Plan        string `json:"plan"`         // FREE, STANDARD, PRO, ELITE
-	MaxDevices  int    `json:"max_devices"`
-	MaxMTAccts  int    `json:"max_mt_accounts"`
-	Strategies  []string `json:"allowed_strategies"`
-	Error       string `json:"error,omitempty"`
+	Valid      bool     `json:"valid"`
+	Status     string   `json:"status"` // ACTIVE, EXPIRED, REVOKED, NOT_FOUND
+	Plan       string   `json:"plan"`   // FREE, STANDARD, PRO, ELITE
+	MaxDevices int      `json:"max_devices"`
+	MaxMTAccts int      `json:"max_mt_accounts"`
+	Strategies []string `json:"allowed_strategies"`
+	Error      string   `json:"error,omitempty"`
 }
 
-func (p *AgentProvider) SetValkeyCache(v interface{ SetSnapshot(interface{}) error; SetLastSnapshot(interface{}) error; SetMarketState(interface{}) error; AddPricePoint(float64, time.Time) error }) {
+func (p *AgentProvider) SetValkeyCache(v interface {
+	SetSnapshot(interface{}) error
+	SetLastSnapshot(interface{}) error
+	SetMarketState(interface{}) error
+	AddPricePoint(float64, time.Time) error
+}) {
 	p.valkeyCache = v
 }
 
@@ -574,6 +589,13 @@ func (p *AgentProvider) SetAgentConnectFn(fn func(agentID string, msgType string
 	p.agentConnectFn = fn
 }
 
+// SetPositionSLCheckFn registers the v1.15.0 position-SL monitor callback.
+// Invoked on every broker snapshot so the server can CLOSE_POSITION for any
+// PAT position missing its stop-loss (server is the enforcement authority).
+func (p *AgentProvider) SetPositionSLCheckFn(fn func(agentID string, positions *SnapshotPositions)) {
+	p.positionSLCheckFn = fn
+}
+
 // SetLicenseValidateFn sets the license validation callback.
 func (p *AgentProvider) SetLicenseValidateFn(fn func(agentID, licenseKey, deviceID string) LicenseValidationResult) {
 	p.licenseValidateFn = fn
@@ -621,7 +643,7 @@ func (p *AgentProvider) Connect(ctx context.Context) error {
 	return nil
 }
 func (p *AgentProvider) Subscribe(symbol string) error { return nil }
-func (p *AgentProvider) Stream() <-chan *types.Tick { return p.tickChan }
+func (p *AgentProvider) Stream() <-chan *types.Tick    { return p.tickChan }
 func (p *AgentProvider) Close() error {
 	if p.running.CompareAndSwap(true, false) {
 		close(p.stopChan)
@@ -975,6 +997,12 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 			if snapshot.AccountInfo.Balance > 0 || snapshot.AccountInfo.Equity > 0 {
 				p.brokerAccountHydrateFn(agentID, &snapshot.AccountInfo, &snapshot.Positions)
 			}
+		}
+
+		// v1.15.0 SL ENFORCEMENT: monitor every snapshot for PAT positions
+		// missing SL → CLOSE_POSITION (server is the enforcement authority).
+		if p.positionSLCheckFn != nil && snapshot.Positions.TotalPositions > 0 {
+			p.positionSLCheckFn(agentID, &snapshot.Positions)
 		}
 
 		// CRITICAL: Merge authoritative MT5 indicators and bars into MarketState

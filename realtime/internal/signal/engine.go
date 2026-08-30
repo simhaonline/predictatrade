@@ -26,18 +26,18 @@ func NewEngine(gateReg *gates.Registry) *Engine {
 
 // DecisionInput provides all inputs for a master decision.
 type DecisionInput struct {
-	StrategyID         types.StrategyID
-	Direction          types.Direction // Pre-computed by strategy
-	RawScore           decimal.Decimal // Pre-computed by strategy
-	LongScore          decimal.Decimal // Pre-computed by strategy
-	ShortScore         decimal.Decimal // Pre-computed by strategy
-	Tick               *types.Tick
+	StrategyID types.StrategyID
+	Direction  types.Direction // Pre-computed by strategy
+	RawScore   decimal.Decimal // Pre-computed by strategy
+	LongScore  decimal.Decimal // Pre-computed by strategy
+	ShortScore decimal.Decimal // Pre-computed by strategy
+	Tick       *types.Tick
 	// MarketClosed: broker market is closed (weekend/holiday). Signal
 	// generation MUST short-circuit — check.md 2026-08-30: emitting signals on
 	// stale last-known prices reads as engine inaccuracy. One hard, honest
 	// NO-TRADE reason; no strategy/gate churn, no rows.
-	MarketClosed    bool
-	NextMarketOpen  time.Time
+	MarketClosed       bool
+	NextMarketOpen     time.Time
 	Regime             types.Regime
 	Session            string
 	SessionAllowed     bool
@@ -200,7 +200,7 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 			EdgeScore:       input.EdgeScore,
 			ExpectedValue:   input.ExpectedValue,
 			IsLossCandidate: input.IsLossCandidate,
-			AiVerification:  "DISABLED — ollama off",
+			AiVerification:  "NOT_AI_VERIFIED — no per-signal LLM verification performed",
 			RiskDecision:    "NO-TRADE (strategy) — gates not evaluated",
 			CreatedAt:       time.Now().UTC(),
 			ExpiresAt:       time.Now().UTC().Add(time.Minute * 15),

@@ -123,6 +123,11 @@ var globalAgentHub *gateway.AgentHub
 var globalPersister *marketdata.Persister
 var globalReconciler *reconciliation.Reconciler
 
+// globalEmergencyHalt is the process-wide trading halt flag (v1.15.0).
+// Activated by admin EMERGENCY_STOP / KILL_SWITCH; consulted by the signal
+// hot path and delivery so stopped means STOPPED server-side.
+var globalEmergencyHalt = &gateway.EmergencyHalt{}
+
 // engineOverrideSLTP gates the strategy-engine SL/TP override matrix.
 // When false (default, ENVINE_OVERRIDE_SLTP unset or != "true"), the live
 // engine uses the same getStrategyConfig geometry as the backtest, avoiding
@@ -258,6 +263,13 @@ func markBarProcessed(strategyID, symbol string, tf types.Timeframe, barOpenTime
 // and the Windows Agents (AgentHub) for MT4/MT5 delivery.
 func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, signal *types.Signal) {
 	if signal == nil {
+		return
+	}
+	// SERVER-AUTHORITATIVE EMERGENCY HALT (v1.15.0): while active, no signal
+	// leaves the engine — not to the dashboard, not to any agent.
+	if globalEmergencyHalt.Active() {
+		observability.Log.Warn().Str("signal_id", signal.ID).Str("direction", string(signal.Direction)).
+			Msg("Signal delivery SUPPRESSED — emergency halt active")
 		return
 	}
 	// Broadcast to frontend dashboard clients (entitlement-filtered)
@@ -1331,6 +1343,11 @@ func main() {
 		_ = agentID // per-client account state is recorded by AgentProvider.RecordAgentAccount
 		now := time.Now().UTC()
 
+		// v1.15.0 SL ENFORCEMENT (was dead code): scan snapshot positions for
+		// PAT positions missing SL and send CLOSE_POSITION. Wired to run on
+		// every broker snapshot via AgentProvider hook.
+		checkPositionSLs(positions, agentID)
+
 		// Cache the snapshot for capital-protection gates + sizing annotations.
 		broker.Update(account, positions, now)
 
@@ -1477,7 +1494,16 @@ func main() {
 		})
 		// Per-client risk isolation at delivery: only deliver executable signals
 		// to clients whose OWN account has buying power. Fail-open by design.
-		agentHub.SetRiskCheck(agentProvider.AgentAccountOK)
+		// v1.15.0: plus SL-violation suspension — a suspended agent receives NO
+		// signals even after reconnect (in-memory for process lifetime).
+		agentHub.SetRiskCheck(func(agentID string) bool {
+			if isAgentSuspended(agentID) {
+				observability.Log.Warn().Str("agent_id", agentID).
+					Msg("Signal NOT delivered — agent suspended for SL violations")
+				return false
+			}
+			return agentProvider.AgentAccountOK(agentID)
+		})
 
 		// Ingest/signal decoupling seam. Default = in-process DirectBus
 		// (identical to the previous direct call). If NATS_URL is set, inbound
@@ -2342,6 +2368,11 @@ func main() {
 
 	httpServer := gateway.NewHTTPServer(wsHub, persister, stateMgr, agentHub, agentProvider, valkeyCache, xmEngine, newsRiskEngine, engTracker)
 	httpServer.DataAgentHub = dataAgentHub
+	// Server-authoritative trading halt (v1.15.0): EMERGENCY_STOP / KILL_SWITCH
+	// set this flag; signal generation and delivery consult it every cycle.
+	emergencyHalt := &gateway.EmergencyHalt{}
+	httpServer.EmergencyHalt = emergencyHalt
+	globalEmergencyHalt = emergencyHalt
 	go func() {
 		addr := fmt.Sprintf("%s:%d", cfg.HTTPHost, cfg.HTTPPort)
 		log.Info().Str("addr", addr).Msg("HTTP server starting")
@@ -2451,15 +2482,44 @@ func main() {
 		}
 	}()
 
-	// Main processing loop
+	// Main processing loop — SELF-HEALING (P0 fix): the recover is on the
+	// per-message handling, not the whole goroutine. Previously ONE panic
+	// (e.g. nil-deref) terminated processTick/processCandle forever while
+	// /health stayed green (container "healthy", signal generation dead).
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				observability.Log.Error().Interface("panic", r).Msg("Recovered from panic in main loop — continuing")
-			}
-		}()
 		tickChan := provider.Stream()
 		candleChan := aggregator.CandleChannel()
+
+		handleTick := func(tick *types.Tick) {
+			defer func() {
+				if r := recover(); r != nil {
+					observability.Log.Error().Interface("panic", r).
+						Msg("Recovered from panic in processTick — pipeline continues")
+				}
+			}()
+			processTick(tick, validator, staleDetector, aggregator, stateMgr, persister, valkeyCache)
+			// HFT: Broadcast market state immediately after tick processing
+			for _, state := range stateMgr.GetAll() {
+				wsHub.BroadcastMarketState(state)
+				if valkeyCache != nil {
+					// Clone state without PTB to avoid JSON marshal crash on interface{}
+					cacheState := *state
+					cacheState.PTB = nil
+					valkeyCache.SetMarketState(&cacheState)
+				}
+			}
+		}
+
+		handleCandle := func(candle *types.Candle) {
+			defer func() {
+				if r := recover(); r != nil {
+					observability.Log.Error().Interface("panic", r).Str("symbol", candle.Symbol).
+						Str("tf", string(candle.Timeframe)).
+						Msg("Recovered from panic in processCandle — pipeline continues")
+				}
+			}()
+			processCandle(candle, featureReg, stateMgr, strategies, engine, mlEngine, ollamaClient, healthManager, staleChecker, calibConsumer, reconciler, wsHub, agentHub, persister, gateRegistry, cooldownMgr, dupChecker, ptbEngine, auditLogger, xmEngine, xmPersister, xmValidation, engTracker, cfg, posCaps, broker)
+		}
 
 		for {
 			select {
@@ -2469,17 +2529,7 @@ func main() {
 				if !ok {
 					return
 				}
-				processTick(tick, validator, staleDetector, aggregator, stateMgr, persister, valkeyCache)
-				// HFT: Broadcast market state immediately after tick processing
-				for _, state := range stateMgr.GetAll() {
-					wsHub.BroadcastMarketState(state)
-					if valkeyCache != nil {
-						// Clone state without PTB to avoid JSON marshal crash on interface{}
-						cacheState := *state
-						cacheState.PTB = nil
-						valkeyCache.SetMarketState(&cacheState)
-					}
-				}
+				handleTick(tick)
 			case candle, ok := <-candleChan:
 				if !ok {
 					return
@@ -2536,9 +2586,7 @@ func main() {
 						}
 					}
 				}
-				processCandle(candle, featureReg, stateMgr, strategies, engine, mlEngine, ollamaClient, healthManager, staleChecker,
-					calibConsumer, reconciler, wsHub, agentHub, persister, gateRegistry,
-					cooldownMgr, dupChecker, ptbEngine, auditLogger, xmEngine, xmPersister, xmValidation, engTracker, cfg, posCaps, broker)
+				handleCandle(candle)
 
 				// Devil Liquidity: feed every completed candle into the engine.
 				if candle.IsClosed && devilEngine != nil {
@@ -2656,6 +2704,12 @@ func processTick(tick *types.Tick, validator *marketdata.TickValidator, staleDet
 
 func processCandle(candle *types.Candle, featureReg *features.RegistrySet, stateMgr *features.StateManager, strategies []strategy.Strategy, engine *sigengine.Engine, mlEngine *mlengine.MLEngine, ollamaClient *ollama.OllamaClient, healthManager *health.Manager, staleChecker *health.StaleChecker, calibConsumer *calibration.Consumer, reconciler *reconciliation.Reconciler, wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, persister *marketdata.Persister, gateRegistry *gates.Registry, cooldownMgr *sigengine.CooldownManager, dupChecker *sigengine.DuplicateChecker, ptbEngine *ptb.Engine, auditLogger *audit.Logger, xmEngine *crossmarket.Engine, xmPersister *crossmarket.Persister, xmValidation *crossmarket.ValidationPersister, engTracker *engstatus.Tracker, cfg *config.Config, posCaps *gates.PositionCapsGate, broker *brokerAccountState) {
 	if candle == nil {
+		return
+	}
+	// SERVER-AUTHORITATIVE EMERGENCY STOP (v1.15.0): a halted engine does not
+	// evaluate strategies or generate signals at all — not even candidates.
+	if globalEmergencyHalt.Active() {
+		observability.CandlesGenerated.WithLabelValues(candle.Symbol, string(candle.Timeframe)).Inc()
 		return
 	}
 	observability.CandlesGenerated.WithLabelValues(candle.Symbol, string(candle.Timeframe)).Inc()
@@ -2858,7 +2912,18 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 	// ─── ML & Ollama Sentiment Integration (v1.7.0) ───
 	// This runs AFTER strategy evaluation and BEFORE the signal lifecycle.
 	// If ML engine is unavailable or models are dummy, confidence < 30 → HOLD (fail-open).
-	// If Ollama is unavailable, sentiment = 0.0 (neutral) — no effect on direction.
+	// If Ollama is unavailable, contribution = 0.0 (neutral) — no effect on direction.
+	//
+	// INTEGRITY FIXES (P0/P1 audit):
+	//  1. STALE-STATE: globals are reset to 0 each bar — a confident prediction
+	//     from a previous candle no longer leaks into every future bar.
+	//  2. ENABLE_SHORTS enforced regardless of ML availability (was nested
+	//     inside ML-confident branch and silently ignored when ML was off).
+	//  3. The LLM sentiment prompt no longer presents price/RSI/ADX-derived
+	//     output as "news sentiment" — it is labeled LLM_MARKET_CONTEXT and is
+	//     computed ONCE per bar (was once PER STRATEGY = redundant LLM calls).
+	mlContributionML = 0
+	sentimentContributionAI = 0
 	if mlEngine != nil && mlEngine.IsEnabled() {
 		// Build feature vector from merged state indicators
 		feat := buildFeatureVector(mergedState)
@@ -2867,49 +2932,35 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			// ML inference failed — fail-open, log warning
 			observability.Log.Warn().Err(mlErr).Msg("ML inference failed — using deterministic scoring only")
 		} else if pred != nil && pred.Confidence > 30 {
-			// ML prediction has sufficient confidence — apply to each strategy result
+			// ML prediction has sufficient confidence
 			mlDir := types.DirectionBuy
 			if pred.Direction == "SELL" {
 				mlDir = types.DirectionSell
 			}
-			for _, strat := range strategies {
-				stratResult := strat.Evaluate(mergedState)
-
-				// ─── ENABLE_SHORTS (Bug 3) — generation-level suppression ───
-				// When shorts are disabled, SELL signals are suppressed here, NOT
-				// gate-vetoed: no signal is emitted at all (only a log). Default is
-				// enabled; operators opt out explicitly via ENABLE_SHORTS=false.
-				if cfg != nil && !cfg.EnableShorts && stratResult.Direction == types.DirectionSell {
-					observability.Log.Info().
-						Str("strategy", string(strat.ID())).
-						Str("symbol", string(candle.Symbol)).
-						Str("timeframe", string(candle.Timeframe)).
-						Msg("[ENABLE_SHORTS=false] SELL candidate suppressed at signal-generation")
-					continue
-				}
-				// ─── AI Contribution scoring (v1.17.5) ───
-				// ML weight: 0.15 · Ollama LLM sentiment weight: 0.05
-				if pred != nil && pred.Confidence > 30 {
-					if mlDir == types.DirectionBuy {
-						mlContributionML = 0.15
-					} else if mlDir == types.DirectionSell {
-						mlContributionML = -0.15
-					}
-				}
-				sentimentAI := 0.0
-				if ollamaClient != nil && ollamaClient.IsEnabled() {
-					sentimentScore, _ := ollamaClient.GetNewsSentiment([]string{
-						fmt.Sprintf("XAUUSD price: %.2f, RSI: %.1f, ADX: %.1f. Give only a sentiment score -1 to +1.",
-							mergedState.CurrentPrice.InexactFloat64(),
-							mergedState.Indicators.RSI.InexactFloat64(),
-							mergedState.Indicators.ADX.InexactFloat64()),
-					})
-					sentimentAI = sentimentScore
-				}
-				sentimentContributionAI = sentimentAI
-				_ = stratResult
-				_ = mlDir
+			if mlDir == types.DirectionBuy {
+				mlContributionML = 0.15
+			} else if mlDir == types.DirectionSell {
+				mlContributionML = -0.15
 			}
+		}
+	}
+	// ─── ENABLE_SHORTS (Bug 3) — generation-level suppression ───
+	// Enforced UNCONDITIONALLY now (not gated on ML confidence): when shorts
+	// are disabled the SELL half of each strategy is vetoed at the result, so
+	// no engine evaluation order change can silently re-enable shorts.
+	shortsActive := cfg == nil || cfg.EnableShorts
+	// LLM market-context read — ONCE per bar, honestly labeled. This is NOT
+	// news sentiment: no headlines are fetched; prompts contain only price/
+	// indicator context. Weight stays 0.05 and it is reported as context, so
+	// it can never be presented as informational intelligence.
+	if ollamaClient != nil && ollamaClient.IsEnabled() && !globalEmergencyHalt.Active() {
+		if sentimentScore, err := ollamaClient.GetNewsSentiment([]string{
+			fmt.Sprintf("XAUUSD price: %.2f, RSI: %.1f, ADX: %.1f. Give only a sentiment score -1 to +1.",
+				mergedState.CurrentPrice.InexactFloat64(),
+				mergedState.Indicators.RSI.InexactFloat64(),
+				mergedState.Indicators.ADX.InexactFloat64()),
+		}); err == nil {
+			sentimentContributionAI = sentimentScore
 		}
 	}
 
@@ -3220,7 +3271,16 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 					candidateDir = dominantDir
 				}
 
-				if candidateDir == types.DirectionBuy || candidateDir == types.DirectionSell {
+				// ─── ENABLE_SHORTS enforcement (Bug 3 fix) ───
+				// When shorts are disabled at generation level, a SELL candidate
+				// is suppressed entirely: no candidate signal, no execution path.
+				if !shortsActive && candidateDir == types.DirectionSell {
+					observability.Log.Info().
+						Str("strategy", string(strat.ID())).
+						Str("symbol", string(candle.Symbol)).
+						Str("timeframe", string(candle.Timeframe)).
+						Msg("[ENABLE_SHORTS=false] SELL candidate suppressed at generation (unconditional)")
+				} else if candidateDir == types.DirectionBuy || candidateDir == types.DirectionSell {
 					// Compute MICROPROFIT geometry for candidate — tighter stops, closer targets
 					// This allows BUY_CANDIDATE/SELL_CANDIDATE to capture small profits
 					// while maintaining capital protection (1% risk, 5% daily loss limit)
@@ -3502,6 +3562,19 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 		}
 
 		if stratResult.Direction != types.DirectionBuy && stratResult.Direction != types.DirectionSell {
+			// ─── ENABLE_SHORTS enforcement (Bug 3 fix) ───
+			// Suppress SELL_CANDIDATE at generation when shorts are disabled —
+			// unconditional (previously nested inside the ML-confident branch,
+			// silently ignored when ML was off/low-confidence).
+			if !shortsActive && stratResult.Direction == types.Direction("SELL_CANDIDATE") {
+				observability.Log.Info().
+					Str("strategy", string(strat.ID())).
+					Str("symbol", string(candle.Symbol)).
+					Str("timeframe", string(candle.Timeframe)).
+					Msg("[ENABLE_SHORTS=false] SELL_CANDIDATE suppressed (unconditional generation-level)")
+				stratResult.Direction = types.DirectionNoTrade
+				stratResult.ReasonCodes = append(stratResult.ReasonCodes, types.NoTradeReason("shorts_disabled"))
+			}
 			// ─── Fail-closed capital protection for advisory candidates ───
 			// A candidate (BUY_CANDIDATE/SELL_CANDIDATE) is still executable by the
 			// EA when ExecuteCandidates is enabled. A strategy with a proven-negative
@@ -3905,27 +3978,39 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				decision.Signal.ProvenanceState = types.ProvenanceUnverified
 			}
 			if decision.AllGatesPass {
-				// Duplicate EXECUTABLE suppression. The EA is autonomous and opens
-				// positions for every EXECUTABLE signal it receives; re-emitting the
-				// same executable bar (e.g. across re-evaluations/retries) causes
-				// duplicate/over-positioning. Enforce at most ONE EXECUTABLE per
-				// (strategy, market_bar_close_time, direction). Fail closed to
-				// ADVISORY if an EXECUTABLE already exists for this bar.
-				dupCtx, dupCancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
-				var existing int
-				_ = persister.GetDB().QueryRowContext(dupCtx,
-					`SELECT 1 FROM trading.signals WHERE strategy_id=$1 AND market_bar_close_time=$2 AND direction=$3 AND signal_class='EXECUTABLE' LIMIT 1`,
-					string(strat.ID()), decision.Signal.MarketBarCloseTime, string(decision.Signal.Direction),
-				).Scan(&existing)
-				dupCancel()
-				if existing == 1 {
+				// Nil-guard FIX (P0): a failed DB bootstrap leaves persister=nil
+				// while the engine keeps running. Free-standing allocation from a
+				// nil interface panicked the hot loop and silently killed signal
+				// generation (health stayed green). Degrade to ADVISORY instead —
+				// fail closed: without durable dedup we must not emit EXECUTABLE.
+				if persister == nil || persister.GetDB() == nil {
 					decision.Signal.SignalClass = "ADVISORY"
-					decision.Signal.ReasonCodes = append(decision.Signal.ReasonCodes, "DUPLICATE_EXECUTABLE_SUPPRESSED")
+					decision.Signal.ReasonCodes = append(decision.Signal.ReasonCodes, "DEDUP_UNAVAILABLE_NO_PERSISTENCE")
 					observability.Log.Warn().Str("strategy", string(strat.ID())).
-						Time("bar", decision.Signal.MarketBarCloseTime).
-						Msg("[DEDUP] suppressing duplicate EXECUTABLE for same bar")
+						Msg("[DEDUP] persister unavailable — downgrading EXECUTABLE to ADVISORY (fail-closed)")
 				} else {
-					decision.Signal.SignalClass = "EXECUTABLE"
+					// Duplicate EXECUTABLE suppression. The EA is autonomous and opens
+					// positions for every EXECUTABLE signal it receives; re-emitting the
+					// same executable bar (e.g. across re-evaluations/retries) causes
+					// duplicate/over-positioning. Enforce at most ONE EXECUTABLE per
+					// (strategy, market_bar_close_time, direction). Fail closed to
+					// ADVISORY if an EXECUTABLE already exists for this bar.
+					dupCtx, dupCancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+					var existing int
+					_ = persister.GetDB().QueryRowContext(dupCtx,
+						`SELECT 1 FROM trading.signals WHERE strategy_id=$1 AND market_bar_close_time=$2 AND direction=$3 AND signal_class='EXECUTABLE' LIMIT 1`,
+						string(strat.ID()), decision.Signal.MarketBarCloseTime, string(decision.Signal.Direction),
+					).Scan(&existing)
+					dupCancel()
+					if existing == 1 {
+						decision.Signal.SignalClass = "ADVISORY"
+						decision.Signal.ReasonCodes = append(decision.Signal.ReasonCodes, "DUPLICATE_EXECUTABLE_SUPPRESSED")
+						observability.Log.Warn().Str("strategy", string(strat.ID())).
+							Time("bar", decision.Signal.MarketBarCloseTime).
+							Msg("[DEDUP] suppressing duplicate EXECUTABLE for same bar")
+					} else {
+						decision.Signal.SignalClass = "EXECUTABLE"
+					}
 				}
 				decision.Signal.QualifiedAt = time.Now().UTC()
 				decision.Signal.PublishedAt = time.Now().UTC()
@@ -4865,7 +4950,7 @@ func createNoTradeSignal(result strategy.StrategyResult, calibratedProb decimal.
 		// Dominance (prompt.md Section 23)
 		Dominance: result.Dominance,
 		// Verification / risk columns (previously N/A on NO-TRADE signals).
-		AiVerification: "DISABLED — ollama off (no AI verification)",
+		AiVerification: "NOT_AI_VERIFIED — no per-signal LLM verification performed",
 		RiskDecision:   "NO-TRADE — gates not evaluated",
 		Executable:     false,
 	}
@@ -4881,12 +4966,16 @@ func createNoTradeSignal(result strategy.StrategyResult, calibratedProb decimal.
 }
 
 // aiVerificationStatus reports the AI/LLM verification status for a signal.
-// Ollama is disabled by default; we never fabricate a verification result.
+//
+// INTEGRITY FIX (P0, anti-fabrication): this function previously returned
+// "AI Verified" whenever OLLAMA_ENABLED=true — labeling every signal as
+// verified without any per-signal verification having occurred. That is a
+// fabricated AI-activity claim (forbidden by AGENTS.md). The label now states
+// the truth: sentiment context may exist, but no per-signal AI verification
+// gate passes today, so signals are explicitly NOT_AI_VERIFIED.
 func aiVerificationStatus(cfg *config.Config) string {
-	if cfg != nil && cfg.OllamaEnabled {
-		return "AI Verified"
-	}
-	return "AI Off"
+	_ = cfg // kept for signature stability; status no longer depends on the env flag
+	return "NOT_AI_VERIFIED — no per-signal LLM verification performed"
 }
 
 // riskDecisionText summarises the hard-gate evaluation result for the dashboard.

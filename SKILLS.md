@@ -1,6 +1,6 @@
 # SKILLS.md — Predict-A-Trade v1.0.0 Skill Index
 
-> Human-readable index. Codex-native skills are `.agents/skills/<name>/SKILL.md`.
+> Human-readable index. Skills live at `.hermes/skills/<name>/SKILL.md`.
 
 | Skill | Purpose |
 |---|---|
@@ -23,6 +23,6 @@
 
 ## Discovery
 
-Codex scans `.agents/skills`. Invoke explicitly with `$<skill-name>` or allow description-based selection.
+The agent runtime scans `.hermes/skills`. Invoke explicitly with `$<skill-name>` or allow description-based selection.
 
 Skills operationalize the SOW; they never override it or bypass live-trading, financial, security, signing-key or compliance controls.
