@@ -35,6 +35,17 @@ $BaseUrl     = "https://downloads.predictatrade.com/windows-agent"
 # Root URL always points at the shared assets (nssm, settings, scripts, version).
 # $BaseUrl may be overridden to a role subdir (…/master or …/client) so the
 # role-specific binary is fetched from there; shared assets always come from root.
+
+# ─── Self-logging ───
+# The install is launched by a wrapper that elevates via -Verb RunAs, which spawns
+# a SEPARATE window whose output is lost in non-interactive terminals. Transcribe
+# everything to a file so failures are never silent.
+try {
+    $transcriptPath = Join-Path $env:TEMP "pat_install_${Mode}.log"
+    Start-Transcript -Path $transcriptPath -Append -IncludeInvocationHeader -ErrorAction SilentlyContinue
+    Write-Host "[log] Full transcript: $transcriptPath"
+} catch {}
+
 $RootUrl     = "https://downloads.predictatrade.com/windows-agent"
 # Role-specific installation directory so a Master Node and a Client Agent can
 # coexist on the SAME Windows device without sharing binaries, settings, or logs.

@@ -18,5 +18,15 @@ try {
     Write-Host "[install-master] ERROR: failed to download installer: $_"
     exit 1
 }
+
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($isAdmin) {
+    # Already elevated — run inline so output is visible in THIS terminal.
+    & powershell.exe -ExecutionPolicy Bypass -NoProfile -File "$tmp" -Mode master -BaseUrl "$BaseUrl/master"
+    exit $LASTEXITCODE
+}
+
+# Not elevated: request elevation. Output will appear in the new elevated window
+# and is also captured to %TEMP%\pat_install_master.log by install.ps1 itself.
 $p = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy","Bypass","-NoProfile","-File","`"$tmp`"","-Mode","master","-BaseUrl","$BaseUrl/master" -Verb RunAs -Wait -PassThru
 exit $p.ExitCode
