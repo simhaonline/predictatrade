@@ -68,7 +68,9 @@ export default function AdminStrategiesPage() {
                 <div className="flex items-center gap-2">
                   <IconBolt size={18} className={isActive ? "text-pat-success" : "text-pat-text-muted"} />
                   <span className="text-sm font-semibold text-pat-text-primary">{strategyLabel(name)}</span>
-                </div>
+                    {name === "ATEN" && <div className="text-[10px] text-pat-accent">Aetherial Technical Engine Node</div>}
+                    {name === "MARNIE_FIB" && <div className="text-[10px] text-pat-info">Equilibrium Fibonacci Engine</div>}
+                  </div>
                 <StatusBadge status={isActive ? "ACTIVE" : "INACTIVE"} size="sm" />
               </div>
               <p className="text-xs text-pat-text-muted mb-4">
@@ -77,6 +79,7 @@ export default function AdminStrategiesPage() {
                 {name === "STANDARD_SWING" && "M15/M30/H1 + H4/D1 · Threshold 55 · Min RR 1.8 · Cooldown 120m"}
                 {name === "TREND_SWING" && "H1/H4 + D1/W1 · Threshold 50 · Min RR 2.5 · Cooldown 360m"}
                 {name === "MARNIE_FIB" && "EQFE · Equilibrium Fibonacci Engine · H1 · SHADOW"}
+                {name === "ATEN" && "ATEN · Aetherial Technical Engine Node · Vedic DI + Western Tropical · ELITE only · Weight 10%"}
               </p>
               <button
                 onClick={() => isActive ? disableMutation.mutate(name) : enableMutation.mutate(name)}
