@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <script>document.documentElement.className = 'js';</script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#f6f4ef">
@@ -133,7 +134,7 @@
             gap: 60px; align-items: center; max-width: 1440px; margin: 0 auto; min-height: 100vh;
         }
         .hero-copy h1 {
-            font: italic 100px/0.4 var(--font-serif); letter-spacing: -0.055em; margin-bottom: 32px;
+            font: italic 100px/1.04 var(--font-serif); letter-spacing: -0.055em; margin-bottom: 32px;
         }
         .hero-copy h1 em { color: var(--primary); font-style: italic; }
         .hero-lede {
@@ -176,7 +177,7 @@
         .capabilities { background: var(--secondary); padding: 88px clamp(24px, 7vw, 105px) 82px; }
         .capabilities-inner { max-width: 1180px; margin: 0 auto; }
         .capabilities-heading { display: grid; grid-template-columns: 1fr 0.75fr; gap: 40px; align-items: end; margin-bottom: 48px; }
-        .capabilities h2 { font: 600 clamp(48px, 6.1vw, 92px)/0.94 var(--font-serif); letter-spacing: -0.05em; }
+        .capabilities h2 { font: 600 clamp(48px, 6.1vw, 92px)/1.0 var(--font-serif); letter-spacing: -0.05em; }
         .capabilities-intro { color: var(--muted-foreground); font-size: 17px; line-height: 1.6; }
         .capabilities-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
         .capability-card { background: var(--background); border-radius: 16px; padding: 28px; min-height: 280px; display: grid; grid-template-rows: auto 1fr; transition: all 0.18s; position: relative; }
@@ -188,7 +189,7 @@
         /* Section shell */
         .section { padding: 100px clamp(24px, 7vw, 105px); }
         .section-inner { max-width: 1440px; margin: 0 auto; }
-        .section h2.big { font: 600 clamp(48px, 6.1vw, 92px)/0.94 var(--font-serif); letter-spacing: -0.05em; }
+        .section h2.big { font: 600 clamp(48px, 6.1vw, 92px)/1.0 var(--font-serif); letter-spacing: -0.05em; }
 
         /* MOOD section */
         .mood { background: var(--background); }
@@ -230,7 +231,7 @@
         .compass { background: var(--foreground); color: var(--background); padding: 100px clamp(24px, 7vw, 105px); overflow: hidden; }
         .compass-inner { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center; }
         .compass .eyebrow { color: var(--accent); }
-        .compass h2 { font: italic clamp(44px, 5.4vw, 76px)/0.96 var(--font-serif); letter-spacing: -0.04em; margin-bottom: 24px; }
+        .compass h2 { font: italic clamp(44px, 5.4vw, 76px)/1.0 var(--font-serif); letter-spacing: -0.04em; margin-bottom: 24px; }
         .compass h2 em { color: var(--accent); font-style: italic; }
         .compass p { font-size: 17px; line-height: 1.65; color: #c9c7bf; max-width: 460px; margin-bottom: 28px; }
         .compass-list { display: grid; gap: 10px; }
@@ -246,7 +247,7 @@
         .quote-inner { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 80px; align-items: center; }
         .quote-mark { font-size: 200px; line-height: 0.8; color: var(--primary); opacity: 0.3; transform: rotate(-30deg); position: absolute; top: 40px; left: clamp(24px, 7vw, 105px); font-family: Georgia, serif; pointer-events: none; }
         blockquote { position: relative; z-index: 1; }
-        blockquote p { font: 600 clamp(44px, 5vw, 76px)/0.96 var(--font-serif); letter-spacing: -0.04em; margin-bottom: 32px; }
+        blockquote p { font: 600 clamp(44px, 5vw, 76px)/1.02 var(--font-serif); letter-spacing: -0.04em; margin-bottom: 32px; }
         blockquote p em { color: var(--accent); font-style: italic; }
         .quote-source { font-size: 14px; color: var(--muted-foreground); }
         .quote-visual { background: rgba(255,255,255,0.05); border-radius: 16px; padding: 40px; text-align: center; }
@@ -258,7 +259,7 @@
         .signal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center; }
         .signal-visual { width: 100%; aspect-ratio: 16/10; border-radius: 16px; background: linear-gradient(160deg, #faf8f3, #efeae0); border: 1px solid var(--border); padding: 22px; }
         .signal-copy .eyebrow { color: #8eb2ff; }
-        .signal-copy h2 { font: italic 100px/0.4 var(--font-serif); letter-spacing: -0.055em; margin-bottom: 24px; }
+        .signal-copy h2 { font: italic 100px/1.04 var(--font-serif); letter-spacing: -0.055em; margin-bottom: 24px; }
         .signal-copy h2 em { color: var(--primary); font-style: italic; }
         .signal-copy p { font-size: 17px; line-height: 1.6; color: var(--muted-foreground); max-width: 480px; margin-bottom: 32px; }
         .method-list { border-top: 1px solid var(--border); }
@@ -278,7 +279,7 @@
         /* CTA */
         .contact-section { background: var(--secondary); padding: 80px clamp(24px, 7vw, 105px); text-align: center; }
         .contact-inner { max-width: 730px; margin: 0 auto; }
-        .contact-section h2 { font: italic 100px/0.4 var(--font-serif); letter-spacing: -0.055em; margin-bottom: 24px; }
+        .contact-section h2 { font: italic 100px/1.04 var(--font-serif); letter-spacing: -0.055em; margin-bottom: 24px; }
         .contact-section h2 em { color: var(--primary); font-style: italic; }
         .contact-section p { font-size: 17px; line-height: 1.6; color: var(--muted-foreground); margin-bottom: 40px; }
         .contact-actions { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
@@ -325,12 +326,13 @@
         }
         @media (max-width: 640px) {
             .hero { padding: 100px 20px 48px; }
-            .hero-copy h1 { font-size: 42px; line-height: 0.9; }
+            .hero-copy h1 { font-size: 42px; line-height: 1.05; }
             .hero-actions { flex-direction: column; } .button-primary, .button-secondary { width: 100%; }
         }
         @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
-        .fade-in { opacity: 0; transform: translateY(20px); transition: opacity 0.6s ease-out, transform 0.6s ease-out; }
-        .fade-in.visible { opacity: 1; transform: translateY(0); }
+        .fade-in { opacity: 1; }
+        .js .fade-in { opacity: 0; transform: translateY(20px); transition: opacity 0.6s ease-out, transform 0.6s ease-out; }
+        .js .fade-in.visible { opacity: 1; transform: translateY(0); }
 
         /* Live iframe fallback (shown if the live engine isn't reachable) */
         .live-frame { position: relative; }
