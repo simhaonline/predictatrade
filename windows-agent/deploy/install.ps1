@@ -401,52 +401,46 @@ try {
     Write-Host "  WARN: Could not add Defender exclusion (agent may need a manual allow): $_"
 }
 
-# Step 6: Acquire NSSM (service manager — wraps the agent as a Windows service).
-# Prefer an EXISTING nssm on the device (PATH, cached common copy, or already in
-# this role's dir) so we never overwrite/redeploy a working binary. Re-downloading
-# or clobbering nssm on a device that already runs a Master Node + Client Agent is
-# exactly what previously caused service conflicts when both shared one directory.
+# Step 6: Acquire NSSM (service manager — wraps the agent console binary as a
+# Windows service). NSSM is architecture-specific: a wrong-arch nssm.exe fails with
+# "not a valid application for this OS platform". So we ALWAYS fetch the nssm that
+# matches THIS OS and VERIFY it actually runs before trusting it — we never reuse a
+# stale wrong-arch binary left over from a prior install on a different arch.
 Write-Host "[6/9] Acquiring NSSM (service manager)..."
 $is64bit = [Environment]::Is64BitOperatingSystem
-$nssmArch = if ($is64bit) { "nssm/win64/nssm.exe" } else { "nssm/win32/nssm.exe" }
+$nssmPrimary  = if ($is64bit) { "nssm/win64/nssm.exe" } else { "nssm/win32/nssm.exe" }
+$nssmFallback = if ($is64bit) { "nssm/win32/nssm.exe" } else { "nssm/win64/nssm.exe" }
 $nssmDownloaded = $false
 
-function Get-ExistingNssm {
-    $cmd = Get-Command nssm.exe -ErrorAction SilentlyContinue
-    if ($cmd) { return $cmd.Source }
-    $common = "C:\ProgramData\PredictATrade\nssm.exe"
-    if (Test-Path $common) { return $common }
-    return $null
+function Test-NssmRunnable($path) {
+    if (-not (Test-Path $path)) { return $false }
+    try { $null = & $path 2>&1; return $true }
+    catch { return $false }
 }
 
-$existingNssm = Get-ExistingNssm
-if (Test-Path $nssmDest) {
-    Write-Host "  OK: Existing nssm.exe found in install dir — reusing (no download)."
-    $nssmDownloaded = $true
-} elseif ($existingNssm) {
+foreach ($arch in @($nssmPrimary, $nssmFallback)) {
     try {
-        Copy-Item -Path $existingNssm -Destination $nssmDest -Force
+        Invoke-WebRequest -Uri "$RootUrl/$arch" -OutFile $nssmDest -UseBasicParsing -TimeoutSec 60
         Unblock-File -Path $nssmDest -ErrorAction SilentlyContinue
-        $nssmDownloaded = $true
-        Write-Host "  OK: Reused existing nssm.exe from $existingNssm"
     } catch {
-        Write-Host "  WARN: Could not copy existing nssm ($existingNssm): $_"
+        Write-Host "  WARN: NSSM download failed for $arch : $_"
+        continue
+    }
+    if (Test-NssmRunnable $nssmDest) {
+        $nssmDownloaded = $true
+        Write-Host "  OK: Downloaded runnable nssm.exe ($arch)"
+        # Cache a shared copy so the other role / future installs skip the download.
+        try {
+            New-Item -ItemType Directory -Path "C:\ProgramData\PredictATrade" -Force -ErrorAction SilentlyContinue | Out-Null
+            Copy-Item -Path $nssmDest -Destination "C:\ProgramData\PredictATrade\nssm.exe" -Force -ErrorAction SilentlyContinue
+        } catch {}
+        break
+    } else {
+        Write-Host "  WARN: nssm ($arch) is not runnable on this OS — trying alternate arch."
     }
 }
 if (-not $nssmDownloaded) {
-    try {
-        Invoke-WebRequest -Uri "$RootUrl/$nssmArch" -OutFile $nssmDest -UseBasicParsing -TimeoutSec 60
-        Unblock-File -Path $nssmDest -ErrorAction SilentlyContinue
-        if (Test-Path $nssmDest) {
-            $nssmDownloaded = $true
-            Write-Host "  OK: Downloaded nssm.exe"
-            # Cache a shared copy so the other role / future installs skip the download.
-            try { New-Item -ItemType Directory -Path "C:\ProgramData\PredictATrade" -Force -ErrorAction SilentlyContinue | Out-Null
-                  Copy-Item -Path $nssmDest -Destination "C:\ProgramData\PredictATrade\nssm.exe" -Force -ErrorAction SilentlyContinue } catch {}
-        }
-    } catch {
-        Write-Host "  WARN: NSSM download failed: $_"
-    }
+    Write-Host "  WARN: Could not obtain a runnable nssm.exe; service install will attempt native sc.exe fallback."
 }
 
 # nssm cannot run on ARM64; on those machines use native sc.exe/Start-Service
