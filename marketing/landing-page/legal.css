@@ -24,6 +24,12 @@ h3 { margin: 1.5rem 0 .5rem; font-size: 1.25rem; }
 .legal-intro { color: var(--legal-muted); font-size: 1.1rem; line-height: 1.7; }
 .legal-content { font-size: 1rem; line-height: 1.75; }
 .legal-content li { margin: .45rem 0; }
+.legal-content table { border-collapse: collapse; width: 100%; margin: 1.4rem 0; font-size: .95rem; }
+.legal-content th, .legal-content td { border: 1px solid var(--legal-line, #dedbd2); padding: .6rem .8rem; text-align: left; vertical-align: top; }
+.legal-content th { background: #f1efe9; font-weight: 700; }
+.legal-content tr:nth-child(even) td { background: #faf9f5; }
+.legal-content blockquote { border-left: 3px solid var(--legal-accent); margin: 1.4rem 0; padding: .5rem 1.2rem; color: var(--legal-muted); background: #ffffff80; }
+.legal-content p { margin: 1rem 0; }
 .legal-notice { border-left: 3px solid var(--legal-accent); margin: 2rem 0; padding: 1rem 1.25rem; background: #ffffff80; }
 .legal-footer { border-top: 1px solid var(--legal-line); padding: 1.5rem 0 2.5rem; color: var(--legal-muted); font-size: .8rem; }
 .legal-links { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; margin-bottom: 1rem; }

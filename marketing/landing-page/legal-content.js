@@ -22,7 +22,15 @@
     'intellectual-property': ['INTELLECTUAL PROPERTY NOTICE', [['Ownership', '<p>Predict-A-Trade branding, text, software bundle, and media are protected by applicable intellectual-property rights and may belong to Predict-A-Trade or licensors.</p>'], ['Permitted use', '<p>Visitors may view the public website for its intended purpose. Reproduction, commercial reuse, scraping, or reverse engineering requires permission.</p>']]],
     'cookie-settings': ['COOKIE SETTINGS', [['Settings', '<form class="cookie-form" data-cookie-form><fieldset><legend class="legal-kicker">Categories</legend><label class="cookie-option"><input type="checkbox" checked disabled><span><strong>Necessary</strong><p>Required for basic delivery and always enabled.</p></span></label><label class="cookie-option"><input type="checkbox" name="preferences"><span><strong>Preferences</strong><p>Optional local preference storage. No optional feature currently depends on it.</p></span></label><label class="cookie-option"><input type="checkbox" name="analytics"><span><strong>Analytics</strong><p>No analytics provider is currently loaded.</p></span></label><label class="cookie-option"><input type="checkbox" name="marketing"><span><strong>Marketing</strong><p>No marketing technology is currently loaded.</p></span></label><div class="cookie-actions"><button type="submit">Save preferences</button><a class="secondary" href="/legal/cookie-policy/">Read Cookie Policy</a></div><p class="cookie-status" data-cookie-status role="status" aria-live="polite"></p></fieldset></form>']]]
   };
-  const entry = pages[page.dataset.legalPage];
+  const fragmentKeys = new Set(['terms-and-policies', 'privacy-policy', 'complaints', 'cookie-policy', 'cookie-settings']);
+  const key = page.dataset.legalPage;
+  if (fragmentKeys.has(key)) {
+    fetch('/legal/content/' + key + '.html').then(r => { if (!r.ok) throw new Error('nf'); return r.text(); })
+      .then(h => { content.innerHTML = notice + h; })
+      .catch(() => { const e = pages[key]; if (e) content.innerHTML = notice + e[1].map(([hd, bd]) => `<section><h2>${hd}</h2>${bd}</section>`).join(''); });
+    return;
+  }
+  const entry = pages[key];
   if (!entry) return;
   document.title = `Predict-A-Trade ${entry[0]}`;
   content.innerHTML = notice + entry[1].map(([heading, body]) => `<section><h2>${heading}</h2>${body}</section>`).join('');

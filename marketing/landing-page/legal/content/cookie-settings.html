@@ -1,0 +1,111 @@
+<h2>Cookie Settings</h2>
+<p><strong>Predict-A-Trade</strong> — manage your preferences for this browser</p>
+<blockquote>
+<p>Change your choices at any time. Withdrawing consent is as easy as giving it. Your selection is stored in <code>pat_consent</code> and lasts <code>[12 months]</code>.</p>
+</blockquote>
+<hr />
+<h2>Your choices</h2>
+<hr />
+<h3>Strictly necessary — <strong>Always active</strong></h3>
+<p>Required to deliver the Service, keep you signed in, remember your cookie choice, balance traffic and protect against fraud and abuse. These cannot be switched off, because the Service cannot function without them. They do not require your consent.</p>
+<p><strong>What they do:</strong> session and authentication · security and CSRF protection · load balancing · storing this cookie choice · bot detection and rate limiting</p>
+<p><code>[ ] Always enabled</code></p>
+<hr />
+<h3>Preferences — <code>[ ] Off</code> <code>[ ] On</code></h3>
+<p>Optional. Remembers your watchlists, alert thresholds, display settings, dashboard layout, language, currency and time zone, so you do not have to reconfigure on every visit.</p>
+<p><strong>If you turn this off,</strong> the Service still works — you may simply need to re-set your preferences each session.</p>
+<hr />
+<h3>Analytics — <code>[ ] Off</code> <code>[ ] On</code></h3>
+<p>Optional. Helps us understand which features are used, where the Service fails, and what to improve. We aggregate this data and truncate IP addresses where possible.</p>
+<p><strong>Currently loaded:</strong> <code>[NO ANALYTICS PROVIDER IS CURRENTLY LOADED — or name the provider]</code></p>
+<p><strong>If you turn this off,</strong> nothing changes except that we learn less about how to improve the Service.</p>
+<p><strong>In the EEA, UK, Switzerland, Brazil and India this stays off unless you switch it on.</strong> We never enable it by scrolling, browsing or inactivity.</p>
+<hr />
+<h3>Marketing — <code>[ ] Off</code> <code>[ ] On</code></h3>
+<p>Optional. Would be used to measure campaigns and, if we ever advertise, to show relevant ads off-site.</p>
+<p><strong>Currently loaded:</strong> <code>NO MARKETING TECHNOLOGY IS CURRENTLY LOADED</code></p>
+<p>We do not run advertising, retargeting or cross-site tracking. If that ever changes, we will update the <a href="https://predictatrade.com/legal/cookie-policy/">Cookie Policy</a> and ask for your consent <strong>before</strong> anything loads.</p>
+<hr />
+<h3><code>[ ] Global Privacy Control detected</code></h3>
+<p><code>[If your browser is sending a GPC signal, we show this and treat it as an opt-out of analytics and marketing automatically.]</code></p>
+<hr />
+<h2>Buttons</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Accept all</strong></td>
+<td>Enables preferences, analytics and marketing</td>
+</tr>
+<tr>
+<td><strong>Reject all</strong></td>
+<td>Enables strictly necessary only</td>
+</tr>
+<tr>
+<td><strong>Save my choices</strong></td>
+<td>Applies the toggles exactly as set</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Reject all is presented with the same size, colour and prominence as Accept all.</strong> No pre-ticked boxes. No nudging. No cookie wall — you can use the Service whichever you choose.</p>
+<hr />
+<h2>What your choice does</h2>
+<ul>
+<li>It applies to <strong>this browser and device</strong>. Other browsers or devices need their own setting.</li>
+<li>It is stored for <code>[12 months]</code>, after which we ask again so your choice stays current.</li>
+<li><strong>Withdrawing consent is always as easy as giving it</strong> — revisit this page or use the footer link any time.</li>
+<li>Withdrawal stops future processing. It does not undo processing already lawfully carried out.</li>
+<li>Clearing your browser's cookies resets everything to <strong>necessary only</strong>.</li>
+</ul>
+<hr />
+<h2>Browser-level controls</h2>
+<p>You can also manage cookies in your browser:</p>
+<table>
+<thead>
+<tr>
+<th>Browser</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Chrome</td>
+<td>Settings → Privacy and security → Third-party cookies</td>
+</tr>
+<tr>
+<td>Edge</td>
+<td>Settings → Cookies and site permissions</td>
+</tr>
+<tr>
+<td>Firefox</td>
+<td>Settings → Privacy &amp; Security → Cookies and Site Data</td>
+</tr>
+<tr>
+<td>Safari</td>
+<td>Settings → Privacy → Manage Website Data</td>
+</tr>
+<tr>
+<td>Opera</td>
+<td>Settings → Advanced → Privacy &amp; security → Cookies</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Note:</strong> blocking strictly necessary cookies will stop you being able to sign in.</p>
+<hr />
+<h2>Related</h2>
+<ul>
+<li><a href="https://predictatrade.com/legal/cookie-policy/">Cookie Policy</a> — the full list of cookies, providers and lifetimes</li>
+<li><a href="https://predictatrade.com/legal/privacy-policy/">Privacy Policy</a> — how we handle all personal data, and your rights by region</li>
+<li><a href="https://predictatrade.com/legal/complaints/">Complaints Procedure</a> — if you are unhappy with how we handled your choice</li>
+<li><code>predictatrade@gmail.com</code> — questions</li>
+</ul>
+<hr />
+<blockquote>
+<p><strong>Implementation note.</strong> The toggles above must be <strong>wire-framed against real behaviour</strong>, not just documented: optional scripts must not load, and optional cookies must not be written, until the corresponding consent flag is <code>true</code> in <code>pat_consent</code>. Test the "Reject all" path with a clean profile and confirm in devtools that no optional request fires. Regulators in the EEA specifically test for "reject" being honoured in fact rather than in form.</p>
+</blockquote>
+<form class="cookie-form" data-cookie-form><fieldset><legend class="legal-kicker">Categories</legend><label class="cookie-option"><input type="checkbox" checked disabled><span><strong>Necessary</strong><p>Required for basic delivery and always enabled.</p></span></label><label class="cookie-option"><input type="checkbox" name="preferences"><span><strong>Preferences</strong><p>Optional local preference storage. No optional feature currently depends on it.</p></span></label><label class="cookie-option"><input type="checkbox" name="analytics"><span><strong>Analytics</strong><p>No analytics provider is currently loaded.</p></span></label><label class="cookie-option"><input type="checkbox" name="marketing"><span><strong>Marketing</strong><p>No marketing technology is currently loaded.</p></span></label><div class="cookie-actions"><button type="submit">Save preferences</button><a class="secondary" href="/legal/cookie-policy/">Read Cookie Policy</a></div><p class="cookie-status" data-cookie-status role="status" aria-live="polite"></p></fieldset></form>
