@@ -42,8 +42,8 @@ func TestShouldEvaluateOnRejectsNonDecisionTFs(t *testing.T) {
 
 func TestAllStrategiesHaveDecisionTFs(t *testing.T) {
 	strategies := AllStrategies()
-	if len(strategies) != 5 {
-		t.Errorf("Expected 5 strategies, got %d", len(strategies))
+	if len(strategies) != 6 {
+		t.Errorf("Expected 6 strategies, got %d", len(strategies))
 	}
 	for _, s := range strategies {
 		if p, ok := s.(DecisionTFProvider); ok {

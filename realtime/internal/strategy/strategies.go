@@ -1735,8 +1735,11 @@ func AllStrategies() []Strategy {
 		NewStandardSwing(),
 		NewTrendSwing(),
 		NewMarnieFibStrategy(),
+		NewATENStrategy(),
 	}
 }
 
 // Unused import guard
 var _ = time.Now
+
+
