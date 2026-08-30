@@ -150,6 +150,13 @@ $goArch = switch ($rawArch) {
     "x86"   { "386" }
     default { "amd64" }
 }
+# nssm has no ARM64 build. On ARM64 Windows the win64 (amd64) nssm.exe is NOT
+# runnable ("not a valid application for this OS platform"), so we must register
+# the service with the native Service Control Manager instead of nssm.
+$isArm64 = ($rawArch -eq "ARM64" -or $rawArch -eq "ARM")
+if ($isArm64) {
+    Write-Host "[arch] ARM64 detected — nssm unavailable; will use native Windows service registration."
+}
 Write-Host "[arch] Detected Windows architecture: $rawArch → agent build: $goArch"
 
 # ─── Self-elevation ───
@@ -245,8 +252,8 @@ $nssmDest = Join-Path $InstallDir $NssmExe
 $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($svc) {
     if ($svc.Status -eq "Running") {
-        if (Test-Path $nssmDest) { & $nssmDest stop $ServiceName 2>&1 | Out-Null }
-        else { Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue }
+        # Stop-Service works for both nssm-created and native services.
+        Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 3
     }
     Write-Host "  OK: Service stopped"
@@ -423,6 +430,10 @@ if (-not $nssmDownloaded) {
     }
 }
 
+# nssm cannot run on ARM64; on those machines use native sc.exe/Start-Service
+# (the agent binary itself is built for arm64 and runs natively).
+$useNssm = ($nssmDownloaded -and (Test-Path $nssmDest) -and -not $isArm64)
+
 # Step 6b: Download supporting scripts
 Write-Host "[6b/9] Downloading supporting scripts..."
 $supportFiles = @("health-check.ps1", "status.ps1", "notify.ps1")
@@ -455,7 +466,7 @@ Write-Host "[7/9] Preparing clean service slot (creation happens in self-healing
 # Remove old service if it exists
 if ($svc) {
     Write-Host "  Removing old service..."
-    if ($nssmDownloaded -and (Test-Path $nssmDest)) {
+    if $useNssm {
         & $nssmDest stop $ServiceName 2>&1 | Out-Null
         & $nssmDest remove $ServiceName confirm 2>&1 | Out-Null
     }
@@ -489,7 +500,7 @@ for ($round = 1; $round -le 3 -and -not $serviceRunning; $round++) {
     # Recreate the service if it vanished (or sc fallback path didn't register).
     $svcNow = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if (-not $svcNow) {
-        if ($nssmDownloaded -and (Test-Path $nssmDest)) {
+        if $useNssm {
             & $nssmDest install $ServiceName $agentPath $AgentArgs 2>&1 | Out-Null
             & $nssmDest set $ServiceName AppDirectory $InstallDir 2>&1 | Out-Null
             & $nssmDest set $ServiceName AppStdout $stdoutLog 2>&1 | Out-Null
@@ -505,7 +516,7 @@ for ($round = 1; $round -le 3 -and -not $serviceRunning; $round++) {
     }
 
     # Start
-    if ($nssmDownloaded -and (Test-Path $nssmDest)) {
+    if $useNssm {
         & $nssmDest start $ServiceName 2>&1 | Out-Null
     } else {
         try { Start-Service -Name $ServiceName -ErrorAction SilentlyContinue } catch {}
@@ -534,7 +545,7 @@ for ($round = 1; $round -le 3 -and -not $serviceRunning; $round++) {
     Write-Host "  Attempt $round failed — agent log tail:"
     if (Test-Path $AgentLog) { Get-Content $AgentLog -Tail 6 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("      {0}" -f $_) } }
     # Remove a broken service definition so the next round starts clean.
-    if ($nssmDownloaded -and (Test-Path $nssmDest)) { & $nssmDest remove $ServiceName confirm 2>&1 | Out-Null }
+    if $useNssm { & $nssmDest remove $ServiceName confirm 2>&1 | Out-Null }
     sc.exe delete $ServiceName 2>&1 | Out-Null
 }
 
@@ -546,7 +557,7 @@ if (-not $serviceRunning) {
     # grace period, since Defender sometimes releases the file late.
     Start-Sleep -Seconds 5
     Repair-DefenderBlock -Path $agentPath
-    if ($nssmDownloaded -and (Test-Path $nssmDest)) {
+    if $useNssm {
         & $nssmDest start $ServiceName 2>&1 | Out-Null
         Start-Sleep -Seconds 8
     }
@@ -555,7 +566,7 @@ if (-not $serviceRunning) {
         # The last cleanup round may have deleted the service definition —
         # re-register it so future reboots/auto-start work.
         if (-not (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) {
-            if ($nssmDownloaded -and (Test-Path $nssmDest)) {
+            if $useNssm {
                 & $nssmDest install $ServiceName $agentPath $AgentArgs 2>&1 | Out-Null
                 & $nssmDest set $ServiceName AppDirectory $InstallDir 2>&1 | Out-Null
                 & $nssmDest set $ServiceName AppStdout $stdoutLog 2>&1 | Out-Null
