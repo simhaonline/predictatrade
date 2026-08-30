@@ -59,7 +59,7 @@ func NewAgentMesh() *AgentMesh {
 
 func (m *AgentMesh) LiveMarketAgent(price, rsi, adx float64, vedic string, marketClosed bool) *AgentConsensus {
 	prompt := fmt.Sprintf(
-		"You are a XAUUSD trading AI analyst. Live: price %.2f, RSI %.1f, ADX %.1f. Vedic: %s. Give ONLY a bias score -100 to +100. No other text.",
+		"You are a XAUUSD trading AI analyst. Live: price %.2f, RSI %.1f, ADX %.1f. Vedic: %s. Market closed: %t. Give ONLY a bias score -100 to +100. No other text.",
 		price, rsi, adx, vedic, marketClosed)
 	return m.runMesh("live_market", prompt)
 }
