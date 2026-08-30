@@ -66,6 +66,11 @@
         create.textContent = 'Create account';
         create.classList.remove('menu-sign-in');
         create.classList.add('menu-create-account');
+        try {
+          const registerUrl = new URL(login.href);
+          registerUrl.pathname = '/register';
+          create.href = registerUrl.toString();
+        } catch (err) { /* keep cloned href if parsing fails */ }
         const accountActions = document.createElement('div');
         accountActions.className = 'menu-account-actions';
         login.parentNode.insertBefore(accountActions, login);
