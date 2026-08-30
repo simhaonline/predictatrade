@@ -4,6 +4,8 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 type Config struct {
@@ -26,6 +28,10 @@ type Config struct {
 	AccessToken   string
 	RefreshToken  string
 	DeviceSecret  string
+	// AgentWSToken is the shared secret the realtime engine requires on the
+	// agent WebSocket upgrade (X-Agent-Token header or ?token= query param).
+	// It MUST match the engine's AGENT_WS_TOKEN exactly.
+	AgentWSToken string
 }
 
 func LoadConfig() *Config {
@@ -58,7 +64,63 @@ func LoadConfig() *Config {
 		MT4PipeName:    getEnv("PAT_MT4_PIPE", "\\\\.\\pipe\\PredictATradeMT4"),
 		MT5PipeName:    getEnv("PAT_MT5_PIPE", "\\\\.\\pipe\\PredictATradeMT5"),
 		UpdateChannel:  getEnv("PAT_UPDATE_CHANNEL", "STABLE"),
+		AgentWSToken:   resolveAgentWSToken(),
 	}
+}
+
+// resolveAgentWSToken locates the shared AGENT_WS_TOKEN the engine requires on
+// the agent WebSocket upgrade. Precedence:
+//   1. AGENT_WS_TOKEN / PAT_AGENT_WS_TOKEN machine env var
+//   2. windows-agent.env in PAT_DATA_DIR (e.g. C:\ProgramData\PredictATrade)
+//   3. windows-agent.env next to the running binary
+// This lets operators drop a local windows-agent.env instead of setting a
+// machine env var, without embedding the secret in the public installer.
+func resolveAgentWSToken() string {
+	if v := os.Getenv("AGENT_WS_TOKEN"); v != "" {
+		return v
+	}
+	if v := os.Getenv("PAT_AGENT_WS_TOKEN"); v != "" {
+		return v
+	}
+	dataDir := getEnv("PAT_DATA_DIR", `C:\ProgramData\PredictATrade`)
+	candidates := []string{
+		filepath.Join(dataDir, "windows-agent.env"),
+		filepath.Join(exeDir(), "windows-agent.env"),
+	}
+	for _, p := range candidates {
+		if v := readEnvValue(p, "AGENT_WS_TOKEN"); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// exeDir returns the directory containing the running executable.
+func exeDir() string {
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Dir(exe)
+	}
+	return "."
+}
+
+// readEnvValue parses a minimal KEY=VALUE env file and returns the value for key.
+func readEnvValue(path, key string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if i := strings.Index(line, "="); i > 0 {
+			if strings.TrimSpace(line[:i]) == key {
+				return strings.TrimSpace(line[i+1:])
+			}
+		}
+	}
+	return ""
 }
 
 func getEnv(key, fallback string) string {

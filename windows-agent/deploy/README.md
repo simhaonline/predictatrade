@@ -53,6 +53,29 @@ The installer:
 1. **Master Node EA** — attach to an **XAUUSD** chart (data collection; no license required).
 2. **Execution EA** — attach to an **XAUUSD** chart with your license key (places/Closes trades from signals).
 
+### Agent authentication (`AGENT_WS_TOKEN`)
+
+The realtime engine **requires** every agent WebSocket to present the shared
+`AGENT_WS_TOKEN` secret at connection time (upgrade-time gate; a missing or
+mismatched token is rejected with HTTP 401 and the agent shows `OFFLINE`).
+
+Agent **v1.2.45+** reads the token from (in order):
+
+1. Machine env var `AGENT_WS_TOKEN` (or `PAT_AGENT_WS_TOKEN`)
+2. `windows-agent.env` in `%ProgramData%\PredictATrade\`
+3. `windows-agent.env` next to `pat-agent.exe`
+
+Its value **must match the engine's `AGENT_WS_TOKEN`** exactly. Set it and
+restart the service:
+
+```powershell
+[Environment]::SetEnvironmentVariable("AGENT_WS_TOKEN","<your-agent-ws-token>","Machine")
+Restart-Service pat-agent-client   # or pat-agent-master
+```
+
+Or create `%ProgramData%\PredictATrade\windows-agent.env` containing
+`AGENT_WS_TOKEN=<your-agent-ws-token>` and restart the service.
+
 Download the latest EA sources (v1.17.2 MasterAppend fix) from:
 - https://downloads.predictatrade.com/windows-agent/PredictATrade_MasterNode_MT5.mq5
 - https://downloads.predictatrade.com/windows-agent/PredictATrade_MT5.mq5

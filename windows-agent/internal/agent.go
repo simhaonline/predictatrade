@@ -802,7 +802,14 @@ func (a *Agent) connect() error {
 			NextProtos: []string{"http/1.1"},
 		},
 	}
-	conn, _, err := dialer.Dial(url, nil)
+	// P0-RT1: present the shared AGENT_WS_TOKEN to satisfy the engine's
+	// upgrade-time authentication gate (agent_ws.go). Sent as a header so the
+	// secret is never logged in the connection URL.
+	reqHeader := http.Header{}
+	if a.config.AgentWSToken != "" {
+		reqHeader.Set("X-Agent-Token", a.config.AgentWSToken)
+	}
+	conn, _, err := dialer.Dial(url, reqHeader)
 	if err != nil {
 		return err
 	}
