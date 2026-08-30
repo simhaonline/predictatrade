@@ -3,381 +3,1002 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Predict-A-Trade | AI-Powered XAUUSD Trading Intelligence</title>
-    <meta name="description" content="Research-backed XAUUSD trading intelligence with AI analysis, four distinct strategies, and automatic risk management. Try the demo risk-free.">
+    <meta name="theme-color" content="#f6f4ef">
+    <meta name="description" content="Predict-A-Trade: AI-powered XAUUSD market intelligence that sees the signal before the noise. Stop guessing. Start understanding.">
+    <title>Predict-A-Trade — See the signal before the noise</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,500..700,50..100&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
-    <link rel="icon" type="image/png" href="images/favicon.png">
+    <style>
+        /* Exact design system from predictatrade.com */
+        :root {
+            --background: #f6f4ef;
+            --foreground: #171714;
+            --card: #fffefa;
+            --card-foreground: #171714;
+            --primary: #2463ff;
+            --primary-foreground: #f6f4ef;
+            --secondary: #f0ede6;
+            --secondary-foreground: #171714;
+            --muted: #f0ede6;
+            --muted-foreground: #68665e;
+            --accent: #f0a07c;
+            --accent-foreground: #171714;
+            --border: rgba(0,0,0,0.08);
+            --ring: #2463ff;
+            --font-sans: 'Manrope', system-ui, sans-serif;
+            --font-serif: 'Fraunces', Georgia, serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html { scroll-behavior: smooth; overflow-x: hidden; }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--background);
+            color: var(--foreground);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        img { max-width: 100%; height: auto; }
+
+        a { min-height: 44px; display: inline-flex; align-items: center; }
+
+        /* Skip Link */
+        .skip-link {
+            background: var(--foreground);
+            border-radius: 999px;
+            color: var(--background);
+            left: 16px;
+            padding: 10px 15px;
+            position: fixed;
+            top: 10px;
+            transform: translateY(-150%);
+            transition: transform 0.2s;
+            z-index: 100;
+            text-decoration: none;
+        }
+        .skip-link:focus { transform: translateY(0); }
+
+        /* Topbar / Nav */
+        .topbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 50;
+            background: rgba(246, 244, 239, 0.78);
+            backdrop-filter: blur(18px) saturate(145%);
+            -webkit-backdrop-filter: blur(18px) saturate(145%);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .topbar::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--primary), transparent);
+            opacity: 0.3;
+        }
+
+        .nav-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px clamp(24px, 5vw, 76px);
+            max-width: 1440px;
+            margin: 0 auto;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            color: var(--foreground);
+        }
+
+        .brand-mark {
+            height: 28px;
+            width: auto;
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 28px;
+            list-style: none;
+        }
+
+        .nav-links a {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--foreground);
+            text-decoration: none;
+            transition: color 0.18s;
+        }
+
+        .nav-links a:hover { color: var(--primary); }
+
+        .nav-cta {
+            background: var(--primary);
+            color: var(--primary-foreground) !important;
+            padding: 10px 20px;
+            border-radius: 999px;
+            font-weight: 700;
+            transition: transform 0.18s ease-out, box-shadow 0.18s ease-out;
+        }
+
+        .nav-cta:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 24px rgba(36, 99, 255, 0.24);
+        }
+
+        .nav-cta:active { transform: scale(0.97); }
+
+        /* Hero Section */
+        .hero {
+            padding: 160px clamp(24px, 7vw, 105px) 100px;
+            display: grid;
+            grid-template-columns: minmax(0, 0.88fr) minmax(470px, 1.12fr);
+            gap: 60px;
+            align-items: center;
+            max-width: 1440px;
+            margin: 0 auto;
+            min-height: 100vh;
+        }
+
+        .hero-copy h1 {
+            font: italic 100px/0.4 var(--font-serif);
+            letter-spacing: -0.055em;
+            margin-bottom: 32px;
+        }
+
+        .hero-copy h1 em {
+            color: var(--primary);
+            font-style: italic;
+        }
+
+        .hero-lede {
+            font-size: 18px;
+            line-height: 1.6;
+            color: var(--muted-foreground);
+            font-weight: 500;
+            max-width: 480px;
+            margin-bottom: 40px;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .button-primary {
+            display: block;
+            background: var(--primary);
+            color: var(--primary-foreground);
+            padding: 16px 32px;
+            border-radius: 999px;
+            font-weight: 800;
+            font-size: 14px;
+            text-decoration: none;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            transition: transform 0.18s ease-out, box-shadow 0.18s ease-out;
+            border: none;
+            cursor: pointer;
+            text-align: center;
+        }
+
+        .button-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 24px rgba(36, 99, 255, 0.24);
+        }
+
+        .button-primary:active { transform: scale(0.97); }
+
+        .button-secondary {
+            display: block;
+            background: transparent;
+            color: var(--foreground);
+            padding: 16px 32px;
+            border-radius: 999px;
+            font-weight: 800;
+            font-size: 14px;
+            text-decoration: none;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            border: 1px solid var(--foreground);
+            transition: all 0.18s;
+            text-align: center;
+        }
+
+        .button-secondary:hover {
+            background: var(--foreground);
+            color: var(--background);
+        }
+
+        .hero-footnote {
+            margin-top: 40px;
+            font-size: 13px;
+            color: var(--muted-foreground);
+            display: flex;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+
+        .hero-footnote span {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .hero-visual {
+            position: relative;
+        }
+
+        .hero-image {
+            width: 100%;
+            aspect-ratio: 16/10;
+            object-fit: cover;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(23, 23, 20, 0.15);
+        }
+
+        /* Capabilities Section */
+        .capabilities {
+            background: var(--secondary);
+            padding: 88px clamp(24px, 7vw, 105px) 82px;
+        }
+
+        .capabilities-inner {
+            max-width: 1180px;
+            margin: 0 auto;
+        }
+
+        .capabilities-heading {
+            display: grid;
+            grid-template-columns: 1fr 0.75fr;
+            gap: 40px;
+            align-items: end;
+            margin-bottom: 48px;
+        }
+
+        .eyebrow {
+            color: var(--accent);
+            font: 700 11px/1 var(--font-sans);
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            margin-bottom: 14px;
+        }
+
+        .capabilities h2 {
+            font: 600 clamp(48px, 6.1vw, 92px)/0.94 var(--font-serif);
+            letter-spacing: -0.05em;
+        }
+
+        .capabilities-intro {
+            color: var(--muted-foreground);
+            font-size: 17px;
+            line-height: 1.6;
+        }
+
+        .capabilities-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+        }
+
+        .capability-card {
+            background: var(--background);
+            border-radius: 16px;
+            padding: 28px;
+            min-height: 280px;
+            display: grid;
+            grid-template-rows: auto 1fr;
+            transition: all 0.18s;
+            position: relative;
+        }
+
+        .capability-card:hover {
+            background: var(--card);
+            transform: translateY(-4px);
+            box-shadow: 0 14px 28px rgba(23, 23, 20, 0.13);
+        }
+
+        .capability-index {
+            color: var(--muted-foreground);
+            font: 600 11px/1 var(--font-sans);
+            letter-spacing: 0.14em;
+            margin-bottom: 20px;
+        }
+
+        .capability-card h3 {
+            font: 500 24px/0.95 var(--font-serif);
+            letter-spacing: -0.035em;
+            margin-bottom: 12px;
+        }
+
+        .capability-card p {
+            font-size: 14px;
+            line-height: 1.55;
+            color: var(--muted-foreground);
+        }
+
+        /* Psychology Section */
+        .psychology {
+            padding: 100px clamp(24px, 7vw, 105px);
+            max-width: 1440px;
+            margin: 0 auto;
+        }
+
+        .psychology-grid {
+            display: grid;
+            grid-template-columns: 1.1fr 0.9fr 0.9fr;
+            gap: 20px;
+        }
+
+        .psych-card {
+            background: var(--card);
+            border-radius: 16px;
+            padding: 36px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .psych-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--primary);
+        }
+
+        .psych-card.lead {
+            grid-row: span 2;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .psych-card.lead h3 {
+            font: 500 clamp(34px, 5vw, 48px)/1.02 var(--font-serif);
+            letter-spacing: -0.04em;
+            margin-bottom: 24px;
+        }
+
+        .psych-card.lead p {
+            font-size: 17px;
+            line-height: 1.6;
+            color: var(--muted-foreground);
+            max-width: 480px;
+        }
+
+        .psych-card h3 {
+            font: 500 22px/1.35 var(--font-serif);
+            letter-spacing: -0.04em;
+            margin-bottom: 16px;
+        }
+
+        .psych-card p {
+            font-size: 14px;
+            line-height: 1.6;
+            color: var(--muted-foreground);
+        }
+
+        .psych-stat {
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 1px solid var(--border);
+        }
+
+        .psych-stat-number {
+            font: 600 36px/1 var(--font-serif);
+            color: var(--primary);
+        }
+
+        .psych-stat-label {
+            font-size: 12px;
+            color: var(--muted-foreground);
+            margin-top: 4px;
+        }
+
+        /* Quote Section */
+        .quote-section {
+            background: var(--foreground);
+            color: var(--background);
+            padding: 95px clamp(24px, 7vw, 105px) 100px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .quote-inner {
+            max-width: 1440px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1.2fr 0.8fr;
+            gap: 80px;
+            align-items: center;
+        }
+
+        .quote-mark {
+            font-size: 200px;
+            line-height: 0.8;
+            color: var(--primary);
+            opacity: 0.3;
+            transform: rotate(-30deg);
+            position: absolute;
+            top: 40px;
+            left: clamp(24px, 7vw, 105px);
+            font-family: Georgia, serif;
+            pointer-events: none;
+        }
+
+        blockquote {
+            position: relative;
+            z-index: 1;
+        }
+
+        blockquote p {
+            font: 600 clamp(44px, 5vw, 76px)/0.96 var(--font-serif);
+            letter-spacing: -0.04em;
+            margin-bottom: 32px;
+        }
+
+        blockquote p em {
+            color: var(--accent);
+            font-style: italic;
+        }
+
+        .quote-source {
+            font-size: 14px;
+            color: var(--muted-foreground);
+        }
+
+        .quote-visual {
+            background: rgba(255,255,255,0.05);
+            border-radius: 16px;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .quote-signal {
+            font: 500 28px/0.95 var(--font-serif);
+            color: var(--primary);
+            margin-bottom: 16px;
+        }
+
+        .quote-meta {
+            font-size: 14px;
+            color: var(--muted-foreground);
+        }
+
+        /* Signal Section */
+        .signal-section {
+            padding: 80px clamp(24px, 7vw, 105px);
+            max-width: 1440px;
+            margin: 0 auto;
+        }
+
+        .signal-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 60px;
+            align-items: center;
+        }
+
+        .signal-image {
+            width: 100%;
+            aspect-ratio: 16/10;
+            object-fit: cover;
+            border-radius: 16px;
+        }
+
+        .signal-copy .eyebrow {
+            color: #8eb2ff;
+        }
+
+        .signal-copy h2 {
+            font: italic 100px/0.4 var(--font-serif);
+            letter-spacing: -0.055em;
+            margin-bottom: 24px;
+        }
+
+        .signal-copy h2 em {
+            color: var(--primary);
+            font-style: italic;
+        }
+
+        .signal-copy p {
+            font-size: 17px;
+            line-height: 1.6;
+            color: var(--muted-foreground);
+            max-width: 480px;
+            margin-bottom: 32px;
+        }
+
+        .method-list {
+            border-top: 1px solid var(--border);
+        }
+
+        .method-item {
+            padding: 20px 0;
+            border-bottom: 1px solid rgba(23, 23, 20, 0.06);
+            display: grid;
+            grid-template-columns: 40px 1fr;
+            gap: 16px;
+            align-items: start;
+        }
+
+        .method-number {
+            font: 600 11px/1 var(--font-sans);
+            letter-spacing: 0.14em;
+            color: var(--primary);
+            padding-top: 4px;
+        }
+
+        .method-item h4 {
+            font: 600 16px/1.3 var(--font-sans);
+            margin-bottom: 6px;
+        }
+
+        .method-item p {
+            font-size: 14px;
+            line-height: 1.5;
+            color: var(--muted-foreground);
+        }
+
+        /* Contact / CTA Section */
+        .contact-section {
+            background: var(--secondary);
+            padding: 80px clamp(24px, 7vw, 105px);
+            text-align: center;
+        }
+
+        .contact-inner {
+            max-width: 730px;
+            margin: 0 auto;
+        }
+
+        .contact-section h2 {
+            font: italic 100px/0.4 var(--font-serif);
+            letter-spacing: -0.055em;
+            margin-bottom: 24px;
+        }
+
+        .contact-section h2 em {
+            color: var(--primary);
+            font-style: italic;
+        }
+
+        .contact-section p {
+            font-size: 17px;
+            line-height: 1.6;
+            color: var(--muted-foreground);
+            margin-bottom: 40px;
+        }
+
+        .contact-actions {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        /* Risk Banner */
+        .risk-banner {
+            background: var(--foreground);
+            color: var(--muted-foreground);
+            padding: 20px clamp(24px, 7vw, 105px);
+            text-align: center;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .risk-banner strong {
+            color: var(--accent);
+        }
+
+        /* Footer */
+        .site-footer {
+            border-top: 1px solid var(--border);
+            padding: 32px clamp(24px, 5vw, 76px) 24px;
+        }
+
+        .footer-inner {
+            max-width: 1440px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 24px;
+            align-items: center;
+        }
+
+        .footer-brand {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .footer-brand strong {
+            font-size: 13px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .footer-brand span {
+            font-size: 12px;
+            color: var(--muted-foreground);
+        }
+
+        .footer-nav {
+            display: flex;
+            gap: 24px;
+            flex-wrap: wrap;
+            color: var(--muted-foreground);
+            font-size: 12px;
+        }
+
+        .footer-nav a {
+            color: var(--muted-foreground);
+            text-decoration: none;
+            transition: color 0.18s;
+        }
+
+        .footer-nav a:hover { color: var(--foreground); }
+
+        /* Responsive */
+        @media (max-width: 1100px) {
+            .capabilities-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 40px;
+            }
+        }
+
+        @media (max-width: 900px) {
+            .hero {
+                grid-template-columns: 1fr;
+                gap: 32px;
+                padding: 120px 24px 60px;
+                min-height: auto;
+            }
+
+            .hero-visual { order: -1; }
+
+            .hero-copy h1 {
+                font-size: clamp(48px, 10vw, 72px);
+            }
+
+            .capabilities-heading {
+                grid-template-columns: 1fr;
+            }
+
+            .psychology-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .psych-card.lead {
+                grid-row: auto;
+            }
+
+            .quote-inner {
+                grid-template-columns: 1fr;
+                gap: 40px;
+            }
+
+            .signal-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .nav-links { display: none; }
+
+            .footer-inner {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .capabilities-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .contact-section h2,
+            .signal-copy h2 {
+                font-size: clamp(36px, 8vw, 56px);
+            }
+        }
+
+        @media (max-width: 640px) {
+            .hero {
+                padding: 100px 20px 48px;
+            }
+
+            .hero-copy h1 {
+                font-size: 42px;
+                line-height: 0.9;
+            }
+
+            .hero-actions {
+                flex-direction: column;
+            }
+
+            .button-primary, .button-secondary {
+                width: 100%;
+            }
+        }
+
+        /* Animations */
+        @media (prefers-reduced-motion: reduce) {
+            * { transition: none !important; }
+        }
+
+        .fade-in {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+        }
+
+        .fade-in.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
 </head>
 <body>
-    <!-- Risk Warning Banner -->
-    <div class="risk-banner">
-        <p>⚠️ Trading involves substantial risk of loss. Past performance is not indicative of future results.</p>
-    </div>
+    <a class="skip-link" href="#top">Skip to main content</a>
 
     <!-- Navigation -->
-    <nav class="navbar">
-        <div class="container">
-            <a href="/" class="logo">
-                <img src="images/logo.png" alt="Predict-A-Trade" width="40" height="40">
-                <span>Predict-A-Trade</span>
+    <nav class="topbar" role="navigation" aria-label="Main navigation">
+        <div class="nav-inner">
+            <a href="/" class="brand" aria-label="Predict-A-Trade Home">
+                <img src="images/logo.png" alt="Predict-A-Trade" class="brand-mark" height="28">
             </a>
             <ul class="nav-links">
-                <li><a href="#features">Features</a></li>
-                <li><a href="#strategies">Strategies</a></li>
-                <li><a href="#risk">Risk Management</a></li>
-                <li><a href="#demo">Demo</a></li>
-                <li><a href="pages/login.html" class="btn btn-outline">Login</a></li>
+                <li><a href="#capabilities">Intelligence</a></li>
+                <li><a href="#methodology">Methodology</a></li>
+                <li><a href="#psychology">Edge</a></li>
+                <li><a href="#contact">Contact</a></li>
+                <li><a href="https://platform.predictatrade.com" class="nav-cta">Get Started</a></li>
             </ul>
-            <button class="mobile-menu-btn" aria-label="Toggle menu">
-                <span></span>
-                <span></span>
-                <span></span>
-            </button>
         </div>
     </nav>
 
-    <!-- Hero Section -->
-    <section class="hero">
-        <div class="container">
-            <div class="hero-content">
-                <h1>AI-Powered XAUUSD Trading Intelligence</h1>
-                <p class="hero-subtitle">Research-backed analysis. Transparent results. Four distinct strategies.</p>
-                <div class="hero-cta">
-                    <a href="#demo" class="btn btn-primary">Try Free Demo</a>
-                    <a href="#features" class="btn btn-secondary">Learn More</a>
-                </div>
-                <p class="hero-disclaimer">Demo results do not guarantee live trading performance. Trading involves risk.</p>
+    <!-- Hero -->
+    <section id="top" class="hero">
+        <div class="hero-copy">
+            <div class="eyebrow">XAUUSD Market Intelligence</div>
+            <h1>See the signal <em>before</em> the noise.</h1>
+            <p class="hero-lede">
+                The market doesn't care about your emotions. It doesn't care about your fear, your greed, or your last losing trade. But it does leave clues — if you know where to look.
+            </p>
+            <div class="hero-actions">
+                <a href="https://platform.predictatrade.com" class="button-primary">Start Free Demo</a>
+                <a href="#capabilities" class="button-secondary">Explore Intelligence</a>
             </div>
-            <div class="hero-image">
-                <img src="images/hero-dashboard.png" alt="Predict-A-Trade Dashboard" width="800" height="600">
+            <div class="hero-footnote">
+                <span>✓ No credit card required</span>
+                <span>✓ $10,000 virtual funds</span>
+                <span>✓ Full platform access</span>
+            </div>
+        </div>
+        <div class="hero-visual">
+            <img src="images/hero-dashboard.webp" alt="Predict-A-Trade XAUUSD intelligence dashboard" class="hero-image" width="1200" height="750">
+        </div>
+    </section>
+
+    <!-- Capabilities -->
+    <section id="capabilities" class="capabilities">
+        <div class="capabilities-inner">
+            <div class="capabilities-heading">
+                <div>
+                    <div class="eyebrow">01 / Market Intelligence</div>
+                    <h2>Context before the decision.</h2>
+                </div>
+                <p class="capabilities-intro">
+                    Every trading decision is a bet on the future. We don't predict the future — we give you the context to make better bets. Indicators. Structure. Liquidity. Sessions. All working together.
+                </p>
+            </div>
+            <div class="capabilities-grid">
+                <article class="capability-card fade-in">
+                    <div class="capability-index">01</div>
+                    <div>
+                        <h3>Indicators</h3>
+                        <p>EMA, SMA, MACD, RSI, ADX, ATR, Bollinger Bands, Stochastic, CCI, VWAP — the complete technical toolkit, interpreted together.</p>
+                    </div>
+                </article>
+                <article class="capability-card fade-in">
+                    <div class="capability-index">02</div>
+                    <div>
+                        <h3>Market Structure</h3>
+                        <p>Swing highs and lows, Break of Structure, Change of Character — the language of price, decoded.</p>
+                    </div>
+                </article>
+                <article class="capability-card fade-in">
+                    <div class="capability-index">03</div>
+                    <div>
+                        <h3>Liquidity & Zones</h3>
+                        <p>Liquidity pools, Fair Value Gaps, Order Blocks, Breaker Blocks — where smart money hides.</p>
+                    </div>
+                </article>
+                <article class="capability-card fade-in">
+                    <div class="capability-index">04</div>
+                    <div>
+                        <h3>Multi-Timeframe</h3>
+                        <p>M1 through H4 with D1 and W1 context — short-term noise filtered through long-term truth.</p>
+                    </div>
+                </article>
             </div>
         </div>
     </section>
 
-    <!-- Risk Disclosure -->
-    <section class="risk-disclosure">
-        <div class="container">
-            <h2>Important Risk Disclosure</h2>
-            <div class="risk-content">
-                <div class="risk-item">
-                    <h3>Trading Involves Substantial Risk</h3>
-                    <p>Trading leveraged products such as CFDs involves substantial risk of loss and is not suitable for all investors. The value of investments can go down as well as up, and you may lose more than your initial investment.</p>
+    <!-- Psychology Section -->
+    <section id="psychology" class="psychology">
+        <div class="eyebrow" style="text-align: center; margin-bottom: 16px;">02 / The Trading Edge</div>
+        <h2 style="font: 600 clamp(48px, 6.1vw, 92px)/0.94 var(--font-serif); letter-spacing: -0.05em; text-align: center; margin-bottom: 60px;">Master the mind. <br>Master the market.</h2>
+        <div class="psychology-grid">
+            <div class="psych-card lead fade-in">
+                <h3>Every trader fights the same enemy — not the market, but themselves.</h3>
+                <p>
+                    Fear makes you exit too early. Greed makes you hold too long. Revenge trading after a loss? That's your ego, not your strategy. The difference between consistently profitable traders and everyone else isn't a better indicator — it's emotional discipline enforced by a system.
+                </p>
+                <div class="psych-stat">
+                    <div class="psych-stat-number">92%</div>
+                    <div class="psych-stat-label">of retail traders lose money — not because they lack knowledge, but because they lack emotional guardrails</div>
                 </div>
-                <div class="risk-item">
-                    <h3>Past Performance Is Not Indicative of Future Results</h3>
-                    <p>All performance figures shown are historical and do not guarantee future results. Simulated or backtested performance has inherent limitations and does not represent actual trading.</p>
+            </div>
+            <div class="psych-card fade-in">
+                <h3>The FOMO Trap</h3>
+                <p>
+                    You see gold spike $20 while you're in a meeting. You jump in late. The trade reverses. Sound familiar? FOMO isn't a strategy — it's a tax on undisciplined minds.
+                </p>
+                <div class="psych-stat">
+                    <div class="psych-stat-number">$0</div>
+                    <div class="psych-stat-label">is what FOMO trades are worth after costs</div>
                 </div>
-                <div class="risk-item">
-                    <h3>You Should Only Trade With Money You Can Afford to Lose</h3>
-                    <p>Never trade with money you need for essential expenses. Trading is speculative and involves risk of loss.</p>
+            </div>
+            <div class="psych-card fade-in">
+                <h3>The Revenge Cycle</h3>
+                <p>
+                    Loss → Anger → Double size → Bigger loss → Despair. This cycle destroys more accounts than any market crash. The antidote? A system that doesn't care about your feelings.
+                </p>
+                <div class="psych-stat">
+                    <div class="psych-stat-number">3.2x</div>
+                    <div class="psych-stat-label">larger position sizes after a loss — the revenge trading trap</div>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Features Section -->
-    <section id="features" class="features">
-        <div class="container">
-            <h2>Why Predict-A-Trade?</h2>
-            <p class="section-subtitle">We provide tools for smarter trading decisions — not guaranteed profits.</p>
-            
-            <div class="features-grid">
-                <div class="feature-card">
-                    <div class="feature-icon">🎯</div>
-                    <h3>Four Distinct Strategies</h3>
-                    <p>Choose from Standard Scalping, Ultra Scalping, Standard Swing, or Trend Swing — each designed for different trading styles.</p>
-                </div>
-                
-                <div class="feature-card">
-                    <div class="feature-icon">🤖</div>
-                    <h3>AI-Powered Analysis</h3>
-                    <p>Our AI analyzes multiple timeframes and market conditions. It provides probabilistic assessments, not guarantees.</p>
-                </div>
-                
-                <div class="feature-card">
-                    <div class="feature-icon">🛡️</div>
-                    <h3>Automatic Risk Management</h3>
-                    <p>Position sizing, stop-losses, and drawdown protection built in. Rules enforced because emotions can override logic.</p>
-                </div>
-                
-                <div class="feature-card">
-                    <div class="feature-icon">📊</div>
-                    <h3>Transparent Results</h3>
-                    <p>We show all results — wins AND losses. No cherry-picking. Transparency builds trust.</p>
-                </div>
-                
-                <div class="feature-card">
-                    <div class="feature-icon">🔌</div>
-                    <h3>MT4/MT5 Integration</h3>
-                    <p>Signals delivered directly to your trading platform via our Windows Agent. Seamless integration.</p>
-                </div>
-                
-                <div class="feature-card">
-                    <div class="feature-icon">📱</div>
-                    <h3>XAUUSD Live Command Center</h3>
-                    <p>Real-time dashboard with charts, signals, strategy status, and risk controls. Your trading cockpit.</p>
+    <!-- Quote Section -->
+    <section class="quote-section">
+        <span class="quote-mark">"</span>
+        <div class="quote-inner">
+            <blockquote>
+                <p>The market is a <em>device</em> for transferring money from the impatient to the patient.</p>
+                <cite class="quote-source">— Warren Buffett</cite>
+            </blockquote>
+            <div class="quote-visual">
+                <div class="quote-signal">XAUUSD</div>
+                <div class="quote-meta">
+                    Real-time intelligence delivers context when emotion clouds judgment. The signal doesn't panic. Neither should you.
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Strategies Section -->
-    <section id="strategies" class="strategies">
-        <div class="container">
-            <h2>Four Strategies for Different Styles</h2>
-            <p class="section-subtitle">Not all traders are the same. Choose what fits YOUR approach.</p>
-            
-            <div class="strategies-grid">
-                <div class="strategy-card">
-                    <h3>Standard Scalping</h3>
-                    <ul>
-                        <li>Quick entries and exits</li>
-                        <li>Higher frequency</li>
-                        <li>Smaller targets</li>
-                        <li>Best for active traders</li>
-                    </ul>
-                    <p class="strategy-risk">⚠️ Requires frequent monitoring</p>
-                </div>
-                
-                <div class="strategy-card">
-                    <h3>Ultra Scalping</h3>
-                    <ul>
-                        <li>Very short-term moves</li>
-                        <li>Requires tight spreads</li>
-                        <li>Highest frequency</li>
-                        <li>Best for experienced traders</li>
-                    </ul>
-                    <p class="strategy-risk">⚠️ Not for beginners</p>
-                </div>
-                
-                <div class="strategy-card">
-                    <h3>Standard Swing</h3>
-                    <ul>
-                        <li>Medium-term moves</li>
-                        <li>Fewer trades</li>
-                        <li>Larger targets</li>
-                        <li>Best for busy traders</li>
-                    </ul>
-                    <p class="strategy-risk">⚠️ Requires patience</p>
-                </div>
-                
-                <div class="strategy-card">
-                    <h3>Trend Swing</h3>
-                    <ul>
-                        <li>Rides established trends</li>
-                        <li>Widest stops</li>
-                        <li>Targets large moves</li>
-                        <li>Best for patient traders</li>
-                    </ul>
-                    <p class="strategy-risk">⚠️ Can handle drawdowns</p>
-                </div>
-            </div>
-            
-            <p class="strategies-disclaimer">All strategies involve risk. No strategy guarantees profits. Past performance is not indicative of future results.</p>
-        </div>
-    </section>
-
-    <!-- Risk Management Section -->
-    <section id="risk" class="risk-management">
-        <div class="container">
-            <h2>Risk Management Is Everything</h2>
-            <p class="section-subtitle">Why it matters more than your entry signal.</p>
-            
-            <div class="risk-features">
-                <div class="risk-feature">
-                    <h3>Position Sizing</h3>
-                    <p>Never risk more than you can afford. Our platform enforces maximum risk limits automatically.</p>
-                    <div class="risk-math">
-                        <p><strong>The 1% Rule:</strong></p>
-                        <p>Risk 1% per trade → Survive 20 consecutive losses</p>
-                        <p>Risk 5% per trade → Wiped out after 4 losses</p>
+    <!-- Signal / Methodology Section -->
+    <section id="methodology" class="signal-section">
+        <div class="signal-grid">
+            <img src="images/methodology-diagram.webp" alt="Predict-A-Trade analysis methodology" class="signal-image" width="800" height="500">
+            <div class="signal-copy">
+                <div class="eyebrow">03 / Methodology</div>
+                <h2>From chaos to <em>clarity</em>.</h2>
+                <p>
+                    We don't guess. We analyze. Every signal is backed by multi-timeframe evidence, structural context, and liquidity mapping. When the evidence is weak, we say WAIT — because a missed trade is better than a bad one.
+                </p>
+                <div class="method-list">
+                    <div class="method-item">
+                        <span class="method-number">01</span>
+                        <div>
+                            <h4>Multi-Timeframe Analysis</h4>
+                            <p>M1 through H4 with D1/W1 context — every timeframe has a voice, and we listen to all of them.</p>
+                        </div>
+                    </div>
+                    <div class="method-item">
+                        <span class="method-number">02</span>
+                        <div>
+                            <h4>Structure & Liquidity</h4>
+                            <p>Where are the stops? Where are the orders? We map the battlefield before the battle begins.</p>
+                        </div>
+                    </div>
+                    <div class="method-item">
+                        <span class="method-number">03</span>
+                        <div>
+                            <h4>Session Context</h4>
+                            <p>Tokyo, London, New York — each session has its own personality. We trade with the rhythm, not against it.</p>
+                        </div>
+                    </div>
+                    <div class="method-item">
+                        <span class="method-number">04</span>
+                        <div>
+                            <h4>Explainable Signals</h4>
+                            <p>Every signal comes with evidence. You see why we're bullish or bearish — not just a green or red arrow.</p>
+                        </div>
                     </div>
                 </div>
-                
-                <div class="risk-feature">
-                    <h3>Stop-Loss Protection</h3>
-                    <p>Automatic exit if trades go against you. No manual intervention needed.</p>
-                </div>
-                
-                <div class="risk-feature">
-                    <h3>Drawdown Limits</h3>
-                    <p>Maximum drawdown limits to prevent catastrophic losses. Protect your capital.</p>
-                </div>
-            </div>
-            
-            <p class="risk-management-disclaimer">Even with perfect risk management, trading involves risk of loss. Past performance is not indicative of future results.</p>
-        </div>
-    </section>
-
-    <!-- Demo Signup Section -->
-    <section id="demo" class="demo-signup">
-        <div class="container">
-            <h2>Try the Demo — Risk-Free</h2>
-            <p class="section-subtitle">Experience the platform without risking real money.</p>
-            
-            <div class="demo-benefits">
-                <div class="demo-benefit">
-                    <span class="benefit-icon">✓</span>
-                    <span>Full platform access</span>
-                </div>
-                <div class="demo-benefit">
-                    <span class="benefit-icon">✓</span>
-                    <span>Virtual funds (no real money)</span>
-                </div>
-                <div class="demo-benefit">
-                    <span class="benefit-icon">✓</span>
-                    <span>All four strategies available</span>
-                </div>
-                <div class="demo-benefit">
-                    <span class="benefit-icon">✓</span>
-                    <span>No credit card required</span>
-                </div>
-            </div>
-            
-            <form class="signup-form" id="signupForm">
-                <div class="form-group">
-                    <label for="name">Full Name</label>
-                    <input type="text" id="name" name="name" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="email">Email Address</label>
-                    <input type="email" id="email" name="email" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" name="password" required minlength="8">
-                </div>
-                
-                <div class="form-group checkbox-group">
-                    <input type="checkbox" id="terms" name="terms" required>
-                    <label for="terms">I agree to the <a href="pages/terms.html">Terms of Service</a> and <a href="pages/risk-disclosure.html">Risk Disclosure</a></label>
-                </div>
-                
-                <button type="submit" class="btn btn-primary btn-block">Create Demo Account</button>
-            </form>
-            
-            <p class="demo-disclaimer">Demo results do not guarantee live trading performance. Trading involves substantial risk of loss.</p>
-        </div>
-    </section>
-
-    <!-- Testimonials Section -->
-    <section class="testimonials">
-        <div class="container">
-            <h2>What Traders Say</h2>
-            <p class="section-subtitle">Results may vary. Testimonials are not guarantees of future performance.</p>
-            
-            <div class="testimonials-grid">
-                <div class="testimonial-card">
-                    <div class="testimonial-stars">★★★★★</div>
-                    <p class="testimonial-text">"Finally, a platform that's honest about trading results. I'm not getting rich, but I'm learning a lot about risk management."</p>
-                    <p class="testimonial-author">— John D., Demo Trader</p>
-                    <p class="testimonial-disclaimer">Results may vary. Past performance is not indicative of future results.</p>
-                </div>
-                
-                <div class="testimonial-card">
-                    <div class="testimonial-stars">★★★★★</div>
-                    <p class="testimonial-text">"The automatic risk management is a game-changer. I used to over-leverage, now the platform prevents it."</p>
-                    <p class="testimonial-author">— Sarah K., Live Trader</p>
-                    <p class="testimonial-disclaimer">Results may vary. Past performance is not indicative of future results.</p>
-                </div>
-                
-                <div class="testimonial-card">
-                    <div class="testimonial-stars">★★★★☆</div>
-                    <p class="testimonial-text">"Great platform for learning. The demo account let me try everything without risking real money."</p>
-                    <p class="testimonial-author">— Mike R., Demo Trader</p>
-                    <p class="testimonial-disclaimer">Results may vary. Past performance is not indicative of future results.</p>
-                </div>
             </div>
         </div>
     </section>
 
-    <!-- FAQ Section -->
-    <section class="faq">
-        <div class="container">
-            <h2>Frequently Asked Questions</h2>
-            
-            <div class="faq-grid">
-                <div class="faq-item">
-                    <h3>Is this financial advice?</h3>
-                    <p>No. We provide market analysis and educational tools. We do not provide personalized financial advice. Always do your own research.</p>
-                </div>
-                
-                <div class="faq-item">
-                    <h3>Can I lose money?</h3>
-                    <p>Yes. Trading involves substantial risk of loss. You can lose more than your initial investment. Only trade with money you can afford to lose.</p>
-                </div>
-                
-                <div class="faq-item">
-                    <h3>Do guarantees profits?</h3>
-                    <p>No. No platform can guarantee profits. Anyone who says otherwise is misleading you. We provide tools, not guarantees.</p>
-                </div>
-                
-                <div class="faq-item">
-                    <h3>What is the demo account?</h3>
-                    <p>The demo account lets you try the platform with virtual funds. No real money at risk. Demo results do not guarantee live performance.</p>
-                </div>
-                
-                <div class="faq-item">
-                    <h3>How does AI analysis work?</h3>
-                    <p>Our AI analyzes probability distributions across multiple timeframes. It provides probabilistic assessments, not guarantees. Market conditions can change rapidly.</p>
-                </div>
-                
-                <div class="faq-item">
-                    <h3>Is my data secure?</h3>
-                    <p>Yes. We use industry-standard encryption (TLS in transit, AES-256 at rest) and follow security best practices.</p>
-                </div>
+    <!-- Newsletter / CTA -->
+    <section id="contact" class="contact-section">
+        <div class="contact-inner">
+            <div class="eyebrow">04 / Stay Close</div>
+            <h2>Stay close to the <em>signal</em>.</h2>
+            <p>
+                Get occasional market intelligence, platform updates, and trading insights delivered to your inbox. No spam. No hype. Just signal.
+            </p>
+            <div class="contact-actions">
+                <a href="https://platform.predictatrade.com" class="button-primary">Create Free Account</a>
+                <a href="mailto:predictatrade@gmail.com" class="button-secondary">Contact Us</a>
             </div>
         </div>
     </section>
+
+    <!-- Risk Banner -->
+    <div class="risk-banner">
+        <strong>Risk Warning:</strong> Trading leveraged products such as CFDs on gold (XAUUSD) involves substantial risk of loss. 74-89% of retail accounts lose money. Past performance is not indicative of future results. You should only trade with money you can afford to lose.
+    </div>
 
     <!-- Footer -->
-    <footer class="footer">
-        <div class="container">
-            <div class="footer-content">
-                <div class="footer-brand">
-                    <img src="images/logo-white.png" alt="Predict-A-Trade" width="40" height="40">
-                    <p>Research-backed XAUUSD trading intelligence.</p>
-                </div>
-                
-                <div class="footer-links">
-                    <h4>Platform</h4>
-                    <ul>
-                        <li><a href="#features">Features</a></li>
-                        <li><a href="#strategies">Strategies</a></li>
-                        <li><a href="#risk">Risk Management</a></li>
-                        <li><a href="#demo">Demo</a></li>
-                    </ul>
-                </div>
-                
-                <div class="footer-links">
-                    <h4>Legal</h4>
-                    <ul>
-                        <li><a href="pages/terms.html">Terms of Service</a></li>
-                        <li><a href="pages/privacy.html">Privacy Policy</a></li>
-                        <li><a href="pages/risk-disclosure.html">Risk Disclosure</a></li>
-                        <li><a href="pages/cookies.html">Cookie Policy</a></li>
-                    </ul>
-                </div>
-                
-                <div class="footer-links">
-                    <h4>Support</h4>
-                    <ul>
-                        <li><a href="pages/help.html">Help Center</a></li>
-                        <li><a href="pages/contact.html">Contact Us</a></li>
-                        <li><a href="pages/status.html">System Status</a></li>
-                    </ul>
-                </div>
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <div class="footer-brand">
+                <strong>Predict-A-Trade</strong>
+                <span>Explainable XAUUSD market intelligence.</span>
             </div>
-            
-            <div class="footer-legal">
-                <p><strong>Risk Warning:</strong> Trading leveraged products such as CFDs involves substantial risk of loss and is not suitable for all investors. Past performance is not indicative of future results. The value of investments can go down as well as up, and you may lose more than your initial investment. You should only trade with money you can afford to lose.</p>
-                <p>© 2024 Predict-A-Trade. All rights reserved.</p>
+            <div class="footer-nav">
+                <a href="/features/">Features</a>
+                <a href="/risk-disclosure">Risk Disclosure</a>
+                <a href="/privacy">Privacy</a>
+                <a href="/terms">Terms</a>
+                <a href="mailto:predictatrade@gmail.com">Contact</a>
             </div>
         </div>
     </footer>
 
-    <script src="js/main.js"></script>
+    <script>
+        // Intersection Observer for fade-in animations
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+
+        document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function(e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+    </script>
 </body>
 </html>
