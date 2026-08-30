@@ -263,18 +263,38 @@
     </style>
     <section id="proof" class="xsec alt" aria-labelledby="proof-title">
       <div class="xsec-inner">
-        <div class="xsec-kicker">Validation &amp; proof</div>
-        <h2 id="proof-title">Evidence before claims.</h2>
-        <p class="xsec-lead">Every strategy product is validated before it is offered — not claimed after the fact. Full backtest and walk-forward reports are available inside your account, so you can inspect the evidence yourself.</p>
+        <div class="xsec-kicker">Methodology &amp; proof</div>
+        <h2 id="proof-title">Real engineering, not a black box.</h2>
+        <p class="xsec-lead">Predict-A-Trade is built as four cooperating planes — a Go real-time engine, a Python research plane, a NestJS control plane, and a Next.js presentation layer with a lightweight Windows/MQL edge. Below is the genuine method and the discipline we hold it to.</p>
+
+        <h3 style="font:700 18px/1.2 Fraunces,Georgia,serif;margin:28px 0 12px">Strategy products</h3>
         <div class="xcards">
-          <div class="xcard"><h3>Walk-forward validation</h3><p>Each profile is tested out-of-sample across rolling windows, not fitted to one period.</p></div>
-          <div class="xcard"><h3>Cost-aware simulation</h3><p>Spread, slippage, commission and swap are modelled — results reflect real trading cost, not idealised fills.</p></div>
-          <div class="xcard"><h3>Risk-adjusted reporting</h3><p>We report win/loss, R:R, max drawdown and Sharpe — the honest shape of performance, not a single headline number.</p></div>
-          <div class="xcard"><h3>Benchmark context</h3><p>Signals are framed against buy-and-hold and session behaviour so strength is measured, not assumed.</p></div>
-          <div class="xcard"><h3>Calibration &amp; drift</h3><p>Models are recalibrated and monitored for regime drift; stale edges are retired, not hidden.</p></div>
-          <div class="xcard"><h3>Independent by design</h3><p>Explainable outputs show which factors contributed, so nothing is a black box.</p></div>
+          <div class="xcard"><h3>STANDARD_SCALPING</h3><p>M5 decision horizon, 10-minute signal TTL, tight stop-loss. Balanced short-horizon execution.</p></div>
+          <div class="xcard"><h3>ULTRA_SCALPING</h3><p>M1 decision horizon, 5-minute TTL. Higher-frequency, structure-light, strict cost limits.</p></div>
+          <div class="xcard"><h3>STANDARD_SWING</h3><p>H1 decision horizon, 60-minute TTL. Multi-session swing with broader alignment.</p></div>
+          <div class="xcard"><h3>TREND_SWING</h3><p>H4 decision horizon, 240-minute TTL. Trend-following, waits for multi-timeframe confirmation.</p></div>
+          <div class="xcard"><h3>MARNIE_FIB <small>supplementary</small></h3><p>Fibonacci-based confluence profile used to reinforce the primary products.</p></div>
         </div>
-        <p class="xnote">Verified reports are provided to account holders. We do not publish guaranteed returns — <b>NO-TRADE is a valid result.</b></p>
+
+        <h3 style="font:700 18px/1.2 Fraunces,Georgia,serif;margin:28px 0 12px">Signal context</h3>
+        <p class="xsec-lead" style="margin-bottom:14px">Every read combines momentum (EMA 9–200, SMA 50–200, MACD, ADX, RSI, ATR, Stochastic, CCI, Bollinger Bands), market structure (BOS, CHoCH, fractal swings, trend classification), multi-timeframe alignment (M1–D1 weighted scoring, −100 to +100), and context (session detection, liquidity sweeps, FVGs, order blocks, news risk).</p>
+
+        <h3 style="font:700 18px/1.2 Fraunces,Georgia,serif;margin:28px 0 12px">Server-side risk envelope</h3>
+        <div class="xcards">
+          <div class="xcard"><h3>SL/TP enforcement</h3><p>The backend — not the client — verifies EXECUTION_ACK against the server-sent stop, monitors positions for missing SL, and can issue CLOSE_POSITION.</p></div>
+          <div class="xcard"><h3>Emergency controls</h3><p>EMERGENCY_STOP and KILL_SWITCH close all positions and halt; an agent is suspended after 3 SL violations.</p></div>
+          <div class="xcard"><h3>Hard gates</h3><p>Spread, slippage, margin, news, session/rollover, aggregate exposure, net R:R, total cost-to-target, exit geometry and TTL are enforced before any signal is delivered. NO-TRADE is valid.</p></div>
+        </div>
+
+        <h3 style="font:700 18px/1.2 Fraunces,Georgia,serif;margin:28px 0 12px">How we validate (leakage-safe)</h3>
+        <div class="xcards">
+          <div class="xcard"><h3>Frozen, versioned data</h3><p>Dataset provenance and strategy/feature/target/exit/broker-cost versions are frozen before any run.</p></div>
+          <div class="xcard"><h3>No leakage</h3><p>Look-ahead, target leakage and post-outcome filtering are prevented; costs model bid/ask, spread, slippage, commission, latency, carry and missed/partial fills.</p></div>
+          <div class="xcard"><h3>Walk-forward + locked OOS</h3><p>Backtest, walk-forward and locked out-of-sample slices; golden feature tests ensure Go/Python parity.</p></div>
+          <div class="xcard"><h3>Calibrated probability</h3><p>Subscriber-facing probability is calibrated via Brier/ECE/reliability with Wilson sample-sufficiency checks — raw score is never presented as probability.</p></div>
+          <div class="xcard"><h3>Stress &amp; promotion</h3><p>Bootstrap/Monte Carlo/stress, baselines and ablations; promotion only via paper/shadow with drift evidence.</p></div>
+        </div>
+        <p class="xnote">Every profile is configuration-backed, versioned and historically reproducible. We do not publish guaranteed returns, and models cannot self-promote.</p>
       </div>
     </section>
     <section id="pricing" class="xsec" aria-labelledby="pricing-title">
