@@ -1,5 +1,6 @@
 import { Injectable, Inject, Logger, BadRequestException, UnauthorizedException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { Pool } from 'pg';
 import * as crypto from 'crypto';
 import { DB_POOL } from '../../common/database.module';
@@ -26,7 +27,28 @@ export class DeviceAuthService {
   constructor(
     @Inject(DB_POOL) private pool: Pool,
     private config: ConfigService,
+    private jwt: JwtService,
   ) {}
+
+  /**
+   * Mint a short-lived per-device JWT used to authenticate the agent WebSocket
+   * against the realtime engine. The engine verifies it locally with JWT_SECRET
+   * (the same secret this service signs with), so no synchronous cross-service
+   * call is required on the hot path. Each client bootstraps this token from its
+   * own license key at activation — nothing is manually distributed per client.
+   */
+  private mintWsToken(deviceId: string, sessionId?: string, licenseId?: string): string {
+    return this.jwt.sign(
+      {
+        sub: deviceId,
+        typ: 'agent-ws',
+        ...(sessionId ? { sid: sessionId } : {}),
+        ...(licenseId ? { lic: licenseId } : {}),
+      },
+      { expiresIn: '24h' },
+    );
+  }
+
 
   /**
    * Activate a device against a license key.
@@ -194,6 +216,7 @@ export class DeviceAuthService {
         access_token: accessToken,
         access_token_expires_in: 600,
         token_family: tokenFamily,
+        ws_token: this.mintWsToken(deviceId, sessionId, license.id),
         fingerprint_match_score: isNewDevice ? 100 : undefined,
       };
     } catch (err) {
@@ -299,6 +322,7 @@ export class DeviceAuthService {
         access_token: newAccessToken,
         refresh_token: newRefreshToken,
         access_token_expires_in: 600,
+        ws_token: this.mintWsToken(deviceId),
       };
     } catch (err) {
       try { await client.query("ROLLBACK"); } catch (e) { console.error("Rollback failed:", e.message); }
@@ -712,6 +736,7 @@ export interface ActivationResponse {
   access_token: string;
   access_token_expires_in: number;
   token_family: string;
+  ws_token: string;
   fingerprint_match_score?: number;
 }
 
@@ -719,6 +744,7 @@ export interface RefreshResponse {
   access_token: string;
   refresh_token: string;
   access_token_expires_in: number;
+  ws_token: string;
 }
 
 export interface HeartbeatResponse {

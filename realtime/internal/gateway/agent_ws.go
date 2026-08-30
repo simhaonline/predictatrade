@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -348,26 +349,40 @@ func (h *AgentHub) SendFilteredSignalToAgents(eventID, streamID, eventType, prio
 }
 
 func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
-	// P0-RT1 (partial mitigation): shared-token authentication.
-	// When AGENT_WS_TOKEN is configured, agents MUST present it via the
-	// X-Agent-Token header or ?token= query param. Full per-device crypto
-	// identity remains open work (see full-audit.md Batch 2).
-	if expected := os.Getenv("AGENT_WS_TOKEN"); expected != "" {
+	// Agent authentication.
+	//
+	// Preferred: a per-device JWT minted by the control plane at device
+	// activation (device-auth). This requires NO manual token distribution —
+	// each client bootstraps the token from its own license key. The engine
+	// verifies the JWT locally with JWT_SECRET (same secret the control plane
+	// signs with), so no synchronous cross-service call is needed.
+	//
+	// Legacy fallback: an optional shared AGENT_WS_TOKEN (e.g. for the
+	// operator's own non-licensed infrastructure such as a Master data node).
+	authed := false
+	agentID := r.URL.Query().Get("agentId")
+	if sub, ok := agentAuthJWT(r); ok && sub != "" {
+		authed = true
+		agentID = sub // bind connection identity to the verified credential
+	}
+	if !authed && os.Getenv("AGENT_WS_TOKEN") != "" {
 		provided := r.Header.Get("X-Agent-Token")
 		if provided == "" {
 			provided = r.URL.Query().Get("token")
 		}
-		if provided == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
-			http.Error(w, "agent authentication required", http.StatusUnauthorized)
-			return
+		if provided != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(os.Getenv("AGENT_WS_TOKEN"))) == 1 {
+			authed = true
 		}
+	}
+	if !authed {
+		http.Error(w, "agent authentication required", http.StatusUnauthorized)
+		return
 	}
 
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
-	agentID := r.URL.Query().Get("agentId")
 	if agentID == "" {
 		agentID = uuid.New().String()
 	}
@@ -531,4 +546,27 @@ func (h *AgentHub) BroadcastToAllAgents(msgType string, payload interface{}) {
 	}
 	h.mu.RUnlock()
 	log.Printf("[AGENT-WS] Broadcast %s to %d agents", msgType, sent)
+}
+
+// agentAuthJWT extracts and verifies a per-device JWT presented by the agent.
+// Accepts the Bearer Authorization header (preferred) or the ?token= query
+// param (used when a browser/WS client cannot set headers). A raw shared
+// token (not a JWT) is intentionally NOT accepted here — it falls through to
+// the legacy AGENT_WS_TOKEN check.
+func agentAuthJWT(r *http.Request) (string, bool) {
+	var raw string
+	if ah := r.Header.Get("Authorization"); strings.HasPrefix(ah, "Bearer ") {
+		raw = strings.TrimPrefix(ah, "Bearer ")
+	} else if t := r.URL.Query().Get("token"); t != "" {
+		raw = t
+	}
+	if raw == "" {
+		return "", false
+	}
+	// A valid signed JWT yields the subject (device id). Anything else (e.g. a
+	// raw shared secret) fails verification and is rejected here.
+	if sub, err := extractUserIDFromJWT(raw); err == nil && sub != "" {
+		return sub, true
+	}
+	return "", false
 }

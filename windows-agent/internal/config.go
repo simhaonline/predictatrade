@@ -30,8 +30,14 @@ type Config struct {
 	DeviceSecret  string
 	// AgentWSToken is the shared secret the realtime engine requires on the
 	// agent WebSocket upgrade (X-Agent-Token header or ?token= query param).
-	// It MUST match the engine's AGENT_WS_TOKEN exactly.
+	// It MUST match the engine's AGENT_WS_TOKEN exactly. Legacy/operator infra
+	// (e.g. a Master data node) uses this; per-client agents use WSToken instead.
 	AgentWSToken string
+	// WSToken is a per-device JWT minted by the control plane at device
+	// activation. It is bootstrapped from the client's own license key, so no
+	// secret needs to be manually distributed to each client. Preferred over
+	// AgentWSToken when present.
+	WSToken string
 }
 
 func LoadConfig() *Config {

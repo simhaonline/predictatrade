@@ -401,8 +401,33 @@ func (a *Agent) activateDevice(fp *HardwareFingerprint) error {
 	if v, ok := result["access_token"].(string); ok {
 		a.config.AccessToken = v
 	}
+	if v, ok := result["ws_token"].(string); ok {
+		a.config.WSToken = v
+	}
 
 	a.saveDeviceCredentials()
+	return nil
+}
+
+// ensureWsToken bootstraps the per-device WS JWT used to authenticate the
+// agent WebSocket. Each client obtains it from the control plane using its own
+// license key, so no secret is manually distributed. On failure (e.g. a
+// license-less Master data node) it returns an error and the caller falls back
+// to the legacy shared AGENT_WS_TOKEN.
+func (a *Agent) ensureWsToken() error {
+	if a.config.WSToken != "" {
+		return nil
+	}
+	fp, err := CollectFingerprint(a.config.AgentDataDir)
+	if err != nil {
+		return fmt.Errorf("fingerprint collection failed: %w", err)
+	}
+	if err := a.activateDevice(fp); err != nil {
+		return err
+	}
+	if a.config.WSToken == "" {
+		return fmt.Errorf("activation did not return ws_token")
+	}
 	return nil
 }
 
@@ -790,6 +815,14 @@ func (a *Agent) connect() error {
 	url := wsURL + "?agentId=" + a.deviceID + "&agentVersion=" + AgentVersion + "&role=" + a.role
 	log.Printf("Connecting to %s (role=%s)", url, a.role)
 
+	// Bootstrap the per-device WS token (JWT minted by the control plane from
+	// this client's license key). No manual token distribution required. If it
+	// fails (e.g. license-less Master data node), fall back to the legacy
+	// shared AGENT_WS_TOKEN below.
+	if err := a.ensureWsToken(); err != nil {
+		log.Printf("WARN: ws-token bootstrap failed (%v) — will try legacy shared token if configured", err)
+	}
+
 	// CRITICAL: Use a custom dialer that forces HTTP/1.1 via TLS ALPN.
 	// The default dialer allows HTTP/2 negotiation, but HTTP/2 does NOT
 	// support WebSocket upgrades (HTTP 101 Switching Protocols). When nginx
@@ -802,15 +835,21 @@ func (a *Agent) connect() error {
 			NextProtos: []string{"http/1.1"},
 		},
 	}
-	// P0-RT1: present the shared AGENT_WS_TOKEN to satisfy the engine's
-	// upgrade-time authentication gate (agent_ws.go). Sent as a header so the
-	// secret is never logged in the connection URL.
+	// Present the per-device JWT (preferred) or the legacy shared token.
+	// Sent as a header so the secret is never logged in the connection URL.
 	reqHeader := http.Header{}
-	if a.config.AgentWSToken != "" {
+	if a.config.WSToken != "" {
+		reqHeader.Set("Authorization", "Bearer "+a.config.WSToken)
+	} else if a.config.AgentWSToken != "" {
 		reqHeader.Set("X-Agent-Token", a.config.AgentWSToken)
 	}
 	conn, _, err := dialer.Dial(url, reqHeader)
 	if err != nil {
+		// On an auth failure the token may be expired/revoked — clear it so the
+		// next attempt re-bootstraps a fresh one.
+		if strings.Contains(err.Error(), "401") {
+			a.config.WSToken = ""
+		}
 		return err
 	}
 
