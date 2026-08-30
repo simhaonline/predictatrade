@@ -1,5 +1,5 @@
 # Windows Agent Guide
-## v1.2.41 — 29 August 2026
+## v1.2.44 — 30 August 2026
 
 ### Overview
 

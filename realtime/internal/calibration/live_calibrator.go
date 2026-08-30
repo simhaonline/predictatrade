@@ -141,8 +141,8 @@ func (c *LiveCalibrator) runCalibration(ctx context.Context) {
 
 	for strategy, data := range byStrategy {
 		total := data.wins + data.losses
-		if total < 10 {
-			continue // Insufficient samples for meaningful calibration
+		if total < minCalibratedSampleSize {
+			continue // Insufficient samples for meaningful/trustworthy calibration
 		}
 		a, b, ok := fitLogisticCalibration(data.rawScores, data.labels)
 		if !ok {

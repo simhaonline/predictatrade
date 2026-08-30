@@ -1,4 +1,5 @@
 import { extractClientIp, ComplianceService } from './compliance.service';
+import { jest } from '@jest/globals';
 
 describe('IP Extraction (Security)', () => {
   it('uses socket IP for direct connection (no trusted proxy)', () => {

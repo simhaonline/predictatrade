@@ -1,9 +1,12 @@
 import { ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import { jest } from '@jest/globals';
 import { NowPaymentsService } from './nowpayments.service';
+import * as crypto from 'crypto';
 
 function makeService(pool: any) {
   const billingService = { generateInvoiceForSubscription: jest.fn().mockResolvedValue('inv-1') } as any;
-  return new NowPaymentsService(pool, billingService);
+  const commissionsService = { creditReferralForSettledRevenue: jest.fn().mockResolvedValue({ credited: 0 }) } as any;
+  return new NowPaymentsService(pool, billingService, commissionsService);
 }
 
 describe('NowPaymentsService', () => {
@@ -63,7 +66,7 @@ describe('NowPaymentsService', () => {
     it('accepts a valid HMAC-SHA512 signature over the raw JSON body', async () => {
       const secret = 's3cret';
       process.env.NOWPAYMENTS_IPN_SECRET = secret;
-      const crypto = require('crypto');
+      // crypto imported at top (ESM)
       const body = { payment_status: 'confirmed', payment_id: '42', invoice_id: 'INV-7' };
       // NOWPayments signs the RAW request body bytes.
       const rawBody = JSON.stringify(body);
@@ -86,7 +89,7 @@ describe('NowPaymentsService', () => {
 
   describe('handleIPN settlement', () => {
     function sign(body: Record<string, unknown>, secret: string): string {
-      const crypto = require('crypto');
+      // crypto imported at top (ESM)
       // NOWPayments signs the RAW request body bytes.
       const rawBody = JSON.stringify(body);
       return crypto.createHmac('sha512', secret).update(rawBody).digest('hex');
@@ -101,7 +104,7 @@ describe('NowPaymentsService', () => {
       const client = {
         query: jest.fn().mockImplementation((q: any, params?: any[]) => {
           clientQueries.push([q, params]);
-          if (typeof q === 'string' && q.includes('SELECT * FROM billing.payments')) {
+          if (typeof q === 'string' && q.includes('FOR UPDATE')) {
             return Promise.resolve({
               rows: [{ id: 'pay-uuid-1', status: 'PENDING', invoice_id: 'inv-uuid-1', subscription_id: 'sub-uuid-1' }],
             });

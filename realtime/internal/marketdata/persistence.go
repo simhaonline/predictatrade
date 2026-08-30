@@ -487,7 +487,28 @@ func (p *Persister) GetUserAllowedStrategies(ctx context.Context, userID string)
 func (p *Persister) HealthCheck(ctx context.Context) error {
 	ctx2, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
+	if p.db == nil {
+		return fmt.Errorf("no database configured")
+	}
 	return p.db.PingContext(ctx2)
+}
+
+// DBHealth returns a simple, non-panicking health label for the underlying
+// database so HTTP health/readiness endpoints can report DB status without
+// crashing when the engine runs without a database attached.
+//   - "not_configured" — no DB attached (fail-open: engine may run DB-less)
+//   - "down"           — ping failed
+//   - "ok"             — ping succeeded
+func (p *Persister) DBHealth(ctx context.Context) string {
+	if p == nil || p.db == nil {
+		return "not_configured"
+	}
+	ctx2, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if err := p.db.PingContext(ctx2); err != nil {
+		return "down"
+	}
+	return "ok"
 }
 
 func parseFloatSafe(s string) float64 {

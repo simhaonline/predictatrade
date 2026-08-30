@@ -99,6 +99,13 @@ func (c *Consumer) LoadJSONModels(dir string) {
 		if f.OOSAUC < minCalibratedOOSAUC {
 			continue
 		}
+		// Sample-size gate: a model trained on fewer than
+		// minCalibratedSampleSize resolved outcomes cannot be trusted to
+		// surface a calibrated probability to subscribers. Reject it so the
+		// engine reports "no valid probability" rather than a low-sample fit.
+		if f.NSamples < minCalibratedSampleSize {
+			continue
+		}
 		if f.Method == "isotonic" && !binsMonotonic(f.MonotonicBins) {
 			continue
 		}

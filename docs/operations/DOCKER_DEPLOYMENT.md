@@ -1,5 +1,5 @@
 # Docker Deployment Guide
-## v1.17.4 — 30 August 2026
+## v1.18.0 — 30 August 2026
 
 Step-by-step guide to deploy Predict-A-Trade XAUUSD using Docker Compose.
 
@@ -30,7 +30,7 @@ Verify the clone:
 ```bash
 ls docker-compose.yml       # Should exist
 ls realtime/Dockerfile       # Should exist
-ls database/migrations/      # 30+ SQL files
+ls database/migrations/      # 69 SQL files (numbered to 099)
 ```
 
 ---
@@ -114,20 +114,26 @@ Expected: All services show `healthy` or `running`.
 
 ## Step 5 — Apply Database Migrations
 
+> **Migrations are NOT auto-applied.** The Postgres container does **not** run
+> `docker-entrypoint-initdb.d` to apply these files, and you must **never** rewrite or renumber
+> already-applied migration history. Apply forward migrations explicitly with the runner:
+
 ```bash
-# Option A — migrations auto-apply on first postgres start
-# (docker-entrypoint-initdb.d runs all .sql files in order)
+# Canonical — applies only pending migrations, idempotent, never rewrites history
+./scripts/migrate.sh up
 
-# Option B — manual migration
-for f in database/migrations/*.sql; do
-  docker exec -i pat-postgres psql -U pat_admin -d predictatrade < "$f"
-  echo "Applied: $f"
-done
+# Or, inside the stack (use the migrate runner, do not hand-loop raw .sql):
+docker compose --env-file infra/env/.env exec realtime ./scripts/migrate.sh up
 
-# Verify migration count
+# Verify applied migration count (do NOT re-run raw .sql files manually)
 docker exec pat-postgres psql -U pat_admin -d predictatrade \
   -c "SELECT COUNT(*) FROM audit.migration_history;"
 ```
+
+> **Why not `for f in database/migrations/*.sql; do psql < "$f"; done`?** Hand-looping raw files
+> bypasses the migration ledger, can double-apply or partially apply, and risks rewriting history.
+> Always use `./scripts/migrate.sh up` (or the compose-exec equivalent). Current migration set:
+> **69 files** in `database/migrations/` (numbered to 099), all applied to the live DB.
 
 ---
 

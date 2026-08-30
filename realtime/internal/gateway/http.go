@@ -241,9 +241,25 @@ func (h *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if haltActive {
 		status = "HALTED"
 	}
+	// DB awareness (MACRO_AUDIT 2.9): reflect configured persister/DB health
+	// without crashing when no database is attached.
+	dbStatus := "not_configured"
+	if h.persister != nil {
+		dbStatus = h.persister.DBHealth(r.Context())
+	}
+	cacheStatus := "not_configured"
+	if h.valkeyCache != nil {
+		if err := h.valkeyCache.Ping(); err != nil {
+			cacheStatus = "down"
+		} else {
+			cacheStatus = "ok"
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":        status,
+		"db":            dbStatus,
+		"cache":         cacheStatus,
 		"emergency_halt": map[string]interface{}{
 			"active":   haltActive,
 			"level":    haltLevel,
@@ -273,20 +289,28 @@ func timeModeLabel(brokerOff int) string {
 func (h *HTTPServer) handleReady(w http.ResponseWriter, r *http.Request) {
 	ready := true
 	reason := ""
+	dbStatus := "not_configured"
 	if h.persister != nil {
-		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-		defer cancel()
-		if err := h.persister.HealthCheck(ctx); err != nil {
+		dbStatus = h.persister.DBHealth(r.Context())
+		if dbStatus == "down" {
 			ready = false
 			reason = "database_unavailable"
 		}
 	}
+	cacheStatus := "not_configured"
+	if h.valkeyCache != nil {
+		if err := h.valkeyCache.Ping(); err != nil {
+			cacheStatus = "down"
+		} else {
+			cacheStatus = "ok"
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if ready {
-		json.NewEncoder(w).Encode(map[string]interface{}{"ready": true})
+		json.NewEncoder(w).Encode(map[string]interface{}{"ready": true, "db": dbStatus, "cache": cacheStatus})
 	} else {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]interface{}{"ready": false, "reason": reason})
+		json.NewEncoder(w).Encode(map[string]interface{}{"ready": false, "db": dbStatus, "cache": cacheStatus, "reason": reason})
 	}
 }
 

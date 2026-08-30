@@ -1,7 +1,6 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Pool } from 'pg';
 import { DB_POOL } from '../../common/database.module';
-import { CommissionsService } from '../commissions/commissions.service';
 
 export interface HealthServiceStatus {
   service: string;
@@ -18,7 +17,6 @@ export class AdminService {
 
   constructor(
     @Inject(DB_POOL) private pool: Pool,
-    private commissionsService: CommissionsService,
   ) {}
 
   /** System overview with real statistics from the database. */
@@ -360,24 +358,16 @@ export class AdminService {
       [id, JSON.stringify({ actor_id: actorId, user_id: userId })],
     );
 
-    // Credit referral commission to the referrer of the license owner (idempotent).
-    try {
-      const commissionable =
-        plan.billing_interval === 'ANNUAL'
-          ? Number(plan.annual_price)
-          : Number(plan.monthly_price);
-      if (commissionable > 0) {
-        await this.commissionsService.creditReferralForLicense(
-          userId,
-          planId,
-          id,
-          commissionable,
-          plan.currency || 'USD',
-        );
-      }
-    } catch (err) {
-      this.logger.error(`Referral commission credit failed for license ${id}: ${err?.message || err}`);
-    }
+    // ─── COMMISSION CREDIT: NOT triggered on license assignment (audit 2.4) ───
+    // Referral commission must be credited ONLY from VALIDATED revenue — i.e. a
+    // NOWPayments payment that has been settled AND amount-verified in
+    // NowPaymentsService.handleIPN -> CommissionsService.creditReferralForSettledRevenue.
+    // Crediting merely because a license was assigned would fabricate commission
+    // on money that may never be paid. The canonical trigger point therefore lives
+    // in the settlement webhook, not here.
+    // TODO(CONTROL-PLANE): if a new validated-revenue path is added, it must call
+    // creditReferralForSettledRevenue with the settled payment id — never credit
+    // from license assignment. No commission is credited in this method.
 
     return r.rows[0];
   }

@@ -101,19 +101,15 @@ services:
       # Dedicated listener for the data-only Master Node agent (separate from
       # the execution-agent listener so data-collection uptime is isolated).
       - AGENT_DATA_PORT=13091
-      # Paper-equity fallback used only when the connected broker reports no live
-      # equity (demo/paper). Lets risk-sizing gates pass so entitled+authorized
-      # signals become executable. Ignored when a real broker equity is present.
-      - PAT_PAPER_EQUITY=10000
-      # Demo/paper position caps. In production these are enforced against REAL
-      # broker open positions reported by the Client Agent. Here (no broker
-      # position feed yet) the gate falls back to a TTL-issued-signal counter, so
-      # the defaults (1/2/1) saturate instantly and veto every signal. Raised for
-      # the demo so EXECUTABLE signals can flow until the Client Agent forwards
-      # account_info + positions (see Master EA snapshot).
-      - MAX_PER_STRATEGY_POSITIONS=6
-      - MAX_TOTAL_POSITIONS=12
-      - MAX_SAME_DIRECTION_POSITIONS=3
+      # NOTE (v1.15.0 / MACRO_AUDIT 2.5): PAT_PAPER_EQUITY and the raised demo
+      # position caps were REMOVED. In production, executable arming must gate on
+      # VERIFIED broker equity/positions (Client Agent feed), NOT a seeded paper
+      # constant. Until that feed exists the risk gates fail closed (veto), which
+      # is the correct NO-GO-safe behavior. Set broker-backed caps here only after
+      # the Client Agent forwards account_info + positions.
+      - MAX_PER_STRATEGY_POSITIONS=1
+      - MAX_TOTAL_POSITIONS=2
+      - MAX_SAME_DIRECTION_POSITIONS=1
       # Optional: uncomment to decouple inbound agent data from the signal engine
       # via NATS (the `nats` service above must be running).
       # - NATS_URL=nats://nats:4222
@@ -180,7 +176,10 @@ services:
       - BACKTEST_DB_URL=${BACKTEST_DB_URL}
       - PAT_RESEARCH_SRC=/app/research/src
     ports:
-      - "8088:8088"
+      # MACRO_AUDIT 2.3: bind to localhost only; the public qr.predictatrade.com
+      # proxy (nginx/sites-available/qr-temp.conf) was removed. The control-plane
+      # backtest API already enforces JWT + user_id scoping.
+      - "127.0.0.1:8088:8088"
     depends_on:
       postgres:
         condition: service_healthy
@@ -286,7 +285,9 @@ services:
     environment:
       SMTP_LISTEN: ":587"
       SMTP_TLS_LISTEN: ":465"
-      SMTP_USERS: "${PAT_MAIL_USERS:-no-reply@predictatrade.com:5imhA#2026}"
+      # SEC-1: no committed default password. PAT_MAIL_USERS must be supplied via
+      # infra/env/*.env (gitignored) in the form "user:password".
+      SMTP_USERS: "${PAT_MAIL_USERS}"
       ALLOWED_FROM_DOMAINS: "predictatrade.com"
       MAIL_DOMAIN: "pat.predictatrade.com"
       DKIM_SELECTOR: "pat1"

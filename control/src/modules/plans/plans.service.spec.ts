@@ -1,4 +1,5 @@
 import { PlansService } from './plans.service';
+import { jest } from '@jest/globals';
 
 describe('PlansService', () => {
   it('returns configured fees and effective referral rates without rewriting plan rows', async () => {

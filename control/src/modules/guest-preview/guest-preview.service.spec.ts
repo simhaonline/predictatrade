@@ -15,6 +15,7 @@
  */
 
 import * as crypto from 'crypto';
+import { jest } from '@jest/globals';
 import { GuestPreviewService } from './guest-preview.service';
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 

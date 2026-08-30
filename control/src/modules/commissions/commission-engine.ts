@@ -50,7 +50,7 @@ export interface PurchaseRuleSnapshot {
 
 export interface CommissionInput {
   planId: string;
-  commissionableAmount: number;
+  commissionableAmount: number | string;
   paymentNumber: number;
   sponsorChain: string[]; // [L1 userId, L2 userId, ...]
   sourceUserId: string;

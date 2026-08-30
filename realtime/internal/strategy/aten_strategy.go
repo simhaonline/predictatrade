@@ -40,6 +40,12 @@ func (s *ATENStrategy) Evaluate(state *features.MarketState) StrategyResult {
 	now := time.Now().UTC()
 	at := astro.Compute(now, false)
 
+	// NOTE (MACRO_AUDIT 2.10): Astro/ATEN inputs are DERIVED, non-market
+	// computed values (Vedic/Western ephemeris approximations), NOT authoritative
+	// market truth. Every astro-derived evidence contribution below is labeled
+	// QualityDerived — never QualityAuthoritative — so dashboards, reconciliation
+	// and subscribers cannot mistake astro output for verified market data.
+
 	// ─── VETO: closed market, eclipse, apocalypse, contamination ───
 	if !at.EligibleForTrade {
 		result.Direction = types.DirectionNoTrade
@@ -59,16 +65,16 @@ func (s *ATENStrategy) Evaluate(state *features.MarketState) StrategyResult {
 	// Evidence: Nakshatra
 	evidence := &result.Evidence
 	addEvidence(evidence, "DI_NAKSHATRA", at.Vedic.NakshatraName+", pada "+itoa(at.Vedic.Pada),
-		dirFromF(nakBias), 30, math.Abs(nakBias)*0.3, types.QualityAuthoritative, at.Vedic.NakshatraName)
+		dirFromF(nakBias), 30, math.Abs(nakBias)*0.3, types.QualityDerived, at.Vedic.NakshatraName)
 	addEvidence(evidence, "DI_HORA", at.Vedic.HoraLord+" hora",
-		dirFromF(horaBias), 20, math.Abs(horaBias)*0.2, types.QualityAuthoritative, at.Vedic.HoraLord)
+		dirFromF(horaBias), 20, math.Abs(horaBias)*0.2, types.QualityDerived, at.Vedic.HoraLord)
 	addEvidence(evidence, "DI_DASHA", at.Vedic.DashaL1+"/"+at.Vedic.DashaL2,
-		dirFromF(vedicCombined), 50, vedicCombined*0.5, types.QualityAuthoritative, at.Vedic.DashaL1)
+		dirFromF(vedicCombined), 50, vedicCombined*0.5, types.QualityDerived, at.Vedic.DashaL1)
 
 	// ─── Western aspects ──
 	westernScore := at.Western.TotalScore
 	addEvidence(evidence, "WESTERN_ASTRO", "Gold natal transits",
-		dirFromF(westernScore), 28, westernScore*0.28, types.QualityAuthoritative, "")
+		dirFromF(westernScore), 28, westernScore*0.28, types.QualityDerived, "")
 
 	// ─── Composite score ──
 	composite := vedicScore*0.42 + westernScore*0.28 + at.CompositeScore*0.30
@@ -115,7 +121,7 @@ func (s *ATENStrategy) Evaluate(state *features.MarketState) StrategyResult {
 
 	// Composite consensus evidence
 	addEvidence(evidence, "CONSENSUS", "ATEN composite score",
-		dirFromF(composite), 30, composite*0.30, types.QualityAuthoritative, fmt.Sprintf("%.1f", composite))
+		dirFromF(composite), 30, composite*0.30, types.QualityDerived, fmt.Sprintf("%.1f", composite))
 
 	return result
 }

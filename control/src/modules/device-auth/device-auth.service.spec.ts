@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { DeviceAuthService } from './device-auth.service';
+import { jest } from '@jest/globals';
 import { UnauthorizedException, ConflictException, NotFoundException } from '@nestjs/common';
 import * as crypto from 'crypto';
 
@@ -206,7 +207,7 @@ describe('DeviceAuthService HMAC Verification', () => {
 
   beforeEach(() => {
     pool = { connect: jest.fn(), query: jest.fn() };
-    service = new (require('./device-auth.service').DeviceAuthService)(pool, { get: (k: string) => process.env[k] ?? 'pat_local_dev_secret_change_in_production' } as any);
+    service = new DeviceAuthService(pool, { get: (k: string) => process.env[k] ?? 'pat_local_dev_secret_change_in_production' } as any);
   });
 
   describe('verifyRequestSignature', () => {
@@ -244,7 +245,6 @@ describe('DeviceAuthService HMAC Verification', () => {
     }
 
     function computeValidSignature(secret: string, version: string, ts: string, nonce: string, method: string, path: string, bodyHash: string, deviceId: string): string {
-      const crypto = require('crypto');
       const canonical = `${version}\n${ts}\n${nonce}\n${method.toUpperCase()}\n${path}\n${bodyHash}\n${deviceId}`;
       return crypto.createHmac('sha256', secret).update(canonical).digest('hex');
     }

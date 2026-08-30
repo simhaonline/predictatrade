@@ -1,4 +1,5 @@
 import { planPolicyFromRow, validateStrategySelection } from './entitlement-policy';
+import { jest } from '@jest/globals';
 
 const FOUR = ['STANDARD_SCALPING', 'ULTRA_SCALPING', 'STANDARD_SWING', 'TREND_SWING'];
 const ALL = [...FOUR, 'MARNIE_FIB'];

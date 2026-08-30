@@ -1,6 +1,7 @@
 // Commission Engine Tests — SOW Section 69.33 Acceptance Criteria
 // These tests verify the CRITICAL second-payment L1-only rule.
 import { CommissionEngine, CommissionInput, CommissionResult } from './commission-engine';
+import { jest } from '@jest/globals';
 
 describe('CommissionEngine', () => {
   let engine: CommissionEngine;

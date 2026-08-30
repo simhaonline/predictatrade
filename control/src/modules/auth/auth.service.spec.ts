@@ -15,6 +15,7 @@
  */
 
 import { AuthService } from './auth.service';
+import { jest } from '@jest/globals';
 import { UnauthorizedException, BadRequestException } from '@nestjs/common';
 
 describe('AuthService Security', () => {

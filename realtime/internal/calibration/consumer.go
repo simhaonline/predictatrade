@@ -44,8 +44,18 @@ func (c *Consumer) SetModel(model *CalibrationModel) {
 
 // minCalibratedOOSAUC is the floor a calibration model must meet (along with
 // monotonicity) before it is promoted to VALIDATED and allowed to surface a
-// probability to subscribers. Anything below this is treated as not-yet-trustworthy.
-const minCalibratedOOSAUC = 0.5
+// probability to subscribers. The previous 0.5 floor admitted coin-flip models;
+// 0.52 is the minimum honest out-of-sample discriminative bar for live promotion
+// (a 37-sample model that previously slipped through is now rejected by the
+// sample-size gate below as well).
+const minCalibratedOOSAUC = 0.52
+
+// minCalibratedSampleSize is the minimum number of resolved outcomes a
+// calibration model must be trained on before it is promoted to VALIDATED
+// and allowed to surface a probability to subscribers. Small-sample fits are
+// statistically untrustworthy and must not reach a subscriber as a calibrated
+// probability (BE-5 / MACRO_AUDIT 2.6).
+const minCalibratedSampleSize = 100
 
 // Calibrate converts a raw score (0-100) to a calibrated probability (0-1).
 // SOW Section 16: calibrated_probability = sigmoid(a * (raw_score/100) + b)

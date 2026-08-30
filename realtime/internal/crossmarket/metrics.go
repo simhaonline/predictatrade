@@ -7,26 +7,10 @@ import (
 
 // Prometheus metrics for the Cross-Market Confluence Engine.
 var (
-	MacroEngineUpdates = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "macro_engine_updates_total",
-		Help: "Total cross-market engine driver updates",
-	}, []string{"driver"})
-
-	MacroEngineErrors = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "macro_engine_errors_total",
-		Help: "Total cross-market engine errors",
-	}, []string{"component"})
-
 	MacroDataAge = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "macro_data_age_seconds",
 		Help: "Age of macro data in seconds",
 	}, []string{"driver"})
-
-	MacroProviderLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "macro_provider_latency_ms",
-		Help:    "Provider latency in milliseconds",
-		Buckets: []float64{50, 100, 250, 500, 1000, 2500, 5000},
-	}, []string{"provider"})
 
 	MacroScore = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "macro_score",
@@ -43,11 +27,6 @@ var (
 		Help: "Cross-market data quality (0=missing, 1=connected)",
 	})
 
-	MacroCorrelation = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "macro_correlation",
-		Help: "Rolling correlation between XAU and macro asset",
-	}, []string{"pair"})
-
 	MacroRegime = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "macro_regime",
 		Help: "Current macro regime (encoded as number)",
@@ -58,25 +37,11 @@ var (
 		Help: "Score adjustment applied to signal (0 in shadow mode)",
 	})
 
-	MacroDivergenceTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "macro_divergence_total",
-		Help: "Total divergence detections",
-	}, []string{"severity"})
-
 	MacroProviderUp = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "macro_provider_up",
 		Help: "Provider health (1=up, 0=down)",
 	}, []string{"provider"})
 
-	MacroSignalConfirmations = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "macro_signal_confirmations_total",
-		Help: "Signals confirmed by macro evidence",
-	}, []string{"strategy"})
-
-	MacroSignalConflicts = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "macro_signal_conflicts_total",
-		Help: "Signals conflicting with macro evidence",
-	}, []string{"strategy"})
 )
 
 // RecordMetrics updates Prometheus metrics from a confluence result.

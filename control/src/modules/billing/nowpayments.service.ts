@@ -10,7 +10,9 @@ import {
 import { Pool } from 'pg';
 import { DB_POOL } from '../../common/database.module';
 import { BillingService } from './billing.service';
+import { CommissionsService } from '../commissions/commissions.service';
 import * as crypto from 'crypto';
+import Decimal from 'decimal.js';
 
 const NOWPAYMENTS_API_BASE = 'https://api.nowpayments.io/v1';
 const SETTLED_STATUSES = new Set(['finished', 'confirmed']);
@@ -40,6 +42,7 @@ export class NowPaymentsService {
   constructor(
     @Inject(DB_POOL) private pool: Pool,
     private billingService: BillingService,
+    private commissionsService: CommissionsService,
   ) {}
 
   async createInvoice(
@@ -68,8 +71,11 @@ export class NowPaymentsService {
     if (interval === 'ANNUAL' && p.annual_price === null) {
       throw new BadRequestException('Annual billing is not available for this plan');
     }
-    const price = Number(interval === 'ANNUAL' ? p.annual_price : p.monthly_price);
-    if (!Number.isFinite(price) || price <= 0) {
+    // Exact-decimal read of the plan price (audit 2.4). `price` is used as both
+    // the gateway payload amount and the stored payment amount, so it is kept as a
+    // Decimal and converted to a number/string only at the external boundary.
+    const price = new Decimal(interval === 'ANNUAL' ? p.annual_price : p.monthly_price);
+    if (!price.isFinite() || price.lte(0)) {
       throw new BadRequestException('Plan does not require payment');
     }
 
@@ -110,7 +116,7 @@ export class NowPaymentsService {
         method: 'POST',
         headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          price_amount: price,
+          price_amount: price.toNumber(),
           price_currency: 'usd',
           pay_currency: 'usdt',
           order_id: orderId,
@@ -142,7 +148,7 @@ export class NowPaymentsService {
        VALUES ($1,$2,$3,'nowpayments',$4,$4,$5,'USD','SUBSCRIPTION','PENDING')
        ON CONFLICT (provider, provider_payment_id) WHERE provider_payment_id IS NOT NULL
        DO NOTHING`,
-      [userId, subscriptionId, invoiceId, providerInvoiceId, price],
+      [userId, subscriptionId, invoiceId, providerInvoiceId, price.toString()],
     );
     await this.pool.query(
       `UPDATE billing.invoices SET provider_invoice_id = $2, provider_hosted_url = $3, updated_at = now()
@@ -224,16 +230,30 @@ export class NowPaymentsService {
     );
     const paymentPrecheck = pay.rows[0];
     if (paymentPrecheck) {
-      const expected = Number(paymentPrecheck.amount ?? 0) || Number(paymentPrecheck.invoice_total ?? 0) || 0;
+      // Exact-decimal money math (audit 2.4): no floating-point arithmetic on
+      // settlement amounts. `expected` falls back to the invoice total only when
+      // the payment amount is absent/zero.
+      const expected = new Decimal(paymentPrecheck.amount ?? 0).gt(0)
+        ? new Decimal(paymentPrecheck.amount ?? 0)
+        : new Decimal(paymentPrecheck.invoice_total ?? 0);
       const actualCandidates = [
         record.actually_paid, record.price_paid, record.pay_amount,
         record.actually_paid_in_usd, record.price_amount_paid,
-      ].map(Number).filter((v) => Number.isFinite(v) && v > 0);
-      const tolerancePct = Number(process.env.NOWPAYMENTS_UNDERPAY_TOLERANCE_PCT || '2');
-      if (expected > 0 && actualCandidates.length > 0) {
-        const actual = Math.max(...actualCandidates);
-        const minOk = expected * (1 - (Number.isFinite(tolerancePct) ? tolerancePct : 2) / 100);
-        if (actual + 1e-9 < minOk) {
+      ]
+        .map((v) => new Decimal(v == null ? 0 : (v as number | string)))
+        .filter((d) => d.gt(0));
+      const tolerancePct = new Decimal(
+        Number.isFinite(Number(process.env.NOWPAYMENTS_UNDERPAY_TOLERANCE_PCT))
+          ? process.env.NOWPAYMENTS_UNDERPAY_TOLERANCE_PCT
+          : '2',
+      );
+      if (expected.gt(0) && actualCandidates.length > 0) {
+        const actual = actualCandidates.reduce(
+          (max, d) => (d.gt(max) ? d : max),
+          new Decimal(0),
+        );
+        const minOk = expected.minus(expected.times(tolerancePct).div(100));
+        if (actual.plus(new Decimal('1e-9')).lt(minOk)) {
           // Underpaid — record, notify-log, do NOT settle; idempotent via
           // payment_events dedupe above (the UNDERPAID transition is one-shot
           // guarded by the payments.status <> 'UNDERPAID' case below).
@@ -245,10 +265,10 @@ export class NowPaymentsService {
           await this.pool.query(
             `INSERT INTO audit.audit_events (actor_type, action, entity_type, entity_id, reason, new_value)
              VALUES ('system', 'billing.nowpayments.underpaid', 'payment', $1, $2, $3::jsonb)`,
-            [paymentPrecheck.id, `Underpaid: got ${actual} USD, expected >= ${minOk} USD`,
-             JSON.stringify({ gateway_payment_ref: gatewayPaymentRef, actual, expected })],
+            [paymentPrecheck.id, `Underpaid: got ${actual.toString()} USD, expected >= ${minOk.toString()} USD`,
+             JSON.stringify({ gateway_payment_ref: gatewayPaymentRef, actual: actual.toString(), expected: expected.toString() })],
           );
-          this.logger.warn(`IPN underpaid: ${actual} < ${minOk} USD for ${gatewayPaymentRef} — NOT settling`);
+          this.logger.warn(`IPN underpaid: ${actual.toString()} < ${minOk.toString()} USD for ${gatewayPaymentRef} — NOT settling`);
           return { received: true, status: 'underpaid' };
         }
         // Overpay tolerance: accepted (credit applied in full) — no upper bound.
@@ -266,12 +286,17 @@ export class NowPaymentsService {
     try {
       await client.query('BEGIN');
       const pay = await client.query(
-        `SELECT * FROM billing.payments
-         WHERE provider = 'nowpayments' AND provider_payment_id = $1
+        `SELECT p.*, s.plan_id AS sub_plan_id
+         FROM billing.payments p
+         LEFT JOIN billing.subscriptions s ON s.id = p.subscription_id
+         WHERE p.provider = 'nowpayments' AND p.provider_payment_id = $1
          FOR UPDATE`,
         [gatewayPaymentRef],
       );
       const paymentRow = pay.rows[0];
+      let commissionCredit:
+        | { userId: string; planId: string; paymentId: string; amount: string; currency: string }
+        | null = null;
       if (paymentRow && paymentRow.status !== 'COMPLETED') {
         await client.query(
           `UPDATE billing.payments SET status = 'COMPLETED', processed_at = now(), updated_at = now()
@@ -305,10 +330,44 @@ export class NowPaymentsService {
             `NOWPayments ${status} for gateway ref ${gatewayPaymentRef}`,
             JSON.stringify({ gateway_payment_ref: gatewayPaymentRef, status }),
           ],
-        );
+         );
         this.logger.log(`IPN settled: payment ${paymentRow.id} (${status})`);
+
+        // Capture validated-revenue inputs so commission is credited ONLY after
+        // the settlement transaction commits (audit 2.4). The ledger write is
+        // itself transactional and idempotent per settled payment id.
+        if (paymentRow.sub_plan_id) {
+          commissionCredit = {
+            userId: String(paymentRow.user_id),
+            planId: String(paymentRow.sub_plan_id),
+            paymentId: String(paymentRow.id),
+            amount: String(paymentRow.amount),
+            currency: paymentRow.currency || 'USD',
+          };
+        }
       }
       await client.query('COMMIT');
+
+      // Credit referral commission from VALIDATED revenue only (audit 2.4).
+      // Triggered here — the NOWPayments settlement webhook — never on license
+      // assignment. Fail-safe: a commission failure does not roll back the
+      // already-settled payment, and the ledger is idempotent per payment.
+      if (commissionCredit) {
+        try {
+          await this.commissionsService.creditReferralForSettledRevenue(
+            commissionCredit.userId,
+            commissionCredit.planId,
+            commissionCredit.paymentId,
+            commissionCredit.amount,
+            commissionCredit.currency,
+          );
+        } catch (e) {
+          this.logger.error(
+            `Referral commission credit failed for settled payment ${commissionCredit.paymentId}: ${e instanceof Error ? e.message : e}`,
+          );
+        }
+      }
+
       return { received: true, status };
     } catch (e) {
       await client.query('ROLLBACK').catch(() => undefined);

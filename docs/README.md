@@ -1,6 +1,6 @@
 # Predict-A-Trade XAUUSD — Documentation
 
-> Multi-plane XAUUSD algorithmic trading platform · v1.17.4 · GO — weekend-hardened: market_closed liveness, USDT-only payments, mail relay, agents v1.2.44; CI 6/6 green, dashboards runtime-audited, Windows Agent verified
+> Multi-plane XAUUSD algorithmic trading platform · v1.18.0 · GO for paper/sandbox/advisory; NO-GO for live automated trading arming (`LIVE_TRADING_AUTHORIZED=false`). Docker-first deployment via `docker compose --env-file infra/env/.env`. CI 6/6 green, dashboards runtime-audited, Windows Agent verified.
 
 Welcome to the official documentation for Predict-A-Trade — a production-grade XAUUSD trading signal generation platform. Use the sidebar to navigate, or start with the sections below.
 
@@ -13,7 +13,7 @@ Welcome to the official documentation for Predict-A-Trade — a production-grade
 | [Indicators & Features](strategy/INDICATORS_AND_FEATURES.md) | 42 indicators, 13 evidence pillars, P2 features (all ACTIVE) |
 | [Risk Gates](strategy/RISK_GATES.md) | 16-gate pipeline with per-(strategy, timeframe) isolation, 5% capital protection |
 | [API Reference](api/API_REFERENCE.md) | REST + WebSocket endpoints, signal object schema, license validation |
-| [Database](database/DATABASE_ARCHITECTURE.md) | Schemas, 30+ migrations, trade_results, agent bridging |
+| [Database](database/DATABASE_ARCHITECTURE.md) | Schemas, 69 migrations (numbered to 099), trade_results, agent bridging |
 | [Docker Deployment](operations/DOCKER_DEPLOYMENT.md) | Step-by-step Docker Compose guide |
 | [Host Deployment](operations/HOST_DEPLOYMENT.md) | Step-by-step bare-metal/VPS guide |
 | [Backup & Restore](operations/BACKUP_RESTORE.md) | Automated backup scripts, restore procedures |
@@ -40,7 +40,7 @@ Welcome to the official documentation for Predict-A-Trade — a production-grade
 | Evidence Pillars | 13 |
 | Risk Gates | 16 (per-strategy/timeframe isolated) |
 | Services (Docker) | 13 healthy |
-| Tests | Go 28 pkgs · control 167 · frontend 84 + e2e 18 · Python 139 — all PASS |
+| Tests | Go 40 pkgs · control 167 · frontend 84 + e2e 18 · Python 154 (153 pass, 1 skip) — all PASS |
 | CI jobs | 6/6 green |
 | API surface | 64 documented paths (OpenAPI 3.0 in [`api/openapi.json`](api/openapi.json)) |
 | Dashboard pages | 38 runtime-audited (25 admin + 19 user routes) |

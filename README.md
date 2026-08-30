@@ -2,7 +2,7 @@
 
 Multi-plane XAUUSD trading signal generation and analytics platform.
 
-**Version:** v1.17.4 | **Date:** 30 August 2026 | **Status:** GO — all prior items closed + weekend-hardened: MT4/MT5 online through closed market (EAs LIVENESS), market_closed-aware signal gate, stale-terminal fixes, USDT-only payments with anti-scam settlement verification + subscriber status banner, mail relay (pat.predictatrade.com) live; v1.2.44 agents; see realtime/CHANGELOG v1.17.4
+**Version:** v1.18.0 | **Date:** 30 August 2026 | **Status:** GO — paper/sandbox/advisory signal operation. **NO-GO for live automated trading arming** (`LIVE_TRADING_AUTHORIZED=false`, fail-closed) pending explicit operator authorization + verified broker equity/order feed. Weekend-hardened: MT4/MT5 online through closed market, market_closed-aware signal gate, USDT-only payments with anti-scam settlement verification, mail relay live; v1.2.44 agents.
 
 ## Quick Start
 
@@ -129,10 +129,10 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 
 | Check | Status |
 |-------|:------:|
-| Go tests (28/28 packages, race) | PASS |
+| Go tests (40/40 packages) | PASS |
 | Control tests (NestJS 12, Jest 30) 167/167 | PASS |
 | Frontend tests 84/84 + e2e 18/18 | PASS |
-| Python tests 139/139 (incl. live TimescaleDB) | PASS |
+| Python tests 154 (153 pass, 1 skip) | PASS |
 | CI — 6/6 jobs green | PASS |
 | All 13 containers healthy | PASS |
 | 16 risk gates active | PASS |
@@ -146,11 +146,17 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 | Supply chain (NestJS 12, 0 high/critical prod) | CLOSED |
 | Dashboards wiring (38/38 pages runtime-probed) | PASS |
 | Windows Agent v1.2.40 + installers + EA downloads | VERIFIED |
-| Migration integrity (65 files, unique prefixes) | PASS |
+| Migration integrity (69 files, numbered to 099, unique prefixes) | PASS |
 | Secrets out of git (env-file injection) | PASS |
 | MT5 clients connected (EA attach + license) | Operator action |
 | Demo fill test (one signal round-trip) | Operator action |
 | Backup/restore drill | Operator action |
+| Live automated trading arming | NO-GO (`LIVE_TRADING_AUTHORIZED=false`) |
+
+> **Deployment is Docker-First.** All services run via `docker compose --env-file infra/env/.env`.
+> Systemd units in `infra/systemd/` are DISABLED. Live automated trading is fail-closed: signals
+> run in paper/sandbox/advisory mode only until an operator authorizes arming AND a verified broker
+> equity/order feed exists. No profitability, accuracy, or hit-rate claims are made without evidence.
 
 ## Go Realtime Plane
 
@@ -188,14 +194,14 @@ make build && make test && make lint
 
 # Individual planes
 make go-build          # Go realtime engine
-make go-test           # Go tests (28 packages)
+make go-test           # Go tests (40 packages)
 make control-build     # NestJS control plane
 make frontend-build    # Next.js frontend
-make research-test     # Python tests (127 tests)
+make research-test     # Python tests (154: 153 pass, 1 skip)
 
-# Docker
-docker compose up -d --build
-docker compose ps
+# Docker (ALL commands MUST use --env-file infra/env/.env)
+docker compose --env-file infra/env/.env up -d --build
+docker compose --env-file infra/env/.env ps
 ```
 
 ## Production Safety

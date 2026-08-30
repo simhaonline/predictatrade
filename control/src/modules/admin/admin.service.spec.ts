@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AdminService } from './admin.service';
 import { DB_POOL } from '../../common/database.module';
 import { CommissionsService } from '../commissions/commissions.service';
+import { Pool } from 'pg';
+import { jest } from '@jest/globals';
 
 // Integration-style tests that verify SQL queries match the actual schema.
 // These use a real connection to the test database if DATABASE_URL is set,
@@ -15,7 +17,6 @@ describe('AdminService', () => {
 
   beforeAll(async () => {
     if (DB_URL) {
-      const { Pool } = require('pg');
       pool = new Pool({ connectionString: DB_URL, max: 5 });
     } else {
       // Mock pool for unit tests when no DB is available.

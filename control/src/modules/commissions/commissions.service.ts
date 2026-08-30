@@ -47,7 +47,60 @@ export class CommissionsService {
     sourceUserId: string,
     planId: string,
     licenseId: string,
-    commissionableAmount: number,
+    commissionableAmount: number | string,
+    currency: string,
+  ) {
+    return this.creditReferral(
+      sourceUserId,
+      planId,
+      `license:${licenseId}`,
+      licenseId,
+      commissionableAmount,
+      currency,
+    );
+  }
+
+  /**
+   * Canonical commission trigger (audit 2.4 / MACRO_AUDIT 2026-08-30 §2.4).
+   *
+   * Referral commission MUST be credited ONLY from VALIDATED revenue — i.e. a
+   * NOWPayments payment that has been settled AND amount-verified inside
+   * NowPaymentsService.handleIPN — NOT merely when an admin assigns a license.
+   *
+   * TODO(CONTROL-PLANE): every validated-revenue path (NOWPayments IPN
+   * settlement, and any future Stripe/other settlement webhook) must call this
+   * method with the settled payment id as `revenueRef`, so crediting is
+   * idempotent per settlement and tied to real money received. License
+   * assignment in AdminService must NOT credit commission.
+   */
+  async creditReferralForSettledRevenue(
+    sourceUserId: string,
+    planId: string,
+    revenueRef: string,
+    commissionableAmount: number | string,
+    currency: string,
+  ) {
+    return this.creditReferral(
+      sourceUserId,
+      planId,
+      `revenue:${revenueRef}`,
+      revenueRef,
+      commissionableAmount,
+      currency,
+    );
+  }
+
+  /**
+   * Shared referral-credit implementation. `idemKey` is the idempotency key
+   * (per license OR per settled payment) and `purchaseId` is the business
+   * reference recorded on the ledger `purchase_id` column.
+   */
+  private async creditReferral(
+    sourceUserId: string,
+    planId: string,
+    idemKey: string,
+    purchaseId: string,
+    commissionableAmount: number | string,
     currency: string,
   ) {
     const chain = await this.pool.query(
@@ -93,7 +146,6 @@ export class CommissionsService {
     if (pr.rows.length === 0) return { credited: 0 };
     const purchaseRule = pr.rows[0];
 
-    const idemKey = `license:${licenseId}`;
     const engine = new CommissionEngine();
     engine.setBaseRates(planId, baseRates);
     engine.setPurchaseRule('FIRST_PURCHASE', {
@@ -108,7 +160,7 @@ export class CommissionsService {
       sponsorChain,
       sourceUserId,
       sourceSubscriptionId: '',
-      purchaseId: licenseId,
+      purchaseId,
       invoiceId: '',
       eventType: 'NEW_SUBSCRIPTION',
     });
@@ -148,7 +200,7 @@ export class CommissionsService {
             c.recipientUserId,
             c.sourceUserId,
             c.sourceSubscriptionId || null,
-            null,
+            purchaseId,
             c.invoiceId || null,
             c.planId,
             c.purchaseNumber,

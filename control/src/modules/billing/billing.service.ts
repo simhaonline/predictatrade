@@ -4,6 +4,14 @@ import { DB_POOL } from '../../common/database.module';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import Decimal from 'decimal.js';
+
+// `__dirname` is available when this module is compiled to CommonJS (production
+// `nest build`), but is NOT defined when the same source is loaded as ESM by the
+// Jest test runner. Resolve the module directory in a cross-compile-target-safe
+// way so the logo candidate list works in both environments.
+const dirnameSafe: string =
+  typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
 const BRAND = {
   name: 'Predict-A-Trade',
@@ -11,8 +19,8 @@ const BRAND = {
   logoCandidates: [
     '/srv/predictatrade/xauusd/frontend/public/predict-a-trade_horizontal.svg',
     process.cwd() + '/public/predict-a-trade_horizontal.svg',
-    path.resolve(__dirname, '../../../frontend/public/predict-a-trade_horizontal.svg'),
-    path.resolve(__dirname, '../../frontend/public/predict-a-trade_horizontal.svg'),
+    path.resolve(dirnameSafe, '../../../frontend/public/predict-a-trade_horizontal.svg'),
+    path.resolve(dirnameSafe, '../../frontend/public/predict-a-trade_horizontal.svg'),
   ],
 };
 
@@ -121,7 +129,9 @@ export class BillingService {
     if (!sub.rows[0]) throw new NotFoundException('Subscription not found');
     const s = sub.rows[0];
     const interval = (s.billing_interval || 'MONTHLY').toUpperCase();
-    const unitPrice = Number(interval === 'ANNUAL' ? s.annual_price : s.monthly_price) || 0;
+    // Exact-decimal money math (audit 2.4): plan prices are read as Decimals and
+    // all invoice totals are summed in Decimal — no floating-point accumulation.
+    const unitPrice = new Decimal(interval === 'ANNUAL' ? s.annual_price : s.monthly_price);
     const currency = s.currency || 'USD';
 
     const periodStart = opts?.billingPeriodStart ? new Date(opts.billingPeriodStart) : new Date(s.billing_period_start || Date.now());
@@ -137,19 +147,20 @@ export class BillingService {
     const isFirst = (prior.rows[0]?.c ?? 0) === 0;
 
     const items: { description: string; item_type: string; unit_price: number; quantity: number; commissionable: boolean }[] = [];
-    let subtotal = 0;
-    if (isFirst && Number(s.setup_fee) > 0) {
-      items.push({ description: `${s.plan_name} — setup fee`, item_type: 'SETUP_FEE', unit_price: Number(s.setup_fee), quantity: 1, commissionable: false });
-      subtotal += Number(s.setup_fee);
+    let subtotal = new Decimal(0);
+    if (isFirst && new Decimal(s.setup_fee ?? 0).gt(0)) {
+      const setupFee = new Decimal(s.setup_fee ?? 0);
+      items.push({ description: `${s.plan_name} — setup fee`, item_type: 'SETUP_FEE', unit_price: setupFee.toNumber(), quantity: 1, commissionable: false });
+      subtotal = subtotal.plus(setupFee);
     }
-    items.push({ description: `${s.plan_name} subscription (${interval})`, item_type: 'SUBSCRIPTION', unit_price: unitPrice, quantity: 1, commissionable: true });
-    subtotal += unitPrice;
+    items.push({ description: `${s.plan_name} subscription (${interval})`, item_type: 'SUBSCRIPTION', unit_price: unitPrice.toNumber(), quantity: 1, commissionable: true });
+    subtotal = subtotal.plus(unitPrice);
 
     const settings = await this.pool.query(`SELECT default_tax_rate, tax_label FROM billing.invoice_settings LIMIT 1`);
-    const taxRate = Number(settings.rows[0]?.default_tax_rate ?? 0);
-    const discounts = 0;
-    const taxes = Math.round(subtotal * taxRate * 1e8) / 1e8;
-    const total = Math.round((subtotal - discounts + taxes) * 1e8) / 1e8;
+    const taxRate = new Decimal(settings.rows[0]?.default_tax_rate ?? 0);
+    const discounts = new Decimal(0);
+    const taxes = subtotal.times(taxRate).toDecimalPlaces(8, Decimal.ROUND_HALF_UP);
+    const total = subtotal.minus(discounts).plus(taxes).toDecimalPlaces(8, Decimal.ROUND_HALF_UP);
     const commissionable = subtotal;
 
     const inv = await this.pool.query(
@@ -161,7 +172,7 @@ export class BillingService {
        RETURNING *`,
       [
         subscriptionId, s.user_id, await this.nextInvoiceNumber(), s.plan_id, s.plan_version || 1,
-        periodStart, periodEnd, subtotal, discounts, taxes, total, commissionable, currency,
+        periodStart, periodEnd, subtotal.toString(), discounts.toString(), taxes.toString(), total.toString(), commissionable.toString(), currency,
         opts?.markPaid ? 'PAID' : 'OPEN', new Date(Date.now() + 14 * 86400000),
       ],
     );
@@ -172,7 +183,7 @@ export class BillingService {
         `INSERT INTO billing.invoice_items
          (invoice_id, description, item_type, quantity, unit_price, amount, commissionable, metadata, created_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,'{}'::jsonb,now())`,
-        [invId, it.description, it.item_type, it.quantity, it.unit_price, it.unit_price * it.quantity, it.commissionable],
+        [invId, it.description, it.item_type, it.quantity, it.unit_price, new Decimal(it.unit_price ?? 0).times(it.quantity).toString(), it.commissionable],
       );
     }
 

@@ -104,3 +104,6 @@ report.xlsx
 *.tsbuildinfo
 mail-relay/mail-relay
 infra/env/ADMIN_CREDENTIALS.local.md
+
+# Go realtime build artifact (built inside Docker, never commit)
+realtime/live-terminal

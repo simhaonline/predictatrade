@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { jest } from '@jest/globals';
 import { OperationsService } from './operations.service';
 import { DB_POOL } from '../../common/database.module';
+import { Pool } from 'pg';
 
 const DB_URL = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
 
@@ -10,7 +12,6 @@ describe('OperationsService', () => {
 
   beforeAll(async () => {
     if (DB_URL) {
-      const { Pool } = require('pg');
       pool = new Pool({ connectionString: DB_URL, max: 5 });
     } else {
       // Mock pool for unit tests when no DB is available
