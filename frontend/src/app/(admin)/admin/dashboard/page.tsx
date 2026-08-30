@@ -150,6 +150,16 @@ export default function AdminDashboardPage() {
   const hasAgents = agentCount > 0;
   const wsConnected = wsState === 'CONNECTED';
   const agentsOnline = agentsStatus?.agents_online ?? false;
+  // Market-closed awareness: the engine may report market_closed, and even when
+  // it reports open the next-open window tells us we are pre-open (no live ticks
+  // expected). Treat both as a genuine closure so the UI shows CLOSED/STANDBY
+  // instead of falsely alarming STALE/OFFLINE (prompt.md market_closed handling).
+  const nextOpenStr = agentsStatus?.next_market_open_utc as string | undefined;
+  const nextOpen = nextOpenStr ? new Date(nextOpenStr).getTime() : null;
+  const nowMs = Date.now();
+  const hoursToOpen = nextOpen !== null ? (nextOpen - nowMs) / 3600000 : null;
+  const preOpenClosed = hoursToOpen !== null && hoursToOpen > 0 && hoursToOpen < 48;
+  const marketClosed = agentsStatus?.market_closed === true || preOpenClosed;
 
   // Extract market data from the Go engine response
   const marketData = marketState as Record<string, unknown> | undefined;
@@ -166,8 +176,10 @@ export default function AdminDashboardPage() {
   const tickAgeSec = tickTimeStr && serverNow !== null ? Math.max(0, (serverNow - new Date(tickTimeStr).getTime()) / 1000) : null;
   const feedState =
     !marketData ? "OFFLINE"
+    : marketClosed && (tickAgeSec === null || tickAgeSec >= 300) ? "CLOSED"
     : tickAgeSec !== null && tickAgeSec < 60 ? "LIVE"
     : tickAgeSec !== null && tickAgeSec < 300 ? "DEGRADED"
+    : marketClosed ? "CLOSED"
     : "STALE";
   const regime = (marketData?.Regime as Record<string, unknown>) ?? {};
   const currentRegime = (regime.Current as string) ?? "";
@@ -177,9 +189,9 @@ export default function AdminDashboardPage() {
   const platformStatusItems = [
     { label: "Trading", status: tradingHalted ? "halted" : "active" },
     { label: "Signals", status: signalsPaused ? "paused" : "active" },
-    { label: "Agents", status: agentsOnline ? "online" : "offline" },
+    { label: "Agents", status: agentsOnline ? "online" : marketClosed ? "standby" : "offline" },
     { label: "Market Feed", status: feedState.toLowerCase() },
-    { label: "RT Engine", status: engineAlive ? "operational" : "unknown" },
+    { label: "RT Engine", status: engineAlive ? "operational" : marketClosed ? "standby" : "unknown" },
     { label: "Control Plane", status: (nestHealth?.status as string) === "ok" ? "operational" : "unknown" },
     { label: "Database", status: (nestHealth?.database as string) === "healthy" ? "healthy" : "unknown" },
     { label: "WebSocket", status: wsState.toLowerCase() },
@@ -267,6 +279,7 @@ export default function AdminDashboardPage() {
             {tickSource && <div>Source: {tickSource}</div>}
             {currentSession && <div>Session: {currentSession}</div>}
             {currentRegime && <div>Regime: {currentRegime}</div>}
+            {marketClosed && nextOpenStr && <div className="text-pat-warning">Market closed — live feed resumes {new Date(nextOpenStr).toUTCString()}</div>}
           </div>
         </div>
 

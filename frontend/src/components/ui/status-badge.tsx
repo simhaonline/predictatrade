@@ -89,6 +89,8 @@ const statusStyles: Record<string, string> = {
   UNKNOWN: "bg-pat-badge-neutral-bg text-pat-badge-neutral-text border-pat-badge-neutral-bg",
   not_configured: "bg-pat-badge-neutral-bg text-pat-badge-neutral-text border-pat-badge-neutral-bg",
   NOT_CONFIGURED: "bg-pat-badge-neutral-bg text-pat-badge-neutral-text border-pat-badge-neutral-bg",
+  standby: "bg-neutral-500/10 text-pat-text-secondary border-neutral-500/20",
+  STANDBY: "bg-neutral-500/10 text-pat-text-secondary border-neutral-500/20",
   missing: "bg-pat-text-muted/10 text-pat-text-muted border-pat-border",
   MISSING: "bg-pat-text-muted/10 text-pat-text-muted border-pat-border",
   disabled: "bg-pat-text-muted/10 text-pat-text-muted border-pat-border",

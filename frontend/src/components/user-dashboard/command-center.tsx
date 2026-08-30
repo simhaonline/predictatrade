@@ -76,6 +76,13 @@ export function CommandCenter({ isAdmin = false }: { isAdmin?: boolean }) {
     refetchInterval: 5000,
   });
 
+  // Go engine: agents status (for market-closed / next-open awareness)
+  const { data: ccAgents } = useQuery<Record<string, unknown>>({
+    queryKey: ["command-center-agents"],
+    queryFn: async () => (await customInstance.get("/agents/status")).data,
+    refetchInterval: 10000,
+  });
+
   // NestJS: user subscription / commission / referral data
   const { data: subscriptions } = useQuery({
     queryKey: ["cc-subscriptions"],
@@ -132,7 +139,7 @@ export function CommandCenter({ isAdmin = false }: { isAdmin?: boolean }) {
       </div>
 
       {/* Global Market Header — always visible (SOW 169.1) */}
-      <GlobalMarketHeader snapshot={snapshot} wsState={wsState} marketState={marketState} />
+      <GlobalMarketHeader snapshot={snapshot} wsState={wsState} marketState={marketState} agentsStatus={ccAgents} />
 
       {/* Mode content */}
       {mode === "MARKET" && <MarketMode snapshot={snapshot} marketState={marketState} />}
@@ -151,10 +158,11 @@ export function CommandCenter({ isAdmin = false }: { isAdmin?: boolean }) {
 }
 
 // ─── Global Market Header (SOW 169.1) ────────────────────────────────────────
-function GlobalMarketHeader({ snapshot, wsState, marketState }: {
+function GlobalMarketHeader({ snapshot, wsState, marketState, agentsStatus }: {
   snapshot?: MarketSnapshot;
   wsState: ConnectionState;
   marketState?: Record<string, unknown>;
+  agentsStatus?: Record<string, unknown>;
 }) {
   const tick = snapshot?.tick;
   const session = snapshot?.session;
@@ -177,9 +185,17 @@ function GlobalMarketHeader({ snapshot, wsState, marketState }: {
     return () => clearInterval(t);
   }, []);
   const tickAgeSec = tickTime && nowMs ? Math.max(0, (nowMs - new Date(tickTime).getTime()) / 1000) : null;
-  const snack = !tick ? "UNKNOWN"
+  // Market-closed awareness: avoid falsely alarming UNKNOWN/STALE when the market
+  // is simply closed (no live ticks expected). Derive closure from the engine's
+  // next-open window.
+  const ccNextOpenStr = agentsStatus?.next_market_open_utc as string | undefined;
+  const ccNextOpen = ccNextOpenStr ? new Date(ccNextOpenStr).getTime() : null;
+  const ccHoursToOpen = ccNextOpen !== null ? (ccNextOpen - Date.now()) / 3600000 : null;
+  const ccMarketClosed = agentsStatus?.market_closed === true || (ccHoursToOpen !== null && ccHoursToOpen > 0 && ccHoursToOpen < 48);
+  const snack = !tick ? (ccMarketClosed ? "CLOSED" : "UNKNOWN")
     : tickAgeSec !== null && tickAgeSec < 60 ? "LIVE"
     : tickAgeSec !== null && tickAgeSec < 300 ? "DEGRADED"
+    : ccMarketClosed ? "CLOSED"
     : "STALE";
 
   return (
