@@ -203,7 +203,7 @@ function updatePipeline() {
 .nv-HIGH{color:var(--red);font-weight:800}.nv-MEDIUM{color:var(--amber);font-weight:700}.nv-LOW{color:var(--text-dim)}
 
 /* ── Main grid ── */
-#main{display:grid;grid-template-columns:minmax(200px,240px) minmax(0,1fr) minmax(260px,300px);grid-template-rows:minmax(0,.95fr) minmax(0,1.25fr) minmax(0,.75fr);gap:3px;padding:3px;min-height:0;background:var(--bg)}
+#main{display:grid;grid-template-columns:minmax(200px,240px) minmax(0,1fr) minmax(260px,300px);grid-template-rows:minmax(0,.95fr) minmax(0,1.25fr) minmax(0,.75fr);grid-auto-rows:minmax(170px,auto);gap:3px;padding:3px;min-height:0;background:var(--bg)}
 .panel{background:var(--panel);border:1px solid var(--border);border-radius:3px;display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden}
 .p-account{grid-column:1;grid-row:1}.p-price{grid-column:2;grid-row:1/span 2}.p-lifecycle{grid-column:3;grid-row:1}
 .p-neural{grid-column:1;grid-row:2}.p-resolution{grid-column:3;grid-row:2}
@@ -295,6 +295,29 @@ function updatePipeline() {
 .pipe-link.on::after{animation:pipeFlow 2.2s linear infinite}
 @keyframes pipeFlow{0%{left:0;opacity:0}12%{opacity:1}88%{opacity:1}100%{left:calc(100% - 4px);opacity:0}}
 @keyframes pipePulse{0%,100%{opacity:1}50%{opacity:.5}}
+/* ── New backend-aligned feature panels ── */
+.p-pipeline,.p-xmarket,.p-aten,.p-trades{grid-column:1 / -1;min-height:170px}
+.pipe-stage-row{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.pipe-stage{background:var(--panel2);border:1px solid var(--border);border-radius:3px;padding:6px 8px;min-width:0}
+.pipe-stage h4{margin:0 0 3px;font-size:9px;font-weight:800;color:var(--text-bright);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pipe-stage .st{font-size:8px;font-weight:800;text-transform:uppercase;padding:1px 5px;border-radius:8px;display:inline-block;letter-spacing:.3px}
+.st-healthy,.st-live,.st-connected{background:rgba(46,204,113,.15);color:var(--green)}
+.st-idle{background:rgba(243,156,18,.15);color:var(--amber)}
+.st-db_error,.st-error,.st-fail,.st-disabled{background:rgba(231,76,60,.15);color:var(--red)}
+.pipe-stage .meta{font-size:8px;color:var(--text-dim);margin-top:4px;font-family:var(--mono);line-height:1.4;word-break:break-word}
+.kv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:3px;margin-top:3px}
+.kv{background:var(--panel2);border:1px solid var(--border);border-radius:2px;padding:3px 6px;font-size:9px;min-width:0}
+.kv .k{color:var(--text-dim);font-size:7px;text-transform:uppercase;letter-spacing:.4px;display:block}
+.kv .v{color:var(--text-bright);font-family:var(--mono);font-weight:700;word-break:break-word}
+.drv-list{font-size:8px;color:var(--text-dim);font-family:var(--mono);margin-top:2px;line-height:1.35}
+.badge{font-size:7px;font-weight:800;padding:1px 5px;border-radius:8px;text-transform:uppercase;letter-spacing:.3px}
+.badge-ok{background:rgba(46,204,113,.15);color:var(--green)}
+.badge-no{background:rgba(231,76,60,.15);color:var(--red)}
+.badge-warn{background:rgba(243,156,18,.15);color:var(--amber)}
+.trade-row{display:grid;grid-template-columns:repeat(6,1fr);gap:2px;font-size:8px;font-family:var(--mono);padding:2px 4px;border-bottom:1px solid var(--border);align-items:center}
+.trade-row .pos{color:var(--green)}.trade-row .neg{color:var(--red)}
+.note-dim{font-size:8px;color:var(--text-dim);font-family:var(--mono);margin-top:4px;line-height:1.45}
+
 @media(prefers-reduced-motion:reduce){.pipe-node.live{animation:none}.pipe-link.on::after{animation:none;opacity:.6;left:40%}}
 .eng-cards-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}
 .eng-card{background:var(--panel2);border-radius:2px;padding:4px 6px;display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -714,6 +737,26 @@ canvas{max-width:100%;height:auto !important}
       <div class="panel-body">
         <table class="agents-table"><tbody id="agentsTableBody"></tbody></table>
       </div>
+    </section>
+
+    <section class="panel p-pipeline">
+      <div class="panel-head"><span><span class="diamond">◆</span> PIPELINE MONITOR · SIGNAL → RISK → EXECUTION → REVIEW</span><span class="hint-dim" id="pipeMonHint">—</span><button class="expand-btn" data-expand title="Expand to full screen">⛶</button></div>
+      <div class="panel-body"><div id="pipelineMonitor"><span class="note-dim">Connecting to pipeline monitor…</span></div></div>
+    </section>
+
+    <section class="panel p-xmarket">
+      <div class="panel-head"><span><span class="diamond">◆</span> CROSS-MARKET CONFLUENCE · GC / FUTURES CORRELATION</span><span class="hint-dim" id="xmHint">—</span><button class="expand-btn" data-expand title="Expand to full screen">⛶</button></div>
+      <div class="panel-body"><div id="crossMarket"><span class="note-dim">Connecting to cross-market engine…</span></div></div>
+    </section>
+
+    <section class="panel p-aten">
+      <div class="panel-head"><span><span class="diamond">◆</span> ATEN ASTRO INTELLIGENCE · RESEARCH / EDUCATIONAL</span><span class="hint-dim" id="atenHint">—</span><button class="expand-btn" data-expand title="Expand to full screen">⛶</button></div>
+      <div class="panel-body"><div id="atenPanel"><span class="note-dim">Connecting to astro intelligence…</span></div></div>
+    </section>
+
+    <section class="panel p-trades">
+      <div class="panel-head"><span><span class="diamond">◆</span> EXECUTED TRADES · POSITIONS</span><span class="hint-dim" id="tradesHint">—</span><button class="expand-btn" data-expand title="Expand to full screen">⛶</button></div>
+      <div class="panel-body"><div id="tradesPanel"><span class="note-dim">Connecting to trade ledger…</span></div></div>
     </section>
 
   </main>
@@ -1564,6 +1607,120 @@ async function pollSignals() {
   } catch (e) { /* keep last */ }
 }
 
+/* ── Pipeline Monitor (backend: /api/v1/pipeline/monitor) ── */
+async function pollPipeline() {
+  try {
+    const d = await jget("/api/v1/pipeline/monitor");
+    S.pipeline = d.pipeline || [];
+    renderPipeline();
+  } catch (e) { /* keep last */ }
+}
+function renderPipeline() {
+  const el = $("pipelineMonitor"); if (!el) return;
+  const stages = S.pipeline || [];
+  if (!stages.length) { el.innerHTML = '<span class="note-dim">Pipeline monitor unavailable.</span>'; $("pipeMonHint").textContent = "—"; return; }
+  el.innerHTML = '<div class="pipe-stage-row">' + stages.map(s => {
+    const st = esc(s.status || "idle");
+    const engines = (s.engines || []).map(labelStrategy).join(", ");
+    const meta = [];
+    if (s.count_5m !== undefined) meta.push("signals (5m): " + s.count_5m);
+    if (s.last_at) meta.push("last: " + String(s.last_at).replace("T", " ").slice(0, 19) + "Z");
+    if (s.vetoed_5m !== undefined) meta.push("vetoes (5m): " + s.vetoed_5m);
+    if (s.backfill !== undefined) meta.push("backfill: " + s.backfill + "%");
+    return `<div class="pipe-stage"><h4>${esc(s.stage)} · ${esc(s.name || "")}</h4>` +
+      `<span class="st st-${st}">${st}</span>` +
+      `<div class="meta">${meta.map(m => esc(m)).join("<br>")}` +
+      (engines ? "<br>engines: " + esc(engines) : "") +
+      (s.note ? "<br>" + esc(s.note) : "") +
+      (s.detail ? "<br>" + esc(s.detail) : "") + "</div></div>";
+  }).join("") + '</div>';
+  $("pipeMonHint").textContent = stages.length + " stages";
+}
+
+/* ── Cross-Market Confluence (backend: /api/v1/cross-market/current) ── */
+async function pollCrossMarket() {
+  try {
+    const d = await jget("/api/v1/cross-market/current");
+    S.crossMarket = d; renderCrossMarket();
+  } catch (e) { /* keep last */ }
+}
+function renderCrossMarket() {
+  const el = $("crossMarket"); if (!el) return;
+  const d = S.crossMarket;
+  if (!d || d.status === "disabled") { el.innerHTML = '<span class="note-dim">Cross-market confluence engine offline or not initialized.</span>'; $("xmHint").textContent = "OFFLINE"; return; }
+  const score = num(d.score), conf = num(d.confidence), agr = num(d.agreement);
+  const kv = (k, v, cls) => `<div class="kv"><span class="k">${k}</span><span class="v ${cls || ""}">${esc(String(v))}</span></div>`;
+  el.innerHTML = '<div class="kv-grid">' +
+    kv("Score", score.toFixed(1)) +
+    kv("Direction", d.direction || "NEUTRAL") +
+    kv("Confidence", (conf * 100).toFixed(0) + "%") +
+    kv("Agreement", (agr * 100).toFixed(0) + "%") +
+    kv("Conflict", num(d.conflict).toFixed(2)) +
+    kv("Data Quality", d.data_quality || "—") +
+    kv("Corr Regime", d.correlation_regime || "—") +
+    kv("Divergence", num(d.divergence).toFixed(2)) +
+    kv("Mode", d.mode || "—") +
+    kv("Model", d.model_version || "—") +
+    '</div>' +
+    (d.primary_drivers && d.primary_drivers.length ? '<div class="drv-list">＋ drivers: ' + esc(d.primary_drivers.join(", ")) + '</div>' : '') +
+    (d.opposing_drivers && d.opposing_drivers.length ? '<div class="drv-list">－ drivers: ' + esc(d.opposing_drivers.join(", ")) + '</div>' : '') +
+    (d.missing_drivers && d.missing_drivers.length ? '<div class="drv-list">? missing: ' + esc(d.missing_drivers.join(", ")) + '</div>' : '') +
+    (d.reason ? '<div class="note-dim">' + esc(d.reason) + '</div>' : '') +
+    '<div class="note-dim">Derived confluence (not authoritative market truth). If GC/Futures correlation data is absent, quality degrades accordingly.</div>';
+  $("xmHint").textContent = d.direction || "—";
+}
+
+/* ── ATEN Astro Intelligence (backend: /api/v1/astro/state) ── */
+async function pollAstro() {
+  try {
+    const d = await jget("/api/v1/astro/state");
+    S.astro = d; renderAstro();
+  } catch (e) { /* keep last */ }
+}
+function renderAstro() {
+  const el = $("atenPanel"); if (!el) return;
+  const d = S.astro;
+  if (!d || !d.timestamp) { el.innerHTML = '<span class="note-dim">Astro intelligence unavailable.</span>'; $("atenHint").textContent = "—"; return; }
+  const score = num(d.composite_score), conf = num(d.confidence), elig = !!d.eligible_for_trade;
+  const kv = (k, v, cls) => `<div class="kv"><span class="k">${k}</span><span class="v ${cls || ""}">${esc(String(v))}</span></div>`;
+  el.innerHTML = '<div class="kv-grid">' +
+    kv("Composite", score.toFixed(1)) +
+    kv("Confidence", (conf * 100).toFixed(0) + "%") +
+    kv("Eligible", elig ? "YES" : "NO", elig ? "badge-ok" : "badge-no") +
+    kv("Market Closed", d.market_closed ? "YES" : "NO") +
+    '</div>' +
+    (d.ineligible_reason ? '<div class="note-dim">Ineligible: ' + esc(d.ineligible_reason) + '</div>' : '') +
+    (d.note ? '<div class="note-dim">' + esc(d.note) + '</div>' : '') +
+    '<div class="note-dim">Research/educational astro-financial model (Vedic + Western). Not investment advice; not AI-verified.</div>';
+  $("atenHint").textContent = elig ? "ELIGIBLE" : "STAND-BY";
+}
+
+/* ── Executed Trades (backend: /api/v1/trades, auth-gated) ── */
+async function pollTrades() {
+  try {
+    const r = await fetch(API + "/api/v1/trades?limit=20", { cache: "no-store", headers: authHeaders({}) });
+    if (r.status === 401 || r.status === 403) { S.tradesAuth = false; renderTrades(); return; }
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json();
+    S.trades = d.trades || []; S.tradesAuth = true; renderTrades();
+  } catch (e) { S.tradesAuth = false; renderTrades(); }
+}
+function renderTrades() {
+  const el = $("tradesPanel"); if (!el) return;
+  if (S.tradesAuth === false) { el.innerHTML = '<span class="note-dim">Sign in to view executed trades &amp; positions (authentication required).</span>'; $("tradesHint").textContent = "LOCKED"; return; }
+  const t = S.trades || [];
+  if (!t.length) { el.innerHTML = '<span class="note-dim">No executed trades on record.</span>'; $("tradesHint").textContent = "0"; return; }
+  el.innerHTML = t.slice(0, 20).map(o => {
+    const pnl = num(o.profit ?? o.pnl ?? o.realized_pnl ?? 0);
+    const side = o.side || o.direction || o.type || "—";
+    return `<div class="trade-row"><span>${esc(o.symbol || "XAUUSD")}</span><span>${esc(side)}</span>` +
+      `<span>${fmt(num(o.open_price ?? o.open ?? 0))}</span><span>${fmt(num(o.close_price ?? o.close ?? 0))}</span>` +
+      `<span class="${pnl >= 0 ? "pos" : "neg"}">${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}</span>` +
+      `<span>${esc(String(o.status || o.state || ""))}</span></div>`;
+  }).join("");
+  $("tradesHint").textContent = t.length + " trades";
+}
+
 /* ── WebSocket ── */
 let ws = null, wsRetry = 0;
 function wsConnect() {
@@ -1940,6 +2097,10 @@ const POLL_CONFIG = {
   pollCandles: 15000,    // candlestick data
   pollNews: 60000,       // news calendar
   pollSignals: 10000,    // signal feed
+  pollPipeline: 15000,   // pipeline monitor (backend)
+  pollCrossMarket: 15000,// cross-market confluence (backend)
+  pollAstro: 30000,      // ATEN astro intelligence (backend)
+  pollTrades: 20000,     // executed trades ledger (auth-gated)
 };
 
 // Start all polling intervals
@@ -1955,8 +2116,9 @@ function startPolling() {
   
   // Immediate first fetch on start (no flicker — data updates in place)
   try {
-    pollSnapshot(); pollMarketState(); pollCandles(); 
+    pollSnapshot(); pollMarketState(); pollCandles();
     pollEngines(); pollInfra(); pollNews(); pollSignals();
+    pollPipeline(); pollCrossMarket(); pollAstro(); pollTrades();
   } catch (e) { console.warn("[PAT] Initial poll error:", e); }
   
   // Restart LP timers if trial is active
@@ -2012,6 +2174,7 @@ document.addEventListener("visibilitychange", () => {
       // Force immediate refresh so user sees fresh data instantly
       try {
         pollSnapshot(); pollMarketState(); pollSignals();
+        pollPipeline(); pollCrossMarket(); pollAstro(); pollTrades();
       } catch (e) { console.warn("[PAT] Resume poll error:", e); }
     }
   }
