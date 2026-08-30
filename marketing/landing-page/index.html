@@ -114,8 +114,32 @@
     </style>
     <style>
       .menu-panel:not(.editorial-menu){opacity:0!important;pointer-events:none!important;visibility:hidden!important}.menu-panel.editorial-menu{left:auto!important;position:absolute!important;right:clamp(24px,5vw,76px)!important;top:calc(100% + 24px)!important;transform:translateY(-8px) scale(.98)!important;transform-origin:100% 0!important}.menu-panel.editorial-menu.open{transform:translateY(0) scale(1)!important}@media(max-width:640px){.menu-panel.editorial-menu{right:20px!important;top:calc(100% + 18px)!important;width:calc(100vw - 40px)!important}}
-    </style>
-  </head>
+  </style>
+  <style>
+    /* Contact section alignment */
+    .contact-section{padding:clamp(48px,8vw,96px) 6vw;color:#171714;background:#f6f4ef}
+    .contact-section>div:first-child{max-width:1180px;margin:0 auto}
+    .contact-section .eyebrow{color:#a74824;font:800 11px/1 Arial,sans-serif;letter-spacing:.16em;text-transform:uppercase}
+    .contact-section h2{font:700 clamp(32px,5vw,60px)/1 Fraunces,Georgia,serif;letter-spacing:-.05em;margin:14px 0 16px;max-width:780px}
+    .contact-section h2 em{color:#a74824;font-style:italic}
+    .section-note{display:flex;align-items:center;gap:12px;color:#8b8579;font-size:13px;margin-top:8px}
+    .note-line{width:36px;height:1px;background:#a74824;display:inline-block}
+    .contact-panel{max-width:720px;margin:30px auto 0;background:#fffefa;border:1px solid #dedbd2;border-radius:18px;padding:30px}
+    .contact-panel>p{color:#68665e;font-size:16px;line-height:1.6;margin:0 0 8px}
+    .contact-note{display:flex;align-items:center;gap:9px;color:#68665e;font-size:14px;margin:6px 0 4px}
+    .contact-note svg{flex:0 0 16px;color:#a74824}
+    .contact-form{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:22px}
+    .contact-form input,.contact-form textarea{background:#fff;border:1px solid #dedbd2;border-radius:10px;color:#171714;font:inherit;padding:13px 14px;width:100%}
+    .contact-form textarea{grid-column:1/-1;resize:vertical}
+    .contact-form label{grid-column:1/-1;display:flex;align-items:center;gap:9px;font-size:13px;color:#68665e;margin:0}
+    .contact-form label input{width:auto;padding:0;accent-color:#2463ff}
+    .contact-form button{grid-column:1/-1;justify-self:start;background:#171714;border:1px solid #171714;border-radius:999px;color:#fff;cursor:pointer;font-weight:800;font-size:13px;padding:13px 24px;width:auto}
+    .contact-form button:hover{background:#a74824;border-color:#a74824}
+    .contact-status{grid-column:1/-1;font-size:13px;color:#a74824;margin:0}
+    .contact-honeypot{display:none!important}
+    @media(max-width:560px){.contact-form{grid-template-columns:1fr}.contact-form button{width:100%;justify-self:stretch}}
+  </style>
+</head>
   <body>
     <a class="skip-link" href="#top">Skip to main content</a>
     <script>window.__MANUS_HOST_DEV__ = false;</script>
