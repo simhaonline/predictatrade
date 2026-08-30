@@ -235,9 +235,101 @@
         <p class="astro-note">Status: in active research and development for the Elite plan. It will ship as a context layer under the existing hard-risk envelope, with full explainability and no fabricated certainty.</p>
       </div>
     </section>
+    <style>
+      .xsec{background:#fffefa;border-top:1px solid #dedbd2;color:#171714;padding:clamp(48px,8vw,96px) 6vw}
+      .xsec.alt{background:#f6f4ef}
+      .xsec-inner{max-width:1180px;margin:0 auto}
+      .xsec-kicker{color:#a74824;font:800 11px/1 Arial,sans-serif;letter-spacing:.16em;text-transform:uppercase}
+      .xsec h2{font:700 clamp(32px,5vw,60px)/1 Fraunces,Georgia,serif;letter-spacing:-.05em;margin:14px 0 16px;max-width:780px}
+      .xsec-lead{color:#68665e;font-size:17px;line-height:1.6;max-width:720px;margin:0 0 32px}
+      .xcards{display:grid;gap:14px;grid-template-columns:repeat(3,minmax(0,1fr))}
+      .xcard{background:#fffefa;border:1px solid #dedbd2;border-radius:14px;padding:22px}
+      .xsec.alt .xcard{background:#fff}
+      .xcard h3{font:700 20px/1.1 Fraunces,Georgia,serif;margin:0 0 9px}
+      .xcard p{color:#68665e;font-size:14px;line-height:1.55;margin:0}
+      .xcard .price{font:700 30px/1 Fraunces,Georgia,serif;margin:0 0 4px}
+      .xcard .price small{font:600 13px/1 Manrope,sans-serif;color:#a74824}
+      .xcard ul{margin:12px 0 0;padding-left:18px;color:#68665e;font-size:14px;line-height:1.6}
+      .xcard a.cta{display:inline-block;margin-top:16px;background:#2463ff;color:#fff;padding:11px 18px;border-radius:999px;font-weight:800;font-size:13px;text-decoration:none}
+      .xcard a.cta.ghost{background:transparent;color:#2463ff;border:1px solid #2463ff}
+      .xnote{color:#8b8579;font-size:13px;margin-top:18px}
+      .faq-item{border-top:1px solid #dedbd2;padding:16px 0}
+      .faq-item summary{cursor:pointer;font:700 16px/1.4 Fraunces,Georgia,serif;list-style:none}
+      .faq-item summary::-webkit-details-marker{display:none}
+      .faq-item p{color:#68665e;font-size:15px;line-height:1.6;margin:10px 0 0}
+      .disc{background:#171714;color:#c8c5bb;padding:18px 6vw;font-size:13px;line-height:1.6;text-align:center}
+      .disc b{color:#f0a07c}
+      @media(max-width:860px){.xcards{grid-template-columns:1fr}}
+    </style>
+    <section id="proof" class="xsec alt" aria-labelledby="proof-title">
+      <div class="xsec-inner">
+        <div class="xsec-kicker">Validation &amp; proof</div>
+        <h2 id="proof-title">Evidence before claims.</h2>
+        <p class="xsec-lead">Every strategy product is validated before it is offered — not claimed after the fact. Full backtest and walk-forward reports are available inside your account, so you can inspect the evidence yourself.</p>
+        <div class="xcards">
+          <div class="xcard"><h3>Walk-forward validation</h3><p>Each profile is tested out-of-sample across rolling windows, not fitted to one period.</p></div>
+          <div class="xcard"><h3>Cost-aware simulation</h3><p>Spread, slippage, commission and swap are modelled — results reflect real trading cost, not idealised fills.</p></div>
+          <div class="xcard"><h3>Risk-adjusted reporting</h3><p>We report win/loss, R:R, max drawdown and Sharpe — the honest shape of performance, not a single headline number.</p></div>
+          <div class="xcard"><h3>Benchmark context</h3><p>Signals are framed against buy-and-hold and session behaviour so strength is measured, not assumed.</p></div>
+          <div class="xcard"><h3>Calibration &amp; drift</h3><p>Models are recalibrated and monitored for regime drift; stale edges are retired, not hidden.</p></div>
+          <div class="xcard"><h3>Independent by design</h3><p>Explainable outputs show which factors contributed, so nothing is a black box.</p></div>
+        </div>
+        <p class="xnote">Verified reports are provided to account holders. We do not publish guaranteed returns — <b>NO-TRADE is a valid result.</b></p>
+      </div>
+    </section>
+    <section id="pricing" class="xsec" aria-labelledby="pricing-title">
+      <div class="xsec-inner">
+        <div class="xsec-kicker">Plans</div>
+        <h2 id="pricing-title">Simple, transparent access.</h2>
+        <p class="xsec-lead">Start with a free, fully-funded demo. Upgrade when you want real-time signals and the Elite intelligence layer.</p>
+        <div class="xcards">
+          <div class="xcard">
+            <h3>Free</h3>
+            <div class="price">$0</div>
+            <ul><li>$10,000 virtual funds</li><li>No credit card</li><li>Delayed demo signals</li><li>Full platform walkthrough</li></ul>
+            <a class="cta ghost" href="https://platform.predictatrade.com" target="_blank" rel="noopener">Start free</a>
+          </div>
+          <div class="xcard">
+            <h3>Standard</h3>
+            <div class="price">Real-time</div>
+            <ul><li>Live XAUUSD signals</li><li>Four strategy products</li><li>Server-side risk envelope</li><li>Trader psychology tools</li></ul>
+            <a class="cta" href="https://platform.predictatrade.com" target="_blank" rel="noopener">Open platform</a>
+          </div>
+          <div class="xcard">
+            <h3>Elite</h3>
+            <div class="price">Astro<small> · by request</small></div>
+            <ul><li>Everything in Standard</li><li>Astro-Financial Engine</li><li>Vedic + Western timing context</li><li>ML fusion &amp; explainability</li></ul>
+            <a class="cta ghost" href="https://platform.predictatrade.com" target="_blank" rel="noopener">Request Elite</a>
+          </div>
+        </div>
+        <p class="xnote">Indicative tiers. Pricing and eligibility are confirmed inside the platform. Elite is in active development.</p>
+      </div>
+    </section>
+    <section id="founder" class="xsec alt" aria-labelledby="founder-title">
+      <div class="xsec-inner">
+        <div class="xsec-kicker">About</div>
+        <h2 id="founder-title">Built by an independent researcher.</h2>
+        <p class="xsec-lead">Predict-A-Trade is independent XAUUSD research led by Mehulkumar Bhatt. The goal is simple: make market intelligence explainable, evidence-led, and humble about risk — not another black box that pretends to know the future.</p>
+        <p class="xsec-lead" style="margin-top:-16px">Everything we ship is decision-support. We show our work, we weight our confidence, and we treat NO-TRADE as a valid answer when the evidence isn't there.</p>
+      </div>
+    </section>
+    <section id="faq" class="xsec" aria-labelledby="faq-title">
+      <div class="xsec-inner">
+        <div class="xsec-kicker">FAQ</div>
+        <h2 id="faq-title">Questions, answered.</h2>
+        <div class="faq-item"><details><summary>Is the Astro Module a trading signal?</summary><p>No. It is timing and context built from classical astrological frameworks fused with price action. It can raise or lower conviction but can never override the hard risk gates, and it is never a trade trigger.</p></details></div>
+        <div class="faq-item"><details><summary>Do you guarantee profits?</summary><p>No. Trading involves risk and past performance is not indicative of future results. NO-TRADE is a valid, expected outcome when conviction is weak.</p></details></div>
+        <div class="faq-item"><details><summary>What is BOS / CHoCH / FVG?</summary><p>Break of Structure, Change of Character, and Fair Value Gap — standard price-structure concepts we use to read trend and liquidity. They are explained inside the platform, not assumed.</p></details></div>
+        <div class="faq-item"><details><summary>How do I start?</summary><p>Create a free account with $10,000 virtual funds, open the live demo, and explore the strategies and risk envelope with no obligation.</p></details></div>
+        <div class="faq-item"><details><summary>Is my data private?</summary><p>Yes. Subscriptions, signals and ledgers are handled in the control plane; the realtime path never depends on billing and your market data stays isolated.</p></details></div>
+      </div>
+    </section>
+    <section id="disclaimer" class="disc" aria-label="Risk disclaimer">
+      Trading involves substantial risk. Predict-A-Trade provides <b>decision-support and education only</b> — not financial advice, and no guarantee of profit. Past performance does not guarantee future results.
+    </section>
     <script>
       (function(){
-        var ids=['platform','psychology','astro'];
+        var ids=['platform','psychology','astro','proof','pricing','founder','faq','disclaimer'];
         function place(){
           var root=document.getElementById('root');
           var anchor=document.getElementById('contact')||document.querySelector('#root footer')||document.querySelector('footer');
