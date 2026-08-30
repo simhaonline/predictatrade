@@ -115,6 +115,8 @@ func (a stateAdapter) Update(symbol string, update func(any)) {
 
 // Package-level for processCandle access
 var globalAgentProvider *marketdata.AgentProvider
+var mlContributionML float64
+var sentimentContributionAI float64
 var globalCrossMarketEngine *crossmarket.Engine
 var globalAgentHub *gateway.AgentHub
 var globalPersister *marketdata.Persister
@@ -2788,19 +2790,28 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 						Msg("[ENABLE_SHORTS=false] SELL candidate suppressed at signal-generation")
 					continue
 				}
-				// Apply ML contribution (weight=0.15) and sentiment (weight=0.05)
-				sentimentScore := 0.0
+				// ─── AI Contribution scoring (v1.17.5) ───
+				// ML weight: 0.15 · Ollama LLM sentiment weight: 0.05
+				if pred != nil && pred.Confidence > 30 {
+					if mlDir == types.DirectionBuy {
+						mlContributionML = 0.15
+					} else if mlDir == types.DirectionSell {
+						mlContributionML = -0.15
+					}
+				}
+				sentimentAI := 0.0
 				if ollamaClient != nil && ollamaClient.IsEnabled() {
-					sentimentScore, _ = ollamaClient.GetNewsSentiment([]string{
-						fmt.Sprintf("XAUUSD price: %.2f, RSI: %.1f, ADX: %.1f",
+					sentimentScore, _ := ollamaClient.GetNewsSentiment([]string{
+						fmt.Sprintf("XAUUSD price: %.2f, RSI: %.1f, ADX: %.1f. Give only a sentiment score -1 to +1.",
 							mergedState.CurrentPrice.InexactFloat64(),
 							mergedState.Indicators.RSI.InexactFloat64(),
 							mergedState.Indicators.ADX.InexactFloat64()),
 					})
+					sentimentAI = sentimentScore
 				}
-				_ = stratResult // already evaluated above
+				sentimentContributionAI = sentimentAI
+				_ = stratResult
 				_ = mlDir
-				_ = sentimentScore
 			}
 		}
 	}
@@ -2836,6 +2847,15 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			Msg("[SIGNAL][EVALUATE] strategy evaluation triggered by closed bar")
 
 		stratResult := strat.Evaluate(mergedState)
+		// AI contribution injection (v1.17.5): Ollama sentiment + ML direction
+		stratResult.MLContribution = mlContributionML
+		stratResult.SentimentContribution = sentimentContributionAI
+		if mlContributionML != 0 {
+			stratResult.RawScore = stratResult.RawScore.Add(decimal.NewFromFloat(mlContributionML * 15))
+		}
+		if sentimentContributionAI != 0 {
+			stratResult.RawScore = stratResult.RawScore.Add(decimal.NewFromFloat(sentimentContributionAI * 5))
+		}
 
 		// ─── Audit: Start pipeline execution (prompt.md audit logging) ───
 		var pipelineExecID uuid.UUID
