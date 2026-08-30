@@ -31,6 +31,7 @@ import (
 	"github.com/predictatrade/realtime/internal/gates"
 	"github.com/predictatrade/realtime/internal/gateway"
 	"github.com/predictatrade/realtime/internal/hedging"
+	"github.com/predictatrade/realtime/internal/igs"
 	"github.com/predictatrade/realtime/internal/marketdata"
 	"github.com/predictatrade/realtime/internal/observability"
 	"github.com/predictatrade/realtime/internal/ptb"
@@ -419,7 +420,6 @@ func startHealthMonitor(
 		}
 	}
 }
-
 
 // nextMarketOpen computes the next FX market open (broker-time aware).
 // FX week: Sun 22:00 UTC → Fri 21:55 UTC. On weekend, next open is the
@@ -2170,6 +2170,55 @@ func main() {
 
 	xmEngine := crossmarket.NewEngine(xmConfig)
 
+	// ─── Institutional Gold Signal (IGS) Engine ───
+	// Deterministic composite of institutional gold intelligence (check.md):
+	// ETF flows, COT, USD regime, real yields + optional LLM research bias.
+	// Default: DISABLED + shadow — zero production impact until IGS_ENABLED=true.
+	igsConfig := igs.DefaultConfig()
+	if os.Getenv("IGS_ENABLED") == "true" {
+		igsConfig.Enabled = true
+	}
+	if igsMode := os.Getenv("IGS_MODE"); igsMode != "" {
+		igsConfig.Mode = igs.Mode(igsMode)
+	}
+	if os.Getenv("IGS_ETF_ENABLED") == "true" {
+		igsConfig.EnabledComponents[igs.ComponentETF] = true
+	}
+	if os.Getenv("IGS_AI_RESEARCH_ENABLED") == "true" {
+		igsConfig.EnabledComponents[igs.ComponentAIResearch] = true
+	}
+	igsEngine := igs.NewEngine(igsConfig)
+	var igsPersister *igs.Persister
+	if cfg.DBURL != "" {
+		if igsp, err := igs.NewPersisterFromURL(cfg.DBURL); err == nil {
+			igsPersister = igsp
+			defer igsPersister.Close()
+		}
+	}
+	// Periodic IGS evaluation + persistence (background — never the hot path).
+	go func() {
+		interval := 5 * time.Minute
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				res := igsEngine.Evaluate(igs.DirNeutral)
+				if igsPersister != nil && res.ComponentsAvailable > 0 {
+					pctx, pcancel := context.WithTimeout(context.Background(), 10*time.Second)
+					if err := igsPersister.SaveResult(pctx, &res); err != nil {
+						log.Warn().Err(err).Str("component", "igs").Msg("IGS result persist failed")
+					}
+					pcancel()
+				}
+			}
+		}
+	}()
+	log.Info().Bool("enabled", igsConfig.Enabled).Str("mode", string(igsConfig.Mode)).
+		Msg("Institutional Gold Signal (IGS) engine initialized")
+
 	// ─── XAUUSD Shadow Outcome Resolver ───
 	// Resolves XAUUSD shadow signal outcomes (TP1/TP2/TP3/SL/Expired)
 	// Only XAUUSD price determines outcomes — reference assets never do.
@@ -2230,6 +2279,12 @@ func main() {
 			snap := crossmarket.NormalizeDXY(value, prevValue, ts)
 			xmEngine.UpdateDriver(snap)
 			xmEngine.Correlation().AddDXY(value)
+			// IGS fan-in: USD regime from DXY (zero extra I/O).
+			igsEngine.UpdateComponent(igs.FromCrossMarket(igs.CrossMarketDriver{
+				Name: "dxy", RawValue: value, ImpactScore: snap.ImpactScore,
+				Confidence: snap.Confidence, Quality: string(snap.Quality),
+				Source: snap.Source, Reason: snap.Reason, Timestamp: snap.Timestamp,
+			}))
 			// Extract EURUSD from DXY components (no duplicate API call)
 			dxySnap := dxyProvider.GetSnapshot()
 			if dxySnap != nil && dxySnap.Components != nil {
@@ -2241,12 +2296,48 @@ func main() {
 		})
 	}
 
-	// Wire COT provider → cross-market engine
+	// Wire COT provider → cross-market engine + IGS fan-in
 	if cotProvider.IsConfigured() {
 		cotProvider.OnSnapshot(func(netPosition float64, percentile float64, ts time.Time) {
 			snap := crossmarket.NormalizeCOT(netPosition, percentile, ts)
 			xmEngine.UpdateDriver(snap)
+			// IGS fan-in: reuse the same COT observation (zero extra I/O).
+			igsEngine.UpdateComponent(igs.FromCrossMarket(igs.CrossMarketDriver{
+				Name: "cot", RawValue: float64(netPosition), ImpactScore: snap.ImpactScore,
+				Confidence: snap.Confidence, Quality: string(snap.Quality),
+				Source: snap.Source, Reason: snap.Reason, Timestamp: snap.Timestamp,
+			}))
 		})
+	}
+
+	// ─── Gold ETF Flow Provider (GLD/IAU proxy — IGS Tier-A feed) ───
+	// Optional: enabled only when IGS_ETF_ENABLED=true AND TwelveData key set.
+	// Daily-close proxy — capped impact + confidence; never fabricated.
+	if igsConfig.Enabled && igsConfig.EnabledComponents[igs.ComponentETF] {
+		etfProvider := marketdata.NewETFProvider(marketdata.ETFConfig{
+			APIKey:  cfg.TwelveDataAPIKey,
+			Symbols: []string{"GLD", "IAU"},
+		})
+		if etfProvider.IsConfigured() {
+			go etfProvider.StartRefreshLoop(ctx, func(msg string, err error) {
+				if err != nil {
+					log.Warn().Err(err).Str("component", "etf_provider").Msg(msg)
+				} else {
+					log.Info().Str("component", "etf_provider").Msg(msg)
+				}
+			})
+			// Push the ETF observation into IGS whenever it refreshes.
+			if obs := etfProvider.ETFComponent(); obs.Available {
+				igsEngine.UpdateComponent(igs.Component{
+					Name: igs.ComponentETF, RawValue: obs.RawValue, Impact: obs.Impact,
+					Confidence: obs.Confidence, Quality: igs.QualityFromCrossQuality(obs.Quality),
+					Source: obs.Source, Reason: obs.Reason, Timestamp: obs.Timestamp,
+				})
+			}
+			log.Info().Msg("IGS ETF flow provider started (GLD/IAU proxy — capped confidence)")
+		} else {
+			log.Info().Msg("IGS ETF flow enabled but TWELVEDATA_API_KEY missing — etf_flows remains UNAVAILABLE (never fabricated)")
+		}
 	}
 
 	httpServer := gateway.NewHTTPServer(wsHub, persister, stateMgr, agentHub, agentProvider, valkeyCache, xmEngine, newsRiskEngine, engTracker)
@@ -2301,6 +2392,12 @@ func main() {
 		prevValue := fredProvider.GetPrevValue()
 		snap := crossmarket.NormalizeRealYield(value, prevValue, ts)
 		xmEngine.UpdateDriver(snap)
+		// IGS fan-in: real-yield regime (zero extra I/O).
+		igsEngine.UpdateComponent(igs.FromCrossMarket(igs.CrossMarketDriver{
+			Name: "real_yields", RawValue: value, ImpactScore: snap.ImpactScore,
+			Confidence: snap.Confidence, Quality: string(snap.Quality),
+			Source: snap.Source, Reason: snap.Reason, Timestamp: snap.Timestamp,
+		}))
 	}, func(msg string, err error) {
 		if err != nil {
 			log.Warn().Err(err).Str("component", "fred_real_yield").Msg(msg)
