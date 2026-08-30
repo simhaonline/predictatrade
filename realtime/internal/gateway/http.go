@@ -90,6 +90,11 @@ func (h *HTTPServer) registerRoutes() {
 	h.mux.HandleFunc("/api/v1/market/state", h.handleMarketState)
 	h.mux.HandleFunc("/api/v1/candles", h.handleCandles)
 	h.mux.HandleFunc("/api/v1/feeds", h.handleFeeds)
+
+	// Astro Intelligence endpoints (check.md 2026-08-30: Vedic + Western Astro)
+	h.mux.HandleFunc("/api/v1/astro/state", h.handleAstroState)
+	h.mux.HandleFunc("/api/v1/astro/mindmap", h.handleAstroMindMap)
+	h.mux.HandleFunc("/api/v1/astro/screens", h.handleAstroScreens)
 	h.mux.HandleFunc("/api/v1/strategies", h.handleStrategies)
 	h.mux.HandleFunc("/api/v1/market/snapshot", h.handleMarketSnapshot)
 	h.mux.HandleFunc("/api/v1/agents/status", h.handleAgentsStatus)
