@@ -372,23 +372,15 @@
             </div>
         </div>
         <div class="hero-visual">
-            <div class="mock" role="img" aria-label="Predict-A-Trade XAUUSD intelligence dashboard mock">
-                <div class="mock-head">
-                    <span class="mock-tag">XAUUSD · Live</span>
-                    <span class="mock-live"><span class="dot"></span> SIGNAL</span>
-                </div>
-                <div class="mock-price">$2,384.70 <span style="font-size:14px;color:#7ee0a8;">▲ 0.62%</span></div>
-                <div class="mock-sub">Bias: <b style="color:#8eb2ff;">Cautious Bullish</b> · Sentiment: <b style="color:#f0a07c;">Fear tilting to Hope</b></div>
-                <div class="mock-candles" aria-hidden="true">
-                    <i style="height:40%;background:#ff8a8a"></i><i style="height:55%;background:#7ee0a8"></i><i style="height:48%;background:#ff8a8a"></i><i style="height:62%;background:#7ee0a8"></i><i style="height:50%;background:#ff8a8a"></i><i style="height:70%;background:#7ee0a8"></i><i style="height:58%;background:#7ee0a8"></i><i style="height:66%;background:#7ee0a8"></i><i style="height:52%;background:#ff8a8a"></i><i style="height:74%;background:#7ee0a8"></i>
-                </div>
-                <div class="mock-grid">
-                    <div class="mock-cell"><div class="label">Structure</div><div class="val neu">BOS ↑</div></div>
-                    <div class="mock-cell"><div class="label">Liquidity</div><div class="val up">Sweep ↓</div></div>
-                    <div class="mock-cell"><div class="label">Mood</div><div class="val down">Fear 38</div></div>
-                </div>
-                <div class="mock-foot"><span class="mood-pill">WAIT · evidence mixed</span></div>
-            </div>
+            <iframe
+                src="https://live.predictatrade.com/live-widget.html"
+                title="Live XAUUSD market data from the Predict-A-Trade engine"
+                loading="lazy"
+                style="width:100%;aspect-ratio:16/11;border:0;border-radius:16px;box-shadow:0 20px 60px rgba(23,23,20,0.15);"
+                aria-label="Live XAUUSD price, bias and signal feed"></iframe>
+            <p style="font-size:12px;color:var(--muted-foreground);margin-top:10px;text-align:right;">
+                Live data streamed from our engine · <a href="https://live.predictatrade.com" style="color:var(--primary);min-height:auto;">open full terminal →</a>
+            </p>
         </div>
     </section>
 
@@ -450,12 +442,13 @@
                     <p>Most traders read charts as if the market were a machine. It isn't. It's a crowd — anxious, euphoric, stubborn, and above all, <b>predictable in its extremes</b>. We measure those extremes so you can stand where the crowd loses its nerve.</p>
                     <p>Sentiment isn't a footnote to analysis. At turning points, it <b>is</b> the analysis.</p>
                 </div>
-                <div class="mood-scale" aria-label="Current XAUUSD mood distribution">
-                    <div class="mood-row"><span class="name">Fear</span><span class="bar fear"><i style="width:62%"></i></span><span class="pct">62%</span></div>
-                    <div class="mood-row"><span class="name">Greed</span><span class="bar greed"><i style="width:21%"></i></span><span class="pct">21%</span></div>
-                    <div class="mood-row"><span class="name">Panic</span><span class="bar panic"><i style="width:11%"></i></span><span class="pct">11%</span></div>
-                    <div class="mood-row"><span class="name">Neutral</span><span class="bar neutral"><i style="width:6%"></i></span><span class="pct">6%</span></div>
-                    <p style="font-size:12px;color:var(--muted-foreground);margin-top:6px;">Illustrative reading — not a forecast. Sentiment shifts faster than price.</p>
+                <div class="mood-scale" aria-label="What the engine measures in market mood">
+                    <div class="mood-row"><span class="name">Fear</span><span class="bar fear"><i style="width:100%"></i></span><span class="pct">sell</span></div>
+                    <div class="mood-row"><span class="name">Greed</span><span class="bar greed"><i style="width:100%"></i></span><span class="pct">buy</span></div>
+                    <div class="mood-row"><span class="name">Panic</span><span class="bar panic"><i style="width:100%"></i></span><span class="pct">capitulate</span></div>
+                    <div class="mood-row"><span class="name">Neutral</span><span class="bar neutral"><i style="width:100%"></i></span><span class="pct">wait</span></div>
+                    <p style="font-size:12px;color:var(--muted-foreground);margin-top:6px;">These are the four states our engine scores from the <b>live signal flow</b> above — not fixed numbers. The real reading updates every tick in the live widget.</p>
+                    <p style="font-size:12px;color:var(--muted-foreground);margin-top:6px;"><a href="https://live.predictatrade.com" style="color:var(--primary);min-height:auto;">Open the live terminal →</a></p>
                 </div>
             </div>
         </div>
@@ -546,22 +539,12 @@
                 </div>
             </div>
             <div>
-                <svg class="gauge" viewBox="0 0 200 120" role="img" aria-label="Fear and Greed gauge reading 38, Fear">
-                    <defs>
-                        <linearGradient id="g" x1="0" y1="0" x2="1" y2="0">
-                            <stop offset="0" stop-color="#ff5d5d"/><stop offset="0.5" stop-color="#ffb86b"/><stop offset="1" stop-color="#2fbf71"/>
-                        </linearGradient>
-                    </defs>
-                    <path d="M10 110 A90 90 0 0 1 190 110" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="14" stroke-linecap="round"/>
-                    <path d="M10 110 A90 90 0 0 1 190 110" fill="none" stroke="url(#g)" stroke-width="14" stroke-linecap="round" stroke-dasharray="283" stroke-dashoffset="175"/>
-                    <line x1="100" y1="110" x2="68" y2="78" stroke="#f0a07c" stroke-width="4" stroke-linecap="round"/>
-                    <circle cx="100" cy="110" r="7" fill="#f0a07c"/>
-                </svg>
-                <div class="readout">
-                    <div class="num">38</div>
-                    <div class="state">Fear · room to climb</div>
-                </div>
-                <p style="font-size:11px;color:#9a988f;text-align:center;margin-top:10px;">Illustrative. Sentiment readings are educational, not trading advice.</p>
+                <iframe
+                    src="https://live.predictatrade.com/live-widget.html?mode=compass"
+                    title="Live Fear & Greed compass from the Predict-A-Trade signal flow"
+                    loading="lazy"
+                    style="width:100%;max-width:420px;border:0;"
+                    aria-label="Live Fear and Greed sentiment gauge"></iframe>
             </div>
         </div>
     </section>
