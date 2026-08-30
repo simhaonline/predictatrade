@@ -45,9 +45,19 @@ var defaultConfigs = map[EngineType]EngineConfig{
 		IgnoreStructure: true,
 		AllowedRegimes:  []string{},
 		MinGrade:        "A",
-		OverrideSL:      1.5,              // SL = 1.5 * ATR
-		OverrideTPs:     [3]float64{3.0, 5.0, 8.0},  // TP1≈21pts, TP2≈35pts, TP3≈56pts
+		OverrideSL:      1.5,
+		OverrideTPs:     [3]float64{3.0, 5.0, 8.0},
 		OverrideExpiry:  240,
+	},
+	Aten: {
+		Type:            Aten,
+		MinAbsATR:       2.0,
+		IgnoreStructure: true,
+		AllowedRegimes:  []string{},
+		MinGrade:        "A",
+		OverrideSL:      1.0,
+		OverrideTPs:     [3]float64{1.0, 2.0, 3.0},
+		OverrideExpiry:  60,
 	},
 }
 
@@ -57,6 +67,7 @@ var strategyToEngine = map[types.StrategyID]EngineType{
 	types.StrategyStandardScalping:   StdScalp,
 	types.StrategyStandardSwing:      StdSwing,
 	types.StrategyTrendSwing:         TrendSwng,
+	types.StrategyATEN:               Aten,
 }
 
 // GetEngine returns the specialized engine for a strategy, or nil for legacy fallback.
@@ -82,6 +93,8 @@ func GetEngine(strategyName types.StrategyID) (SignalEngine, error) {
 		return &StdSwingEngine{cfg: cfg}, nil
 	case TrendSwng:
 		return &TrendSwingEngine{cfg: cfg}, nil
+	case Aten:
+		return &AttenEngine{cfg: cfg}, nil
 	default:
 		return nil, nil
 	}
