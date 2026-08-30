@@ -6,6 +6,7 @@ export const STRATEGY_DISPLAY_NAMES: Record<string, string> = {
   STANDARD_SWING: "Standard Swing",
   TREND_SWING: "Trend Swing",
   MARNIE_FIB: "EQFE",
+  ATEN: "ATEN",  // Aetherial Technical Engine Node
 };
 
 export function strategyLabel(id: string | undefined | null): string {

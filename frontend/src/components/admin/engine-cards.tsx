@@ -9,6 +9,7 @@ const ENGINE_LABELS: Record<string, string> = {
   STANDARD_SWING: "Standard Swing",
   TREND_SWING: "Trend Swing",
   MARNIE_FIB: "EQFE",
+  ATEN: "ATEN",
 };
 
 const HEALTH_STYLES: Record<string, string> = {

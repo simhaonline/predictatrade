@@ -109,7 +109,7 @@ const INDICATOR_DEFS: IndicatorDef[] = [
   { key: "session", label: "Session / MTF / Structure", group: "Context", updateType: "session", expectedIntervalMs: 300000 },
 ];
 
-const STRATEGIES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"];
+const STRATEGIES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB", "ATEN"];
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
 

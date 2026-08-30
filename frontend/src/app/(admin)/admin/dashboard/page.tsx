@@ -377,7 +377,7 @@ export default function AdminDashboardPage() {
             <IconBolt size={16} /> Active Strategies
           </h2>
           <div className="space-y-2">
-            {["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"].map((name) => {
+            {["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB", "ATEN"].map((name) => {
               const isActive = opsState?.active_strategies?.includes(name);
               const stratSignals = ((engineSignals?.signals ?? []) as Record<string, unknown>[]).filter(
                 (s: Record<string, unknown>) => String(s.StrategyID || s.strategy || "") === name
