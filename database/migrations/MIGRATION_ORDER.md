@@ -34,3 +34,4 @@ Run `scripts/reconcile_migrations.sh --apply` to back-fill missing rows and
 delete orphan rows. A rollback SQL is generated alongside it.
 096_ai_providers.sql
 097_playbook_exit_profiles.sql
+098_broker_account_types.sql

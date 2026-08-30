@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { DatabaseModule } from './common/database.module';
+import { BrokersModule } from './modules/brokers/brokers.module';
 import { GlobalJwtModule } from './common/jwt.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -32,6 +33,7 @@ import { ComplianceInterceptor } from './common/interceptors/compliance.intercep
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    BrokersModule,
     // Global rate limiting: 300 requests per minute per IP (5/sec).
     // Interactive dashboards poll market/subscription data; 60/min was too
     // low and caused 429 storms on /auth/refresh and /subscriptions/entitlements.
