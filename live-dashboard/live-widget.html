@@ -135,6 +135,7 @@
     var el=document.getElementById("status");
     el.className="status "+kind;
     document.getElementById("statusText").textContent=text;
+    if(kind==="live"||kind==="deg"){ try{parent.postMessage({type:"pat-live",ready:true,status:kind},"*");}catch(e){} }
   }
   function num(v){v=Number(v);return isFinite(v)?v:null;}
   function fmt(v,d){if(v===null||v===undefined||isNaN(v))return "—";return v.toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});}
@@ -158,6 +159,7 @@
     drawSpark();
     if(t.timestamp){lastTs=Date.parse(t.timestamp);}
     else if(t.Timestamp){lastTs=Date.parse(t.Timestamp);}
+    else if(t.time){lastTs=Date.parse(t.time);}
     if(!lastTs) lastTs=Date.now();
     tickAge();
   }
@@ -265,6 +267,7 @@
     if(ws)try{ws.close();}catch(e){}
     document.getElementById("live").style.display="none";
     document.getElementById("wall").style.display="block";
+    try{parent.postMessage({type:"pat-live",wall:true},"*");}catch(e){}
   }
 
   function connect(){
