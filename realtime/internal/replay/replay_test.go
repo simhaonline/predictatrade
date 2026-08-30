@@ -33,8 +33,8 @@ func TestReplayEngine_RunsSuccessfully(t *testing.T) {
 	}
 
 	// Should have strategy funnels for all 4 strategies
-	if len(result.StrategyFunnels) != 5 {
-		t.Errorf("Expected 5 strategy funnels, got %d", len(result.StrategyFunnels))
+	if len(result.StrategyFunnels) != 6 {
+		t.Errorf("Expected 6 strategy funnels, got %d", len(result.StrategyFunnels))
 	}
 
 	// Each funnel should have evaluations
