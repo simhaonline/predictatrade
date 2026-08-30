@@ -209,7 +209,8 @@
       .astro-list li::before{content:'';position:absolute;left:0;top:7px;width:13px;height:13px;border-radius:50%;background:#a74824;box-shadow:0 0 0 4px rgba(167,72,36,.18)}
       .astro-list b{color:#f6f4ef}
       .astro-note{color:#8b8579;font-size:13px;margin:22px 0 0}
-      #contact{border-top:2px solid #a74824}
+      #contact{position:relative}
+      #contact::before{content:"";display:block;height:3px;background:#a74824;margin-bottom:clamp(40px,6vw,72px)}
       @media(max-width:860px){.astro-grid{grid-template-columns:1fr}}
     </style>
     <section id="astro" class="astro" aria-labelledby="astro-title">
