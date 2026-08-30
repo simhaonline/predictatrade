@@ -47,7 +47,7 @@ export function MarketStatusBanner() {
         <div>
           <span className="text-pat-text-primary">🕒 Market closed — weekend.</span>{" "}
           <span className="text-pat-text-secondary">
-            Showing last closing prices; no signals are generated until the market re-opens.
+            Showing last closing prices; no signals are generated until the next market re-opens.
           </span>
         </div>
         {d.next_market_open_utc && (

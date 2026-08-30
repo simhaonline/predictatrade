@@ -56,6 +56,27 @@ export class AiProvidersService {
     if (r.rows.length === 0) throw new NotFoundException('provider_not_found');
     return r.rows[0];
   }
+
+  /** Test connectivity to the provider's base_url without exposing the API key */
+  async testConnection(id: string) {
+    const p = await this.get(id);
+    const started = Date.now();
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(p.base_url.replace(/\/$/, '') + '/api/tags', {
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' },
+      });
+      clearTimeout(timeout);
+      const ms = Date.now() - started;
+      await this.pool.query(`UPDATE ai.ai_providers SET health_check = $2, last_checked = now() WHERE id = $1`, [id, res.ok]);
+      return { ok: res.ok, http_status: res.status, latency_ms: ms };
+    } catch (e) {
+      await this.pool.query(`UPDATE ai.ai_providers SET health_check = false, last_checked = now() WHERE id = $1`, [id]);
+      return { ok: false, error: e instanceof Error ? e.message : 'unreachable', latency_ms: Date.now() - started };
+    }
+  }
 }
 
 @Controller('operations/ai/providers')
@@ -70,4 +91,6 @@ export class AiProvidersController {
   @Post(':id/enable') enable(@Param('id') id: string) { return this.svc.toggle(id, true); }
   @Post(':id/disable') disable(@Param('id') id: string) { return this.svc.toggle(id, false); }
   @Delete(':id') remove(@Param('id') id: string) { return this.svc.remove(id); }
+  @Post(':id/test') test(@Param('id') id: string) { return this.svc.testConnection(id); }
+
 }

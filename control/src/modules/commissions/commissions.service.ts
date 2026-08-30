@@ -206,10 +206,15 @@ export class CommissionsService {
     const offset = (page - 1) * limit;
     const [data, count] = await Promise.all([
       this.pool.query(
-        `SELECT c.*, ru.email as recipient_email, su.email as source_email
+        `SELECT c.*, ru.email as recipient_email, ru.full_name as recipient_name,
+                su.email as source_email, su.full_name as source_name,
+                i.invoice_number, p.code as plan_code, p.name as plan_name
          FROM referral.commission_ledger c
          LEFT JOIN iam.users ru ON c.recipient_user_id = ru.id
          LEFT JOIN iam.users su ON c.source_user_id = su.id
+         LEFT JOIN billing.invoices i ON c.invoice_id = i.id
+         LEFT JOIN billing.subscriptions bs ON bs.id = i.subscription_id
+         LEFT JOIN control.plans p ON p.id = bs.plan_id
          ORDER BY c.created_at DESC LIMIT $1 OFFSET $2`,
         [limit, offset],
       ),

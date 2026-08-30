@@ -75,8 +75,8 @@ export default function AdminFinanceReferralReportsPage() {
   for (const c of commissions) {
     const amt = Number(c.commission_amount || 0);
     byLevel.set(c.commission_level, (byLevel.get(c.commission_level) ?? 0) + amt);
-    byPlan.set(c.plan_code ?? "UNKNOWN", (byPlan.get(c.plan_code ?? "UNKNOWN") ?? 0) + amt);
-    byCycle.set(c.billing_cycle ?? "UNKNOWN", (byCycle.get(c.billing_cycle ?? "UNKNOWN") ?? 0) + amt);
+    byPlan.set(c.plan_code ?? "— no paid plan yet", (byPlan.get(c.plan_code ?? "— no paid plan yet") ?? 0) + amt);
+    byCycle.set(c.billing_cycle ?? "—", (byCycle.get(c.billing_cycle ?? "—") ?? 0) + amt);
     if (c.status === "PAID" || c.status === "paid" || c.status === "CONFIRMED" || c.status === "confirmed") paidComm += amt;
   }
 

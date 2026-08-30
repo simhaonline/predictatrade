@@ -21,6 +21,10 @@ export function ProvidersCRUD() {
       (await customInstance.post(`/operations/ai/providers/${id}/${enable ? "enable" : "disable"}`)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["ai-providers"] }),
   });
+  const test = useMutation({
+    mutationFn: async (id: string) => (await customInstance.post(`/operations/ai/providers/${id}/test`)).data,
+    onSuccess: (d: any) => { qc.invalidateQueries({ queryKey: ["ai-providers"] }); toast.success(d.ok ? `Connected in ${d.latency_ms}ms` : `Unreachable: ${d.error || d.http_status}`); },
+  });
   const del = useMutation({
     mutationFn: async (id: string) => (await customInstance.delete(`/operations/ai/providers/${id}`)).data,
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["ai-providers"] }); toast.success("Deleted"); },
@@ -53,6 +57,7 @@ export function ProvidersCRUD() {
             <span className={`text-xs px-2 py-1 rounded ${p.enabled ? "bg-pat-success/15 text-pat-success" : "bg-pat-bg-surface-secondary text-pat-text-muted"}`}>
               {p.enabled ? "enabled" : "disabled"}
             </span>
+            <button onClick={() => test.mutate(p.id)} className="rounded border border-pat-border px-3 py-1 text-xs">Test</button>
             <button onClick={() => togg.mutate({ id: p.id, enable: !p.enabled })} className="rounded border border-pat-border px-3 py-1 text-xs">{p.enabled ? "Disable" : "Enable"}</button>
             <button onClick={() => { if (confirm(`Delete provider ${p.name}?`)) del.mutate(p.id); }} className="rounded border border-pat-danger/40 text-pat-danger px-3 py-1 text-xs">Delete</button>
           </div>
