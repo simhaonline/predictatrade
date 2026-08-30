@@ -117,9 +117,9 @@
   </style>
   <style>
     /* Contact section alignment */
-    .contact-section{padding:clamp(48px,8vw,96px) 6vw;color:#171714;background:#f6f4ef;max-width:1300px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:clamp(28px,5vw,64px);align-items:start}
-    .contact-section>div:first-child{grid-column:1!important;grid-row:1!important;max-width:520px}
-    .contact-section>.contact-panel{grid-column:2!important;grid-row:1!important}
+    .contact-section{padding:clamp(48px,8vw,96px) 6vw;color:#171714;background:#f6f4ef;max-width:1300px;margin:0 auto;display:flex!important;flex-wrap:wrap;gap:clamp(28px,5vw,64px);align-items:flex-start}
+    .contact-section>div:first-child{flex:1 1 360px;max-width:560px}
+    .contact-section>.contact-panel{flex:1 1 420px;max-width:560px}
     .contact-section .eyebrow{color:#a74824;font:800 11px/1 Arial,sans-serif;letter-spacing:.16em;text-transform:uppercase}
     .contact-section h2{font:700 clamp(32px,5vw,60px)/1 Fraunces,Georgia,serif;letter-spacing:-.05em;margin:14px 0 16px;max-width:780px}
     .contact-section h2 em{color:#a74824;font-style:italic}
