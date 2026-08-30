@@ -804,6 +804,18 @@ async function jget(path) {
   return r.json();
 }
 
+/* Strategy display labels (mirrors frontend/src/lib/strategy-labels.ts).
+   Internal IDs stay in telemetry; the UI must show the human label. */
+const STRAT_LABELS = {
+  "MARNIE_FIB": "EQFE", "MARNIE FIB": "EQFE",
+  "STANDARD_SCALPING": "Standard Scalping", "ULTRA_SCALPING": "Ultra Scalping",
+  "STANDARD_SWING": "Standard Swing", "TREND_SWING": "Trend Swing", "ATEN": "ATEN",
+};
+function labelStrategy(raw) {
+  const k = (raw || "").replace(/_/g, " ");
+  return STRAT_LABELS[raw] || STRAT_LABELS[k] || raw;
+}
+
 /* ═══════════ CHART (ECharts) ═══════════ */
 const chart = {
   inst: null,
@@ -1073,7 +1085,7 @@ function renderEngines() {
     const status = e.health === "LIVE" ? "LIVE" : (e.error_count > 0 ? "ERROR" : "WAITING");
     const prob = e.has_calibrated_probability ? ` · P=${(num(e.calibrated_probability) * 100).toFixed(1)}%` : "";
     return `<div class="eng-card">
-      <div class="eng-title">${esc((e.engine || "").replace(/_/g, " "))}</div>
+      <div class="eng-title">${esc(labelStrategy(e.engine))}</div>
       <div class="eng-status ${status}">${status} · ${esc((e.primary_timeframes || []).join("/"))}</div>
       <div class="eng-decision ${esc(dec)}">${esc(dec)}</div>
       <div class="eng-score">${score.toFixed(1)}</div>
@@ -1147,13 +1159,7 @@ function renderSignals() {
     const dirRaw = (s.Direction || s.direction || "").toUpperCase();
     const dir = dirRaw.includes("BUY") ? "BUY" : dirRaw.includes("SELL") ? "SELL" : "NO_TRADE";
     const cardCls = dir === "BUY" ? "buy" : dir === "SELL" ? "sell" : "no-trade";
-    const rawStrat = (s.StrategyID || s.strategy || "").replace(/_/g, " ");
-    const STRAT_LABELS = {
-      "MARNIE_FIB": "EQFE", "MARNIE FIB": "EQFE",
-      "STANDARD_SCALPING": "Standard Scalping", "ULTRA_SCALPING": "Ultra Scalping",
-      "STANDARD_SWING": "Standard Swing", "TREND_SWING": "Trend Swing", "ATEN": "ATEN",
-    };
-    const strat = STRAT_LABELS[rawStrat] || rawStrat;
+    const strat = labelStrategy(s.StrategyID || s.strategy || "");
     const ts = (s.CreatedAt || s.created_at || s.timestamp || "");
     return `<div class="signal-feed-card ${cardCls}">
       <div class="sig-head-row">
