@@ -3,120 +3,138 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Predict-A-Trade — Live XAUUSD Widget</title>
+<title>Predict-A-Trade — Live XAUUSD Intelligence</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,500..700,50..100&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root{
-    --background:#f6f4ef; --foreground:#171714; --card:#fffefa;
-    --primary:#2463ff; --primary-fg:#f6f4ef; --muted:#f0ede6; --muted-fg:#68665e;
-    --accent:#f0a07c; --border:rgba(0,0,0,0.08);
-    --green:#1f9d57; --red:#d2453b;
-    --font-sans:'Manrope',system-ui,sans-serif; --font-serif:'Fraunces',Georgia,serif;
+    --bg:#0b0d12; --panel:#151921; --panel2:#1b2029;
+    --line:rgba(255,255,255,.07); --txt:#e7e9ee; --mut:#8b93a3;
+    --gold:#e8b873; --gold2:#f0a07c; --grn:#1f9d57; --red:#e0554b; --blue:#5b8cff;
+    --sans:'Manrope',system-ui,sans-serif; --serif:'Fraunces',Georgia,serif;
   }
   *{margin:0;padding:0;box-sizing:border-box}
-  html,body{background:var(--background);color:var(--foreground);font-family:var(--font-sans);-webkit-font-smoothing:antialiased}
-  .widget{
-    background:var(--card);border:1px solid var(--border);border-radius:16px;
-    padding:26px 28px;max-width:760px;margin:0 auto;position:relative;overflow:hidden;
-  }
-  .top{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
-  .sym{display:flex;align-items:center;gap:12px}
-  .sym .mark{width:30px;height:30px;border-radius:8px;background:var(--primary);display:grid;place-items:center}
-  .sym .mark svg{width:20px;height:20px}
-  .sym .name{font:700 15px/1 var(--font-sans);letter-spacing:.02em}
-  .sym .name span{display:block;font-size:11px;color:var(--muted-fg);font-weight:600;letter-spacing:.14em;text-transform:uppercase}
-  .status{display:inline-flex;align-items:center;gap:8px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:6px 12px;border-radius:999px}
-  .status .dot{width:8px;height:8px;border-radius:50%;background:var(--muted-fg)}
-  .status.live{color:var(--green);background:rgba(31,157,87,.12)}
-  .status.live .dot{background:var(--green);box-shadow:0 0 0 0 rgba(31,157,87,.6);animation:pulse 1.8s infinite}
-  .status.deg{color:#c47f12;background:rgba(196,127,18,.12)}
-  .status.deg .dot{background:#c47f12}
-  .status.off{color:var(--red);background:rgba(210,69,59,.12)}
+  html,body{height:100%}
+  body{background:radial-gradient(130% 120% at 50% 0%, #13161f 0%, #0b0d12 62%);color:var(--txt);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+  .term{max-width:920px;margin:0 auto;padding:22px;min-height:100%;display:flex;flex-direction:column;gap:16px}
+  .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+  .sym{display:flex;gap:12px;align-items:center}
+  .mark{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--gold),var(--gold2));display:grid;place-items:center;color:#1a1205;font:800 18px/1 var(--serif);box-shadow:0 6px 18px rgba(232,184,115,.25)}
+  .name{font:800 16px/1 var(--sans);letter-spacing:.04em}
+  .sub{font-size:10px;letter-spacing:.18em;color:var(--mut);font-weight:700;margin-top:4px}
+  .status{display:inline-flex;gap:8px;align-items:center;font:700 11px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;padding:7px 13px;border-radius:999px;border:1px solid var(--line)}
+  .status .dot{width:8px;height:8px;border-radius:50%;background:var(--mut)}
+  .status.live{color:var(--grn);background:rgba(31,157,87,.12);border-color:rgba(31,157,87,.3)}
+  .status.live .dot{background:var(--grn);animation:pulse 1.8s infinite}
+  .status.deg{color:#e0a93b;background:rgba(224,169,59,.12);border-color:rgba(224,169,59,.3)}
+  .status.deg .dot{background:#e0a93b}
+  .status.off{color:var(--red);background:rgba(224,85,75,.12);border-color:rgba(224,85,75,.3)}
   .status.off .dot{background:var(--red)}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(31,157,87,.6)}70%{box-shadow:0 0 0 9px rgba(31,157,87,0)}100%{box-shadow:0 0 0 0 rgba(31,157,87,0)}}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(31,157,87,.5)}70%{box-shadow:0 0 0 8px rgba(31,157,87,0)}100%{box-shadow:0 0 0 0 rgba(31,157,87,0)}}
 
-  .price-row{display:flex;align-items:flex-end;gap:18px;margin:22px 0 6px;flex-wrap:wrap}
-  .price{font:600 52px/0.9 var(--font-serif);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-  .price small{font-size:22px;color:var(--muted-fg);font-weight:500}
-  .chg{font:700 16px/1 var(--font-sans);padding:6px 12px;border-radius:999px}
-  .chg.up{color:var(--green);background:rgba(31,157,87,.12)}
-  .chg.down{color:var(--red);background:rgba(210,69,59,.12)}
-  .chg.flat{color:var(--muted-fg);background:var(--muted)}
-  .meta{display:flex;gap:14px;flex-wrap:wrap;color:var(--muted-fg);font-size:12px;margin-bottom:18px}
-  .meta b{color:var(--foreground);font-weight:700}
+  .price-row{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap}
+  .price{font:600 54px/.9 var(--serif);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .price small{font-size:20px;color:var(--mut);font-weight:500;margin-left:6px}
+  .chg{font:800 15px/1 var(--sans);padding:7px 13px;border-radius:999px}
+  .chg.up{color:var(--grn);background:rgba(31,157,87,.14)}
+  .chg.down{color:var(--red);background:rgba(224,85,75,.14)}
+  .chg.flat{color:var(--mut);background:rgba(255,255,255,.05)}
 
-  .grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px}
-  .spark{background:var(--background);border-radius:12px;padding:12px 10px 4px}
-  .spark canvas{width:100%;height:90px;display:block}
+  .meta{display:flex;gap:10px;flex-wrap:wrap}
+  .m{flex:1;min-width:92px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:11px 13px}
+  .m span{display:block;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);font-weight:700}
+  .m b{display:block;margin-top:5px;font:600 17px/1 var(--sans);font-variant-numeric:tabular-nums}
+
+  .body{display:grid;grid-template-columns:1.5fr 1fr;gap:14px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px}
+  .panel-h{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);font-weight:700;margin-bottom:10px}
+  .chart canvas{width:100%;height:150px;display:block}
   .side{display:flex;flex-direction:column;gap:12px}
-  .stat{background:var(--background);border-radius:12px;padding:14px 16px}
-  .stat .k{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted-fg);font-weight:700}
-  .stat .v{font:600 22px/1 var(--font-serif);margin-top:6px;letter-spacing:-.01em}
-  .stat .v.green{color:var(--green)} .stat .v.red{color:var(--red)} .stat .v.blue{color:var(--primary)}
+  .gauge-wrap{max-width:230px;margin:2px auto 0}
+  .mood-label{text-align:center;font:600 13px/1.4 var(--sans);color:var(--mut);margin-top:6px}
+  .mood-label b{color:var(--txt)}
+  .scale{display:flex;justify-content:space-between;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);max-width:230px;margin:4px auto 0}
+  .stat{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center}
+  .stat span{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);font-weight:700}
+  .stat b{font:700 22px/1 var(--serif)}
 
-  /* Compass mode */
-  .compass-mode{display:grid;grid-template-columns:1fr;gap:14px;text-align:center}
-  .gauge-wrap{max-width:340px;margin:6px auto 0}
-  .mood-label{font:600 15px/1.3 var(--font-sans);color:var(--muted-fg)}
-  .mood-label b{color:var(--foreground)}
-  .scale{display:flex;justify-content:space-between;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted-fg);max-width:340px;margin:4px auto 0}
+  .feed-h{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);font-weight:700}
+  .feed{list-style:none;display:flex;flex-direction:column;gap:6px;max-height:158px;overflow:auto}
+  .feed li{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 11px;font-size:13px}
+  .feed .dir{font:800 11px/1 var(--sans);letter-spacing:.06em;padding:4px 8px;border-radius:6px}
+  .feed .dir.buy{color:var(--grn);background:rgba(31,157,87,.14)}
+  .feed .dir.sell{color:var(--red);background:rgba(224,85,75,.14)}
+  .feed .sym{font-weight:600;color:var(--txt)}
+  .feed .t{margin-left:auto;color:var(--mut);font-size:11px}
+  .feed .empty{color:var(--mut);background:transparent;border:0;justify-content:center}
 
-  .wall{display:none;text-align:center;padding:24px 10px}
-  .wall h3{font:500 22px/1.1 var(--font-serif);letter-spacing:-.02em;margin-bottom:10px}
-  .wall p{font-size:13px;color:var(--muted-fg);margin-bottom:16px}
-  .wall a{display:inline-block;background:var(--primary);color:var(--primary-fg);padding:12px 24px;border-radius:999px;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:.1em;text-decoration:none}
+  .foot{margin-top:auto;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--mut);padding-top:4px}
+  .foot a{color:var(--gold);text-decoration:none;font-weight:700}
 
-  .foot{margin-top:18px;font-size:11px;color:var(--muted-fg);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
-  .foot a{color:var(--muted-fg);min-height:auto;text-decoration:underline}
-  @media(max-width:560px){.grid{grid-template-columns:1fr}.price{font-size:42px}}
+  .wall{display:none;text-align:center;padding:40px 16px}
+  .wall h3{font:600 24px/1.15 var(--serif);margin-bottom:10px}
+  .wall p{color:var(--mut);font-size:14px;max-width:420px;margin:0 auto 18px}
+  .wall a{display:inline-block;background:linear-gradient(135deg,var(--gold),var(--gold2));color:#1a1205;padding:13px 26px;border-radius:999px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;text-decoration:none;font-size:13px}
+
+  @media(max-width:680px){.body{grid-template-columns:1fr}.price{font-size:44px}.term{padding:16px}}
 </style>
 </head>
 <body>
-<div class="widget" id="widget">
-  <!-- LIVE VIEW -->
+<div class="term" id="term">
   <div id="live">
     <div class="top">
       <div class="sym">
-        <span class="mark"><svg viewBox="0 0 32 32"><path d="M7 21l5-9 4 6 3-5 6 8" stroke="#f6f4ef" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-        <span class="name">XAUUSD<span id="src">Live</span></span>
+        <span class="mark">P</span>
+        <div><div class="name">XAUUSD</div><div class="sub">Gold · Spot</div></div>
       </div>
       <span class="status off" id="status"><span class="dot"></span><span id="statusText">Connecting…</span></span>
     </div>
 
     <div class="price-row">
-      <div class="price" id="price">—<small id="priceSub"></small></div>
+      <div class="price" id="price">—<small id="priceSub">USD</small></div>
       <div class="chg flat" id="chg">—</div>
     </div>
+
     <div class="meta">
-      <span>Bid <b id="bid">—</b></span>
-      <span>Ask <b id="ask">—</b></span>
-      <span>Spread <b id="spread">—</b></span>
-      <span>Updated <b id="age">—</b></span>
+      <div class="m"><span>Bid</span><b id="bid">—</b></div>
+      <div class="m"><span>Ask</span><b id="ask">—</b></div>
+      <div class="m"><span>Spread</span><b id="spread">—</b></div>
+      <div class="m"><span>Session</span><b id="session">—</b></div>
+      <div class="m"><span>Day H / L</span><b id="hl">—</b></div>
     </div>
 
-    <div class="grid">
-      <div class="spark"><canvas id="spark"></canvas></div>
+    <div class="body">
+      <div class="panel chart"><div class="panel-h">Price action</div><canvas id="spark"></canvas></div>
       <div class="side">
-        <div class="stat"><div class="k">Live Bias (signals)</div><div class="v blue" id="bias">—</div></div>
-        <div class="stat"><div class="k">Live Signals (session)</div><div class="v" id="sigCount">0</div></div>
+        <div class="panel">
+          <div class="panel-h">Crowd sentiment</div>
+          <div class="gauge-wrap"><svg id="gauge" viewBox="0 0 200 120" width="100%">
+            <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#e0554b"/><stop offset="0.5" stop-color="#e8b873"/><stop offset="1" stop-color="#1f9d57"/></linearGradient></defs>
+            <path d="M10 110 A90 90 0 0 1 190 110" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="14" stroke-linecap="round"/>
+            <path id="gaugeFill" d="M10 110 A90 90 0 0 1 190 110" fill="none" stroke="url(#g)" stroke-width="14" stroke-linecap="round" stroke-dasharray="283" stroke-dashoffset="283"/>
+            <line id="gaugeNeedle" x1="100" y1="110" x2="100" y2="34" stroke="#e7e9ee" stroke-width="3" stroke-linecap="round"/>
+            <circle cx="100" cy="110" r="7" fill="#e7e9ee"/></svg></div>
+          <div class="mood-label" id="moodLabel">Reading live signal flow…</div>
+          <div class="scale"><span>Fear</span><span>Neutral</span><span>Greed</span></div>
+        </div>
+        <div class="stat"><span>Live signals</span><b id="sigCount">0</b></div>
       </div>
     </div>
 
-    <!-- compass mode adds the gauge here -->
-    <div id="compassSlot"></div>
+    <div class="feed-h">Recent signals</div>
+    <ul class="feed" id="feed"><li class="empty">Awaiting signal flow…</li></ul>
 
     <div class="foot">
       <span id="stamp">Awaiting engine…</span>
-      <a href="https://live.predictatrade.com" target="_blank" rel="noopener">Open full live terminal →</a>
+      <a id="termLink" href="https://live.predictatrade.com/live-widget.html" target="_blank" rel="noopener">Open full terminal →</a>
     </div>
   </div>
 
-  <!-- TRIAL WALL -->
   <div class="wall" id="wall">
     <h3>Your 5-minute live preview ended</h3>
-    <p>Real XAUUSD price, bias and signal flow are streaming — create a free account to keep watching.</p>
+    <p>Real XAUUSD price, bias and signal flow are streaming — create a free account to keep watching the live intelligence terminal.</p>
     <a href="https://platform.predictatrade.com" target="_blank" rel="noopener">Start Free — $10,000 Demo</a>
   </div>
 </div>
@@ -124,13 +142,10 @@
 <script>
 (function(){
   var isCompass = /[?&]mode=compass/.test(location.search);
-  if(isCompass){ buildCompass(); }
-
   var API="";
   var wsUrl=(location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws/v1/relay";
-  var ws=null, retry=0, firstMid=null, mids=[], lastTs=0, signals=[], restTimer=null;
+  var ws=null, retry=0, firstMid=null, mids=[], lastTs=0, signals=[];
 
-  // ---- real-data renderers ----
   function setStatus(kind,text){
     var el=document.getElementById("status");
     el.className="status "+kind;
@@ -139,34 +154,32 @@
   }
   function num(v){v=Number(v);return isFinite(v)?v:null;}
   function fmt(v,d){if(v===null||v===undefined||isNaN(v))return "—";return v.toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});}
+  function setText(id,v){var e=document.getElementById(id);if(e)e.textContent=v;}
 
   function updateTick(t){
     var bid=num(t.bid), ask=num(t.ask), sp=num(t.spread);
     var mid=(bid&&ask)?+(((bid+ask)/2).toFixed(3)):null;
     if(mid===null) return;
     if(firstMid===null) firstMid=mid;
-    document.getElementById("bid").textContent=fmt(bid,3);
-    document.getElementById("ask").textContent=fmt(ask,3);
-    document.getElementById("spread").textContent=fmt(sp,1);
-    document.getElementById("price").innerHTML=fmt(mid,3)+'<small> '+ (t.symbol||"XAUUSD") +'</small>';
+    setText("bid",fmt(bid,3)); setText("ask",fmt(ask,3)); setText("spread",fmt(sp,1));
+    document.getElementById("price").innerHTML=fmt(mid,3)+'<small> '+(t.symbol||"USD")+'</small>';
     var chg=firstMid?((mid-firstMid)/firstMid*100):0;
     var cEl=document.getElementById("chg");
     if(Math.abs(chg)<0.0005){cEl.className="chg flat";cEl.textContent="0.00%";}
     else if(chg>0){cEl.className="chg up";cEl.textContent="▲ "+chg.toFixed(2)+"%";}
     else{cEl.className="chg down";cEl.textContent="▼ "+Math.abs(chg).toFixed(2)+"%";}
-    // sparkline
     mids.push(mid); if(mids.length>80) mids.shift();
     drawSpark();
-    if(t.timestamp){lastTs=Date.parse(t.timestamp);}
-    else if(t.Timestamp){lastTs=Date.parse(t.Timestamp);}
-    else if(t.time){lastTs=Date.parse(t.time);}
+    if(t.timestamp) lastTs=Date.parse(t.timestamp);
+    else if(t.Timestamp) lastTs=Date.parse(t.Timestamp);
+    else if(t.time) lastTs=Date.parse(t.time);
     if(!lastTs) lastTs=Date.now();
     tickAge();
   }
 
   function updateSignals(sigArr){
     signals=sigArr.slice(0,40);
-    document.getElementById("sigCount").textContent=signals.length;
+    setText("sigCount",String(signals.length));
     var buy=0,sell=0;
     signals.forEach(function(s){
       var d=(s.Direction||s.direction||"").toUpperCase();
@@ -174,11 +187,25 @@
     });
     var total=buy+sell;
     var biasEl=document.getElementById("bias");
-    if(total===0){biasEl.textContent="Neutral";biasEl.className="v blue";}
-    else if(buy>sell){biasEl.textContent="Risk-On ▲ ("+buy+"/"+total+")";biasEl.className="v green";}
-    else if(sell>buy){biasEl.textContent="Risk-Off ▼ ("+sell+"/"+total+")";biasEl.className="v red";}
-    else{biasEl.textContent="Balanced";biasEl.className="v blue";}
-    if(isCompass) updateGauge(buy,sell);
+    if(total===0){ setText("bias","Neutral"); if(biasEl)biasEl.className="v blue"; }
+    else if(buy>sell){ setText("bias","Risk-On ▲ ("+buy+"/"+total+")"); if(biasEl)biasEl.className="v green"; }
+    else if(sell>buy){ setText("bias","Risk-Off ▼ ("+sell+"/"+total+")"); if(biasEl)biasEl.className="v red"; }
+    else{ setText("bias","Balanced"); if(biasEl)biasEl.className="v blue"; }
+    updateGauge(buy,sell);
+    renderFeed();
+  }
+
+  function renderFeed(){
+    var ul=document.getElementById("feed"); if(!ul) return;
+    if(signals.length===0){ ul.innerHTML='<li class="empty">Awaiting signal flow…</li>'; return; }
+    ul.innerHTML=signals.slice(0,8).map(function(s){
+      var d=(s.Direction||s.direction||"?").toUpperCase();
+      var buy=d.indexOf("BUY")>=0, sell=d.indexOf("SELL")>=0;
+      var cls=buy?"buy":(sell?"sell":""); var label=buy?"BUY":(sell?"SELL":d);
+      var ts=s.Timestamp||s.timestamp||s.time||"";
+      var t=ts?new Date(Date.parse(ts)).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):"";
+      return '<li><span class="dir '+cls+'">'+label+'</span><span class="sym">'+(s.Symbol||s.symbol||"XAUUSD")+'</span><span class="t">'+t+'</span></li>';
+    }).join("");
   }
 
   function drawSpark(){
@@ -197,42 +224,28 @@
       var y=h-((v-min)/rng)*(h-10)-5;
       i?ctx.lineTo(x,y):ctx.moveTo(x,y);
     });
-    ctx.strokeStyle=up?"#1f9d57":"#d2453b"; ctx.lineWidth=2; ctx.lineJoin="round"; ctx.stroke();
-    // fill
+    ctx.strokeStyle=up?"#1f9d57":"#e0554b"; ctx.lineWidth=2; ctx.lineJoin="round"; ctx.stroke();
     ctx.lineTo(w,h);ctx.lineTo(0,h);ctx.closePath();
-    ctx.fillStyle=up?"rgba(31,157,87,.10)":"rgba(210,69,59,.10)";ctx.fill();
+    ctx.fillStyle=up?"rgba(31,157,87,.10)":"rgba(224,85,75,.10)";ctx.fill();
   }
 
   function tickAge(){
-    if(!lastTs){document.getElementById("age").textContent="—";return;}
+    if(!lastTs){setText("age","—");return;}
     var s=Math.max(0,Math.round((Date.now()-lastTs)/1000));
-    document.getElementById("age").textContent= s<2?"just now":(s+"s ago");
+    setText("age", s<2?"just now":(s+"s ago"));
   }
   setInterval(tickAge,1000);
 
-  // ---- gauge (compass mode) ----
-  function buildCompass(){
-    document.getElementById("compassSlot").innerHTML=
-      '<div class="compass-mode"><div class="gauge-wrap"><svg id="gauge" viewBox="0 0 200 120" width="100%">'+
-      '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0">'+
-      '<stop offset="0" stop-color="#d2453b"/><stop offset="0.5" stop-color="#f0a07c"/><stop offset="1" stop-color="#1f9d57"/></linearGradient></defs>'+
-      '<path d="M10 110 A90 90 0 0 1 190 110" fill="none" stroke="rgba(0,0,0,0.08)" stroke-width="14" stroke-linecap="round"/>'+
-      '<path id="gaugeFill" d="M10 110 A90 90 0 0 1 190 110" fill="none" stroke="url(#g)" stroke-width="14" stroke-linecap="round" stroke-dasharray="283" stroke-dashoffset="283"/>'+
-      '<line id="gaugeNeedle" x1="100" y1="110" x2="100" y2="34" stroke="#171714" stroke-width="3" stroke-linecap="round"/>'+
-      '<circle cx="100" cy="110" r="7" fill="#171714"/></svg></div>'+
-      '<div class="mood-label" id="moodLabel">Reading live signal flow…</div>'+
-      '<div class="scale"><span>Extreme Fear</span><span>Neutral</span><span>Extreme Greed</span></div></div>';
-  }
   function updateGauge(buy,sell){
     var total=buy+sell;
-    var score=50; // neutral default
+    var score=50;
     if(total>0){ var net=(buy-sell)/total; score=Math.round(50+net*50); }
     var fill=document.getElementById("gaugeFill");
     if(fill){ fill.setAttribute("stroke-dashoffset", String(283-(score/100)*283)); }
     var needle=document.getElementById("gaugeNeedle");
     if(needle){ var ang=(-90+(score/100)*180)*Math.PI/180; needle.setAttribute("x2",String(100+66*Math.cos(ang))); needle.setAttribute("y2",String(110+66*Math.sin(ang))); }
     var lbl=document.getElementById("moodLabel"); if(!lbl) return;
-    var mood,klass;
+    var mood;
     if(total===0){mood="Awaiting signal flow — market quiet";}
     else if(score>=80){mood="Extreme Greed — crowd is euphoric";}
     else if(score>=60){mood="Greed leaning — momentum buyers dominate";}
@@ -242,18 +255,20 @@
     lbl.innerHTML="<b>"+score+"</b> / 100 · "+mood;
   }
 
-  // ---- connection ----
   function onMessage(ev){
     var m; try{m=JSON.parse(ev.data);}catch(e){return;}
     if(m.status==="LIVE"||m.status==="DEGRADED"||m.status==="STALE"){
       var st=m.status==="LIVE"?"live":(m.status==="DEGRADED"?"deg":"off");
       setStatus(st, m.status==="LIVE"?"Live":(m.status==="DEGRADED"?"Degraded (cached)":"Stale"));
-      document.getElementById("src").textContent = m.engine_online? "Live" : "Cached";
-      if(m.market_snapshot&&m.market_snapshot.tick) updateTick(m.market_snapshot.tick);
-      if(m.signals){var s=m.signals.signals||m.signals; if(Array.isArray(s)) updateSignals(s);}
-      if(m.market_snapshot&&m.market_snapshot.timestamp){
-        var ts=Date.parse(m.market_snapshot.timestamp); if(!isNaN(ts)) lastTs=ts;
+      if(m.market_snapshot){
+        var snap=m.market_snapshot;
+        if(snap.tick) updateTick(snap.tick);
+        if(snap.session) setText("session",snap.session);
+        var hi=num(snap.day_high)||num(snap.high), lo=num(snap.day_low)||num(snap.low);
+        if(hi&&lo) setText("hl",fmt(hi,3)+" / "+fmt(lo,3));
+        if(snap.timestamp){var ts=Date.parse(snap.timestamp); if(!isNaN(ts)) lastTs=ts;}
       }
+      if(m.signals){var s=m.signals.signals||m.signals; if(Array.isArray(s)) updateSignals(s);}
       document.getElementById("stamp").textContent="Engine: "+(m.engine_online?"online":"offline")+" · "+new Date().toUTCString().slice(17,25)+" UTC";
       return;
     }
@@ -274,11 +289,10 @@
     try{ ws=new WebSocket(wsUrl); }
     catch(e){ fallbackPoll(); return; }
     ws.onmessage=onMessage;
-    ws.onclose=function(){ setStatus("off","Reconnecting…"); if(restTimer)return; retry++; setTimeout(connect, Math.min(8000,800*retry)); };
+    ws.onclose=function(){ setStatus("off","Reconnecting…"); retry++; setTimeout(connect, Math.min(8000,800*retry)); };
     ws.onerror=function(){ try{ws.close();}catch(e){} };
   }
 
-  // REST fallback (same-origin, trial cookie already minted)
   function fallbackPoll(){
     setStatus("deg","Polling (REST)");
     function poll(){
@@ -289,11 +303,9 @@
         var s=j&&(j.signals||j); if(Array.isArray(s)) updateSignals(s);
       }).catch(function(){});
     }
-    poll(); restTimer=setInterval(poll,2000);
+    poll(); setInterval(poll,2000);
   }
 
-  // Mint the anonymous 5-minute preview trial first (required by backend),
-  // then open the realtime stream.
   fetch(API+"/api/v1/live-preview/status",{cache:"no-store"})
     .then(function(){ connect(); })
     .catch(function(){ connect(); });

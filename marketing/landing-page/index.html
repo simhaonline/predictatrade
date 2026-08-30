@@ -145,7 +145,7 @@
       .live-market-note{color:#8b8579;font-size:13px;margin:14px 0 0}
       .live-market-note a{color:#f0a07c}
       .live-market-frame{position:relative;width:100%;border-radius:18px;overflow:hidden;box-shadow:0 24px 60px #0006;border:1px solid #2a2a24;background:#0e0e0c}
-      .live-market-frame iframe{display:block;width:100%;height:620px;border:0}
+      .live-market-frame iframe{display:block;width:100%;height:640px;border:0}
       @media(max-width:760px){.live-market-frame iframe{height:560px}}
     </style>
     <section id="live-market" class="live-market" aria-labelledby="live-market-title">
@@ -267,9 +267,9 @@
         var ids=['live-market','platform','psychology','astro'];
         function place(){
           var root=document.getElementById('root');
-          var footer=document.querySelector('#root footer')||document.querySelector('footer');
-          if(!root||!footer) return false;
-          ids.forEach(function(id){var el=document.getElementById(id); if(el && el.parentNode!==footer.parentNode) footer.parentNode.insertBefore(el,footer);});
+          var anchor=document.getElementById('contact')||document.querySelector('#root footer')||document.querySelector('footer');
+          if(!root||!anchor) return false;
+          ids.forEach(function(id){var el=document.getElementById(id); if(el && el.parentNode!==anchor.parentNode) anchor.parentNode.insertBefore(el,anchor);});
           return true;
         }
         function tryPlace(){ if(!place()){ var t=setInterval(function(){ if(place()) clearInterval(t); },300); setTimeout(function(){clearInterval(t);},6000);} }
