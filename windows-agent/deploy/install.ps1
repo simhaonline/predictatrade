@@ -153,7 +153,15 @@ $NssmExe     = "nssm.exe"
 # and the installer never fails on an unusual architecture.
 $RoleDir = if ($Mode -eq "master") { "master" } else { "client" }
 $rawArch = $env:PROCESSOR_ARCHITECTURE
-if ($rawArch -eq "x86" -and $env:PROCESSOR_ARCHITEW6432 -eq "AMD64") { $rawArch = "AMD64" }
+# On ARM64 Windows a 32-bit (x86/WOW64) PowerShell reports PROCESSOR_ARCHITECTURE
+# = "x86" and the real arch in PROCESSOR_ARCHITEW6432 = "ARM64". Account for that so
+# we select the arm64 agent build and skip nssm (which has no ARM64 build and crashes
+# with "not a valid application for this OS platform").
+if ($env:PROCESSOR_ARCHITEW6432 -eq "ARM64" -or $env:PROCESSOR_ARCHITEW6432 -eq "ARM") {
+    $rawArch = "ARM64"
+} elseif ($rawArch -eq "x86" -and $env:PROCESSOR_ARCHITEW6432 -eq "AMD64") {
+    $rawArch = "AMD64"
+}
 $goArch = switch ($rawArch) {
     "AMD64" { "amd64" }
     "ARM64" { "arm64" }
