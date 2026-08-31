@@ -1403,6 +1403,41 @@ func main() {
 		}()
 	}
 
+	// Feed-staleness monitor: keep the live forming candle anchored to the current
+	// real-time bucket even when the tick stream pauses (re-anchors every cycle, so
+	// the dashboard never shows a stale bucket), and honestly surface (per SOW
+	// degraded-state rules) when the Master Node feed is genuinely stale — which
+	// correctly halts any quality-gated signal path. Data freshness outranks trades.
+	go func() {
+		staleTicker := time.NewTicker(2 * time.Second)
+		defer staleTicker.Stop()
+		const feedStaleAfter = 15 * time.Second
+		sym := normalizeXAUUSD("XAUUSD")
+		for range staleTicker.C {
+			st := stateMgr.Get(sym)
+			if st == nil {
+				continue
+			}
+			stale := time.Since(st.Timestamp) > feedStaleAfter
+			stateMgr.Update(sym, func(s *features.MarketState) {
+				for tf, c := range s.Candles {
+					if c == nil || c.IsClosed {
+						continue
+					}
+					// Re-anchor to the current real-time bucket so a paused tick
+					// stream never leaves a stale bucket on the dashboard.
+					c.Time = aggregator.CurrentBucketStart(tf)
+					if stale {
+						c.Quality = types.CandleStale
+					}
+				}
+				if stale {
+					s.Quality = types.QualityStale
+				}
+			})
+		}
+	}()
+
 	// ─── Devil Liquidity / Devil's Mark engine (prompt.md) ───
 	devilStore, devilStoreErr := devilliquidity.NewStore(cfg.DBURL)
 	if devilStoreErr != nil {
@@ -2797,30 +2832,13 @@ func main() {
 								s.Session.IsOverlap = ms.Session.IsOverlap
 								s.Session.IsWeekend = ms.Session.IsWeekend
 								s.Quality = types.QualityAuthoritative
-								// Merge bars as candles
-								for tfName, bar := range ms.Bars {
-									tf := types.Timeframe(tfName)
-									// Use the broker bar timestamp when available (ISO8601
-									// from updated EAs). Never stamp processing time as the
-									// bar's market time (prompt.md Sections 13-15).
-									barTime := marketdata.ParseSnapshotTime(bar.Time)
-									// Only merge the agent bar if it is NEWER than the candle
-									// the aggregator already holds. This prevents a stale
-									// CopyRates bar (e.g. a throttled PENDING-license data
-									// agent) from clobbering a fresher tick-built or external
-									// candle already in state — the root cause of "stale
-									// market" on the dashboard.
-									if existing, ok := s.Candles[tf]; !ok || existing.Time.Before(barTime) {
-										s.Candles[tf] = &types.Candle{
-											Symbol: normalizeXAUUSD(ms.Symbol), Timeframe: tf,
-											Open: decimal.NewFromFloat(bar.Open), High: decimal.NewFromFloat(bar.High),
-											Low: decimal.NewFromFloat(bar.Low), Close: decimal.NewFromFloat(bar.Close),
-											Volume: bar.Volume, Source: ms.Source,
-											Quality: types.CandleComplete, IsClosed: false,
-											Time: barTime,
-										}
-									}
-								}
+								// NOTE: candles are NOT merged here. The Master Node bar
+								// stream already flows through candleChan (SetCandleSyncFn →
+								// PushExternalCandle → processCandle) and the live tick
+								// stream is fused into state directly in processTick (which
+								// anchors the forming candle to the real-time bucket). Merging
+								// bars here raced with and clobbered the fresher tick-built
+								// candle (root cause of "stale market" on the dashboard).
 							})
 						}
 					}
