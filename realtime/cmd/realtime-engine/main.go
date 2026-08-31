@@ -1490,6 +1490,26 @@ func main() {
 					Alignment: types.AlignmentBroker,
 				}
 				aggregator.PushExternalCandle(prev)
+
+				// Devil Liquidity: feed the just-closed bar from the authoritative
+				// Master Node snapshot stream. The live candle path (processCandle)
+				// rarely carries IsClosed=true, which starved the engine and left
+				// it with 0 detected marks. This guarantees every completed bar on
+				// every timeframe reaches the detector exactly once per roll.
+				if de := devilliquidity.GlobalEngine(); de != nil {
+					de.Ingest(&devilliquidity.CandleInput{
+						Symbol:     symbol,
+						Timeframe:  string(tf),
+						Time:       prevTime,
+						Open:       prev.Open,
+						High:       prev.High,
+						Low:        prev.Low,
+						Close:      prev.Close,
+						Volume:     prev.Volume,
+						IsClosed:   true,
+						FeedSource: source,
+					})
+				}
 			}
 		}
 	})
