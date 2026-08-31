@@ -219,3 +219,9 @@ input:-webkit-autofill:focus {
   }
 }
 /* Predict-A-Trade color palette v1.3.2 — Wed Aug 19 22:15:28 +03 2026 */
+
+/* CC-1: prevent admin table text overflow / garbling from long unbroken tokens
+   (e.g. indicator keys like LUNDUI_NEWTURK_UVERLHHH4O). Cells already scroll via
+   overflow-x-auto wrappers; this makes over-long values wrap instead of forcing
+   horizontal layout breaks. */
+table th, table td { overflow-wrap: anywhere; word-break: break-word; }

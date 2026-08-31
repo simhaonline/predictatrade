@@ -300,10 +300,84 @@ func markBarProcessed(strategyID, symbol string, tf types.Timeframe, barOpenTime
 
 // broadcastSignalToAll sends a signal to both the frontend dashboard (WebSocketHub)
 // and the Windows Agents (AgentHub) for MT4/MT5 delivery.
+// sanitizeSignalLevels repairs invalid Entry/SL/TP levels on a signal so the
+// Windows Agent / MT4-5 EA always receives executable, correctly-sided prices.
+// It is fail-soft and NON-BLOCKING: it only rewrites a level when it is missing,
+// negative, or on the wrong side of entry. A present-but-valid level is never
+// touched, and zero (unused) TP2/TP3 are left untouched so the EA's "use TP3 if
+// present" rule is preserved. This never suppresses signal generation — it only
+// fixes the price levels so the EA does not reject a trade (e.g. a corrupted ATR
+// or structural-pivot computation emitting a negative TP such as -7416).
+func sanitizeSignalLevels(signal *types.Signal) {
+	if signal == nil {
+		return
+	}
+	dir := string(signal.Direction)
+	isBuy := dir == "BUY" || dir == "BUY_CANDIDATE"
+	isSell := dir == "SELL" || dir == "SELL_CANDIDATE"
+	if !isBuy && !isSell {
+		return
+	}
+	entry := signal.EntryPrice
+	if entry.LessThanOrEqual(decimal.Zero) {
+		return
+	}
+	// Derive a sane risk distance: prefer a valid SL, else 0.5% of entry.
+	risk := decimal.Zero
+	if isBuy {
+		if signal.StopLoss.GreaterThan(decimal.Zero) && signal.StopLoss.LessThan(entry) {
+			risk = entry.Sub(signal.StopLoss)
+		} else {
+			risk = entry.Mul(decimal.NewFromFloat(0.005))
+			signal.StopLoss = entry.Sub(risk)
+		}
+	} else {
+		if signal.StopLoss.GreaterThan(decimal.Zero) && signal.StopLoss.GreaterThan(entry) {
+			risk = signal.StopLoss.Sub(entry)
+		} else {
+			risk = entry.Mul(decimal.NewFromFloat(0.005))
+			signal.StopLoss = entry.Add(risk)
+		}
+	}
+	// Cap risk so a corrupted SL can never produce an absurd target.
+	maxRisk := entry.Mul(decimal.NewFromFloat(0.05))
+	if risk.GreaterThan(maxRisk) {
+		risk = maxRisk
+	}
+	if risk.LessThanOrEqual(decimal.Zero) {
+		risk = entry.Mul(decimal.NewFromFloat(0.005))
+	}
+	// Repair TPs only when present-but-invalid (zero means "not used").
+	repairTP := func(tp *decimal.Decimal, rr float64) {
+		v := *tp
+		present := !v.IsZero()
+		valid := present
+		if isBuy {
+			valid = valid && v.GreaterThan(entry)
+		} else {
+			valid = valid && v.LessThan(entry)
+		}
+		if present && !valid {
+			if isBuy {
+				*tp = entry.Add(risk.Mul(decimal.NewFromFloat(rr)))
+			} else {
+				*tp = entry.Sub(risk.Mul(decimal.NewFromFloat(rr)))
+			}
+		}
+	}
+	repairTP(&signal.TP1, 1.0)
+	repairTP(&signal.TP2, 2.0)
+	repairTP(&signal.TP3, 3.0)
+}
+
 func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, signal *types.Signal) {
 	if signal == nil {
 		return
 	}
+	// SERVER-SIDE LEVEL REPAIR (defense-in-depth, non-blocking): guarantee the
+	// EA never receives an invalid level (e.g. negative TP) that it would reject.
+	// Repairs, never suppresses — signal generation is unaffected.
+	sanitizeSignalLevels(signal)
 	// SERVER-AUTHORITATIVE EMERGENCY HALT (v1.15.0): while active, no signal
 	// leaves the engine — not to the dashboard, not to any agent.
 	if globalEmergencyHalt.Active() {

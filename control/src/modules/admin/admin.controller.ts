@@ -43,6 +43,16 @@ export class AdminController {
     );
   }
 
+  @Post('subscriptions/:id/complete')
+  @RequirePermissions(Permission.BILLING_MANAGE)
+  async completeSubscription(
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+    @CurrentUser('sub') actorId: string,
+  ) {
+    return this.adminService.completeIncompleteSubscription(id, actorId, body?.reason ?? '');
+  }
+
   @Get('commissions')
   async listCommissions(@Query('page') page?: string, @Query('limit') limit?: string) {
     return this.adminService.listAllCommissions(

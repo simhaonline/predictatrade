@@ -80,6 +80,20 @@ function fmtDate(v: string | null | undefined) {
 export default function AdminSubscriptionsPage() {
   const [page, setPage] = useState(1);
   const [tab, setTab] = useState<Tab>("subscriptions");
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const completeSub = async (id: string) => {
+    if (typeof window !== "undefined" && !window.confirm("Complete this INCOMPLETE subscription? This marks it ACTIVE (provisioning/entitlement confirmed) and is recorded in the audit log.")) return;
+    setBusyId(id);
+    try {
+      await customInstance.post(`/admin/subscriptions/${id}/complete`, { reason: "Manual reconciliation — entitlement confirmed" });
+      subsQ.refetch();
+    } catch (e) {
+      if (typeof window !== "undefined") window.alert("Failed to complete subscription: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const subsQ = useQuery<{ items: Subscription[]; total: number; page: number; limit: number }>({
     queryKey: ["admin-subscriptions", page],
@@ -129,6 +143,12 @@ export default function AdminSubscriptionsPage() {
     { key: "current_period_start", header: "Period Start", cell: (row) => <span className="text-xs text-pat-text-muted">{row.current_period_start ? format(new Date(row.current_period_start), "MMM d, yyyy") : "—"}</span> },
     { key: "current_period_end", header: "Period End", cell: (row) => <span className="text-xs text-pat-text-muted">{row.current_period_end ? format(new Date(row.current_period_end), "MMM d, yyyy") : "—"}</span> },
     { key: "auto_renew", header: "Auto-Renew", cell: (row) => <span className={`text-xs ${row.auto_renew ? "text-pat-success" : "text-pat-text-muted"}`}>{row.auto_renew ? "Yes" : "No"}</span> },
+    { key: "action", header: "Action", cell: (row) => row.status === "INCOMPLETE" ? (
+      <button onClick={() => completeSub(row.id)} disabled={busyId === row.id}
+        className="text-xs px-2 py-1 rounded bg-pat-success/20 text-pat-success hover:bg-pat-success/30 disabled:opacity-40">
+        {busyId === row.id ? "Working…" : "Complete"}
+      </button>
+    ) : <span className="text-xs text-pat-text-muted">—</span> },
   ];
 
   const paymentsCols: DataTableColumn<PaymentRow>[] = [
@@ -174,7 +194,14 @@ export default function AdminSubscriptionsPage() {
       </div>
 
       {tab === "subscriptions" && (
-        <DataTable data={subsQ.data?.items || []} columns={subsCols} loading={subsQ.isLoading} error={subsQ.error as Error | null} onRetry={() => subsQ.refetch()} />
+        <>
+          {subsQ.data?.items?.some((s) => s.status === "INCOMPLETE") && (
+            <DegradedNote>
+              <strong>INCOMPLETE</strong> means provisioning/billing-webhook did not complete (e.g. payment confirmed out-of-band or entitlement already granted via an ACTIVE license). Use <em>Complete</em> to reconcile it to ACTIVE — this is recorded in the audit log and never rewrites history.
+            </DegradedNote>
+          )}
+          <DataTable data={subsQ.data?.items || []} columns={subsCols} loading={subsQ.isLoading} error={subsQ.error as Error | null} onRetry={() => subsQ.refetch()} />
+        </>
       )}
 
       {tab === "invoices" && (

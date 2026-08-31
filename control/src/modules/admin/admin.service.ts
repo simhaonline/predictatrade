@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Pool } from 'pg';
 import { DB_POOL } from '../../common/database.module';
 
@@ -126,6 +126,44 @@ export class AdminService {
       this.pool.query('SELECT count(*) as total FROM billing.subscriptions'),
     ]);
     return { items: data.rows, total: parseInt(count.rows[0].total, 10), page, limit };
+  }
+
+  /** Reconcile an INCOMPLETE subscription to ACTIVE (manual provisioning completion).
+   *  Used when a payment was confirmed out-of-band, or entitlement is already
+   *  granted via an ACTIVE license. Fail-closed: only INCOMPLETE subscriptions can
+   *  be completed, and the transition is audited (prompt.md Screenshot 8). */
+  async completeIncompleteSubscription(subscriptionId: string, actorId: string, reason: string) {
+    const existing = await this.pool.query(
+      `SELECT s.id, s.status, s.billing_interval, u.email as user_email
+         FROM billing.subscriptions s JOIN iam.users u ON s.user_id = u.id
+        WHERE s.id = $1`,
+      [subscriptionId],
+    );
+    if (!existing.rows[0]) throw new NotFoundException('Subscription not found');
+    if (existing.rows[0].status !== 'INCOMPLETE') {
+      throw new BadRequestException(`Subscription is '${existing.rows[0].status}', not INCOMPLETE`);
+    }
+    const interval = existing.rows[0].billing_interval === 'ANNUAL' ? '1 year' : '1 month';
+    const r = await this.pool.query(
+      `UPDATE billing.subscriptions
+          SET status = 'ACTIVE',
+              billing_period_start = now(),
+              billing_period_end = now() + interval '${interval}',
+              updated_at = now()
+        WHERE id = $1
+        RETURNING *`,
+      [subscriptionId],
+    );
+    try {
+      await this.pool.query(
+        `INSERT INTO audit.audit_events (actor_type, actor_id, action, entity_type, entity_id, reason, new_value)
+         VALUES ('admin', $1, 'SUBSCRIPTION_COMPLETED', 'subscription', $2, $3, $4)`,
+        [actorId, subscriptionId, reason || 'manual reconciliation', JSON.stringify(r.rows[0])],
+      );
+    } catch (e) {
+      this.logger.warn(`audit insert failed for SUBSCRIPTION_COMPLETED: ${e instanceof Error ? e.message : e}`);
+    }
+    return r.rows[0];
   }
 
   /** List all commissions (admin only). */

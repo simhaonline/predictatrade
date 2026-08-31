@@ -32,8 +32,18 @@ func (h *HTTPServer) handlePipelineMonitor(w http.ResponseWriter, r *http.Reques
 
 	// Stage 2: Risk — hard gates fail-closed per signal
 	riskStatus := "live"
+	// Compute the real veto count from persisted gate decisions (not a hardcoded
+	// zero). A NO-TRADE from insufficient score is NOT a gate veto; only hard-gate
+	// VETO results are counted, so this reconciles with the console's NO-TRADE
+	// reasons. This is pure instrumentation — it never blocks signal generation.
 	vetoCountRecent := 0
-	_ = vetoCountRecent
+	if h.persister != nil && h.persister.GetDB() != nil {
+		if err := h.persister.GetDB().QueryRow(
+			"SELECT count(DISTINCT signal_id) FROM trading.risk_decisions WHERE gate_result = 'VETO' AND evaluated_at > now() - interval '5 minutes'",
+		).Scan(&vetoCountRecent); err != nil {
+			riskStatus = "db_error"
+		}
+	}
 
 	// Stage 3: Execution — slippage + commission + broker fees
 	execStatus := "connected"
