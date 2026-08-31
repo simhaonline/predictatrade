@@ -19,6 +19,7 @@ import (
 type AgentDataProvider interface {
 	HandleAgentMessage(agentID string, data []byte)
 	UnregisterAgent(agentID string)
+	SetAgentRole(agentID, role string)
 }
 
 // maxAgentConnections limits the number of concurrent agent WebSocket
@@ -28,6 +29,7 @@ const maxAgentConnections = 100
 
 type AgentConnection struct {
 	ID       string
+	Role     string // "data" (Master node) | "exec" (Client node) — from ?role= query
 	conn     *websocket.Conn
 	send     chan []byte
 	done     chan struct{} // signals both read and write goroutines to stop
@@ -200,6 +202,11 @@ func (h *AgentHub) Run() {
 			}
 			h.agents[agent.ID] = agent
 			h.mu.Unlock()
+			// Record the agent's role so the market-data provider can restrict
+			// price/bars/indicators to the Master (data) node only.
+			if h.provider != nil {
+				h.provider.SetAgentRole(agent.ID, agent.Role)
+			}
 		case agent := <-h.unregister:
 			h.mu.Lock()
 			// Only delete if this is still the current agent (not replaced)
@@ -361,6 +368,7 @@ func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) 
 	// operator's own non-licensed infrastructure such as a Master data node).
 	authed := false
 	agentID := r.URL.Query().Get("agentId")
+	role := r.URL.Query().Get("role") // "data" (Master) or "exec" (Client)
 	if sub, ok := agentAuthJWT(r); ok && sub != "" {
 		authed = true
 		agentID = sub // bind connection identity to the verified credential
@@ -398,6 +406,7 @@ func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) 
 	}
 	agent := &AgentConnection{
 		ID:   agentID,
+		Role: role,
 		conn: conn,
 		send: make(chan []byte, 64),
 		done: make(chan struct{}),

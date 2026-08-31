@@ -244,6 +244,10 @@ type AgentProvider struct {
 	name         string
 	mu           sync.Mutex
 	agents       map[string]chan *AgentTickMessage // agentID → tick channel
+	agentRoleMu  sync.RWMutex
+	agentRoles   map[string]string // agentID → "data" (Master node) | "exec" (Client node)
+	dataNodeAuthMu     sync.Mutex
+	dataNodeAuthorized map[string]bool // data nodes already license-authorized
 	tickChan     chan *types.Tick
 	stopChan     chan struct{}
 	running      atomic.Bool
@@ -630,6 +634,7 @@ func (p *AgentProvider) GetPrimaryAccount(agentID string) *SnapshotAccount {
 func (p *AgentProvider) hydrateAccountFromJSON(agentID string, data []byte) {
 	var acct struct {
 		Account    string  `json:"account"`
+		Broker     string  `json:"broker"`
 		Balance    float64 `json:"balance"`
 		Equity     float64 `json:"equity"`
 		Margin     float64 `json:"margin"`
@@ -659,6 +664,12 @@ func (p *AgentProvider) hydrateAccountFromJSON(agentID string, data []byte) {
 	p.RecordAgentAccount(agentID, snap, nil)
 	if p.brokerAccountHydrateFn != nil {
 		p.brokerAccountHydrateFn(agentID, snap, nil)
+	}
+	// The Client (exec) node's account payload carries the user's OWN trading
+	// broker (e.g. Xelance) — persist it so dashboards show the user's broker,
+	// not the Master data-feed broker (Equiti).
+	if p.brokerInfoFn != nil && acct.Broker != "" {
+		p.brokerInfoFn(agentID, acct.Broker, acct.Server)
 	}
 }
 
@@ -748,6 +759,58 @@ func (p *AgentProvider) Connect(ctx context.Context) error {
 }
 func (p *AgentProvider) Subscribe(symbol string) error { return nil }
 func (p *AgentProvider) Stream() <-chan *types.Tick    { return p.tickChan }
+
+// SetAgentRole records the role declared by an agent on connection
+// ("data" = Master Node market feed, "exec" = Client execution/trade node).
+// The engine only consumes market price/bars/indicators from "data" agents;
+// "exec" agents contribute account, position and trade data only.
+func (p *AgentProvider) SetAgentRole(agentID, role string) {
+	if agentID == "" {
+		return
+	}
+	if role != "data" && role != "exec" {
+		return
+	}
+	p.agentRoleMu.Lock()
+	if p.agentRoles == nil {
+		p.agentRoles = map[string]string{}
+	}
+	// A Master (data) node and Client (exec) node on the SAME device register the
+	// same agent id. Never let a Client (exec) downgrade the node to non-data — once
+	// a data role is seen it stays, so the price feed is never accidentally gated
+	// off by the Client's registration.
+	if p.agentRoles[agentID] != "data" {
+		p.agentRoles[agentID] = role
+	}
+	p.agentRoleMu.Unlock()
+}
+
+// IsDataNode reports whether the agent is the Master (market data) node.
+func (p *AgentProvider) IsDataNode(agentID string) bool {
+	p.agentRoleMu.RLock()
+	defer p.agentRoleMu.RUnlock()
+	return p.agentRoles[agentID] == "data"
+}
+
+// ensureDataNodeLicense authorizes a Master (data) node as a market-data feed on
+// its first snapshot. The Master EA sends MASTER_INIT only once at startup, so we
+// cannot rely on it after an engine restart — but it streams MARKET_SNAPSHOT
+// continuously, which is a reliable trigger to grant data-node authorization.
+func (p *AgentProvider) ensureDataNodeLicense(agentID string) {
+	p.dataNodeAuthMu.Lock()
+	if p.dataNodeAuthorized == nil {
+		p.dataNodeAuthorized = map[string]bool{}
+	}
+	if p.dataNodeAuthorized[agentID] {
+		p.dataNodeAuthMu.Unlock()
+		return
+	}
+	p.dataNodeAuthorized[agentID] = true
+	p.dataNodeAuthMu.Unlock()
+	if p.licenseValidateFn != nil {
+		p.licenseValidateFn(agentID, "", "")
+	}
+}
 func (p *AgentProvider) Close() error {
 	if p.running.CompareAndSwap(true, false) {
 		close(p.stopChan)
@@ -981,7 +1044,16 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 	}
 
 	switch msgType {
-	case "TICK", "MASTER_TICK", "HEARTBEAT":
+	case "TICK", "MASTER_TICK":
+		// CRITICAL: price/tick feed comes ONLY from the Master (data) node.
+		// Client (exec) nodes must never feed market price — they are for signal
+		// reception and trade-data collection only. Ignoring client ticks here
+		// prevents a client terminal's bad/stale price from poisoning signal
+		// generation or marking the feed stale.
+		if !p.IsDataNode(agentID) {
+			return
+		}
+	case "HEARTBEAT":
 		// Notify main loop that an agent is active — hydrate execution permit gate
 		if p.agentConnectFn != nil {
 			p.agentConnectFn(agentID, msgType)
@@ -1053,8 +1125,20 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		return
 
 	case "MARKET_SNAPSHOT":
+		// CRITICAL: market snapshots (price/bars/indicators) come ONLY from the
+		// Master (data) node. Client (exec) nodes send account/trade data only and
+		// must never feed the snapshot pipeline (would mix a client terminal's
+		// price into signal generation). Ignore client snapshots entirely.
+		if !p.IsDataNode(agentID) {
+			return
+		}
 		// Process as comprehensive market snapshot from Master Node
 		var snapshot MarketSnapshot
+		// Authorize the data (Master) node as a market-data feed on first snapshot
+		// (covers engine restarts where MASTER_INIT is not re-sent).
+		if p.licenseValidateFn != nil {
+			p.ensureDataNodeLicense(agentID)
+		}
 		if err := json.Unmarshal(data, &snapshot); err != nil {
 			raw := data
 			if len(raw) > 200 {
@@ -1086,6 +1170,41 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 			}
 		}
 
+		// The Master Node's primary feed is MARKET_SNAPSHOT (not standalone TICK
+		// messages). Derive a tick from the snapshot and feed the tick pipeline so
+		// MarketState.LastTick (and thus signal freshness + admin feed liveness)
+		// stays current. Without this, MarketState freezes while /market/snapshot
+		// (which reads the raw snapshot) stays fresh — producing a false STALE.
+		if snapshot.Tick.Bid > 0 && snapshot.Tick.Ask > 0 {
+			tmsg := &AgentTickMessage{
+				Type:          "MASTER_TICK",
+				Symbol:        snapshot.Symbol,
+				Bid:           snapshot.Tick.Bid,
+				Ask:           snapshot.Tick.Ask,
+				Volume:        snapshot.Tick.Volume,
+				Timestamp:     snapshot.Tick.Time,
+				Source:        snapshot.Source,
+				Broker:        snapshot.Broker,
+				Account:       snapshot.Account,
+				BrokerOffset:  snapshot.BrokerOffset,
+				MarketClosed:  snapshot.MarketClosed,
+			}
+			p.mu.Lock()
+			ch, ok := p.agents[agentID]
+			if !ok {
+				ch = make(chan *AgentTickMessage, 256)
+				p.agents[agentID] = ch
+				go p.processAgentTicks(agentID, ch)
+			}
+			p.mu.Unlock()
+			if ch != nil {
+				select {
+				case ch <- tmsg:
+				default:
+				}
+			}
+		}
+
 		// Track this client's account state individually (per-client risk
 		// isolation) so a blown/over-exposed account can never contaminate
 		// another client's signals.
@@ -1098,11 +1217,11 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 			p.RecordAgentAccount(agentID, &snapshot.AccountInfo, &snapshot.Positions)
 		}
 
-		// Persist authoritative broker identity (name + server) so the User/Admin
-		// dashboards show the live MT broker instead of "Unknown broker".
-		if p.brokerInfoFn != nil && snapshot.Broker != "" {
-			p.brokerInfoFn(agentID, snapshot.Broker, snapshot.AccountInfo.Server)
-		}
+		// NOTE: broker identity for the user's TRADING account is captured from the
+		// Client (exec) node's LICENSE_CHECK/INIT account payload (see
+		// hydrateAccountFromJSON), NOT from the Master node's snapshot. The Master
+		// node is a pure data feed (Equiti) and must not overwrite the user's own
+		// broker (e.g. Xelance) on the dashboard.
 
 		// Mark the feed fresh so the data-quality gate does not veto live trading
 		// when the agent streams MARKET_SNAPSHOT without standalone TICK messages.
@@ -1199,6 +1318,9 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 			_ = json.Unmarshal(data, &initMsg)
 			if initMsg.LicenseKey != "" && !initMsg.NoLicense {
 				p.licenseValidateFn(agentID, initMsg.LicenseKey, initMsg.DeviceID)
+			} else if initMsg.NoLicense {
+				// Master (data) node: authorize as a data feed (no trading license).
+				p.licenseValidateFn(agentID, "", initMsg.DeviceID)
 			}
 		}
 

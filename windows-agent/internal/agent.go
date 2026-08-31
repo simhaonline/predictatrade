@@ -812,7 +812,12 @@ func (a *Agent) connect() error {
 	if a.role == "data" {
 		wsURL = a.config.DataWSURL
 	}
-	url := wsURL + "?agentId=" + a.deviceID + "&agentVersion=" + AgentVersion + "&role=" + a.role
+	// Use a role-suffixed agentId so the Master (data) and Client (exec) agents on
+	// the same device register as DISTINCT agents. They connect to different
+	// endpoints but the engine's provider is shared by agentId, so an identical
+	// agentId would collide (role/license state corrupted). Suffixing by role keeps
+	// them separate while device_id in the payloads still maps both to one device.
+	url := wsURL + "?agentId=" + a.deviceID + "-" + a.role + "&agentVersion=" + AgentVersion + "&role=" + a.role
 	log.Printf("Connecting to %s (role=%s)", url, a.role)
 
 	// Bootstrap the per-device WS token (JWT minted by the control plane from

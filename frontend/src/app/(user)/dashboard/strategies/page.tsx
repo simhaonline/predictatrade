@@ -57,7 +57,7 @@ export default function UserStrategiesPage() {
             <div key={strategy} className="flex items-center justify-between rounded-lg border border-pat-border bg-pat-bg-surface p-4">
               <div className="flex items-center gap-3">
                 <IconBolt size={18} className={active ? "text-pat-success" : "text-pat-text-muted"} />
-                <span className="text-sm text-pat-text-primary">{strategy.replaceAll("_", " ")}</span>
+                <span className="text-sm text-pat-text-primary">{strategyLabel(strategy)}</span>
               </div>
               {enabled ? (
                 <button

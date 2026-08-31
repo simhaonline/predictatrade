@@ -1,8 +1,8 @@
 {
     "version": "1.2.47",
     "download_url": "https://downloads.predictatrade.com/windows-agent/master/pat-master.exe",
-    "checksum": "e9a40d8774ea2d6a1ac04e51183e0624343a6d4268bb80477e75a07e797bba02",
+    "checksum": "b11d5db2936b0a3cd073678cb1cfe613c56c8c5326fd0f41839adc9ba089ede6",
     "min_version": "1.0.0",
     "release_notes": "v1.2.47 — Windows Master Node (data-only).",
-    "timestamp": "2026-08-30T14:27:13Z"
+    "timestamp": "2026-08-31T07:20:15Z"
 }

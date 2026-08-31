@@ -2058,6 +2058,20 @@ func main() {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
+
+		// Master (data) node carries no trading license key by design — it only
+		// feeds market data. The trading license lives on the Client (exec) node of
+		// the same device and validates separately. Authorize the data node as a
+		// market-data feed so it does not report LICENSE PENDING / get disconnected.
+		if licenseKey == "" && agentProvider.IsDataNode(agentID) {
+			observability.Log.Info().Str("agent_id", agentID).Msg("Data node authorized as market-data feed (no trading license required)")
+			result.Valid = true
+			result.Status = "ACTIVE"
+			result.Plan = "DATA_NODE"
+			agentHub.SendToAgent(agentID, "LICENSE_STATUS", result)
+			return result
+		}
+
 		row := persister.GetDB().QueryRowContext(ctx, `
 			SELECT l.id, l.status, p.code, l.max_devices, l.max_mt_accounts, l.allowed_strategies::text, l.user_id,
 			       p.daily_loss_cap_pct, p.weekly_loss_cap_pct, p.monthly_loss_cap_pct, p.per_trade_risk_pct,
