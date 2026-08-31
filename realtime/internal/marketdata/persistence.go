@@ -1,19 +1,19 @@
 package marketdata
 
 import (
-	"strconv"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/predictatrade/realtime/internal/recovery"
 	"github.com/predictatrade/realtime/internal/types"
 	"github.com/shopspring/decimal"
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // Persister saves ticks and candles to TimescaleDB/PostgreSQL.
@@ -167,6 +167,14 @@ func (p *Persister) SaveSignal(ctx context.Context, s *types.Signal) error {
 // written by the live aggregator under a known offset are already BROKER_ALIGNED
 // and are skipped. Recent (in-flight) candles are excluded to avoid clashing
 // with candles the aggregator is actively writing.
+// RealignCandlesToBrokerOffset shifts historical candles' `time` by the broker
+// UTC offset so they align to broker session boundaries. It only touches
+// UNCOMPRESSED chunks: TimescaleDB forbids updating the `time` column of a
+// compressed chunk (SQLSTATE 0A000), and decompressing all of history at
+// startup would be unsafe and slow. Recent (uncompressed) candles — the ones
+// that matter for live indicator warmup — are realigned here; older compressed
+// history can be realigned by an offline maintenance job (decompress → update
+// → recompress per chunk).
 func (p *Persister) RealignCandlesToBrokerOffset(off int) error {
 	if off == 0 {
 		return nil
@@ -175,21 +183,53 @@ func (p *Persister) RealignCandlesToBrokerOffset(off int) error {
 	if db == nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	res, err := db.ExecContext(ctx, `
-		UPDATE market.candles
-		SET time = time - make_interval(hours => $1),
-		    alignment_profile = 'BROKER_ALIGNED'
-		WHERE alignment_profile = 'UTC_ALIGNED'
-		  AND time < now() - interval '2 hours'
-	`, off)
-	if err != nil {
+
+	// Iterate uncompressed chunks in range and shift only UTC_ALIGNED candles.
+	// A DO block with dynamic SQL keeps this a single round-trip and never
+	// touches compressed chunks (avoids SQLSTATE 0A000). `off` is an integer
+	// broker offset, so Sprintf inlining is injection-safe. Per-chunk conflicts
+	// (the table also holds broker-aligned candles from snapshot bars, so an
+	// in-place time shift can collide on the (time,symbol,timeframe) PK) are
+	// skipped — realignment is best-effort historical cleanup and is NOT on the
+	// live trading hot path (the engine uses live ticks + broker-anchored
+	// buckets), so a partial realignment must never fail startup.
+	tmpl := `
+	DO $$
+	DECLARE
+		r record;
+	BEGIN
+		FOR r IN
+			SELECT chunk_schema, chunk_name
+			FROM timescaledb_information.chunks
+			WHERE hypertable_name = 'candles'
+			  AND is_compressed = false
+			  AND range_end < now() - interval '2 hours'
+		LOOP
+			BEGIN
+				EXECUTE format(
+					'UPDATE %%I.%%I SET time = time - make_interval(hours => %d), alignment_profile = ''BROKER_ALIGNED'' WHERE alignment_profile = ''UTC_ALIGNED''',
+					r.chunk_schema, r.chunk_name
+				);
+			EXCEPTION WHEN unique_violation THEN
+				-- Target time already occupied by a broker-aligned candle; skip.
+				NULL;
+			END;
+		END LOOP;
+	END $$;`
+	if _, err := db.ExecContext(ctx, fmt.Sprintf(tmpl, off)); err != nil {
 		return err
 	}
-	if n, err := res.RowsAffected(); err == nil && n > 0 {
-		log.Printf("[RT] Realigned %d historical candles to broker offset %d (BROKER_ALIGNED)", n, off)
-	}
+
+	// Report how many UTC_ALIGNED candles remain in compressed history so an
+	// operator knows if the offline realignment job still needs to run.
+	var remaining int
+	_ = db.QueryRowContext(ctx, `
+		SELECT count(*) FROM market.candles
+		WHERE alignment_profile = 'UTC_ALIGNED'
+		  AND time < now() - interval '2 hours'`).Scan(&remaining)
+	log.Printf("[RT] Broker realignment pass complete (offset %d); %d UTC_ALIGNED candles remain in compressed history (offline job required)", off, remaining)
 	return nil
 }
 
@@ -323,29 +363,29 @@ func (p *Persister) GetRecentSignals(ctx context.Context, limit int, strategy st
 // It is sourced directly from trading.trade_results — no derived or
 // estimated values are ever substituted.
 type TradeResult struct {
-	ID            string    `json:"id"`
-	SignalID      string    `json:"signal_id,omitempty"`
-	AccountID     string    `json:"account_id"`
-	StrategyID    string    `json:"strategy_id"`
-	Symbol        string    `json:"symbol"`
-	Direction     string    `json:"direction"`
-	BrokerTicket  string    `json:"broker_ticket,omitempty"`
-	EntryPrice    string    `json:"entry_price"`
-	ExitPrice     string    `json:"exit_price"`
-	StopLoss      string    `json:"stop_loss,omitempty"`
-	TakeProfit    string    `json:"take_profit,omitempty"`
-	PnL           string    `json:"pnl"`
-	PnLPoints     string    `json:"pnl_points"`
-	PnLPercent    string    `json:"pnl_percent"`
-	LotSize       string    `json:"lot_size,omitempty"`
-	IsWin         bool      `json:"is_win"`
-	IsLoss        bool      `json:"is_loss"`
-	IsBreakeven   bool      `json:"is_breakeven"`
-	CloseReason   string    `json:"close_reason,omitempty"`
-	OpenedAt      time.Time `json:"opened_at,omitempty"`
-	ClosedAt      time.Time `json:"closed_at"`
-	TradingDay    string    `json:"trading_day,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID           string    `json:"id"`
+	SignalID     string    `json:"signal_id,omitempty"`
+	AccountID    string    `json:"account_id"`
+	StrategyID   string    `json:"strategy_id"`
+	Symbol       string    `json:"symbol"`
+	Direction    string    `json:"direction"`
+	BrokerTicket string    `json:"broker_ticket,omitempty"`
+	EntryPrice   string    `json:"entry_price"`
+	ExitPrice    string    `json:"exit_price"`
+	StopLoss     string    `json:"stop_loss,omitempty"`
+	TakeProfit   string    `json:"take_profit,omitempty"`
+	PnL          string    `json:"pnl"`
+	PnLPoints    string    `json:"pnl_points"`
+	PnLPercent   string    `json:"pnl_percent"`
+	LotSize      string    `json:"lot_size,omitempty"`
+	IsWin        bool      `json:"is_win"`
+	IsLoss       bool      `json:"is_loss"`
+	IsBreakeven  bool      `json:"is_breakeven"`
+	CloseReason  string    `json:"close_reason,omitempty"`
+	OpenedAt     time.Time `json:"opened_at,omitempty"`
+	ClosedAt     time.Time `json:"closed_at"`
+	TradingDay   string    `json:"trading_day,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 	// Derived/enriched metrics (server-enriched when the EA omits them).
 	TimeInTradeSeconds int64  `json:"time_in_trade_seconds"`
 	MAE                string `json:"mae,omitempty"`
@@ -705,30 +745,30 @@ func (p *Persister) SaveRegimeHistory(ctx context.Context, r *RegimeHistoryRecor
 type CandidateRecord struct {
 	CandidateUUID    string
 	Symbol           string
-	StrategyID      string
-	StrategyVersion string
-	Direction       string
-	EntryPrice      string
-	StopLoss        string
-	TP1             string
-	TP2             string
-	TP3             string
-	CalculatedRR    string
-	RawScore        string
-	LongScore       string
-	ShortScore      string
-	CalibratedProb  string
-	Regime          string
-	MarketSession   string
-	Timeframe       string
-	StructureState  interface{}
+	StrategyID       string
+	StrategyVersion  string
+	Direction        string
+	EntryPrice       string
+	StopLoss         string
+	TP1              string
+	TP2              string
+	TP3              string
+	CalculatedRR     string
+	RawScore         string
+	LongScore        string
+	ShortScore       string
+	CalibratedProb   string
+	Regime           string
+	MarketSession    string
+	Timeframe        string
+	StructureState   interface{}
 	FeatureReadiness interface{}
-	ReasonCodes     interface{}
-	ApprovalState   string
-	RejectionGate   string
-	SignalID        string
-	CreatedAt       time.Time
-	ExpiresAt       time.Time
+	ReasonCodes      interface{}
+	ApprovalState    string
+	RejectionGate    string
+	SignalID         string
+	CreatedAt        time.Time
+	ExpiresAt        time.Time
 }
 
 type RiskDecisionRecord struct {
@@ -746,39 +786,39 @@ type RiskDecisionRecord struct {
 }
 
 type StrategyEvalRecord struct {
-	StrategyID      string
-	StrategyVersion string
-	Symbol          string
-	Timeframe       string
-	Timestamp       time.Time
-	InputFeatures   interface{}
-	Score           string
-	LongScore       string
-	ShortScore      string
-	ConditionsPassed interface{}
-	ConditionsFailed interface{}
+	StrategyID         string
+	StrategyVersion    string
+	Symbol             string
+	Timeframe          string
+	Timestamp          time.Time
+	InputFeatures      interface{}
+	Score              string
+	LongScore          string
+	ShortScore         string
+	ConditionsPassed   interface{}
+	ConditionsFailed   interface{}
 	CandidateGenerated bool
-	Direction      string
-	Reason          string
+	Direction          string
+	Reason             string
 	EvaluationSequence int64
-	ScoreStatus     string
+	ScoreStatus        string
 }
 
 type CooldownAuditRecord struct {
-	Symbol          string
-	StrategyID     string
-	EventType      string
-	EventTimestamp time.Time
-	CooldownStart  time.Time
-	CooldownExpiry time.Time
+	Symbol           string
+	StrategyID       string
+	EventType        string
+	EventTimestamp   time.Time
+	CooldownStart    time.Time
+	CooldownExpiry   time.Time
 	RemainingSeconds int
-	Fingerprint    string
+	Fingerprint      string
 }
 
 type DuplicateAuditRecord struct {
 	Fingerprint    string
 	Symbol         string
-	StrategyID    string
+	StrategyID     string
 	Direction      string
 	EventType      string
 	EventTimestamp time.Time
@@ -786,26 +826,26 @@ type DuplicateAuditRecord struct {
 }
 
 type IndicatorHistoryRecord struct {
-	Symbol          string
-	Timeframe       string
-	Timestamp       time.Time
-	IndicatorName   string
+	Symbol           string
+	Timeframe        string
+	Timestamp        time.Time
+	IndicatorName    string
 	IndicatorVersion string
-	Value          string
-	ValueSecondary  string
-	ValueTertiary   string
-	Quality        string
-	Source         string
+	Value            string
+	ValueSecondary   string
+	ValueTertiary    string
+	Quality          string
+	Source           string
 }
 
 type RegimeHistoryRecord struct {
-	Symbol             string
-	Timeframe          string
-	Timestamp          time.Time
-	Regime             string
-	Confidence         string
+	Symbol               string
+	Timeframe            string
+	Timestamp            time.Time
+	Regime               string
+	Confidence           string
 	ContributingFeatures interface{}
-	AlgorithmVersion   string
+	AlgorithmVersion     string
 }
 
 // GenerateSignalReference creates a human-readable signal reference.
@@ -991,9 +1031,9 @@ func (p *Persister) LoadRecoveryStates(ctx context.Context) ([]recovery.StateRec
 	for rows.Next() {
 		var (
 			accountID, strategyID, symbol, state, haltReason, lastCloseEventID sql.NullString
-			dlp, dpnl, seq                                                          sql.NullString
-			consLoss, dailyLossCount, recTrades, recWins                           int
-			cooldown, halt, lastTrade, lastLoss, tradingDay                        sql.NullTime
+			dlp, dpnl, seq                                                     sql.NullString
+			consLoss, dailyLossCount, recTrades, recWins                       int
+			cooldown, halt, lastTrade, lastLoss, tradingDay                    sql.NullTime
 		)
 		if err := rows.Scan(
 			&accountID, &strategyID, &symbol, &state, &consLoss, &dailyLossCount,
@@ -1003,19 +1043,19 @@ func (p *Persister) LoadRecoveryStates(ctx context.Context) ([]recovery.StateRec
 			return nil, err
 		}
 		r := recovery.StateRecord{
-			Key:                recovery.AccountStrategyKey{AccountID: accountID.String, StrategyID: strategyID.String, Symbol: symbol.String},
-			State:              recovery.RecoveryState(state.String),
-			ConsecutiveLosses:  consLoss,
-			DailyLossCount:     dailyLossCount,
+			Key:                 recovery.AccountStrategyKey{AccountID: accountID.String, StrategyID: strategyID.String, Symbol: symbol.String},
+			State:               recovery.RecoveryState(state.String),
+			ConsecutiveLosses:   consLoss,
+			DailyLossCount:      dailyLossCount,
 			RecoveryTradesTaken: recTrades,
-			RecoveryWins:       recWins,
-			CooldownUntil:      cooldown.Time,
-			HaltUntil:          halt.Time,
-			HaltReason:         haltReason.String,
-			LastTradeAt:        lastTrade.Time,
-			LastLossAt:         lastLoss.Time,
-			LastCloseEventID:   lastCloseEventID.String,
-			TradingDay:         tradingDay.Time,
+			RecoveryWins:        recWins,
+			CooldownUntil:       cooldown.Time,
+			HaltUntil:           halt.Time,
+			HaltReason:          haltReason.String,
+			LastTradeAt:         lastTrade.Time,
+			LastLossAt:          lastLoss.Time,
+			LastCloseEventID:    lastCloseEventID.String,
+			TradingDay:          tradingDay.Time,
 		}
 		if f, err := strconv.ParseFloat(dlp.String, 64); err == nil {
 			r.DailyLossPercent = f
