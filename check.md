@@ -1,2 +1,1 @@
-Arcanist 
-Institutional MSNR Liquidity Reversal Model (IMLR) 
+replace "Arcanist" to "IMLR"

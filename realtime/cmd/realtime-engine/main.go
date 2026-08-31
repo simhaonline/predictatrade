@@ -1364,6 +1364,45 @@ func main() {
 		}()
 	}
 
+	// ─── Live candle persistence safeguard (prompt.md: market.candles freshness) ───
+	// In live mode the aggregator runs in external-candle mode, so market.candles is
+	// otherwise fed ONLY by the Windows agent's CopyRates bar stream. If that stream
+	// is slow/throttled, the DB falls behind the live market. This flusher persists the
+	// always-fresh in-memory bars (the SAME bars that drive live signals) on a fixed
+	// cadence, so market.candles can never lag the live feed independent of the agent.
+	// Idempotent upsert; prev bar is persisted as closed on rollover. Read-only of state.
+	if persister != nil {
+		go func() {
+			ticker := time.NewTicker(10 * time.Second)
+			defer ticker.Stop()
+			prevCandles := make(map[types.Timeframe]*types.Candle)
+			for range ticker.C {
+					st := stateMgr.Get(normalizeXAUUSD("XAUUSD"))
+					if st == nil {
+						continue
+					}
+					for tf, c := range st.Candles {
+						if c == nil {
+							continue
+						}
+						// Bar rolled: persist the previous bar as closed (final OHLC).
+						if prev, ok := prevCandles[tf]; ok && prev != nil && !prev.Time.Equal(c.Time) {
+							closed := *prev
+							closed.IsClosed = true
+							cctx, ccancel := context.WithTimeout(context.Background(), 3*time.Second)
+							_ = persister.SaveCandle(cctx, &closed)
+							ccancel()
+						}
+						// Persist the current forming bar (upsert, keeps DB live).
+						fctx, fcancel := context.WithTimeout(context.Background(), 3*time.Second)
+						_ = persister.SaveCandle(fctx, c)
+						fcancel()
+					prevCandles[tf] = c
+				}
+			}
+		}()
+	}
+
 	// ─── Devil Liquidity / Devil's Mark engine (prompt.md) ───
 	devilStore, devilStoreErr := devilliquidity.NewStore(cfg.DBURL)
 	if devilStoreErr != nil {
