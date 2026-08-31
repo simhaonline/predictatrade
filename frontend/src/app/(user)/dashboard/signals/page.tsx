@@ -23,6 +23,11 @@ interface EngineSignal {
   TP2: string;
   TP3: string;
   CreatedAt: string;
+  // Broker-session-aligned market time of the bar the signal was CALCULATED on
+  // (Master Node broker TF, offset -4). This — not CreatedAt (server UTC receive
+  // time) — is the authoritative signal time. See AGENTS: signals are evaluated on
+  // broker-aligned candles, never UTC.
+  MarketTime?: string;
   Symbol: string;
   Regime?: string;
   Session?: string;
@@ -260,7 +265,17 @@ export default function UserSignalsPage() {
                         <td className="px-3 py-3"><StatusText status={row.Status} /></td>
                         <td className="px-3 py-3 text-[10px] text-pat-text-muted">{row.Regime || "—"}</td>
                         <td className="px-3 py-3 text-xs text-pat-text-muted">
-                          {row.CreatedAt && row.CreatedAt !== "0001-01-01T00:00:00Z" ? format(new Date(row.CreatedAt), "MMM d, HH:mm:ss") : "—"}
+                          {row.MarketTime && row.MarketTime !== "0001-01-01T00:00:00Z" ? (
+                            <span className="flex flex-col gap-0.5">
+                              <span className="flex items-center gap-1 text-pat-text-primary tabular-nums">
+                                <span className="text-[9px] uppercase px-1 rounded bg-pat-info/15 text-pat-info border border-pat-info/20" title="Broker-session-aligned time (Master Node) the signal was calculated on — not UTC">Broker</span>
+                                {format(new Date(row.MarketTime), "MMM d, HH:mm:ss")}
+                              </span>
+                              <span className="text-[10px] text-pat-text-muted tabular-nums" title="Server receive time (UTC)">recv {row.CreatedAt && row.CreatedAt !== "0001-01-01T00:00:00Z" ? format(new Date(row.CreatedAt), "HH:mm:ss") : "—"} UTC</span>
+                            </span>
+                          ) : (
+                            row.CreatedAt && row.CreatedAt !== "0001-01-01T00:00:00Z" ? format(new Date(row.CreatedAt), "MMM d, HH:mm:ss") : "—"
+                          )}
                         </td>
                       </tr>
                       {isOpen && (
