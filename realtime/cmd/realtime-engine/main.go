@@ -129,6 +129,7 @@ var globalDeliveryMgr *sigengine.DeliveryManager
 var globalSignalNotifier *notifications.NtfyPushProvider
 var signalNotifyMu sync.Mutex
 var signalNotifyLast = make(map[string]time.Time)
+
 const signalNotifyCooldown = 30 * time.Minute
 
 // globalEmergencyHalt is the process-wide trading halt flag (v1.15.0).
@@ -979,20 +980,19 @@ func main() {
 				// signal TTL directly — not just the standalone TICK pipeline, which
 				// can stall without affecting the snapshot feed. This prevents a
 				// false STALE/DEGRADED when the snapshot stream is healthy.
-				var srcTS time.Time
-				if t, perr := time.Parse(time.RFC3339, snapshot.Tick.Time); perr == nil {
-					srcTS = t
-				} else {
-					srcTS = time.Now().UTC()
-				}
+				// Use the gateway receive time for liveness: the snapshot arrives
+				// NOW, so its tick is fresh even if the broker bar timestamp lags.
+				// This keeps the admin "Market Feed" LIVE during live-tick pauses
+				// instead of flipping to STALE between the data agent's tick bursts.
+				now := time.Now().UTC()
 				state.LastTick = &types.Tick{
 					Symbol:           snapshot.Symbol,
 					Bid:              state.Bid,
 					Ask:              state.Ask,
 					TickVolume:       snapshot.Tick.Volume,
 					Source:           snapshot.Source,
-					SourceTimestamp:  srcTS,
-					GatewayTimestamp: time.Now().UTC(),
+					SourceTimestamp:  now,
+					GatewayTimestamp: now,
 					Quality:          types.QualityAuthoritative,
 					MarketClosed:     snapshot.MarketClosed,
 				}
@@ -1377,26 +1377,26 @@ func main() {
 			defer ticker.Stop()
 			prevCandles := make(map[types.Timeframe]*types.Candle)
 			for range ticker.C {
-					st := stateMgr.Get(normalizeXAUUSD("XAUUSD"))
-					if st == nil {
+				st := stateMgr.Get(normalizeXAUUSD("XAUUSD"))
+				if st == nil {
+					continue
+				}
+				for tf, c := range st.Candles {
+					if c == nil {
 						continue
 					}
-					for tf, c := range st.Candles {
-						if c == nil {
-							continue
-						}
-						// Bar rolled: persist the previous bar as closed (final OHLC).
-						if prev, ok := prevCandles[tf]; ok && prev != nil && !prev.Time.Equal(c.Time) {
-							closed := *prev
-							closed.IsClosed = true
-							cctx, ccancel := context.WithTimeout(context.Background(), 3*time.Second)
-							_ = persister.SaveCandle(cctx, &closed)
-							ccancel()
-						}
-						// Persist the current forming bar (upsert, keeps DB live).
-						fctx, fcancel := context.WithTimeout(context.Background(), 3*time.Second)
-						_ = persister.SaveCandle(fctx, c)
-						fcancel()
+					// Bar rolled: persist the previous bar as closed (final OHLC).
+					if prev, ok := prevCandles[tf]; ok && prev != nil && !prev.Time.Equal(c.Time) {
+						closed := *prev
+						closed.IsClosed = true
+						cctx, ccancel := context.WithTimeout(context.Background(), 3*time.Second)
+						_ = persister.SaveCandle(cctx, &closed)
+						ccancel()
+					}
+					// Persist the current forming bar (upsert, keeps DB live).
+					fctx, fcancel := context.WithTimeout(context.Background(), 3*time.Second)
+					_ = persister.SaveCandle(fctx, c)
+					fcancel()
 					prevCandles[tf] = c
 				}
 			}
@@ -1435,6 +1435,26 @@ func main() {
 					s.Quality = types.QualityStale
 				}
 			})
+		}
+	}()
+
+	// Keep the Valkey hot cache continuously fresh so the admin "Market Feed"
+	// never flickers to STALE/empty between tick/candle events. The in-memory
+	// XAUUSD state is kept live by the snapshot merge loop (Master Node snapshots
+	// arrive continuously); mirroring it to Valkey every second guarantees the
+	// cache always reflects the true live feed even during tick-stream pauses.
+	go func() {
+		hb := time.NewTicker(1 * time.Second)
+		defer hb.Stop()
+		for range hb.C {
+			if valkeyCache == nil {
+				continue
+			}
+			if st := stateMgr.Get(normalizeXAUUSD("XAUUSD")); st != nil && st.LastTick != nil {
+				cs := *st
+				cs.PTB = nil
+				_ = valkeyCache.SetMarketState(&cs)
+			}
 		}
 	}()
 
@@ -2767,11 +2787,15 @@ func main() {
 			// HFT: Broadcast market state immediately after tick processing
 			for _, state := range stateMgr.GetAll() {
 				wsHub.BroadcastMarketState(state)
-				if valkeyCache != nil {
-					// Clone state without PTB to avoid JSON marshal crash on interface{}
-					cacheState := *state
-					cacheState.PTB = nil
-					valkeyCache.SetMarketState(&cacheState)
+			}
+			// Write only the canonical XAUUSD state (with a valid LastTick) to the
+			// Valkey hot cache. Writing every state in GetAll() let a nil-LastTick
+			// entry overwrite the good one; the cache must reflect the live feed.
+			if valkeyCache != nil {
+				if st := stateMgr.Get(normalizeXAUUSD("XAUUSD")); st != nil && st.LastTick != nil {
+					cs := *st
+					cs.PTB = nil
+					valkeyCache.SetMarketState(&cs)
 				}
 			}
 		}
@@ -2844,6 +2868,19 @@ func main() {
 					}
 				}
 				handleCandle(candle)
+
+				// Keep the Valkey hot cache fresh on the candle/snapshot path. The
+				// data agent streams ticks in bursts, so if we only refreshed the cache
+				// on ticks the admin "Market Feed" flipped to STALE between bursts.
+				// Snapshots arrive continuously, so mirroring handleTick's cache write
+				// here keeps the live feed honest-LIVE through tick pauses.
+				if valkeyCache != nil {
+					if st := stateMgr.Get(normalizeXAUUSD("XAUUSD")); st != nil && st.LastTick != nil {
+						cs := *st
+						cs.PTB = nil
+						valkeyCache.SetMarketState(&cs)
+					}
+				}
 
 				// Devil Liquidity: feed every completed candle into the engine.
 				if candle.IsClosed && devilEngine != nil {
