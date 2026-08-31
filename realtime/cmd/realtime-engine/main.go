@@ -2754,11 +2754,25 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 	// Evaluate features in the registry dedicated to THIS timeframe —
 	// M1 candles never touch H1/H4/D1 indicator state and vice versa.
 	reg := featureReg.For(candle.Timeframe)
-	evalState := reg.Evaluate(candle, state.Candles, state.LastTick)
+	// Use LiveTick(): prefer the freshest real tick, but if the agent tick stream
+	// is stale/intermittent, derive the current price from the latest candle bar so
+	// signal pricing never freezes on a stale quote while bars keep flowing.
+	evalState := reg.Evaluate(candle, state.Candles, state.LiveTick())
 	if evalState == nil {
 		return
 	}
 	stateMgr.Update(candle.Symbol, func(s *features.MarketState) {
+		// Keep current price / bid / ask live even if the dedicated tick stream is
+		// stale: derive from the latest candle bar via LiveTick() so signal pricing
+		// never freezes on a stale quote while MARKET_SNAPSHOT bars keep flowing.
+		if live := state.LiveTick(); live != nil {
+			s.LastTick = live
+			s.CurrentPrice = live.Mid
+			s.Bid = live.Bid
+			s.Ask = live.Ask
+			s.Spread = live.Spread
+			s.Mid = live.Mid
+		}
 		s.Structure = evalState.Structure
 		s.Liquidity = evalState.Liquidity
 		s.FVG = evalState.FVG

@@ -418,3 +418,63 @@ func (sm *StateManager) GetAll() []*MarketState {
 	}
 	return result
 }
+
+// LiveTickMaxAge is the threshold beyond which the last real tick is considered
+// stale. When exceeded, LiveTick derives a tick from the latest candle bar so the
+// engine's notion of current price (and the Admin dashboard feed) never freezes on
+// a stale price while MARKET_SNAPSHOT bars keep flowing from the agent.
+const LiveTickMaxAge = 30 * time.Second
+
+// LiveTick returns the most recent price tick. If the last real tick is still
+// fresh it is returned unchanged; otherwise a tick is derived from the latest
+// candle bar (the close becomes the mid, preserving the last known spread). This
+// keeps the feed and signal pricing resilient to a paused/intermittent agent tick
+// stream — bars continue to arrive even when the dedicated TICK channel is dead.
+func (s *MarketState) LiveTick() *types.Tick {
+	if s.LastTick != nil && s.LastTick.Bid.GreaterThan(decimal.Zero) &&
+		s.LastTick.SourceTimestamp.After(time.Now().Add(-LiveTickMaxAge)) {
+		return s.LastTick
+	}
+	bar := s.latestBar()
+	if bar == nil {
+		return s.LastTick
+	}
+	mid := bar.Close
+	spread := decimal.NewFromFloat(0.5)
+	if s.LastTick != nil && s.LastTick.Spread.GreaterThan(decimal.Zero) {
+		spread = s.LastTick.Spread
+	}
+	bid := mid.Sub(spread.Div(decimal.NewFromInt(2)))
+	ask := mid.Add(spread.Div(decimal.NewFromInt(2)))
+	src := "MT5_MASTER"
+	if s.LastTick != nil && s.LastTick.Source != "" {
+		src = s.LastTick.Source
+	}
+	return &types.Tick{
+		Symbol:           s.Symbol,
+		Bid:              bid,
+		Ask:              ask,
+		Mid:              mid,
+		Spread:           spread,
+		TickVolume:       bar.Volume,
+		Source:           src,
+		SourceTimestamp:  bar.Time,
+		GatewayTimestamp: time.Now().UTC(),
+		Quality:          types.QualityAuthoritative,
+		MarketClosed:     s.LastTick != nil && s.LastTick.MarketClosed,
+	}
+}
+
+// latestBar returns the most recently-timed candle across all timeframes.
+func (s *MarketState) latestBar() *types.Candle {
+	var best *types.Candle
+	for _, c := range s.Candles {
+		if c == nil {
+			continue
+		}
+		if best == nil || c.Time.After(best.Time) {
+			best = c
+		}
+	}
+	return best
+}

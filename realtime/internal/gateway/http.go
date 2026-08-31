@@ -732,15 +732,19 @@ func (h *HTTPServer) handleMarketSnapshot(w http.ResponseWriter, r *http.Request
 		if mt5Snapshot.Tick.Bid > 0 && mt5Snapshot.Tick.Ask > 0 && mt5Snapshot.Tick.Ask >= mt5Snapshot.Tick.Bid {
 			response["tick"] = mt5Snapshot.Tick
 		}
-		// Override tick with LIVE data from the engine's state manager
-		// The MT5 snapshot tick may be stale (only sent on initial connection).
-		// The engine's state has the LATEST tick from the real-time tick stream.
-		if engineState != nil && engineState.LastTick != nil && engineState.LastTick.Bid.GreaterThan(decimal.Zero) {
-			response["tick"] = map[string]interface{}{
-				"bid":    toF(engineState.LastTick.Bid),
-				"ask":    toF(engineState.LastTick.Ask),
-				"spread": toF(engineState.LastTick.Spread),
-				"time":   engineState.LastTick.SourceTimestamp.Format("2006-01-02T15:04:05Z07:00"),
+		// Override tick with LIVE data from the engine's state manager.
+		// LiveTick() returns the freshest real tick when the agent tick stream is
+		// active, and falls back to a tick derived from the latest candle bar when
+		// the tick stream is stale/intermittent — so the dashboard feed never
+		// freezes on a 2-hour-old price while MARKET_SNAPSHOT bars keep flowing.
+		if engineState != nil {
+			if live := engineState.LiveTick(); live != nil && live.Bid.GreaterThan(decimal.Zero) {
+				response["tick"] = map[string]interface{}{
+					"bid":    toF(live.Bid),
+					"ask":    toF(live.Ask),
+					"spread": toF(live.Spread),
+					"time":   live.SourceTimestamp.Format("2006-01-02T15:04:05Z07:00"),
+				}
 			}
 		}
 		response["bars"] = mt5Snapshot.Bars
