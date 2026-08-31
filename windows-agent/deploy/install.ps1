@@ -213,6 +213,8 @@ Write-Host "[2/9] Creating installation directory..."
 if (-not (Test-Path $InstallDir)) { New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null }
 $logsDir = Join-Path $InstallDir "logs"
 if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
+# Agent log file (mirrors cmd/client|master/main.go: agent.log / master_agent.log).
+$AgentLog = Join-Path $logsDir $(if ($Mode -eq "master") { "master_agent.log" } else { "agent.log" })
 Write-Host "  OK: $InstallDir"
 
 # Step 2a: Apply Defender exclusions BEFORE downloading the unsigned binary.
@@ -556,7 +558,7 @@ for ($round = 1; $round -le 3 -and -not $serviceRunning; $round++) {
     # Not running after this round: dump the exact last log lines so nothing is
     # hidden, repair, and loop (the final failure summary prints after round 3).
     Write-Host "  Attempt $round failed — agent log tail:"
-    if (Test-Path $AgentLog) { Get-Content $AgentLog -Tail 6 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("      {0}" -f $_) } }
+    if ($AgentLog -and (Test-Path $AgentLog)) { Get-Content $AgentLog -Tail 6 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("      {0}" -f $_) } }
     # Remove a broken service definition so the next round starts clean.
     if ($useNssm) { & $nssmDest remove $ServiceName confirm 2>&1 | Out-Null }
     sc.exe delete $ServiceName 2>&1 | Out-Null
