@@ -16,7 +16,7 @@ function MonitorCard({ title, note }: { title: string; note: string }) {
   return (
     <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-4 opacity-80">
       <div className="text-sm font-medium text-pat-text-primary mb-2">{title}</div>
-      <div className="text-xs text-pat-warning">Monitoring pending</div>
+      <div className="text-xs text-pat-warning">NOT IMPLEMENTED — schema only, no live metrics</div>
       <div className="text-xs text-pat-text-muted mt-1">{note}</div>
     </div>
   );

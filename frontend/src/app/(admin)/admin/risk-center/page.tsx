@@ -190,17 +190,24 @@ export default function AdminRiskCenterPage() {
     riskSaveMutation.mutate();
   };
 
-  // Map market state fields to gates when available
-  const marketGateStatus = (gate: string): "active" | "degraded" | "unknown" => {
-    const m = marketQ.data;
-    if (!m) return "degraded";
+  // Map market state fields to gates when available.
+  // /api/v1/market/state returns { states: MarketState[] } — derive gate health
+  // from the real XAUUSD state instead of non-existent top-level flags.
+  const marketGateStatus = (gate: string): "active" | "degraded" | "unknown" | "halted" => {
+    const m = marketQ.data as unknown as { states?: Array<Record<string, unknown>> } | undefined;
+    const states = m?.states;
+    const xau = states?.find((s) => s?.symbol === "XAUUSD") ?? states?.[0];
+    const lastTs = xau?.timestamp ? new Date(String(xau.timestamp)).getTime() : 0;
+    const fresh = lastTs > 0 && Date.now() - lastTs < 120_000;
     switch (gate) {
       case "Data quality / freshness":
-        return m.data_fresh ?? m.freshness ? "active" : "degraded";
+        return fresh ? "active" : "degraded";
       case "Spread / slippage / total-cost limit":
-        return typeof m.spread === "number" || typeof m.avg_spread === "number" ? "active" : "degraded";
+        return xau != null && xau.spread != null ? "active" : "degraded";
       case "Emergency stop":
-        return m.emergency_stop || m.halt ? "active" : "degraded";
+        // The emergency-stop mechanism is ARMED/ready by default; only a triggered
+        // halt changes the state. A non-halted path is healthy ("active"), not "degraded".
+        return state?.trading_halted ? "halted" : "active";
       default:
         return "active";
     }

@@ -31,7 +31,7 @@ function fmt(ts: string | null) {
 export default function AdminMacroNewsPage() {
   const { data, isLoading, isError, error } = useQuery<MacroNewsData>({
     queryKey: ["admin-macro-news"],
-    queryFn: async () => (await customInstance.get("/news")).data as MacroNewsData,
+    queryFn: async () => (await customInstance.get("/admin/macro-news")).data as MacroNewsData,
   });
 
   return (
@@ -56,7 +56,7 @@ export default function AdminMacroNewsPage() {
           <h2 className="text-sm font-medium text-pat-text-primary mb-3 flex items-center gap-2">
             <IconNews size={16} /> Economic Calendar
           </h2>
-          {data.note && !data.items.length ? (
+          {data.note && !(data.items ?? []).length ? (
             <div className="px-3 py-6 text-center text-xs text-pat-text-muted">{data.note}</div>
           ) : (
             <div className="overflow-x-auto">
@@ -74,7 +74,7 @@ export default function AdminMacroNewsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.items.map((r) => (
+                  {(data?.items ?? []).map((r) => (
                     <tr key={r.id} className="border-b border-pat-border/60">
                       <td className="px-3 py-2 text-pat-text-primary">{r.event_name}</td>
                       <td className="px-3 py-2 text-pat-text-secondary">{r.country || "—"}</td>

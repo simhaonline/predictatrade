@@ -158,7 +158,7 @@ export default function AdminMacroIntelligencePage() {
                 <tr key={i} className="border-b border-pat-border/30">
                   <td className="py-2 px-2 text-pat-text-primary font-medium">{driverLabels[drv.name] || drv.name}</td>
                   <td className="py-2 px-2 text-pat-text-muted">{drv.source}</td>
-                  <td className="py-2 px-2"><StatusBadge status={drv.quality} /></td>
+                  <td className="py-2 px-2"><StatusBadge status={drv.quality || "DISCONNECTED"} /></td>
                   <td className="py-2 px-2 text-right tabular-nums text-pat-text-secondary">{drv.impact_score.toFixed(1)}</td>
                   <td className="py-2 px-2 text-right tabular-nums text-pat-text-muted">{(drv.confidence * 100).toFixed(0)}%</td>
                   <td className="py-2 px-2 text-right tabular-nums text-pat-text-muted">{(drv.freshness * 100).toFixed(0)}%</td>
