@@ -1155,6 +1155,19 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		// Track snapshot receipt separately so a lone tick cannot mask a dead
 		// snapshot feed (snapshots build the market state for signal generation).
 		p.updateLastSnapshot()
+
+		// CRITICAL: queue the snapshot for the single-writer merge loop IMMEDIATELY,
+		// before any downstream callback (gate hydration / SL monitoring) runs. The
+		// Master Node is the sole authoritative live-data source; if a later
+		// callback faults (panic/hang), the feed must still stay live. The merge
+		// loop refreshes MarketState.LastTick, Bid/Ask and indicators from this.
+		if p.stateMgr != nil {
+			snapCopy := snapshot
+			p.snapshotPendingMu.Lock()
+			p.snapshotPending[normalizeSymbol(snapshot.Symbol)] = &snapCopy
+			p.snapshotPendingMu.Unlock()
+		}
+
 		// Collect the broker UTC offset reported live by the Master Node so the
 		// engine runs on Broker TF rather than UTC.
 		if snapshot.BrokerOffset != 0 {
@@ -1170,61 +1183,64 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 			}
 		}
 
-		// Track this client's account state individually (per-client risk
-		// isolation) so a blown/over-exposed account can never contaminate
-		// another client's signals.
-		if snapshot.AccountInfo.Balance > 0 || snapshot.AccountInfo.Equity > 0 {
-			// Carry the terminal's account login so per-account state is isolated
-			// (a demo/small account cannot poison the funded account's risk view).
-			if snapshot.AccountInfo.Account == "" {
-				snapshot.AccountInfo.Account = snapshot.Account
-			}
-			p.RecordAgentAccount(agentID, &snapshot.AccountInfo, &snapshot.Positions)
-		}
+		// All downstream side-effects (account recording, gate hydration, SL
+		// monitoring) are isolated in a recover so a fault in any one of them can
+		// NEVER block the live feed — the snapshot is already queued above.
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[marketdata] MARKET_SNAPSHOT side-effect recovered (agent=%s): %v", agentID, r)
+				}
+			}()
 
-		// NOTE: broker identity for the user's TRADING account is captured from the
-		// Client (exec) node's LICENSE_CHECK/INIT account payload (see
-		// hydrateAccountFromJSON), NOT from the Master node's snapshot. The Master
-		// node is a pure data feed (Equiti) and must not overwrite the user's own
-		// broker (e.g. Xelance) on the dashboard.
-
-		// Mark the feed fresh so the data-quality gate does not veto live trading
-		// when the agent streams MARKET_SNAPSHOT without standalone TICK messages.
-		if p.dataFreshnessFn != nil {
-			p.dataFreshnessFn(normalizeSymbol(snapshot.Symbol))
-		}
-
-		// Hydrate safety-critical gates from live broker account data (P1-001).
-		// When the Windows Agent sends account_info with the snapshot, the
-		// exposure and margin gates are hydrated from real broker state.
-		if p.brokerAccountHydrateFn != nil {
-			// Only hydrate if we have meaningful account data (balance > 0 means a real account is connected)
+			// Track this client's account state individually (per-client risk
+			// isolation) so a blown/over-exposed account can never contaminate
+			// another client's signals.
 			if snapshot.AccountInfo.Balance > 0 || snapshot.AccountInfo.Equity > 0 {
-				// Carry the terminal's account login (see RecordAgentAccount above).
+				// Carry the terminal's account login so per-account state is isolated
+				// (a demo/small account cannot poison the funded account's risk view).
 				if snapshot.AccountInfo.Account == "" {
 					snapshot.AccountInfo.Account = snapshot.Account
 				}
-				p.brokerAccountHydrateFn(agentID, &snapshot.AccountInfo, &snapshot.Positions)
+				p.RecordAgentAccount(agentID, &snapshot.AccountInfo, &snapshot.Positions)
 			}
-		}
 
-		// v1.15.0 SL ENFORCEMENT: monitor every snapshot for PAT positions
-		// missing SL → CLOSE_POSITION (server is the enforcement authority).
-		if p.positionSLCheckFn != nil && snapshot.Positions.TotalPositions > 0 {
-			p.positionSLCheckFn(agentID, &snapshot.Positions)
-		}
+			// NOTE: broker identity for the user's TRADING account is captured from the
+			// Client (exec) node's LICENSE_CHECK/INIT account payload (see
+			// hydrateAccountFromJSON), NOT from the Master node's snapshot. The Master
+			// node is a pure data feed (Equiti) and must not overwrite the user's own
+			// broker (e.g. Xelance) on the dashboard.
+
+			// Mark the feed fresh so the data-quality gate does not veto live trading
+			// when the agent streams MARKET_SNAPSHOT without standalone TICK messages.
+			if p.dataFreshnessFn != nil {
+				p.dataFreshnessFn(normalizeSymbol(snapshot.Symbol))
+			}
+
+			// Hydrate safety-critical gates from live broker account data (P1-001).
+			// When the Windows Agent sends account_info with the snapshot, the
+			// exposure and margin gates are hydrated from real broker state.
+			if p.brokerAccountHydrateFn != nil {
+				// Only hydrate if we have meaningful account data (balance > 0 means a real account is connected)
+				if snapshot.AccountInfo.Balance > 0 || snapshot.AccountInfo.Equity > 0 {
+					// Carry the terminal's account login (see RecordAgentAccount above).
+					if snapshot.AccountInfo.Account == "" {
+						snapshot.AccountInfo.Account = snapshot.Account
+					}
+					p.brokerAccountHydrateFn(agentID, &snapshot.AccountInfo, &snapshot.Positions)
+				}
+			}
+
+			// v1.15.0 SL ENFORCEMENT: monitor every snapshot for PAT positions
+			// missing SL → CLOSE_POSITION (server is the enforcement authority).
+			if p.positionSLCheckFn != nil && snapshot.Positions.TotalPositions > 0 {
+				p.positionSLCheckFn(agentID, &snapshot.Positions)
+			}
+		}()
 
 		// CRITICAL: Merge authoritative MT5 indicators and bars into MarketState
-		// The Master Node EA computes all 14 indicators natively in MT5.
-		// These are AUTHORITATIVE values — do not use locally computed approximations.
-		// Merged through the single-writer coalescing loop (see snapshotMergeLoop)
-		// to avoid N concurrent writers onto the shared MarketState.
-		if p.stateMgr != nil {
-			snapCopy := snapshot
-			p.snapshotPendingMu.Lock()
-			p.snapshotPending[normalizeSymbol(snapshot.Symbol)] = &snapCopy
-			p.snapshotPendingMu.Unlock()
-		}
+		// via the single-writer coalescing loop (snapshotMergeLoop). The snapshot
+		// is already queued above; downstream callbacks must never block it.
 
 		// CRITICAL: Sync per-TF broker CopyRates bars into the engine candle
 		// pipeline so candles match MT5 exactly (broker bar sync, not indicator merge).

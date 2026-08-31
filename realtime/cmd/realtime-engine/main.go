@@ -924,6 +924,31 @@ func main() {
 				state.Spread = decimal.NewFromFloat(snapshot.Tick.Spread)
 				state.Mid = state.Bid.Add(state.Ask).Div(decimal.NewFromInt(2))
 				state.CurrentPrice = state.Mid
+
+				// Keep MarketState.LastTick fresh from the Master Node snapshot.
+				// The Master Node is the SOLE authoritative live-data source; its
+				// MARKET_SNAPSHOT must drive feed liveness (admin feedState) and
+				// signal TTL directly — not just the standalone TICK pipeline, which
+				// can stall without affecting the snapshot feed. This prevents a
+				// false STALE/DEGRADED when the snapshot stream is healthy.
+				var srcTS time.Time
+				if t, perr := time.Parse(time.RFC3339, snapshot.Tick.Time); perr == nil {
+					srcTS = t
+				} else {
+					srcTS = time.Now().UTC()
+				}
+				state.LastTick = &types.Tick{
+					Symbol:           snapshot.Symbol,
+					Bid:              state.Bid,
+					Ask:              state.Ask,
+					TickVolume:       snapshot.Tick.Volume,
+					Source:           snapshot.Source,
+					SourceTimestamp:  srcTS,
+					GatewayTimestamp: time.Now().UTC(),
+					Quality:          types.QualityAuthoritative,
+					MarketClosed:     snapshot.MarketClosed,
+				}
+				state.Timestamp = state.LastTick.GatewayTimestamp
 			}
 
 			// Mark quality as authoritative (real MT5 data)
