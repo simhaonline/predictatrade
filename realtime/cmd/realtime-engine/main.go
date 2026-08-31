@@ -4895,35 +4895,41 @@ func hydrateEntitlementLicenseGates(reg *gates.Registry, persister *marketdata.P
 
 		if licenseCount > 0 {
 			// Active license found — hydrate license gate to PASS
-			// 			fresh := now.Add(30 * time.Second)
 			reg.UpdateState(types.GateLicense, gates.GateState{
-				State:       types.GatePass,
-				EvaluatedAt: now,
-				// No ValidUntil — gate state never expires (broker data may not be available)
+				State:         types.GatePass,
+				EvaluatedAt:   now,
 				SourceVersion: "control_plane_db",
 				Quality:       types.QualityAuthoritative,
 			})
 
-			// Check for active subscriptions with entitled strategies
-			ctx2, cancel2 := context.WithTimeout(context.Background(), 3*time.Second)
-			var subCount int
-			err2 := db.QueryRowContext(ctx2, `
-				SELECT COUNT(*) FROM (
-					SELECT 1 FROM billing.subscriptions 
-					WHERE status = 'ACTIVE' LIMIT 1
-				) AS sub
-			`).Scan(&subCount)
-			cancel2()
+			// License-based entitlement: an ACTIVE license is sufficient
+			// execution entitlement (operator decision). A billing subscription
+			// is no longer required for the entitlement gate to pass.
+			reg.UpdateState(types.GateEntitlement, gates.GateState{
+				State:         types.GatePass,
+				EvaluatedAt:   now,
+				SourceVersion: "control_plane_db",
+				Quality:       types.QualityAuthoritative,
+			})
+		}
 
-			if err2 == nil && subCount > 0 {
-				reg.UpdateState(types.GateEntitlement, gates.GateState{
-					State:       types.GatePass,
-					EvaluatedAt: now,
-					// No ValidUntil — gate state never expires (broker data may not be available)
-					SourceVersion: "control_plane_db",
-					Quality:       types.QualityAuthoritative,
-				})
-			}
+		// Active subscription also confers entitlement (independent of license).
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 3*time.Second)
+		var subCount int
+		err2 := db.QueryRowContext(ctx2, `
+			SELECT COUNT(*) FROM (
+				SELECT 1 FROM billing.subscriptions 
+				WHERE status = 'ACTIVE' LIMIT 1
+			) AS sub
+		`).Scan(&subCount)
+		cancel2()
+		if err2 == nil && subCount > 0 {
+			reg.UpdateState(types.GateEntitlement, gates.GateState{
+				State:         types.GatePass,
+				EvaluatedAt:   now,
+				SourceVersion: "control_plane_db",
+				Quality:       types.QualityAuthoritative,
+			})
 		}
 	}
 }
