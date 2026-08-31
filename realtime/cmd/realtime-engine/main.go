@@ -122,6 +122,14 @@ var globalCrossMarketEngine *crossmarket.Engine
 var globalAgentHub *gateway.AgentHub
 var globalPersister *marketdata.Persister
 var globalReconciler *reconciliation.Reconciler
+var globalDeliveryMgr *sigengine.DeliveryManager
+
+// #4 Signal delivery channel (off-platform ntfy alerts). Package-level so the
+// broadcast path can call notifySignal without closure capture.
+var globalSignalNotifier *notifications.NtfyPushProvider
+var signalNotifyMu sync.Mutex
+var signalNotifyLast = make(map[string]time.Time)
+const signalNotifyCooldown = 30 * time.Minute
 
 // globalEmergencyHalt is the process-wide trading halt flag (v1.15.0).
 // Activated by admin EMERGENCY_STOP / KILL_SWITCH; consulted by the signal
@@ -305,6 +313,9 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHu
 	// Broadcast to frontend dashboard clients (entitlement-filtered)
 	wsHub.BroadcastSignal(signal)
 
+	// #4 Off-platform signal alert (ntfy) — read-only mirror, never execution.
+	notifySignal(signal)
+
 	// Broadcast to Windows Agents for MT4/MT5 delivery
 	// SERVER-SIDE STRATEGY FILTERING: Only send signals for strategies that
 	// the agent's license allows. A FREE subscriber should NOT receive
@@ -332,6 +343,21 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHu
 		// the signal is NOT sent to that agent at all.
 		// This is the REAL enforcement — the signal never reaches the EA.
 		agentHub.SendFilteredSignalToAgents(eventID, streamID, "SIGNAL", priority, "1.0.0", payload, string(signal.StrategyID))
+		// #3 Delivery ledger: record a per-agent delivery state + sequence number
+		// for every entitled agent this signal was routed to (server-side filter
+		// applied). Enables future replay-on-reconnect once the Windows Agent ACKs
+		// signals with (signal_id, device_id). Expiry is swept by the background
+		// MarkExpired ticker.
+		if globalDeliveryMgr != nil {
+			for _, aid := range agentHub.GetAgentIDs() {
+				if !isStrategyAllowedForAgent(aid, string(signal.StrategyID)) {
+					continue
+				}
+				if _, err := globalDeliveryMgr.RecordDelivery(context.Background(), signal, aid, "", ""); err != nil {
+					observability.Log.Warn().Err(err).Str("agent", aid).Msg("delivery record failed")
+				}
+			}
+		}
 		// BE-6: record the delivery leg of reconciliation so ACK-timeout
 		// detection has a stable delivery timestamp to measure against.
 		if globalReconciler != nil {
@@ -695,6 +721,24 @@ func main() {
 			Message:        message,
 			CreatedAt:      time.Now().UTC(),
 		})
+	}
+
+	// #4 Signal delivery channel: dedicated ntfy topic for XAUUSD signal alerts.
+	// Separate from operational alerts; disabled unless NTFY_SIGNAL_TOPIC is set.
+	// Advisory (Arcanist/IMLR, etc.) and executable signals are both published so
+	// entitled subscribers get off-platform push alerts; the engine remains the
+	// authority — ntfy is a read-only mirror, never an execution path.
+	if cfg.NtfySignalTopic != "" && cfg.NtfyServerURL != "" {
+		sigToken := cfg.NtfySignalAccessToken
+		if sigToken == "" {
+			sigToken = cfg.NtfyAccessToken
+		}
+		globalSignalNotifier = notifications.NewNtfyPushProvider(
+			cfg.NtfyServerURL, cfg.NtfySignalTopic, sigToken)
+		if globalSignalNotifier != nil {
+			log.Info().Str("server", cfg.NtfyServerURL).Str("topic", cfg.NtfySignalTopic).
+				Msg("signal ntfy notifications enabled")
+		}
 	}
 	log.Info().Msg("Health manager initialized (stale check, signal flow, macro health)")
 
@@ -1565,6 +1609,27 @@ func main() {
 	ptbEngine := ptb.NewEngine()
 	reconciler := reconciliation.NewReconciler()
 	globalReconciler = reconciler
+
+	// #3 Delivery ledger + reliability: track per-device signal delivery state and
+	// sequence numbers (tables from migration 009). RecordDelivery is invoked per
+	// agent below. Full replay-on-reconnect requires the Windows Agent to ACK
+	// signals with (signal_id, device_id) — a pending MQL protocol change — so
+	// true resume is currently dormant; expiry hygiene runs regardless.
+	globalDeliveryMgr = sigengine.NewDeliveryManager(persister.GetDB())
+	go func() {
+		t := time.NewTicker(5 * time.Minute)
+		defer t.Stop()
+		for range t.C {
+			if globalDeliveryMgr == nil {
+				continue
+			}
+			if n, err := globalDeliveryMgr.MarkExpired(context.Background()); err != nil {
+				observability.Log.Warn().Err(err).Msg("delivery MarkExpired failed")
+			} else if n > 0 {
+				observability.Log.Debug().Int64("expired", n).Msg("delivery records expired")
+			}
+		}
+	}()
 
 	// WebSocket hub for frontend/dashboard clients
 	wsHub := gateway.NewWebSocketHub(cfg.AllowedOrigins)
@@ -5381,4 +5446,62 @@ func applyPlanCaps(daily *gates.DailyLossGate, profit *gates.ProfitTargetGate, r
 		Float64("monthly_loss_pct", daily.MaxMonthlyLossPct).
 		Bool("per_trade_cap_applied", risk != nil && perTrade.Valid && perTrade.Float64 != 0).
 		Msg("Applied plan capital-protection caps to live gates")
+}
+
+// strategyLabelIMLR returns a human-friendly strategy name for off-platform
+// alerts (mirrors the frontend 'Arcanist (IMLR)' branding).
+func strategyLabelIMLR(id string) string {
+	switch types.StrategyID(id) {
+	case types.StrategyArcanist:
+		return "Arcanist (IMLR)"
+	case types.StrategyID("MARNIE_FIB"):
+		return "EQFE"
+	case types.StrategyID("ATEN"):
+		return "ATEN"
+	default:
+		return id
+	}
+}
+
+// notifySignal publishes a directional signal to the off-platform ntfy channel
+// (when configured). Read-only mirror of the engine's authoritative signal — it
+// is never an execution path. Per-strategy cooldown prevents spam.
+func notifySignal(sig *types.Signal) {
+	if globalSignalNotifier == nil {
+		return
+	}
+	dir := string(sig.Direction)
+	if dir == "NO-TRADE" || dir == "WAIT" || dir == "ERROR" || dir == "BLOCKED" {
+		return
+	}
+	signalNotifyMu.Lock()
+	last, ok := signalNotifyLast[string(sig.StrategyID)]
+	if ok && time.Since(last) < signalNotifyCooldown {
+		signalNotifyMu.Unlock()
+		return
+	}
+	signalNotifyLast[string(sig.StrategyID)] = time.Now().UTC()
+	signalNotifyMu.Unlock()
+
+	label := strategyLabelIMLR(string(sig.StrategyID))
+	class := sig.SignalClass
+	if class == "" {
+		if sig.Executable {
+			class = "EXECUTABLE"
+		} else {
+			class = "ADVISORY"
+		}
+	}
+	title := fmt.Sprintf("%s %s [%s]", label, dir, class)
+	msg := fmt.Sprintf("Entry: %s  SL: %s  TP1: %s  TP2: %s  Score: %s",
+		sig.EntryPrice.String(), sig.StopLoss.String(), sig.TP1.String(), sig.TP2.String(), sig.RawScore.String())
+	_ = globalSignalNotifier.Send(context.Background(), &notifications.Notification{
+		NotificationID: uuid.New().String(),
+		EventType:      notifications.EventSignalApproved,
+		Severity:       "INFO",
+		SignalID:       sig.ID,
+		Title:          title,
+		Message:        msg,
+		CreatedAt:      time.Now().UTC(),
+	})
 }

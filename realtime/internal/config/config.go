@@ -194,6 +194,10 @@ type Config struct {
 	NtfyServerURL         string `json:"-"`
 	NtfyTopic             string `json:"-"`
 	NtfyAccessToken       string `json:"-"`
+	// NtfySignalTopic is a dedicated topic for XAUUSD signal alerts (kept separate
+	// from operational alerts). Optional — signal push is disabled when empty.
+	NtfySignalTopic       string `json:"-"`
+	NtfySignalAccessToken string `json:"-"`
 
 	// Ollama (LLM sentiment analysis)
 	OllamaEnabled bool
@@ -335,6 +339,10 @@ func Default() *Config {
 		NtfyServerURL:   getEnv("NTFY_SERVER_URL", ""),
 		NtfyTopic:       getEnv("NTFY_TOPIC", ""),
 		NtfyAccessToken: getEnv("NTFY_ACCESS_TOKEN", ""),
+		// Dedicated signal-alert topic (optional). Falls back to NTFY_TOPIC when
+		// set but empty-to-skip is preferred so operational + signal alerts differ.
+		NtfySignalTopic:       getEnv("NTFY_SIGNAL_TOPIC", ""),
+		NtfySignalAccessToken: getEnv("NTFY_SIGNAL_ACCESS_TOKEN", ""),
 
 		// Ollama (LLM Sentiment Analysis)
 		OllamaEnabled: getEnvBool("OLLAMA_ENABLED", false),
