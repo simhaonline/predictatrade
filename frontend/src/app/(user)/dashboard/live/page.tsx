@@ -1,7 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
+import { SubscriptionContext } from "@/lib/subscription-access";
 import { MarketHeader } from "@/components/user-command-center/market-header";
 import { MtfPulse } from "@/components/user-command-center/mtf-pulse";
 import { IndicatorCards } from "@/components/user-command-center/indicator-cards";
@@ -31,6 +32,24 @@ export default function UserLiveDashboardPage() {
     refetchInterval: 5000,
   });
 
+  // Resolve the caller's subscription so the live-dashboard gate can grant
+  // 24/7 access to active paid subscribers (per plan policy). Until this
+  // resolves we fall back to the time-window rule, so there is no false-open
+  // for free/anonymous visitors.
+  const { data: liveSubs } = useQuery({
+    queryKey: ["user-live-subscriptions"],
+    queryFn: async () => (await customInstance.get("/subscriptions")).data,
+  });
+
+  const liveSubCtx = useMemo<SubscriptionContext | undefined>(() => {
+    const list = Array.isArray(liveSubs) ? liveSubs : [];
+    const active = (list as Array<{ status?: string; plan_name?: string; planName?: string }>).find(
+      (s) => ["ACTIVE", "TRIAL", "GRACE", "CANCEL_AT_PERIOD_END"].includes(s?.status ?? ""),
+    );
+    if (!active) return undefined;
+    return { planName: active.plan_name ?? active.planName, status: active.status };
+  }, [liveSubs]);
+
   const modes: { id: Mode; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
     { id: "MARKET", label: "Market", icon: IconChartLine },
     { id: "TRADING", label: "Trading", icon: IconActivity },
@@ -38,7 +57,7 @@ export default function UserLiveDashboardPage() {
     { id: "COMMAND_CENTER", label: "Command Center", icon: IconLayoutGrid },
   ];
 
-  if (!isLivePreviewOpen()) {
+  if (!isLivePreviewOpen(new Date(), liveSubCtx)) {
     return (
       <div className="p-4 md:p-6 space-y-4">
         <h1 className="text-xl font-bold text-pat-text-primary">Live Dashboard</h1>
