@@ -279,6 +279,18 @@ type AgentProvider struct {
 	// account-driven gate that could contaminate other clients).
 	brokerAccountHydrateFn func(agentID string, account *SnapshotAccount, positions *SnapshotPositions)
 
+	// BrokerInfoFn — called when a MARKET_SNAPSHOT carries authoritative broker
+	// identity (broker name + server). Used to persist broker_name/broker_server
+	// onto the client's device_activations row so the User/Admin dashboards can
+	// show the live MT broker instead of "Unknown broker".
+	brokerInfoFn func(agentID, broker, server string)
+
+	// DataFreshnessFn — called on every MARKET_SNAPSHOT so the engine can mark the
+	// XAUUSD feed fresh (the Master Node's primary feed is MARKET_SNAPSHOT, not
+	// standalone TICK messages; without this the data-quality gate vetoes live
+	// trading as stale even when authoritative bars/indicators are flowing).
+	dataFreshnessFn func(symbol string)
+
 	// AgentConnectFn — called when an agent connects or sends heartbeat.
 	// This hydrates the execution permit gate (terminal connected = PASS).
 	agentConnectFn func(agentID string, msgType string)
@@ -527,6 +539,18 @@ func (p *AgentProvider) SetCandleSyncFn(fn func(symbol string, bars map[string]S
 // agentID is supplied so hydration is tracked per client.
 func (p *AgentProvider) SetBrokerAccountHydrateFn(fn func(agentID string, account *SnapshotAccount, positions *SnapshotPositions)) {
 	p.brokerAccountHydrateFn = fn
+}
+
+// SetBrokerInfoFn sets the callback that persists authoritative broker identity
+// (name + server) from a MARKET_SNAPSHOT onto the client's device_activations row.
+func (p *AgentProvider) SetBrokerInfoFn(fn func(agentID, broker, server string)) {
+	p.brokerInfoFn = fn
+}
+
+// SetDataFreshnessFn sets the callback that marks the feed fresh on every
+// MARKET_SNAPSHOT so the data-quality gate does not wrongly veto live trading.
+func (p *AgentProvider) SetDataFreshnessFn(fn func(symbol string)) {
+	p.dataFreshnessFn = fn
 }
 
 // RecordAgentAccount stores one client's latest broker account snapshot in the
@@ -987,6 +1011,18 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		// another client's signals.
 		if snapshot.AccountInfo.Balance > 0 || snapshot.AccountInfo.Equity > 0 {
 			p.RecordAgentAccount(agentID, &snapshot.AccountInfo, &snapshot.Positions)
+		}
+
+		// Persist authoritative broker identity (name + server) so the User/Admin
+		// dashboards show the live MT broker instead of "Unknown broker".
+		if p.brokerInfoFn != nil && snapshot.Broker != "" {
+			p.brokerInfoFn(agentID, snapshot.Broker, snapshot.AccountInfo.Server)
+		}
+
+		// Mark the feed fresh so the data-quality gate does not veto live trading
+		// when the agent streams MARKET_SNAPSHOT without standalone TICK messages.
+		if p.dataFreshnessFn != nil {
+			p.dataFreshnessFn(normalizeSymbol(snapshot.Symbol))
 		}
 
 		// Hydrate safety-critical gates from live broker account data (P1-001).

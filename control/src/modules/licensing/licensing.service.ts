@@ -166,6 +166,19 @@ export class LicensingService {
     installationId?: string;
     fingerprintHash?: string;
   }) {
+    // The Windows Agent sends the full `fingerprint` object (not a precomputed
+    // `fingerprintHash`). Derive the stable SHA256 the agent uses
+    // (machine_guid|system_uuid|motherboard|disk|installation_id) so device
+    // binding/hardware-ID capture works without changing the agent contract.
+    let fingerprintHash = body.fingerprintHash || '';
+    const fp = (body as any).fingerprint;
+    if (!fingerprintHash && fp) {
+      const combined = [
+        fp.machine_guid, fp.system_uuid, fp.motherboard, fp.disk, fp.installation_id,
+      ].join('|');
+      fingerprintHash = crypto.createHash('sha256').update(combined).digest('hex');
+    }
+
     // Find or create device
     let deviceId = body.deviceId;
 
@@ -213,12 +226,12 @@ export class LicensingService {
       // Update existing activation
       const r = await this.pool.query(
         `UPDATE licensing.device_activations
-         SET terminal_build = $3, ea_version = $4, broker_name = $5, broker_server = $6,
-             fingerprint_hash = $7, activated_at = now()
-         WHERE id = $1 AND device_id = $2
-         RETURNING *`,
+          SET terminal_build = $3, ea_version = $4, broker_name = $5, broker_server = $6,
+              fingerprint_hash = $7, activated_at = now()
+          WHERE id = $1 AND device_id = $2
+          RETURNING *`,
         [existing.rows[0].id, deviceId, body.terminalBuild, body.eaVersion,
-         body.brokerName, body.brokerServer, body.fingerprintHash || ''],
+          body.brokerName, body.brokerServer, fingerprintHash],
       );
       return r.rows[0];
     }
@@ -251,14 +264,15 @@ export class LicensingService {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
        RETURNING *`,
       [id, licId, deviceId, body.clientType, body.terminalBuild, body.eaVersion,
-       body.brokerName, body.brokerServer, body.mtAccountLogin,
-       body.installationId || '', body.fingerprintHash || ''],
+        body.brokerName, body.brokerServer, body.mtAccountLogin,
+        body.installationId || '', fingerprintHash],
     );
 
-    // Update device last_seen
+    // Update device last_seen + persist the hardware fingerprint on the device
+    // row (the User/Admin dashboards render the Hardware ID from devices.fingerprint_hash).
     await this.pool.query(
-      `UPDATE licensing.devices SET last_seen_at = now(), connection_status = 'ONLINE', last_activation_at = now() WHERE id = $1`,
-      [deviceId],
+      `UPDATE licensing.devices SET last_seen_at = now(), connection_status = 'ONLINE', last_activation_at = now(), fingerprint_hash = $2 WHERE id = $1`,
+      [deviceId, fingerprintHash],
     );
 
     return r.rows[0];
@@ -289,11 +303,12 @@ export class LicensingService {
   async heartbeat(deviceId: string, body: { connectionStatus?: string; fingerprintHash?: string }, ownerUserId?: string) {
     const r = await this.pool.query(
       `UPDATE licensing.devices
-       SET last_seen_at = now(), connection_status = $2, updated_at = now()
+       SET last_seen_at = now(), connection_status = $2, updated_at = now(),
+           fingerprint_hash = COALESCE($4, fingerprint_hash)
        WHERE id = $1 AND deleted_at IS NULL
          AND ($3::uuid IS NULL OR user_id = $3::uuid)
        RETURNING id, connection_status, last_seen_at`,
-      [deviceId, body.connectionStatus || 'ONLINE', ownerUserId ?? null],
+      [deviceId, body.connectionStatus || 'ONLINE', ownerUserId ?? null, body.fingerprintHash || null],
     );
     if (r.rows.length === 0) {
       throw new NotFoundException('Device not found');

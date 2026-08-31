@@ -1196,6 +1196,16 @@ func main() {
 
 	validator := marketdata.NewTickValidator()
 	staleDetector := marketdata.NewStaleDetector(10 * time.Second)
+	// Mark XAUUSD feed fresh on every authoritative MARKET_SNAPSHOT so the
+	// data-quality gate does not veto live trading when the agent streams
+	// snapshots (bars + indicators) without separate TICK messages. Without this,
+	// the StaleDetector only refreshes on standalone TICK messages and every
+	// signal is wrongly reported as FEED_QUALITY_FAILURE.
+	agentProvider.SetDataFreshnessFn(func(symbol string) {
+		if normalizeXAUUSD(symbol) == "XAUUSD" {
+			staleDetector.Update("XAUUSD", time.Now().UTC())
+		}
+	})
 	aggregator := marketdata.NewAggregator(agentProvider.BrokerOffsetHours)
 
 	// ─── Per-TF broker CopyRates sync ───
@@ -1428,6 +1438,28 @@ func main() {
 			Float64("free_margin", freeMargin).
 			Int("open_positions", openPositions).
 			Msg("Broker account state hydrated — exposure/margin/execution gates set to PASS")
+	})
+
+	// Persist authoritative broker identity (name + server) from MARKET_SNAPSHOT
+	// onto the client's device_activations row so the dashboards show the live
+	// MT broker instead of "Unknown broker". Maps agentID → control-plane device
+	// via the same agentDevice table the connection-state publisher uses.
+	agentProvider.SetBrokerInfoFn(func(agentID, broker, server string) {
+		if persister == nil {
+			return
+		}
+		deviceID, ok := agentDevice[agentID]
+		if !ok || deviceID == "" {
+			return
+		}
+		if _, err := persister.GetDB().ExecContext(context.Background(),
+			`UPDATE licensing.device_activations
+			   SET broker_name = $1, broker_server = $2, last_account_update = now()
+			   WHERE device_id = $3`,
+			broker, server, deviceID); err != nil {
+			observability.Log.Warn().Err(err).Str("agent_id", agentID).
+				Msg("Failed to persist broker identity onto device_activations")
+		}
 	})
 
 	// P1-001: Wire agent connection/heartbeat to hydrate execution permit gate.
