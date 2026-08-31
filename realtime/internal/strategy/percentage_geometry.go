@@ -130,7 +130,10 @@ func computePercentageSLTP(
 
 	// ─── ATR guardrails ───
 	// Ensure SL distance is within [min_atr × ATR, max_atr × ATR]
-	if !atr.IsZero() {
+	// Skip the guardrail when ATR is implausible (e.g. ≈ price, a data-agent
+	// feed defect): otherwise the min_atr floor would clamp the distance UP and
+	// push SL/TP to impossible prices.
+	if !atr.IsZero() && atr.LessThan(entry.Mul(decimal.NewFromFloat(0.1))) {
 		minSL := atr.Mul(decimal.NewFromFloat(cfg.MinStopATRMult))
 		maxSL := atr.Mul(decimal.NewFromFloat(cfg.MaxStopATRMult))
 		if slDist.LessThan(minSL) {

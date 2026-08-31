@@ -304,6 +304,11 @@ func enforceSLDirection(direction types.Direction, entry, sl, atr decimal.Decima
 			minSL = floor
 		}
 	}
+	// Defense-in-depth: cap the minimum SL distance so a corrupted ATR (≈ price)
+	// cannot push the protective stop to an impossible price.
+	if maxSLDist := entry.Mul(decimal.NewFromFloat(0.05)); minSL.GreaterThan(maxSLDist) {
+		minSL = maxSLDist
+	}
 	if direction == types.DirectionBuy {
 		if sl.GreaterThanOrEqual(entry) || entry.Sub(sl).Abs().LessThan(minSL) {
 			return entry.Sub(minSL).Sub(halfSpread)
@@ -362,6 +367,10 @@ func computeStructuralSLTP(state *features.MarketState, direction types.Directio
 	entry = state.CurrentPrice
 	atr := state.Indicators.ATR
 
+	// Defense-in-depth: never let a corrupted ATR (e.g. ≈ price) produce an
+	// impossible TP/SL. Cap every ATR-based distance at 5% of entry.
+	maxDist := entry.Mul(decimal.NewFromFloat(0.05))
+
 	// ─── NEW: Check for percentage-based SL/TP from database ───
 	exitProfile := LoadExitProfile(string(cfg.StrategyID))
 	if exitProfile != nil && exitProfile.CalculationMode == "PERCENTAGE" {
@@ -380,6 +389,9 @@ func computeStructuralSLTP(state *features.MarketState, direction types.Directio
 		// Without this, when swing low is close to entry, SL becomes too tight
 		// and trades hit SL before reaching TP (SL 2.5x closer than TP1).
 		atrSL := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL))
+		if atrSL.GreaterThan(maxDist) {
+			atrSL = maxDist
+		}
 		slBase := structuralLow
 		if slBase.IsZero() {
 			slBase = entry.Sub(atrSL)
@@ -401,12 +413,26 @@ func computeStructuralSLTP(state *features.MarketState, direction types.Directio
 		// The MinRR gate validates the resulting R:R; if R:R < MinRR, the
 		// signal is rejected by the gate — TP is NOT inflated to force R:R.
 		tp1Dist := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP1))
+		if tp1Dist.GreaterThan(maxDist) {
+			tp1Dist = maxDist
+		}
+		tp2Dist := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2))
+		if tp2Dist.GreaterThan(maxDist) {
+			tp2Dist = maxDist
+		}
+		tp3Dist := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP3))
+		if tp3Dist.GreaterThan(maxDist) {
+			tp3Dist = maxDist
+		}
 		tp1 = entry.Add(tp1Dist)
-		tp2 = entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2)))
-		tp3 = entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP3)))
+		tp2 = entry.Add(tp2Dist)
+		tp3 = entry.Add(tp3Dist)
 	} else {
 		// CRITICAL FIX: Same minimum SL distance enforcement for SELL
 		atrSL := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL))
+		if atrSL.GreaterThan(maxDist) {
+			atrSL = maxDist
+		}
 		slBase := structuralHigh
 		if slBase.IsZero() {
 			slBase = entry.Add(atrSL)
@@ -428,21 +454,28 @@ func computeStructuralSLTP(state *features.MarketState, direction types.Directio
 		if rrBasedTP1Sell.GreaterThan(atrTP1Sell) {
 			tp1DistSell = rrBasedTP1Sell
 		}
+		if tp1DistSell.GreaterThan(maxDist) {
+			tp1DistSell = maxDist
+		}
 		tp1 = entry.Sub(tp1DistSell)
 		tp2DistSell := actualSLDistSell.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2 / cfg.ATRMultiplierSL))
 		atrTP2Sell := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2))
 		if tp2DistSell.GreaterThan(atrTP2Sell) {
-			tp2 = entry.Sub(tp2DistSell)
-		} else {
-			tp2 = entry.Sub(atrTP2Sell)
+			tp2DistSell = atrTP2Sell
 		}
+		if tp2DistSell.GreaterThan(maxDist) {
+			tp2DistSell = maxDist
+		}
+		tp2 = entry.Sub(tp2DistSell)
 		tp3DistSell := actualSLDistSell.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP3 / cfg.ATRMultiplierSL))
 		atrTP3Sell := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP3))
 		if tp3DistSell.GreaterThan(atrTP3Sell) {
-			tp3 = entry.Sub(tp3DistSell)
-		} else {
-			tp3 = entry.Sub(atrTP3Sell)
+			tp3DistSell = atrTP3Sell
 		}
+		if tp3DistSell.GreaterThan(maxDist) {
+			tp3DistSell = maxDist
+		}
+		tp3 = entry.Sub(tp3DistSell)
 	}
 	sl = enforceSLDirection(direction, entry, sl, atr, cfg, halfSpread)
 	return

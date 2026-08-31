@@ -107,16 +107,35 @@ func BuildTradeGeometry(state *features.MarketState, direction types.Direction, 
 			}
 		}
 		// Final fallback: ATR multiplier mode
+		// Defense-in-depth: cap each ATR-based distance at 5% of entry so a
+		// corrupted ATR (≈ price) cannot produce impossible SL/TP levels.
+		maxDist := geo.Entry.Mul(decimal.NewFromFloat(0.05))
+		atrSLDist := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL))
+		atrTP1Dist := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP1))
+		atrTP2Dist := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2))
+		atrTP3Dist := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP3))
+		if atrSLDist.GreaterThan(maxDist) {
+			atrSLDist = maxDist
+		}
+		if atrTP1Dist.GreaterThan(maxDist) {
+			atrTP1Dist = maxDist
+		}
+		if atrTP2Dist.GreaterThan(maxDist) {
+			atrTP2Dist = maxDist
+		}
+		if atrTP3Dist.GreaterThan(maxDist) {
+			atrTP3Dist = maxDist
+		}
 		if direction == types.DirectionBuy {
-			sl = geo.Entry.Sub(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL)))
-			tp1 = geo.Entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP1)))
-			tp2 = geo.Entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2)))
-			tp3 = geo.Entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP3)))
+			sl = geo.Entry.Sub(atrSLDist)
+			tp1 = geo.Entry.Add(atrTP1Dist)
+			tp2 = geo.Entry.Add(atrTP2Dist)
+			tp3 = geo.Entry.Add(atrTP3Dist)
 		} else {
-			sl = geo.Entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL)))
-			tp1 = geo.Entry.Sub(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP1)))
-			tp2 = geo.Entry.Sub(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2)))
-			tp3 = geo.Entry.Sub(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP3)))
+			sl = geo.Entry.Add(atrSLDist)
+			tp1 = geo.Entry.Sub(atrTP1Dist)
+			tp2 = geo.Entry.Sub(atrTP2Dist)
+			tp3 = geo.Entry.Sub(atrTP3Dist)
 		}
 	}
 
