@@ -465,19 +465,25 @@ func computeStructuralSLTP(state *features.MarketState, direction types.Directio
 			tp1DistSell = maxDist
 		}
 		tp1 = entry.Sub(tp1DistSell)
-		tp2DistSell := actualSLDistSell.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2 / cfg.ATRMultiplierSL))
+		// TP2/TP3 use the same "LARGER of ATR-based or R:R-based" rule as TP1
+		// (initialize to ATR-based, override with the R:R-based distance only
+		// when it is larger). The previous logic inverted this for TP2/TP3,
+		// shrinking them below TP1 and inverting SELL TP ordering.
 		atrTP2Sell := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2))
-		if tp2DistSell.GreaterThan(atrTP2Sell) {
-			tp2DistSell = atrTP2Sell
+		rrBasedTP2Sell := actualSLDistSell.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2 / cfg.ATRMultiplierSL))
+		tp2DistSell := atrTP2Sell
+		if rrBasedTP2Sell.GreaterThan(atrTP2Sell) {
+			tp2DistSell = rrBasedTP2Sell
 		}
 		if tp2DistSell.GreaterThan(maxDist) {
 			tp2DistSell = maxDist
 		}
 		tp2 = entry.Sub(tp2DistSell)
-		tp3DistSell := actualSLDistSell.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP3 / cfg.ATRMultiplierSL))
 		atrTP3Sell := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP3))
-		if tp3DistSell.GreaterThan(atrTP3Sell) {
-			tp3DistSell = atrTP3Sell
+		rrBasedTP3Sell := actualSLDistSell.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP3 / cfg.ATRMultiplierSL))
+		tp3DistSell := atrTP3Sell
+		if rrBasedTP3Sell.GreaterThan(atrTP3Sell) {
+			tp3DistSell = rrBasedTP3Sell
 		}
 		if tp3DistSell.GreaterThan(maxDist) {
 			tp3DistSell = maxDist

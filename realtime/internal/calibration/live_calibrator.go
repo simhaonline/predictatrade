@@ -188,7 +188,7 @@ func (c *LiveCalibrator) loadResolvedOutcomes(ctx context.Context) ([]resolvedOu
 	rows, err := c.db.QueryContext(ctx, `
 		SELECT strategy, technical_score, outcome
 		FROM trading.cross_market_shadow_snapshots
-		WHERE outcome IN ('TP1', 'TP2', 'TP3', 'SL', 'EXPIRED')
+		WHERE outcome IN ('TP1_HIT', 'TP2_HIT', 'TP3_HIT', 'SL_HIT', 'EXPIRED')
 		  AND technical_score >= 0
 		ORDER BY timestamp ASC
 	`)
@@ -204,7 +204,8 @@ func (c *LiveCalibrator) loadResolvedOutcomes(ctx context.Context) ([]resolvedOu
 		if err := rows.Scan(&strategy, &score, &outcome); err != nil {
 			continue
 		}
-		isWin := outcome == "TP1" || outcome == "TP2" || outcome == "TP3"
+		// WIN  = any take-profit hit; LOSS = stop-loss hit or expiry.
+		isWin := outcome == "TP1_HIT" || outcome == "TP2_HIT" || outcome == "TP3_HIT"
 		outcomes = append(outcomes, resolvedOutcome{
 			Strategy: strategy,
 			RawScore: score,

@@ -152,6 +152,41 @@ func computePercentageSLTP(
 		}
 	}
 
+	// ─── Absolute safety cap (defense-in-depth) ───
+	// The ATR guardrail above is intentionally skipped when ATR is implausible,
+	// so a misconfigured percentage (or a corrupted ATR feed that was NOT
+	// detected as implausible) could still drive SL/TP to impossible prices
+	// (e.g. tp1_pct ≈ 2.67 → TP ≈ -7416). Always clamp every distance to a
+	// sane maximum (5% of entry) — real XAUUSD TPs are well under 1% of price,
+	// so this only ever trips on a malformed level. Also reject negative
+	// distances, which would place a level on the wrong side of entry.
+	maxDist := entry.Mul(decimal.NewFromFloat(0.05))
+	zero := decimal.Zero
+	if slDist.LessThan(zero) {
+		slDist = zero
+	}
+	if tp1Dist.LessThan(zero) {
+		tp1Dist = zero
+	}
+	if tp2Dist.LessThan(zero) {
+		tp2Dist = zero
+	}
+	if tp3Dist.LessThan(zero) {
+		tp3Dist = zero
+	}
+	if slDist.GreaterThan(maxDist) {
+		slDist = maxDist
+	}
+	if tp1Dist.GreaterThan(maxDist) {
+		tp1Dist = maxDist
+	}
+	if tp2Dist.GreaterThan(maxDist) {
+		tp2Dist = maxDist
+	}
+	if tp3Dist.GreaterThan(maxDist) {
+		tp3Dist = maxDist
+	}
+
 	// Apply direction
 	if direction == types.DirectionBuy {
 		sl = entry.Sub(slDist)

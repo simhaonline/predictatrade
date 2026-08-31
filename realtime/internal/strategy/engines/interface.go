@@ -94,28 +94,48 @@ func applyOverrides(res strategy.StrategyResult, state *features.MarketState, cf
 		tp3Mult = 6.0
 	}
 
+	// ─── Absolute safety cap (defense-in-depth) ───
+	// A corrupted/implausible ATR (≈ price) would make SL/TP = entry ± ATR×mult
+	// shoot to impossible prices (e.g. TP ≈ -22000). Always clamp every distance
+	// to 5% of entry. Real XAUUSD TPs are <1% of price so this only trips on a
+	// malformed ATR and prevents the EA from rejecting an impossible level.
+	maxDist := entry.Mul(decimal.NewFromFloat(0.05))
+	capDist := func(d decimal.Decimal) decimal.Decimal {
+		if d.LessThan(decimal.Zero) {
+			return decimal.Zero
+		}
+		if d.GreaterThan(maxDist) {
+			return maxDist
+		}
+		return d
+	}
+	slDist := capDist(atr.Mul(decimal.NewFromFloat(slMult)))
+	tp1Dist := capDist(atr.Mul(decimal.NewFromFloat(tp1Mult)))
+	tp2Dist := capDist(atr.Mul(decimal.NewFromFloat(tp2Mult)))
+	tp3Dist := capDist(atr.Mul(decimal.NewFromFloat(tp3Mult)))
+
 	if res.Direction == types.DirectionBuy {
 		// SL calculation
 		if cfg.IgnoreStructure {
 			// Pure ATR-based SL — bypass structural low to prevent stop hunt
-			res.StopLoss = entry.Sub(atr.Mul(decimal.NewFromFloat(slMult))).Sub(halfSpread)
+			res.StopLoss = entry.Sub(slDist).Sub(halfSpread)
 		}
 		// TP calculation (always override if configured)
 		if cfg.OverrideTPs[0] > 0 || cfg.OverrideSL > 0 {
-			res.TP1 = entry.Add(atr.Mul(decimal.NewFromFloat(tp1Mult)))
-			res.TP2 = entry.Add(atr.Mul(decimal.NewFromFloat(tp2Mult)))
-			res.TP3 = entry.Add(atr.Mul(decimal.NewFromFloat(tp3Mult)))
+			res.TP1 = entry.Add(tp1Dist)
+			res.TP2 = entry.Add(tp2Dist)
+			res.TP3 = entry.Add(tp3Dist)
 		}
 	} else if res.Direction == types.DirectionSell {
 		// SL calculation
 		if cfg.IgnoreStructure {
-			res.StopLoss = entry.Add(atr.Mul(decimal.NewFromFloat(slMult))).Add(halfSpread)
+			res.StopLoss = entry.Add(slDist).Add(halfSpread)
 		}
 		// TP calculation
 		if cfg.OverrideTPs[0] > 0 || cfg.OverrideSL > 0 {
-			res.TP1 = entry.Sub(atr.Mul(decimal.NewFromFloat(tp1Mult)))
-			res.TP2 = entry.Sub(atr.Mul(decimal.NewFromFloat(tp2Mult)))
-			res.TP3 = entry.Sub(atr.Mul(decimal.NewFromFloat(tp3Mult)))
+			res.TP1 = entry.Sub(tp1Dist)
+			res.TP2 = entry.Sub(tp2Dist)
+			res.TP3 = entry.Sub(tp3Dist)
 		}
 	}
 

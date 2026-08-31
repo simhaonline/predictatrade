@@ -97,12 +97,28 @@ func (dm *DeliveryManager) RecordDelivery(ctx context.Context, signal *types.Sig
 		return delivery, nil
 	}
 
+	// Empty license/account IDs are the normal case for agent-delivered signals
+	// (no per-signal license/account binding). Insert them as NULL rather than
+	// the empty string, which Postgres rejects as a UUID and would fail every
+	// delivery-record write.
+	var licID, accID interface{}
+	if licenseID == "" {
+		licID = nil
+	} else {
+		licID = licenseID
+	}
+	if accountID == "" {
+		accID = nil
+	} else {
+		accID = accountID
+	}
+
 	_, err := dm.db.ExecContext(ctx, `
-		INSERT INTO trading.signal_deliveries 
+		INSERT INTO trading.signal_deliveries
 		(signal_id, device_id, license_id, account_id, sequence_number, delivery_state, sent_at, send_attempts, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, 'SENT', now(), 1, now(), now())
 		ON CONFLICT (signal_id, device_id) DO UPDATE SET send_attempts = signal_deliveries.send_attempts + 1, updated_at = now()
-	`, signal.ID, deviceID, licenseID, accountID, seq)
+	`, signal.ID, deviceID, licID, accID, seq)
 	if err != nil {
 		return nil, fmt.Errorf("record delivery: %w", err)
 	}

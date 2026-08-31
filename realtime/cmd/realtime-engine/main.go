@@ -355,21 +355,39 @@ func sanitizeLevels(dir string, entry, sl, tp1, tp2, tp3 *decimal.Decimal) {
 	maxRisk := entryVal.Mul(decimal.NewFromFloat(0.05))
 	if risk.GreaterThan(maxRisk) {
 		risk = maxRisk
+		// Re-derive the SL level itself so a corrupted (too-far) stop is also
+		// repaired, not just the derived risk used for TP reconstruction.
+		if isBuy {
+			*sl = entryVal.Sub(risk)
+		} else {
+			*sl = entryVal.Add(risk)
+		}
 	}
 	if risk.LessThanOrEqual(decimal.Zero) {
 		risk = entryVal.Mul(decimal.NewFromFloat(0.005))
 	}
-	// Repair TPs only when present-but-invalid (zero means "not used").
+	// Repair TPs only when present-but-invalid (zero means "not used"). A TP is
+	// invalid when it is missing, on the wrong side of entry, OR absurdly far
+	// from entry (beyond maxRisk). The "far" check catches corrupted upstream
+	// levels such as a massively negative TP (e.g. -7416) that are technically
+	// on the correct side of entry but impossible to trade and would be
+	// rejected by the EA. Such levels are rebuilt to sane R:R-based distances.
 	repairTP := func(tp *decimal.Decimal, rr float64) {
 		v := *tp
 		present := !v.IsZero()
-		valid := present
-		if isBuy {
-			valid = valid && v.GreaterThan(entryVal)
-		} else {
-			valid = valid && v.LessThan(entryVal)
+		if !present {
+			return
 		}
-		if present && !valid {
+		validSide := false
+		var dist decimal.Decimal
+		if isBuy {
+			validSide = v.GreaterThan(entryVal)
+			dist = v.Sub(entryVal)
+		} else {
+			validSide = v.LessThan(entryVal)
+			dist = entryVal.Sub(v)
+		}
+		if !validSide || dist.GreaterThan(maxRisk) {
 			if isBuy {
 				*tp = entryVal.Add(risk.Mul(decimal.NewFromFloat(rr)))
 			} else {
