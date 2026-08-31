@@ -1736,6 +1736,7 @@ func AllStrategies() []Strategy {
 		NewTrendSwing(),
 		NewMarnieFibStrategy(),
 		NewATENStrategy(),
+		NewArcanistStrategy(),
 	}
 }
 

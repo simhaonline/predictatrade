@@ -229,6 +229,7 @@ const (
 	StrategyStandardSwing    StrategyID = "STANDARD_SWING"
 	StrategyTrendSwing       StrategyID = "TREND_SWING"
 	StrategyMarnieFib        StrategyID = "MARNIE_FIB"
+	StrategyArcanist         StrategyID = "ARCANIST"
 )
 
 // StrategyWeightConfig holds per-strategy macro weight overrides.
@@ -293,6 +294,17 @@ func DefaultStrategyWeights() map[StrategyID]StrategyWeightConfig {
 				DriverVIX:        10.0, // Volatility regime matters
 				DriverCOT:        12.0, // Positioning context
 				DriverBTC:        3.0,  // LOW
+			},
+		},
+		StrategyArcanist: {
+			MaxContribution: 20.0,
+			Weights: map[DriverName]float64{
+				DriverDXY:        20.0, // USD context for liquidity runs
+				DriverEURUSD:     10.0,
+				DriverRealYields: 10.0,
+				DriverVIX:        14.0, // Volatility regime for sweeps
+				DriverCOT:        10.0, // Positioning context
+				DriverBTC:        6.0,  // cross-asset risk appetite
 			},
 		},
 	}

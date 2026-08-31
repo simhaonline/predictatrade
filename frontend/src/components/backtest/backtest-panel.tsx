@@ -16,6 +16,7 @@ const STRATEGIES = [
   { id: "STANDARD_SWING", label: "Standard Swing", desc: "M15/H1 swing trading" },
   { id: "TREND_SWING", label: "Trend Swing", desc: "H1/H4 trend following" },
   { id: "MARNIE_FIB", label: "EQFE", desc: "H1 Fibonacci confluence (SHADOW)" },
+  { id: "ARCANIST", label: "Arcanist", desc: "Institutional liquidity / ICT (SHADOW)" },
 ];
 
 const TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"];

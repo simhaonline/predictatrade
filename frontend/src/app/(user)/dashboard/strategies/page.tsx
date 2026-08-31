@@ -6,7 +6,7 @@ import { IconBolt, IconLock, IconDeviceFloppy } from "@tabler/icons-react";
 import { DegradedNote } from "@/components/ui/tabs";
 import { strategyLabel } from "@/lib/strategy-labels";
 
-const STRATEGIES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB", "ATEN"];
+const STRATEGIES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB", "ATEN", "ARCANIST"];
 interface Entitlements { code: string; selected_strategies?: string[]; allowed_strategies?: string[]; }
 // Free/preview plans: all strategies viewable in the dashboard (selection gated separately),
 // live.predictatrade.com is time-gated 11:00–13:00 broker time (GMT+3) / 08:00–10:00 UTC.

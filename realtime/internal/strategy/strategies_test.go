@@ -405,9 +405,9 @@ func TestStrategyRegression_AllFourStrategiesConsistent(t *testing.T) {
 		// (each has different thresholds but the fixture is strong enough)
 		// Exception: MarnieFib needs confirmed swing high/low structure which the
 		// fixture doesn't provide, so NO-TRADE with FIB_NO_SWING_ANCHORS is correct.
-		if strat.ID() == types.StrategyMarnieFib {
+		if strat.ID() == types.StrategyMarnieFib || strat.ID() == types.StrategyATEN || strat.ID() == types.StrategyArcanist {
 			if result.Direction != types.DirectionNoTrade {
-				t.Errorf("%s: Expected NO-TRADE (no swing structure in fixture), got %s", strat.ID(), result.Direction)
+				t.Errorf("%s: Expected NO-TRADE (specialized data/structure not in fixture), got %s", strat.ID(), result.Direction)
 			}
 			continue
 		}

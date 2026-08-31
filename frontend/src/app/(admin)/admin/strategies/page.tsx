@@ -13,7 +13,7 @@ interface TradingState {
   last_updated: string;
 }
 
-const STRATEGY_NAMES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB", "ATEN"];
+const STRATEGY_NAMES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB", "ATEN", "ARCANIST"];
 
 export default function AdminStrategiesPage() {
   const queryClient = useQueryClient();

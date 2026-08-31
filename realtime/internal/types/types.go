@@ -33,6 +33,7 @@ const (
 	StrategyTrendSwing       StrategyID = "TREND_SWING"
 	StrategyMarnieFib        StrategyID = "MARNIE_FIB"
 	StrategyATEN             StrategyID = "ATEN"
+	StrategyArcanist         StrategyID = "ARCANIST"
 )
 
 // AllStrategies returns the four canonical strategy IDs.
@@ -44,6 +45,7 @@ func AllStrategies() []StrategyID {
 		StrategyTrendSwing,
 		StrategyMarnieFib,
 		StrategyATEN,
+		StrategyArcanist,
 	}
 }
 

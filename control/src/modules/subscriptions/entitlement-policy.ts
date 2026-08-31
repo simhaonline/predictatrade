@@ -5,6 +5,7 @@ export const STRATEGIES = [
   'TREND_SWING',
   'MARNIE_FIB',
   'ATEN',
+  'ARCANIST',
 ] as const;
 
 export type Strategy = (typeof STRATEGIES)[number];

@@ -716,6 +716,10 @@ func main() {
 			// Use persister's DB pool for exit profile configuration
 			strategy.InitExitProfileDB(persister.GetDB())
 			strategy.ClearProfileCache()
+			// Arcanist strategy pulls multi-TF candle history from the store.
+			strategy.SetArcanistCandleProvider(func(symbol string, tf types.Timeframe, limit int) ([]*types.Candle, error) {
+				return persister.GetRecentCandles(context.Background(), symbol, string(tf), limit)
+			})
 			// Install per-symbol volatility-scale overrides (e.g. XAUUSD.sd) so
 			// stop distances track each broker instrument's real volatility.
 			strategy.SetSymbolVolatilityScale(cfg.SymbolVolatilityScale)

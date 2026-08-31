@@ -378,16 +378,16 @@ func TestGolden_LiquiditySweep_CaseInsensitiveWiring(t *testing.T) {
 
 func TestGolden_FourStrategiesDistinctConfigs(t *testing.T) {
 	strategies := AllStrategies()
-	if len(strategies) != 6 {
-		t.Fatalf("Expected 6 strategies, got %d", len(strategies))
+	if len(strategies) != 7 {
+		t.Fatalf("Expected 7 strategies, got %d", len(strategies))
 	}
 
 	ids := make(map[types.StrategyID]bool)
 	for _, s := range strategies {
 		ids[s.ID()] = true
 	}
-	if len(ids) != 6 {
-		t.Errorf("Expected 6 distinct strategy IDs, got %d", len(ids))
+	if len(ids) != 7 {
+		t.Errorf("Expected 7 distinct strategy IDs, got %d", len(ids))
 	}
 
 	// Each strategy must produce independent results (not copied)

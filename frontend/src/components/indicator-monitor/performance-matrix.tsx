@@ -145,7 +145,7 @@ function NeedsAttention({ performance, marketClosed }: { performance: Performanc
   if (marketClosed) {
     items.push("Market closed — no directional signals expected until re-open. Auto-calibration (walk-forward refresh) runs automatically at re-open.");
   } else {
-    const strategies = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB", "ATEN"];
+    const strategies = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB", "ATEN", "ARCANIST"];
     const stratSignalCounts = new Map<string, number>();
     for (const m of performance) {
       stratSignalCounts.set(m.strategy, (stratSignalCounts.get(m.strategy) ?? 0) + m.tradeCount);
