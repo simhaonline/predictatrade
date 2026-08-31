@@ -56,7 +56,7 @@ export default function AdminStrategiesPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-bold text-pat-text-primary">Strategy Panel</h1>
-        <p className="text-sm text-pat-text-secondary mt-1">Manage the five trading strategy engines (EQFE runs SHADOW).</p>
+        <p className="text-sm text-pat-text-secondary mt-1">Manage the seven trading strategy engines (EQFE, ATEN and Arcanist run ADVISORY/shadow by default).</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -70,6 +70,7 @@ export default function AdminStrategiesPage() {
                   <span className="text-sm font-semibold text-pat-text-primary">{strategyLabel(name)}</span>
                     {name === "ATEN" && <div className="text-[10px] text-pat-accent">Aetherial Technical Engine Node</div>}
                     {name === "MARNIE_FIB" && <div className="text-[10px] text-pat-info">Equilibrium Fibonacci Engine</div>}
+                    {name === "ARCANIST" && <div className="text-[10px] text-pat-warning">Institutional MSNR Liquidity Reversal Model</div>}
                   </div>
                 <StatusBadge status={isActive ? "ACTIVE" : "INACTIVE"} size="sm" />
               </div>
@@ -80,6 +81,7 @@ export default function AdminStrategiesPage() {
                 {name === "TREND_SWING" && "H1/H4 + D1/W1 · Threshold 50 · Min RR 2.5 · Cooldown 360m"}
                 {name === "MARNIE_FIB" && "EQFE · Equilibrium Fibonacci Engine · H1 · SHADOW"}
                 {name === "ATEN" && "ATEN · Aetherial Technical Engine Node · Vedic DI + Western Tropical · ELITE only · Weight 10%"}
+                {name === "ARCANIST" && "IMLR · Institutional MSNR Liquidity Reversal Model · M15 + M5/H1/H4/D1/W1 · Advisory-only · All paid plans"}
               </p>
               <button
                 onClick={() => isActive ? disableMutation.mutate(name) : enableMutation.mutate(name)}

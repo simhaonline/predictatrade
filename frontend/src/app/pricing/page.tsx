@@ -27,17 +27,21 @@ const PLAN_DISPLAY: Record<string, { title: string; blurb: string; highlight?: b
     title: "Free",
     blurb: "Start with our foundational scalping strategy. No card required.",
   },
+  BASIC: {
+    title: "Basic",
+    blurb: "Foundational strategies plus Arcanist (IMLR) — institutional liquidity reversals.",
+  },
   STANDARD: {
     title: "Standard",
-    blurb: "Two core strategies for diversified XAUUSD signal coverage.",
+    blurb: "Two core strategies plus Arcanist (IMLR) institutional liquidity reversals.",
   },
   PRO: {
     title: "Pro",
-    blurb: "All four core strategies — scalping and swing, ultra and trend.",
+    blurb: "All four core strategies plus Arcanist (IMLR) — our 7th engine.",
   },
   ELITE: {
     title: "Elite Pro 499",
-    blurb: "Everything in Pro, plus EQFE and ATEN — our two premium engines.",
+    blurb: "Everything in Pro, plus EQFE, ATEN and Arcanist (IMLR) — our premium engines.",
     highlight: true,
   },
 };
@@ -182,7 +186,7 @@ export default function PricingPage() {
         </div>
 
         <p style={{ textAlign: "center", color: "#6b7280", fontSize: 12, marginTop: 36, lineHeight: 1.6 }}>
-          Prices in USD. EQFE (MARNIE_FIB) and ATEN are proprietary premium engines available on Elite.
+          Prices in USD. EQFE (MARNIE_FIB), ATEN and Arcanist (IMLR) are proprietary engines available on all paid plans.
           <br />
           Already a member? <Link href="/login" style={{ color: "#7aa2ff" }}>Sign in</Link> to manage your subscription.
         </p>
