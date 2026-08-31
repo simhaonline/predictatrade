@@ -176,6 +176,7 @@ type SnapshotVWAP struct {
 }
 
 type SnapshotAccount struct {
+	Account    string  `json:"account"`
 	Balance    float64 `json:"balance"`
 	Equity     float64 `json:"equity"`
 	Margin     float64 `json:"margin"`
@@ -361,7 +362,7 @@ type AgentProvider struct {
 	// blown/over-exposed account can NEVER block or contaminate another
 	// client's executable signals (no shared global account-driven gate).
 	agentAccMu    sync.Mutex
-	agentAccounts map[string]*agentAccountState
+	agentAccounts map[string]map[string]*agentAccountState // agentID -> accountLogin -> state
 
 	// lastMarketDataAt records the most recent time the engine received ANY live
 	// market data (tick or snapshot) from ANY agent. Used for coarse liveness.
@@ -382,6 +383,7 @@ type agentAccountState struct {
 	leverage       float64
 	totalPositions int
 	updatedAt      time.Time
+	account        *SnapshotAccount
 }
 
 // SetConfiguredOffset overrides auto-detection with an explicit broker UTC
@@ -554,24 +556,36 @@ func (p *AgentProvider) SetDataFreshnessFn(fn func(symbol string)) {
 }
 
 // RecordAgentAccount stores one client's latest broker account snapshot in the
-// per-agent registry. This is the per-client isolation primitive: risk gating
-// later reads the receiving agent's own account instead of a shared global one.
+// per-agent, per-account registry. State is keyed by account login so multiple
+// terminals (e.g. a live account and a small demo account) on the same agent
+// NEVER overwrite each other — a demo/small account's equity cannot poison the
+// risk view of the funded trading account.
 func (p *AgentProvider) RecordAgentAccount(agentID string, account *SnapshotAccount, positions *SnapshotPositions) {
 	if account == nil {
 		return
 	}
+	login := account.Account
+	if login == "" {
+		login = "default"
+	}
 	p.agentAccMu.Lock()
 	if p.agentAccounts == nil {
-		p.agentAccounts = make(map[string]*agentAccountState)
+		p.agentAccounts = make(map[string]map[string]*agentAccountState)
 	}
-	st := p.agentAccounts[agentID]
+	accts := p.agentAccounts[agentID]
+	if accts == nil {
+		accts = make(map[string]*agentAccountState)
+		p.agentAccounts[agentID] = accts
+	}
+	st := accts[login]
 	if st == nil {
 		st = &agentAccountState{}
-		p.agentAccounts[agentID] = st
+		accts[login] = st
 	}
 	st.known = true
 	st.equity = account.Equity
 	st.freeMargin = account.FreeMargin
+	st.account = account
 	if account.Leverage > 0 {
 		st.leverage = float64(account.Leverage)
 	}
@@ -582,6 +596,72 @@ func (p *AgentProvider) RecordAgentAccount(agentID string, account *SnapshotAcco
 	p.agentAccMu.Unlock()
 }
 
+// GetPrimaryAccount returns the connected account with the highest equity for an
+// agent. This is the account the engine uses for capital-protection gating and
+// trade sizing, so a small/demo account cannot trigger a false daily-loss halt
+// or distort position sizing on the funded trading account.
+func (p *AgentProvider) GetPrimaryAccount(agentID string) *SnapshotAccount {
+	p.agentAccMu.Lock()
+	defer p.agentAccMu.Unlock()
+	accts := p.agentAccounts[agentID]
+	if len(accts) == 0 {
+		return nil
+	}
+	var best *agentAccountState
+	for _, st := range accts {
+		if st == nil || !st.known || st.account == nil {
+			continue
+		}
+		if best == nil || st.equity > best.equity {
+			best = st
+		}
+	}
+	if best == nil {
+		return nil
+	}
+	return best.account
+}
+
+// hydrateAccountFromJSON parses a generic agent message (e.g. the signal EA's
+// INIT/LICENSE_CHECK payload, which carries balance/equity at the top level) and
+// records it as a broker account snapshot. It is an additional equity feed beside
+// the Master Node's account_info, so the funded trading account's equity reaches
+// risk gating even when the Master Node EA is attached to a different account.
+func (p *AgentProvider) hydrateAccountFromJSON(agentID string, data []byte) {
+	var acct struct {
+		Account    string  `json:"account"`
+		Balance    float64 `json:"balance"`
+		Equity     float64 `json:"equity"`
+		Margin     float64 `json:"margin"`
+		FreeMargin float64 `json:"free_margin"`
+		Profit     float64 `json:"profit"`
+		Currency   string  `json:"currency"`
+		Leverage   int64   `json:"leverage"`
+		Server     string  `json:"server"`
+	}
+	if err := json.Unmarshal(data, &acct); err != nil {
+		return
+	}
+	if acct.Balance <= 0 && acct.Equity <= 0 {
+		return
+	}
+	snap := &SnapshotAccount{
+		Account:    acct.Account,
+		Balance:    acct.Balance,
+		Equity:     acct.Equity,
+		Margin:     acct.Margin,
+		FreeMargin: acct.FreeMargin,
+		Profit:     acct.Profit,
+		Currency:   acct.Currency,
+		Leverage:   acct.Leverage,
+		Server:     acct.Server,
+	}
+	p.RecordAgentAccount(agentID, snap, nil)
+	if p.brokerAccountHydrateFn != nil {
+		p.brokerAccountHydrateFn(agentID, snap, nil)
+	}
+}
+
 // AgentAccountOK reports whether a given client may receive EXECUTABLE signals
 // based solely on that client's own account. It is fail-open: an agent with no
 // known/remote account state is allowed (preserving current behavior); only a
@@ -590,19 +670,19 @@ func (p *AgentProvider) RecordAgentAccount(agentID string, account *SnapshotAcco
 // blocks another's signals.
 func (p *AgentProvider) AgentAccountOK(agentID string) bool {
 	p.agentAccMu.Lock()
-	st, ok := p.agentAccounts[agentID]
+	accts := p.agentAccounts[agentID]
 	p.agentAccMu.Unlock()
-	if !ok {
+	if len(accts) == 0 {
 		return true
 	}
-	p.agentAccMu.Lock()
-	stale := time.Since(st.updatedAt) > 60*time.Second
-	p.agentAccMu.Unlock()
-	if stale {
-		return true // fail-open on stale data
-	}
-	if st.freeMargin <= 0 {
-		return false
+	for _, st := range accts {
+		stale := time.Since(st.updatedAt) > 60*time.Second
+		if stale {
+			continue // fail-open on stale data
+		}
+		if st.freeMargin <= 0 {
+			return false
+		}
 	}
 	return true
 }
@@ -1010,6 +1090,11 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		// isolation) so a blown/over-exposed account can never contaminate
 		// another client's signals.
 		if snapshot.AccountInfo.Balance > 0 || snapshot.AccountInfo.Equity > 0 {
+			// Carry the terminal's account login so per-account state is isolated
+			// (a demo/small account cannot poison the funded account's risk view).
+			if snapshot.AccountInfo.Account == "" {
+				snapshot.AccountInfo.Account = snapshot.Account
+			}
 			p.RecordAgentAccount(agentID, &snapshot.AccountInfo, &snapshot.Positions)
 		}
 
@@ -1031,6 +1116,10 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		if p.brokerAccountHydrateFn != nil {
 			// Only hydrate if we have meaningful account data (balance > 0 means a real account is connected)
 			if snapshot.AccountInfo.Balance > 0 || snapshot.AccountInfo.Equity > 0 {
+				// Carry the terminal's account login (see RecordAgentAccount above).
+				if snapshot.AccountInfo.Account == "" {
+					snapshot.AccountInfo.Account = snapshot.Account
+				}
 				p.brokerAccountHydrateFn(agentID, &snapshot.AccountInfo, &snapshot.Positions)
 			}
 		}
@@ -1132,6 +1221,12 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 				p.licenseValidateFn(agentID, licMsg.LicenseKey, licMsg.DeviceID)
 			}
 		}
+		// Hydrate broker account state from the signal EA's LICENSE_CHECK/INIT
+		// account payload (balance/equity) as an ADDITIONAL equity feed alongside
+		// the Master Node's account_info. This ensures the funded trading
+		// account's equity reaches risk gating even when the Master Node EA is
+		// attached to a different (e.g. demo) account.
+		p.hydrateAccountFromJSON(agentID, data)
 	case "MASTER_DEINIT":
 		// Master Node lifecycle events — logged but no tick processing needed
 		// These are informational messages from the data collection EA

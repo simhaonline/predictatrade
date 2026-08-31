@@ -1389,7 +1389,15 @@ func main() {
 		checkPositionSLs(positions, agentID)
 
 		// Cache the snapshot for capital-protection gates + sizing annotations.
-		broker.Update(account, positions, now)
+		// Use the PRIMARY (highest-equity) account for the shared broker view so a
+		// small/demo account connected to the same agent cannot poison the funded
+		// trading account's equity, trigger a false daily-loss halt, or distort
+		// position sizing.
+		primary := agentProvider.GetPrimaryAccount(agentID)
+		if primary == nil {
+			primary = account
+		}
+		broker.Update(primary, positions, now)
 
 		// Exposure gate: current open positions from broker
 		openPositions := 0
@@ -1407,8 +1415,8 @@ func main() {
 
 		// Margin gate: free margin > 0 = PASS
 		freeMargin := 0.0
-		if account != nil {
-			freeMargin = account.FreeMargin
+		if primary != nil {
+			freeMargin = primary.FreeMargin
 		}
 		marginOK := freeMargin > 0
 		gateRegistry.UpdateState(types.GateMargin, gates.GateState{
@@ -1433,8 +1441,8 @@ func main() {
 		})
 
 		observability.Log.Debug().
-			Float64("balance", account.Balance).
-			Float64("equity", account.Equity).
+			Float64("balance", primary.Balance).
+			Float64("equity", primary.Equity).
 			Float64("free_margin", freeMargin).
 			Int("open_positions", openPositions).
 			Msg("Broker account state hydrated — exposure/margin/execution gates set to PASS")
@@ -4592,8 +4600,25 @@ func runPnLAnchorLoop(gateRegistry *gates.Registry, valkeyCache *cache.ValkeyCac
 		} else {
 			eq = bs.Equity
 		}
-		if !bs.Known && cfg.PaperEquity <= 0 {
-			continue // live mode: gates stay fail-closed until broker P&L known
+		if !bs.Known {
+			if cfg.PaperEquity > 0 {
+				eq = cfg.PaperEquity
+			} else {
+				// Broker P&L unknown/stale — fail closed with UNKNOWN so we never
+				// hold a permanent daily-loss VETO on previously-cached equity. A
+				// dead/garbage feed must not pin a stale halt; it must surface as
+				// unknown and recover automatically when fresh equity arrives.
+				now := time.Now().UTC()
+				unknown := gates.GateState{
+					State:         types.GateUnknown,
+					EvaluatedAt:   now,
+					SourceVersion: "pnl_tracker",
+					Quality:       types.QualityAuthoritative,
+				}
+				gateRegistry.UpdateState(types.GateDailyLoss, unknown)
+				gateRegistry.UpdateState(types.GateProfitTarget, unknown)
+				continue
+			}
 		}
 		if eq <= 0 {
 			continue
