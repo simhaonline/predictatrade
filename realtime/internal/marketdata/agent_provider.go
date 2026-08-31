@@ -794,6 +794,21 @@ func (p *AgentProvider) IsDataNode(agentID string) bool {
 	return p.agentRoles[agentID] == "data"
 }
 
+// DataNodeCount returns how many connected agents are authorized Master (data)
+// nodes. Zero means the server-authoritative price/candle feed is OFFLINE — the
+// canonical detector for "the master node stopped and prices are stale/wrong".
+func (p *AgentProvider) DataNodeCount() int {
+	p.agentRoleMu.RLock()
+	defer p.agentRoleMu.RUnlock()
+	n := 0
+	for _, role := range p.agentRoles {
+		if role == "data" {
+			n++
+		}
+	}
+	return n
+}
+
 // ensureDataNodeLicense authorizes a Master (data) node as a market-data feed on
 // its first snapshot. The Master EA sends MASTER_INIT only once at startup, so we
 // cannot rely on it after an engine restart — but it streams MARKET_SNAPSHOT

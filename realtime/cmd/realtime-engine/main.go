@@ -467,6 +467,23 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHu
 			Msg("Signal delivery SUPPRESSED — emergency halt active")
 		return
 	}
+	// PERSIST BEFORE DELIVERY (fixes BE delivery-ledger FK break):
+	// trading.signal_deliveries.signal_id REFERENCES trading.signals(id), but
+	// RecordDelivery (below) runs inside this broadcast while SaveSignal used to
+	// run in a *later* goroutine. The child insert therefore fired before the
+	// parent row existed, the FK failed, and the delivery ledger was never
+	// written — breaking replay-on-reconnect and ACK reconciliation. Persisting
+	// synchronously here guarantees the parent row exists first. SaveSignal is
+	// idempotent (ON CONFLICT DO UPDATE), so the later goroutine re-save is a no-op.
+	if globalPersister != nil {
+		psCtx, psCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		if err := globalPersister.SaveSignal(psCtx, signal); err != nil {
+			observability.Log.Warn().Err(err).Str("signal_id", signal.ID).
+				Msg("signal persist (pre-delivery) failed — delivery ledger FK may dangle")
+		}
+		psCancel()
+	}
+
 	// Broadcast to frontend dashboard clients (entitlement-filtered)
 	wsHub.BroadcastSignal(signal)
 
@@ -1933,6 +1950,58 @@ func main() {
 		}
 	}()
 
+	// BE-6 reconciliation monitor: continuously detect delivered-but-unacknowledged
+	// and acknowledged-but-unfilled signals (i.e. trades that left the server but the
+	// edge never confirmed execution / fill). Before this, UnacknowledgedOlderThan
+	// existed only in tests — a stuck/undelivered signal was invisible in production.
+	// We now drive the Prometheus gauges AND raise an ntfy alert so on-call is paged.
+	go func() {
+		const (
+			ackTimeout  = 5 * time.Minute  // delivered but no EXECUTION_ACK
+			fillTimeout = 15 * time.Minute // ACKed but no fill confirmation
+			checkEvery  = 30 * time.Second
+		)
+		t := time.NewTicker(checkEvery)
+		defer t.Stop()
+		for range t.C {
+			if globalReconciler == nil {
+				continue
+			}
+			unacked := globalReconciler.UnacknowledgedOlderThan(ackTimeout)
+			unfilled := globalReconciler.UnfilledOlderThan(fillTimeout)
+			observability.ReconciliationAcksTimeout.Set(float64(len(unacked)))
+			observability.ReconciliationFillsTimeout.Set(float64(len(unfilled)))
+			observability.ReconciliationTracked.Set(float64(globalReconciler.Tracked()))
+
+			if len(unacked) > 0 && globalSignalNotifier != nil {
+				ids := make([]string, 0, len(unacked))
+				for _, r := range unacked {
+					ids = append(ids, r.Signal.ID)
+				}
+				_ = globalSignalNotifier.Send(context.Background(), &notifications.Notification{
+					Title:     "SIGNAL ACK TIMEOUT",
+					EventType: "SIGNAL_ACK_TIMEOUT",
+					Severity:  "high",
+					Message: fmt.Sprintf("%d signal(s) delivered to agent but not acknowledged within %s: %v",
+						len(unacked), ackTimeout, ids),
+				})
+			}
+			if len(unfilled) > 0 && globalSignalNotifier != nil {
+				ids := make([]string, 0, len(unfilled))
+				for _, r := range unfilled {
+					ids = append(ids, r.Signal.ID)
+				}
+				_ = globalSignalNotifier.Send(context.Background(), &notifications.Notification{
+					Title:     "SIGNAL FILL TIMEOUT",
+					EventType: "SIGNAL_FILL_TIMEOUT",
+					Severity:  "high",
+					Message: fmt.Sprintf("%d signal(s) acknowledged but no fill within %s: %v",
+						len(unfilled), fillTimeout, ids),
+				})
+			}
+		}
+	}()
+
 	// WebSocket hub for frontend/dashboard clients
 	wsHub := gateway.NewWebSocketHub(cfg.AllowedOrigins)
 	// Hydrate each client's entitlements from the user's active subscription/plan so
@@ -2051,11 +2120,12 @@ func main() {
 		go dataAgentHub.Run()
 		dataMux := http.NewServeMux()
 		dataMux.HandleFunc("/ws/v1/data", func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Query().Get("role") != "data" {
-				http.Error(w, "data-agent endpoint requires role=data", http.StatusForbidden)
-				return
-			}
-			dataAgentHub.HandleAgentWebSocket(w, r)
+			// Endpoint-authoritative Master role: connections here are always
+			// forced to role="data" (so a Master is never accidentally downgraded
+			// to a non-data node). The MASTER_TOKEN gate for role="data" lives
+			// inside HandleAgentWebSocket, so set MASTER_TOKEN to lock the price
+			// feed to the genuine Master.
+			dataAgentHub.HandleAgentWebSocket(w, r, "data")
 		})
 		go func() {
 			addr := fmt.Sprintf("%s:%d", cfg.HTTPHost, cfg.AgentDataPort)
@@ -2464,6 +2534,20 @@ func main() {
 					// BE-6: close the delivery leg of reconciliation now that the
 					// edge confirmed execution with a matching SL.
 					reconciler.RecordAcknowledgement(ack.SignalID, agentID)
+
+					// Persist the acknowledgement into the delivery ledger so the
+					// signal_deliveries row moves to ACKNOWLEDGED (previously this
+					// path was dead code, leaving every delivery stuck in SENT and
+					// making delivered-but-unexecuted signals invisible).
+					if globalDeliveryMgr != nil {
+						if derr := globalDeliveryMgr.AcknowledgeSignal(
+							context.Background(), ack.SignalID, agentID,
+							fmt.Sprintf("%d", ack.Ticket), nil,
+						); derr != nil {
+							observability.Log.Warn().Err(derr).Str("signal_id", ack.SignalID).
+								Msg("delivery ack ledger update failed")
+						}
+					}
 				}
 			}
 		}

@@ -38,6 +38,7 @@ type HTTPServer struct {
 		GetSnapshotCount() uint64
 		HasConnectedAgents() bool
 		BrokerOffsetHours() int
+		DataNodeCount() int
 		LastMarketDataAt() time.Time
 		LastSnapshotAt() time.Time
 	}
@@ -112,6 +113,7 @@ func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *f
 	GetSnapshotCount() uint64
 	HasConnectedAgents() bool
 	BrokerOffsetHours() int
+	DataNodeCount() int
 	LastMarketDataAt() time.Time
 	LastSnapshotAt() time.Time
 }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine, newsEngine *news.RiskEngine, engTracker *engstatus.Tracker) *HTTPServer {
@@ -147,8 +149,12 @@ func (h *HTTPServer) registerRoutes() {
 	// WebSocket at /ws and /ws/v1 (canonical production path)
 	h.mux.HandleFunc("/ws", h.hub.HandleWebSocket)
 	h.mux.HandleFunc("/ws/v1", h.hub.HandleWebSocket)
-	h.mux.HandleFunc("/ws/v1/agent", h.agentHub.HandleAgentWebSocket)
-	h.mux.HandleFunc("/ws/agent", h.agentHub.HandleAgentWebSocket)
+	h.mux.HandleFunc("/ws/v1/agent", func(w http.ResponseWriter, r *http.Request) {
+		h.agentHub.HandleAgentWebSocket(w, r, "")
+	})
+	h.mux.HandleFunc("/ws/agent", func(w http.ResponseWriter, r *http.Request) {
+		h.agentHub.HandleAgentWebSocket(w, r, "")
+	})
 	h.mux.HandleFunc("/api/v1/signals", h.handleSignals)
 	h.mux.HandleFunc("/api/v1/trades", h.handleTrades)
 	h.mux.HandleFunc("/api/v1/market/state", h.handleMarketState)
@@ -255,6 +261,17 @@ func (h *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 			cacheStatus = "ok"
 		}
 	}
+	// Master (data) node + last market-data timestamps: the canonical signal that
+	// the server-authoritative price/candle feed is alive. If data_node_count==0
+	// or last_market_data_at is stale, the master node has stopped and every
+	// signal's Entry/SL/TP is suspect (the "wrong price" / silent-stop failure).
+	dataNodeCount := 0
+	var lastMarketDataAt, lastSnapshotAt time.Time
+	if h.agentProvider != nil {
+		dataNodeCount = h.agentProvider.DataNodeCount()
+		lastMarketDataAt = h.agentProvider.LastMarketDataAt()
+		lastSnapshotAt = h.agentProvider.LastSnapshotAt()
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":        status,
@@ -275,6 +292,19 @@ func (h *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"version":       "1.0.0",
 		"ws_clients":    h.hub.ClientCount(),
 		"agents":        h.agentHub.AgentCount(),
+		"data_node_count": dataNodeCount,
+		"last_market_data_at": func() string {
+			if lastMarketDataAt.IsZero() {
+				return ""
+			}
+			return lastMarketDataAt.UTC().Format(time.RFC3339)
+		}(),
+		"last_snapshot_at": func() string {
+			if lastSnapshotAt.IsZero() {
+				return ""
+			}
+			return lastSnapshotAt.UTC().Format(time.RFC3339)
+		}(),
 	})
 }
 

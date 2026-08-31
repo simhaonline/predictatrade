@@ -355,6 +355,41 @@ services:
       - pat-net
     restart: always
 
+  # ─── Production monitor (watchdog) ───
+  # Standalone container that continuously polls the realtime engine's /health and
+  # /metrics. It detects master-data-node-down, stale price feed, client agents
+  # all disconnected, delivered-but-unacknowledged signals, and acked-but-unfilled
+  # signals — the exact "signals not executing / agents stopped / wrong price"
+  # failure modes — and pages via ntfy only on state change (no spam).
+  # Secrets (NTFY creds) come from the gitignored realtime.env; nothing sensitive
+  # is committed here.
+  monitor:
+    build:
+      context: ./monitor
+      dockerfile: Dockerfile
+    container_name: pat-monitor
+    env_file:
+      - ./infra/env/realtime.env
+    environment:
+      - ENGINE_HEALTH_URL=http://realtime:13081/health
+      - ENGINE_METRICS_URL=http://realtime:13081/metrics
+      # Map realtime.env ntfy names -> monitor env names
+      - NTFY_URL=${NTFY_SERVER_URL:-http://ntfy:80}
+      - NTFY_TOPIC=${NTFY_TOPIC:-predictatrade-alerts}
+      - NTFY_TOKEN=${NTFY_ACCESS_TOKEN:-}
+      - CHECK_INTERVAL_SEC=30
+      - PRICE_STALE_SEC=120
+      - DATA_NODE_MIN=1
+      - AGENTS_MIN=1
+    depends_on:
+      realtime:
+        condition: service_started
+      ntfy:
+        condition: service_started
+    networks:
+      - pat-net
+    restart: always
+
   # NATS — optional ingest/signal decoupling backbone. The realtime engine
   # defaults to an in-process DirectBus (no NATS). To fully decouple
   # data-collection from the signal engine (enables a separate ingest service),

@@ -28,6 +28,13 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// init seeds the math/rand source so per-agent jitter (reconnect backoff,
+// staggered update checks) is actually randomized across the fleet rather than
+// the default-seeded (deterministic, identical-for-every-agent) sequence.
+func init() {
+	mrand.Seed(time.Now().UnixNano())
+}
+
 // logf is a convenience wrapper for log.Printf.
 func logf(format string, args ...any) {
 	log.Printf(format, args...)
@@ -690,6 +697,18 @@ func (a *Agent) halt() {
 		a.conn.Close()
 	}
 	a.mu.Unlock()
+
+	// CRITICAL (fixes "agent silently stopped, required manual reinstall"):
+	// previously this only closed the connection and returned, leaving a zombie
+	// process that was alive (so the service manager saw it "running") but
+	// forwarded nothing — connectLoop() sees a.halted and exits, so it never
+	// reconnected. Now we exit the process so NSSM/service-manager restarts it
+	// cleanly. On restart the agent reconnects; the server keeps the KILL_SWITCH
+	// state and simply withholds signals until the operator clears it, so trading
+	// stays disabled but the agent is no longer a dead husk.
+	log.Printf("KILL_SWITCH: agent process exiting so the service can restart cleanly")
+	time.Sleep(500 * time.Millisecond)
+	os.Exit(0)
 }
 
 // wsHMAC returns an HMAC-SHA256 over msg using PAT_WS_HMAC_SECRET, falling back
@@ -1153,11 +1172,14 @@ func (a *Agent) updateLoop() {
 	ticker := time.NewTicker(time.Duration(intervalMin) * time.Minute)
 	defer ticker.Stop()
 
-	// Initial check after 30 seconds (not immediately on startup)
+	// Initial check after a randomized delay (30s±30s) so a large fleet does
+	// not all hit the update manifest simultaneously (thundering-herd / lockstep
+	// restart storm).
+	initialDelay := 30*time.Second + time.Duration(mrand.Intn(30))*time.Second
 	select {
 	case <-a.stopChan:
 		return
-	case <-time.After(30 * time.Second):
+	case <-time.After(initialDelay):
 	}
 
 	for {
