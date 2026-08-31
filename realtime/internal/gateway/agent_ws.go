@@ -350,6 +350,9 @@ func (h *AgentHub) SendFilteredSignalToAgents(eventID, streamID, eventType, prio
 	}
 	h.mu.RUnlock()
 
+	if sent > 0 {
+		log.Printf("[SIGNAL-DELIVERY] strategy=%s sent=%d agents", strategyID, sent)
+	}
 	if skipped > 0 {
 		log.Printf("[SIGNAL-FILTER] strategy=%s sent=%d skipped=%d (plan not entitled)", strategyID, sent, skipped)
 	}
