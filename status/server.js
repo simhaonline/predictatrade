@@ -90,7 +90,9 @@ function buildComponents(control, sys, rt, fe, agents) {
   const dbOk = !!(control.j && control.j.database === 'healthy' && sys.j && sys.j.postgresql && sys.j.postgresql.healthy);
   const cacheOk = !!(sys.j && sys.j.valkey && sys.j.valkey.connected);
   const agentOk = !!(agents.ok);
-  const agentMaster = !!(agents.j && agents.j.agents_online);
+  // Bridge is healthy only when the data feed is actually fresh (not merely
+  // "connected"). data_health=HEALTHY requires live, non-stale market data.
+  const agentMaster = !!(agents.j && agents.j.agents_online && agents.j.data_health === 'HEALTHY');
 
   return [
     { name: 'Platform Web', group: 'Presentation', url: PUBLIC.platform, status: statusOf(fe.ok), ms: fe.ms, critical: true },
