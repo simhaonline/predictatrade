@@ -322,6 +322,7 @@ func (h *AgentHub) SendFilteredSignalToAgents(eventID, streamID, eventType, prio
 	h.mu.RLock()
 	sent := 0
 	skipped := 0
+	log.Printf("[SIGNAL-XMIT] strategy=%s agents_in_hub=%d", strategyID, len(h.agents))
 	for agentID, agent := range h.agents {
 		// Check if this agent's license allows this strategy
 		allowed := true
