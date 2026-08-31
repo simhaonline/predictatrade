@@ -1,8 +1,8 @@
 {
-    "version": "1.2.47",
+    "version": "1.2.48",
     "download_url": "https://downloads.predictatrade.com/windows-agent/client/amd64/pat-agent.exe",
-    "checksum": "4e1ff3ac40bd3224c1b91d2687e99db2fb03c99a22c2b845f882ef69d9fe7a34",
+    "checksum": "20b59bcea5ab29fdbb9ed3b2cd1beaede9648c35eb30d2333e64f4d9efa162e4",
     "min_version": "1.0.0",
-    "release_notes": "v1.2.47 — Windows Agent (client). Multi-arch build (amd64): pat-agent.exe.",
-    "timestamp": "2026-08-31T17:12:02Z"
+    "release_notes": "v1.2.48 — Windows Agent (client). Multi-arch build (amd64): pat-agent.exe.",
+    "timestamp": "2026-08-31T18:16:27Z"
 }

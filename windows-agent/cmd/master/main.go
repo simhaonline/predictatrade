@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"time"
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
@@ -69,9 +70,14 @@ func main() {
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
-
-	log.Println("Master Node stopping")
+	startTime := time.Now()
+	sig := <-sigChan
+	// Ignore signals during the startup grace period (see client agent for why).
+	if time.Since(startTime) < 15*time.Second {
+		log.Printf("WARN: ignoring early signal %v (startup grace <15s); continuing", sig)
+		sig = <-sigChan
+	}
+	log.Printf("Master Node stopping (signal %v)", sig)
 	a.Stop()
 	log.Println("Master Node stopped.")
 }

@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"time"
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
@@ -62,9 +63,19 @@ func main() {
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
-
-	log.Println("Client Agent stopping")
+	startTime := time.Now()
+	sig := <-sigChan
+	// Ignore signals that arrive during the startup grace period. A freshly
+	// started service can receive a spurious early stop (e.g. a console Ctrl-C
+	// from the launching process tree, or a service-manager control sent before
+	// the agent has fully registered). Dying on that signal made the installer's
+	// self-healing never see the service come up. After the grace window we stop
+	// normally on the next signal.
+	if time.Since(startTime) < 15*time.Second {
+		log.Printf("WARN: ignoring early signal %v (startup grace <15s); continuing", sig)
+		sig = <-sigChan
+	}
+	log.Printf("Client Agent stopping (signal %v)", sig)
 	a.Stop()
 	log.Println("Client Agent stopped.")
 }

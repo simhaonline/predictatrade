@@ -200,30 +200,13 @@ if (-not $isAdmin) {
 # ─── NOW RUNNING AS ADMIN ───
 Write-Host ""
 Write-Host "=========================================="
-Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.47"
+Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.48"
 Write-Host "=========================================="
 Write-Host ""
 
 # Step 1: Defender exclusions removed to avoid Killav.VDA false positive
 # Users can manually add C:\PredictATrade to exclusions if needed
 Write-Host "[1/9] Ready"
-
-# Step 1a: Per-role run-lock so a second (re)run cannot clobber an in-progress
-# install of the SAME role (its uninstall step would SIGTERM the first run's
-# freshly-started agent). Scoped by $ServiceName so a client run never blocks or
-# touches a master run, and vice-versa. Stale locks from crashed runs are ignored
-# (we verify the recorded PID is still alive).
-$installLock = Join-Path $env:TEMP ("pat_install_" + $ServiceName + ".lock")
-if (Test-Path $installLock) {
-    $lp = (Get-Content $installLock -ErrorAction SilentlyContinue)
-    $live = $false
-    if ($lp) { try { $live = ((Get-Process -Id $lp -ErrorAction SilentlyContinue) -ne $null) } catch {} }
-    if ($live) {
-        Write-Host "  WARN: Another $ServiceName installer is already running (PID $lp). Exiting to avoid clobbering it."
-        exit 1
-    }
-}
-Set-Content -Path $installLock -Value $pid -ErrorAction SilentlyContinue
 
 # Step 1b: Check → uninstall ONLY the role being installed, then the install
 # step recreates it. This must NEVER disturb the other role: a Client install
@@ -664,7 +647,7 @@ try {
     $serverVersion = (Invoke-WebRequest -Uri "$RootUrl/version.txt" -UseBasicParsing -TimeoutSec 10).Content.Trim()
     Write-Host "  Server version: v$serverVersion"
 } catch {
-    $serverVersion = "1.2.47"
+    $serverVersion = "1.2.48"
     Write-Host "  WARN: Could not fetch server version — using default v$serverVersion"
 }
 Set-Content -Path (Join-Path $InstallDir "version.txt") -Value $serverVersion -NoNewline
@@ -695,5 +678,4 @@ Write-Host "  To uninstall: irm $RootUrl/uninstall.ps1 | iex   (use: -Mode $role
 Write-Host "  To update:    irm $RootUrl/install-$roleName.ps1 | iex"
 Write-Host "=========================================="
 Write-Host ""
-Remove-Item $installLock -Force -ErrorAction SilentlyContinue
 if (-not $Unattended) { Read-Host "Press Enter to close" }
