@@ -1,0 +1,88 @@
+{
+  "id": "alchemist_xauusd",
+  "name": "Alchemist Institutional Liquidity — XAUUSD",
+  "version": "1.0.0",
+  "enabled": true,
+  "symbol": "XAUUSD",
+  "pip_size": 0.10,
+  "point_size": 0.01,
+  "timeframes": {
+    "bias": ["MN1", "W1", "D1"],
+    "refinement": ["H4", "H1"],
+    "execution": ["M15", "M5"],
+    "surgical": ["M1"]
+  },
+  "sessions_utc": {
+    "asia": { "start": "00:00", "end": "06:00" },
+    "london_killzone": { "start": "06:00", "end": "09:00" },
+    "london_distribution": { "start": "09:00", "end": "11:00" },
+    "ny_killzone": { "start": "12:00", "end": "15:00" },
+    "hard_stop": "17:00"
+  },
+  "dst_aware": true,
+  "display_timezone": "Asia/Dubai",
+  "bias": {
+    "weekly_confirmation_chart": "line",
+    "require_weekly_and_daily_agreement": true,
+    "counter_htf_trades": "reject"
+  },
+  "poi": {
+    "types": ["OB", "BB", "FVG", "RejectionBlock"],
+    "level_reference": "close",
+    "must_be_unmitigated": true,
+    "must_sit_beyond_liquidity": true,
+    "refine_zone_pips": [2, 5],
+    "max_age_bars": { "H4": 120, "D1": 60 }
+  },
+  "setups": {
+    "setup_1_london_open_trap": { "enabled": true, "killzone": "london_killzone", "requires": ["asia_range", "judas_swing", "htf_poi_tap", "ltf_bos"] },
+    "setup_2_strong_asia":      { "enabled": true, "killzone": "london_killzone", "requires": ["asia_bos", "asia_liquidity_grab", "poi_retrace"] },
+    "setup_3_news_ny":          { "enabled": true, "killzone": "ny_killzone",     "requires": ["high_impact_news_today", "london_trap", "ny_expansion"], "ignore_london_move": true }
+  },
+  "entry_confirmation": {
+    "sequence": ["liquidity_sweep", "break_of_structure", "poi_mitigation"],
+    "bos_timeframe": "M5",
+    "max_bars_between_sweep_and_bos": 12
+  },
+  "risk": {
+    "risk_per_trade_pct": 1.0,
+    "sl_pips_min": 20,
+    "sl_pips_max": 25,
+    "sl_atr_multiplier": 0.35,
+    "sl_atr_period": 14,
+    "sl_atr_timeframe": "M15",
+    "min_rr_to_erl": 3.0,
+    "max_spread_points": 35,
+    "max_trades_per_day": 2,
+    "max_concurrent_positions": 1,
+    "daily_loss_limit_pct": 2.0,
+    "weekly_loss_limit_pct": 5.0
+  },
+  "management": {
+    "tp1": { "target": "asian_range_opposite", "close_pct": 50 },
+    "move_sl_to_breakeven_after_tp1": true,
+    "tp2": { "target": "external_range_liquidity", "close_pct": 50 },
+    "trail": { "enabled": false, "method": "structure_swing" },
+    "time_exit_utc": "17:00"
+  },
+  "scoring": {
+    "publish_threshold": 70,
+    "weights": {
+      "htf_bias_alignment": 25,
+      "poi_quality": 20,
+      "liquidity_sweep": 20,
+      "bos_confirmation": 15,
+      "in_killzone": 10,
+      "rr_ok": 10
+    },
+    "penalties": {
+      "news_within_30min": -25,
+      "spread_or_atr_out_of_band": -20
+    },
+    "hard_rejects": ["counter_htf_bias", "mitigated_poi", "outside_session"]
+  },
+  "data_requirements": [
+    "ohlcv_m1", "ohlcv_m5", "ohlcv_m15", "ohlcv_h1", "ohlcv_h4",
+    "ohlcv_d1", "ohlcv_w1", "ohlcv_mn1", "spread", "economic_calendar"
+  ]
+}

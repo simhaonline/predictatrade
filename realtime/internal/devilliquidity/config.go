@@ -108,7 +108,7 @@ func DefaultConfig() Config {
 		MinMarkQuality:      40.0,
 		MinSignalScore:      60.0,
 		VolumeWeight:        10.0,
-		Mode:                "shadow",
+		Mode:                "confluence",
 		ConfigVersion:       "1.0.0",
 	}
 }
