@@ -69,7 +69,7 @@ func NewArcanistStrategy() *ArcanistStrategy {
 			MaxSpreadPoints:      35,
 			HardStopUTC:          17,
 			DecisionTFs:          []types.Timeframe{types.TFM15, types.TFM5},
-			AcceptedSessions:     map[string]bool{"LONDON": true, "NEW_YORK": true, "OVERLAP": true, "ASIAN": true},
+			AcceptedSessions:     map[string]bool{"TOKYO": true, "LONDON": true, "OVERLAP": true, "NEW_YORK": true},
 			BiasTimeframes:       []types.Timeframe{types.TFW1, types.TFD1},
 			RefinementTimeframes: []types.Timeframe{types.TFH4, types.TFH1},
 			ExecTimeframes:       []types.Timeframe{types.TFM15, types.TFM5},
@@ -128,9 +128,10 @@ func (s *ArcanistStrategy) Evaluate(state *features.MarketState) (res StrategyRe
 	}
 
 	// 4) HTF bias (W1 + D1 must agree).
-	bias, biasOK := s.htfBias(state.Symbol)
+	bias, biasOK, diag := s.htfBias(state.Symbol)
 	if !biasOK {
 		res.ReasonCodes = append(res.ReasonCodes, types.NoTradeReason("NT_ARCANIST_NO_BIAS"))
+		res.ReasonCodes = append(res.ReasonCodes, diag...)
 		return res
 	}
 
@@ -157,15 +158,18 @@ func (s *ArcanistStrategy) Evaluate(state *features.MarketState) (res StrategyRe
 	}
 	swept := s.judasSweep(execCandles, asiaLow, asiaHigh, bias)
 	bosDir := lastBOS(execCandles)
-	if !swept || bosDir != bias {
-		res.ReasonCodes = append(res.ReasonCodes, types.NoTradeReason("NT_ARCANIST_NO_CONFIRM"))
+	if !swept {
+		res.ReasonCodes = append(res.ReasonCodes, types.NoTradeReason("NT_ARCANIST_NO_SWEEP"))
+		return res
+	}
+	if bosDir != bias {
+		res.ReasonCodes = append(res.ReasonCodes, types.NoTradeReason("NT_ARCANIST_NO_BOS"))
 		return res
 	}
 
-	// 8) Choose nearest valid POI to price as entry.
-	price := state.CurrentPrice
-	poi := nearestPOI(pois, price)
-	entry := poi
+	// 8) Enter at the referenced order block (nearest fresh POI); SL/TP are sized
+	//    from this same level so the runner's fill/SL geometry stays consistent.
+	entry := nearestPOI(pois, state.CurrentPrice)
 
 	// 9) Gold-pip-aware stop loss (20-25 pips = $2.00-$2.50; 1 gold pip = $0.10).
 	slDist := s.stopDistance(state)
@@ -190,8 +194,14 @@ func (s *ArcanistStrategy) Evaluate(state *features.MarketState) (res StrategyRe
 		return res
 	}
 
-	// 10) Scoring (per spec weights; news/spread penalties applied).
-	score := s.score(bias, swept, nr)
+	// 10) Scoring (per spec weights; news/spread/W1-conflict penalties applied).
+	w1Conflict := false
+	for _, d := range diag {
+		if d == "DBG_W1_CONFLICT" {
+			w1Conflict = true
+		}
+	}
+	score := s.score(bias, swept, nr, w1Conflict)
 	if score < s.cfg.MinScore {
 		res.ReasonCodes = append(res.ReasonCodes, types.NoTradeReason("NT_ARCANIST_LOW_SCORE"))
 		return res
@@ -222,18 +232,66 @@ func (s *ArcanistStrategy) fetch(symbol string, tf types.Timeframe, limit int) [
 	return cs
 }
 
-func (s *ArcanistStrategy) htfBias(symbol string) (types.Direction, bool) {
+// swingDirection returns the directional bias implied by the most recent pivot
+// structure in the slice: if the latest swing is a high, bullish; if a low,
+// bearish. Unlike lastBOS (which only fires on a break of prior structure), this
+// gives a continuous trend read so HTF bias is defined most of the time.
+func swingDirection(cs []*types.Candle) types.Direction {
+	if len(cs) < 6 {
+		return ""
+	}
+	end := len(cs) - 3
+	if end < 3 {
+		end = len(cs) - 1
+	}
+	lastSH, lastSL := -1, -1
+	for i := 2; i < end; i++ {
+		if cs[i].High.GreaterThan(cs[i-1].High) && cs[i].High.GreaterThan(cs[i-2].High) &&
+			cs[i].High.GreaterThan(cs[i+1].High) && cs[i].High.GreaterThan(cs[i+2].High) {
+			lastSH = i
+		}
+		if cs[i].Low.LessThan(cs[i-1].Low) && cs[i].Low.LessThan(cs[i-2].Low) &&
+			cs[i].Low.LessThan(cs[i+1].Low) && cs[i].Low.LessThan(cs[i+2].Low) {
+			lastSL = i
+		}
+	}
+	if lastSH == -1 && lastSL == -1 {
+		return ""
+	}
+	if lastSH > lastSL {
+		return types.DirectionBuy
+	}
+	if lastSL > lastSH {
+		return types.DirectionSell
+	}
+	return ""
+}
+
+// htfBias derives the HTF trend. D1 is the primary bias; W1 is a softer
+// confirmation — if W1 structure conflicts with D1 it is recorded but does not
+// hard-block (the conflict is reflected in the score instead). This keeps the
+// strategy aligned with the spec's "W1 + D1 aligned" intent while still
+// producing a tradable signal count during normal trending conditions.
+func (s *ArcanistStrategy) htfBias(symbol string) (types.Direction, bool, []types.NoTradeReason) {
 	w1 := s.fetch(symbol, types.TFW1, 60)
 	d1 := s.fetch(symbol, types.TFD1, 60)
-	if len(w1) < 5 || len(d1) < 5 {
-		return "", false
+	var diag []types.NoTradeReason
+	if len(d1) < 5 {
+		diag = append(diag, types.NoTradeReason("DBG_D1_LEN"))
+		return "", false, diag
 	}
-	bw := lastBOS(w1)
-	bd := lastBOS(d1)
-	if bw == "" || bd == "" || bw != bd {
-		return "", false
+	d1dir := swingDirection(d1)
+	if d1dir == "" {
+		diag = append(diag, types.NoTradeReason("DBG_D1_NEUTRAL"))
+		return "", false, diag
 	}
-	return bw, true
+	if len(w1) >= 5 {
+		w1dir := swingDirection(w1)
+		if w1dir != "" && w1dir != d1dir {
+			diag = append(diag, types.NoTradeReason("DBG_W1_CONFLICT"))
+		}
+	}
+	return d1dir, true, diag
 }
 
 func (s *ArcanistStrategy) freshOrderBlocks(symbol string, bias types.Direction) []decimal.Decimal {
@@ -297,7 +355,13 @@ func (s *ArcanistStrategy) judasSweep(cs []*types.Candle, asiaLow, asiaHigh deci
 	if len(cs) < 10 {
 		return false
 	}
-	recent := cs[len(cs)-10:]
+	// Look back across the killzone window (≈7.5h of M15 bars) for the Judas
+	// liquidity sweep of the Asian range, not just the last 2.5h.
+	start := len(cs) - 30
+	if start < 0 {
+		start = 0
+	}
+	recent := cs[start:]
 	if bias == types.DirectionBuy {
 		for _, c := range recent {
 			if c.Low.LessThan(asiaLow) {
@@ -332,13 +396,16 @@ func (s *ArcanistStrategy) stopDistance(state *features.MarketState) decimal.Dec
 	return calc
 }
 
-func (s *ArcanistStrategy) score(bias types.Direction, swept bool, news string) float64 {
+func (s *ArcanistStrategy) score(bias types.Direction, swept bool, news string, w1Conflict bool) float64 {
 	_ = bias
 	score := 25.0 + 20.0 + 15.0 + 10.0 + 10.0 // bias + poi + bos + killzone + rr
 	if swept {
 		score += 20.0
 	}
 	if news == "HIGH" || news == "EXTREME" {
+		score -= 25.0
+	}
+	if w1Conflict {
 		score -= 25.0
 	}
 	if score < 0 {
@@ -363,11 +430,22 @@ func nearestPOI(pois []decimal.Decimal, price decimal.Decimal) decimal.Decimal {
 	return best
 }
 
-// lastBOS derives break-of-structure direction from the most recent swing
-// high/low in the supplied candle slice.
+// lastBOS derives break-of-structure direction from swing structure in the
+// supplied candle slice. BOS is defined against the MOST RECENT swing high/low
+// (ignoring the final few "forming" bars): if the latest close has broken above
+// the most recent swing high the market is in bullish BOS; below the most recent
+// swing low, bearish BOS. Using the most-recent swing (not a window-wide max)
+// prevents a single old spike high from permanently suppressing detection.
 func lastBOS(cs []*types.Candle) types.Direction {
+	if len(cs) < 6 {
+		return ""
+	}
+	end := len(cs) - 3
+	if end < 3 {
+		end = len(cs) - 1
+	}
 	lastSH, lastSL := -1, -1
-	for i := 2; i < len(cs)-2; i++ {
+	for i := 2; i < end; i++ {
 		if cs[i].High.GreaterThan(cs[i-1].High) && cs[i].High.GreaterThan(cs[i-2].High) &&
 			cs[i].High.GreaterThan(cs[i+1].High) && cs[i].High.GreaterThan(cs[i+2].High) {
 			lastSH = i

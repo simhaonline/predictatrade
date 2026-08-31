@@ -180,6 +180,7 @@ type BacktestResult struct {
 	BlockedCount  int
 	BuySignals    int
 	SellSignals   int
+	NoTradeReasons map[string]int // diagnostic tally of NO-TRADE reason codes
 	BarsProcessed int
 	Metrics       Metrics
 	StartTime     time.Time

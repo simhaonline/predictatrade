@@ -30,6 +30,7 @@ func main() {
 	dbURL := flag.String("db-url", "", "PostgreSQL URL (or read from database_url.txt)")
 	higherTFs := flag.String("higher-tfs", "M15,H1,H4,D1", "Higher timeframes for MTF alignment")
 	source := flag.String("source", "MT5_MASTER", "market.candles.source to use (real feed). Empty = all sources.")
+	maxPos := flag.Int("max-positions", 3, "Maximum simultaneous open positions (1 = one-at-a-time)")
 	flag.Parse()
 
 	// Get DB URL
@@ -80,6 +81,7 @@ func main() {
 	config.StartTime = startTime.UTC()
 	config.EndTime = endTime.UTC()
 	config.InitialBalance = decimal.NewFromFloat(*balance)
+	config.MaxPositions = *maxPos
 	config.DBUrl = url
 	config.Source = *source
 
@@ -123,6 +125,12 @@ func main() {
 	fmt.Printf("  NO_TRADE:        %d\n", result.NoTradeCount)
 	fmt.Printf("  Blocked:         %d\n", result.BlockedCount)
 	fmt.Printf("  Total trades:    %d\n", len(result.Trades))
+	if len(result.NoTradeReasons) > 0 {
+		fmt.Println("  NO-TRADE reasons:")
+		for rc, n := range result.NoTradeReasons {
+			fmt.Printf("    %-26s %d\n", rc, n)
+		}
+	}
 	fmt.Println()
 	m := result.Metrics
 	fmt.Println("--- Performance Metrics ---")

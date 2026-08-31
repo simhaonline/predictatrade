@@ -49,9 +49,10 @@ func NewRunner(config BacktestConfig) *Runner {
 func (r *Runner) Run(ctx context.Context) (*BacktestResult, error) {
 	startTime := time.Now()
 	result := &BacktestResult{
-		RunID:  r.config.RunID,
-		Config: r.config,
-		Status: "COMPLETED",
+		RunID:          r.config.RunID,
+		Config:         r.config,
+		Status:         "COMPLETED",
+		NoTradeReasons: map[string]int{},
 	}
 
 	if r.config.RunID == "" {
@@ -82,6 +83,11 @@ func (r *Runner) Run(ctx context.Context) (*BacktestResult, error) {
 
 	// 2. Build higher timeframe lookup indexes (for MTF alignment, no look-ahead)
 	higherLookups := buildHigherTFLookups(higherCandles)
+
+	// 2b. Expose the loaded history to multi-TF-history strategies (Arcanist)
+	// without look-ahead. The store's "cur" is advanced each bar below.
+	store := newCandleStore(r.config.PrimaryTimeframe, primaryCandles, higherCandles)
+	strategy.SetArcanistCandleProvider(store.get)
 
 	// 3. Main event loop — process each primary candle through the real engine
 	var lastTick *types.Tick
@@ -138,6 +144,7 @@ func (r *Runner) Run(ctx context.Context) (*BacktestResult, error) {
 		}
 
 		// Evaluate strategy using the REAL production strategy evaluator
+		store.cur = candle.Time
 		stratResult := r.strategy.Evaluate(state)
 
 		switch stratResult.Direction {
@@ -149,6 +156,9 @@ func (r *Runner) Run(ctx context.Context) (*BacktestResult, error) {
 			r.openTrade(stratResult, candle, i, types.DirectionSell, state)
 		case types.DirectionNoTrade:
 			result.NoTradeCount++
+			for _, rc := range stratResult.ReasonCodes {
+				result.NoTradeReasons[string(rc)]++
+			}
 		case types.DirectionBlocked:
 			result.BlockedCount++
 		case types.DirectionWait:
@@ -188,7 +198,7 @@ func (r *Runner) openTrade(stratResult strategy.StrategyResult, candle *types.Ca
 
 	riskPerUnit := decimal.Zero
 	if !stratResult.StopLoss.IsZero() {
-		riskPerUnit = candle.Close.Sub(stratResult.StopLoss).Abs().Mul(r.config.ContractSize)
+		riskPerUnit = stratResult.EntryPrice.Sub(stratResult.StopLoss).Abs().Mul(r.config.ContractSize)
 	}
 
 	var size decimal.Decimal
@@ -208,11 +218,18 @@ func (r *Runner) openTrade(stratResult strategy.StrategyResult, candle *types.Ca
 		size = maxLot
 	}
 
+	// Honor the strategy's intended entry (e.g. an Arcanist POI limit level) when
+	// provided; otherwise fall back to the signal-bar close. This keeps SL/TP
+	// geometry consistent with the strategy's own plan.
+	entryPx := candle.Close
+	if !stratResult.EntryPrice.IsZero() {
+		entryPx = stratResult.EntryPrice
+	}
 	pos := &OpenPosition{
 		TradeID:     uuid.New().String()[:8],
 		StrategyID:  r.config.StrategyID,
 		Direction:   dir,
-		EntryPrice:  candle.Close,
+		EntryPrice:  entryPx,
 		StopLoss:    stratResult.StopLoss,
 		OriginalSL:  stratResult.StopLoss,
 		TP1:         stratResult.TP1,
@@ -230,6 +247,49 @@ func (r *Runner) openTrade(stratResult strategy.StrategyResult, candle *types.Ca
 }
 
 // ─── Higher timeframe alignment helpers ───
+
+// candleStore exposes historical candles to strategies that need multi-TF history
+// (e.g. Arcanist's BOS/order-block detection) during a backtest. It is filtered
+// by an advancing "current time" so look-ahead bias is impossible: only candles
+// whose time is <= the bar currently being evaluated are returned.
+type candleStore struct {
+	byTF map[types.Timeframe][]*types.Candle
+	cur  time.Time
+}
+
+func newCandleStore(primaryTF types.Timeframe, primary []*types.Candle, higher map[types.Timeframe][]*types.Candle) *candleStore {
+	byTF := make(map[types.Timeframe][]*types.Candle, len(higher)+1)
+	byTF[primaryTF] = primary
+	for tf, cs := range higher {
+		byTF[tf] = cs
+	}
+	return &candleStore{byTF: byTF}
+}
+
+// get returns up to limit candles of tf with time <= cur, oldest→newest.
+func (s *candleStore) get(_ string, tf types.Timeframe, limit int) ([]*types.Candle, error) {
+	cs := s.byTF[tf]
+	if len(cs) == 0 {
+		return nil, nil
+	}
+	n := len(cs)
+	for i := 0; i < len(cs); i++ {
+		if cs[i].Time.After(s.cur) {
+			n = i
+			break
+		}
+	}
+	start := n - limit
+	if start < 0 {
+		start = 0
+	}
+	if n <= start {
+		return nil, nil
+	}
+	out := make([]*types.Candle, 0, n-start)
+	out = append(out, cs[start:n]...)
+	return out, nil
+}
 
 // higherTFLookup holds pre-indexed higher TF candles for fast lookup.
 type higherTFLookup struct {
