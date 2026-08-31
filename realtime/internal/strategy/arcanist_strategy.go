@@ -207,7 +207,16 @@ func (s *ArcanistStrategy) Evaluate(state *features.MarketState) (res StrategyRe
 		return res
 	}
 
-	res.Direction = bias
+	// Arcanist is advisory-only by design (not in armed_strategies). Emit
+	// CANDIDATE directions so the fail-closed EdgeValidationGate preserves the
+	// directional thesis as an ADVISORY signal delivered to entitled subscribers'
+	// dashboards, rather than downgrading BUY/SELL to NO-TRADE. Candidates are
+	// never routed to the Windows Agent / terminal for execution.
+	if bias == types.DirectionBuy {
+		res.Direction = types.Direction("BUY_CANDIDATE")
+	} else {
+		res.Direction = types.Direction("SELL_CANDIDATE")
+	}
 	res.RawScore = decimal.NewFromFloat(score)
 	res.EntryPrice = entry
 	res.StopLoss = sl

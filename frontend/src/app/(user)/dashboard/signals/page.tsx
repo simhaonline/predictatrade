@@ -28,6 +28,7 @@ interface EngineSignal {
   Session?: string;
   Executable?: boolean;
   Grade?: string;
+  SignalClass?: string; // ADVISORY | EXECUTABLE — server-authoritative classification
   ReasonCodes?: string[];
   Evidence?: Record<string, string> | string[];
   PillarContributions?: Record<string, number>;
@@ -141,6 +142,8 @@ export default function UserSignalsPage() {
           <span><span className="text-pat-warning font-bold">BUY_CANDIDATE</span> = Advisory (microprofit)</span>
           <span><span className="text-pat-danger font-bold">SELL</span> = Qualified short</span>
           <span><span className="text-pat-candidate-sell font-bold">SELL_CANDIDATE</span> = Advisory short</span>
+          <span><span className="text-pat-info font-bold">ADV</span> = Advisory-only (not executed by your terminal)</span>
+          <span><span className="text-pat-success font-bold">EXEC</span> = Executable (routed to terminal)</span>
           <span><span className="text-pat-text-secondary font-bold">NO-TRADE</span> = No signal</span>
         </div>
       </div>
@@ -224,10 +227,17 @@ export default function UserSignalsPage() {
                         <td className="px-3 py-3">
                           <div className="flex items-center gap-1.5">
                             <span className={`text-xs font-bold ${dirColor(row.Direction)}`}>{row.Direction}</span>
-                            {row.Executable && <span className="text-[9px] px-1 py-0.5 rounded-full bg-pat-success/15 text-pat-success">EXEC</span>}
+                            {row.SignalClass === "EXECUTABLE"
+                              ? <span className="text-[9px] px-1 py-0.5 rounded-full bg-pat-success/15 text-pat-success">EXEC</span>
+                              : row.SignalClass === "ADVISORY"
+                                ? <span className="text-[9px] px-1 py-0.5 rounded-full bg-pat-info/15 text-pat-info" title="Advisory-only — not routed to your terminal for execution">ADV</span>
+                                : (row.Executable && <span className="text-[9px] px-1 py-0.5 rounded-full bg-pat-success/15 text-pat-success">EXEC</span>)}
                           </div>
                         </td>
-                        <td className="px-3 py-3 text-xs text-pat-text-secondary">{strategyLabel(row.StrategyID)}</td>
+                        <td className="px-3 py-3 text-xs text-pat-text-secondary">
+                          {strategyLabel(row.StrategyID)}
+                          {row.SignalClass === "ADVISORY" && <span className="ml-1 text-[9px] text-pat-info">(advisory)</span>}
+                        </td>
                         <td className="px-3 py-3 text-xs text-pat-text-primary tabular-nums">{num(row.RawScore) > 0 ? num(row.RawScore).toFixed(1) : "—"}</td>
                         <td className="px-3 py-3 text-xs text-pat-text-primary" title="Calibrated probability — shows 'Pending' until calibration model is validated">
                           {num(row.CalibratedProbability) > 0 ? `${(num(row.CalibratedProbability) * 100).toFixed(1)}%` : "Pending"}
