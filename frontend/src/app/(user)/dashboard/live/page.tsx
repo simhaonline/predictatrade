@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import { SubscriptionContext } from "@/lib/subscription-access";
+import { useAuth } from "@/providers/auth-provider";
 import { MarketHeader } from "@/components/user-command-center/market-header";
 import { MtfPulse } from "@/components/user-command-center/mtf-pulse";
 import { IndicatorCards } from "@/components/user-command-center/indicator-cards";
@@ -50,6 +51,11 @@ export default function UserLiveDashboardPage() {
     return { planName: active.plan_name ?? active.planName, status: active.status };
   }, [liveSubs]);
 
+  // Any authenticated client gets full 24/7 access to their dashboard. The
+  // 2-hour preview window is reserved for anonymous / not-logged-in visitors
+  // only — a logged-in client must never see "Live Streaming Restricted".
+  const { user } = useAuth();
+
   const modes: { id: Mode; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
     { id: "MARKET", label: "Market", icon: IconChartLine },
     { id: "TRADING", label: "Trading", icon: IconActivity },
@@ -57,7 +63,7 @@ export default function UserLiveDashboardPage() {
     { id: "COMMAND_CENTER", label: "Command Center", icon: IconLayoutGrid },
   ];
 
-  if (!isLivePreviewOpen(new Date(), liveSubCtx)) {
+  if (!user && !isLivePreviewOpen(new Date(), liveSubCtx)) {
     return (
       <div className="p-4 md:p-6 space-y-4">
         <h1 className="text-xl font-bold text-pat-text-primary">Live Dashboard</h1>
