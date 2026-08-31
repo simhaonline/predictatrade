@@ -1469,6 +1469,20 @@ func main() {
 
 	// WebSocket hub for frontend/dashboard clients
 	wsHub := gateway.NewWebSocketHub(cfg.AllowedOrigins)
+	// Hydrate each client's entitlements from the user's active subscription/plan so
+	// signal delivery is server-authoritative (P2-003 fail-closed). On lookup error we
+	// return nil → client stays unentitled (no signals) rather than leaking them.
+	wsHub.SetEntitlementsFn(func(userID string) []string {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		strs, err := persister.GetUserAllowedStrategies(ctx, userID)
+		if err != nil {
+			observability.Log.Warn().Str("user_id", userID).Err(err).
+				Msg("entitlement lookup failed — client left unentitled (fail-closed)")
+			return nil
+		}
+		return strs
+	})
 	go wsHub.Run()
 
 	// Agent hub for Windows MT5 Agent connections (receives real tick data)

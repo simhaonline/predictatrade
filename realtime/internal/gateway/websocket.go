@@ -180,6 +180,16 @@ type WebSocketHub struct {
 	broadcast      chan *EventEnvelope
 	upgrader       websocket.Upgrader
 	allowedOrigins map[string]bool
+	// entitlementsFn resolves the strategy IDs a user is entitled to. When set,
+	// it is used to populate each connected client's entitlements so signal
+	// delivery is server-authoritative (P2-003 fail-closed).
+	entitlementsFn func(userID string) []string
+}
+
+// SetEntitlementsFn wires the user→strategies resolver used to hydrate each
+// client's entitlements on connect. If unset, clients stay unentitled (fail-closed).
+func (h *WebSocketHub) SetEntitlementsFn(fn func(userID string) []string) {
+	h.entitlementsFn = fn
 }
 
 func NewWebSocketHub(allowedOrigins []string) *WebSocketHub {
@@ -288,6 +298,19 @@ func (h *WebSocketHub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		send:      make(chan *EventEnvelope, 256),
 		sequences: make(map[string]*int64),
 		origin:    r.Header.Get("Origin"),
+	}
+
+	// Hydrate server-authoritative entitlements so signal delivery is gated by the
+	// user's active subscription/plan, not by anything client-supplied. Anonymous
+	// or unauthenticated clients remain unentitled (fail-closed → no signals).
+	if h.entitlementsFn != nil && userID != "anonymous" {
+		if strs := h.entitlementsFn(userID); len(strs) > 0 {
+			ents := make([]types.StrategyID, 0, len(strs))
+			for _, s := range strs {
+				ents = append(ents, types.StrategyID(s))
+			}
+			client.entitlements = ents
+		}
 	}
 
 	h.register <- client
