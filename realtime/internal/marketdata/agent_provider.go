@@ -1170,41 +1170,6 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 			}
 		}
 
-		// The Master Node's primary feed is MARKET_SNAPSHOT (not standalone TICK
-		// messages). Derive a tick from the snapshot and feed the tick pipeline so
-		// MarketState.LastTick (and thus signal freshness + admin feed liveness)
-		// stays current. Without this, MarketState freezes while /market/snapshot
-		// (which reads the raw snapshot) stays fresh — producing a false STALE.
-		if snapshot.Tick.Bid > 0 && snapshot.Tick.Ask > 0 {
-			tmsg := &AgentTickMessage{
-				Type:          "MASTER_TICK",
-				Symbol:        snapshot.Symbol,
-				Bid:           snapshot.Tick.Bid,
-				Ask:           snapshot.Tick.Ask,
-				Volume:        snapshot.Tick.Volume,
-				Timestamp:     snapshot.Tick.Time,
-				Source:        snapshot.Source,
-				Broker:        snapshot.Broker,
-				Account:       snapshot.Account,
-				BrokerOffset:  snapshot.BrokerOffset,
-				MarketClosed:  snapshot.MarketClosed,
-			}
-			p.mu.Lock()
-			ch, ok := p.agents[agentID]
-			if !ok {
-				ch = make(chan *AgentTickMessage, 256)
-				p.agents[agentID] = ch
-				go p.processAgentTicks(agentID, ch)
-			}
-			p.mu.Unlock()
-			if ch != nil {
-				select {
-				case ch <- tmsg:
-				default:
-				}
-			}
-		}
-
 		// Track this client's account state individually (per-client risk
 		// isolation) so a blown/over-exposed account can never contaminate
 		// another client's signals.
