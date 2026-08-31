@@ -33,22 +33,23 @@ func main() {
 	maxPos := flag.Int("max-positions", 3, "Maximum simultaneous open positions (1 = one-at-a-time)")
 	flag.Parse()
 
-	// Get DB URL
-	url := *dbURL
+	// Get DB URL. Resolution order: --db-url flag → database_url.txt →
+	// DATABASE_URL env var. The env fallback must be reached even when the
+	// file is absent (it was previously dead code behind an os.Exit on the
+	// file-read failure), so the control plane / container can pass the
+	// connection string via env without exposing it in `ps`.
+	url := strings.TrimSpace(*dbURL)
 	if url == "" {
-		urlFile := "/srv/predictatrade/xauusd/database_url.txt"
-		data, err := os.ReadFile(urlFile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "ERROR: no --db-url and cannot read %s: %v\n", urlFile, err)
-			os.Exit(1)
+		if data, err := os.ReadFile("/srv/predictatrade/xauusd/database_url.txt"); err == nil {
+			url = strings.TrimSpace(string(data))
 		}
-		url = strings.TrimSpace(string(data))
 	}
-	// Fall back to the DATABASE_URL environment variable (M8 fix): lets the
-	// control plane pass the connection string via the child process env
-	// instead of as a CLI argument (which would expose the password in `ps`).
 	if url == "" {
 		url = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if url == "" {
+		fmt.Fprintf(os.Stderr, "ERROR: no --db-url, no database_url.txt, and DATABASE_URL env not set\n")
+		os.Exit(1)
 	}
 
 	// Parse dates

@@ -1239,7 +1239,7 @@ void SendTickToAgent()
     if(TickIntervalMs > 0)
     {
         uint elapsed = GetTickCount() - g_lastTickSend;
-        if(elapsed < (uint)TickIntervalMs) return;
+        if(TickIntervalMs != 0 && elapsed < (uint)TickIntervalMs) return;
     }
     g_lastTickSend = GetTickCount();
 
@@ -1287,8 +1287,11 @@ void SendInitMessage()
     //--- Ensure we read the equity of the account this EA is bound to, not whatever
     //    account happens to be active in a multi-account terminal (else the engine
     //    receives a misread of the wrong account's equity, which can trip risk gates).
-    if(g_accountID != "" && (int)AccountInfoInteger(ACCOUNT_LOGIN) != (int)StringToInteger(g_accountID))
-       AccountSwitch(StringToInteger(g_accountID));
+    // MQL5 has no programmatic account switching — the EA always reads the
+    // account currently logged into the terminal. Warn (do not switch) if the
+    // bound account id does not match, so telemetry is never silently wrong.
+    if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
+       Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
 
     string msg = "INIT|{\"ea_version\":\"1.08\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                  "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
@@ -1302,7 +1305,7 @@ void SendInitMessage()
                  ",\"buy_positions\":" + IntegerToString(buyCount) +
                  ",\"sell_positions\":" + IntegerToString(sellCount) +
                   ",\"total_lots\":" + DoubleToString(totalLots, 2) +
-                  ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_FREEMARGIN), 2) +
+                  ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
                   ",\"floating_pnl\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
                   "}\n";
     PAT_Append(PAT_TICK_FILE, msg);
@@ -1318,8 +1321,11 @@ void SendAccountInfo()
 {
     if(g_connection != "CONNECTED") return;
     // Ensure we read THIS EA's bound account, not whatever is active.
-    if(g_accountID != "" && (int)AccountInfoInteger(ACCOUNT_LOGIN) != (int)StringToInteger(g_accountID))
-       AccountSwitch(StringToInteger(g_accountID));
+    // MQL5 has no programmatic account switching — the EA always reads the
+    // account currently logged into the terminal. Warn (do not switch) if the
+    // bound account id does not match, so telemetry is never silently wrong.
+    if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
+       Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
     string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.08\",\"account\":\"" + g_accountID +
                  "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                  "\",\"symbol\":\"" + g_symbol +
@@ -1327,7 +1333,7 @@ void SendAccountInfo()
                  "\",\"license_key\":\"" + g_licenseKey +
                  "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
                  ",\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) +
-                 ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_FREEMARGIN), 2) +
+                 ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
                  ",\"leverage\":" + IntegerToString((int)AccountInfoInteger(ACCOUNT_LEVERAGE)) +
                  "}\n";
     PAT_Append(PAT_TICK_FILE, msg);
@@ -1337,8 +1343,11 @@ void SendAccountInfo()
 void RequestLicenseValidation()
 {
     //--- Ensure we read the equity of the account this EA is bound to (see INIT above).
-    if(g_accountID != "" && (int)AccountInfoInteger(ACCOUNT_LOGIN) != (int)StringToInteger(g_accountID))
-       AccountSwitch(StringToInteger(g_accountID));
+    // MQL5 has no programmatic account switching — the EA always reads the
+    // account currently logged into the terminal. Warn (do not switch) if the
+    // bound account id does not match, so telemetry is never silently wrong.
+    if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
+       Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
 
     string msg = "LICENSE_CHECK|{\"account\":\"" + g_accountID +
                  "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
@@ -1347,7 +1356,7 @@ void RequestLicenseValidation()
                  "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
                  ",\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) +
                   ",\"profit\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
-                  ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_FREEMARGIN), 2) +
+                  ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
                   ",\"open_positions\":" + IntegerToString(PositionsTotal()) +
                   "}\n";
     PAT_Append(PAT_TICK_FILE, msg);
