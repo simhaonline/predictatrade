@@ -256,16 +256,35 @@ func computeEntrySLTP(state *features.MarketState, direction types.Direction, cf
 	}
 
 	// Fallback: ATR multiplier mode (only used if no exit profile or percentage failed)
+	atrSLDist := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL))
+	atrTP1Dist := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP1))
+	atrTP2Dist := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2))
+	atrTP3Dist := atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP3))
+	// Defense-in-depth: never let a corrupted ATR (e.g. ≈ price) produce an
+	// impossible TP/SL. Cap each distance at 5% of entry.
+	maxDist := entry.Mul(decimal.NewFromFloat(0.05))
+	if atrSLDist.GreaterThan(maxDist) {
+		atrSLDist = maxDist
+	}
+	if atrTP1Dist.GreaterThan(maxDist) {
+		atrTP1Dist = maxDist
+	}
+	if atrTP2Dist.GreaterThan(maxDist) {
+		atrTP2Dist = maxDist
+	}
+	if atrTP3Dist.GreaterThan(maxDist) {
+		atrTP3Dist = maxDist
+	}
 	if direction == types.DirectionBuy {
-		sl = entry.Sub(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL)))
-		tp1 = entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP1)))
-		tp2 = entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2)))
-		tp3 = entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP3)))
+		sl = entry.Sub(atrSLDist)
+		tp1 = entry.Add(atrTP1Dist)
+		tp2 = entry.Add(atrTP2Dist)
+		tp3 = entry.Add(atrTP3Dist)
 	} else {
-		sl = entry.Add(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierSL)))
-		tp1 = entry.Sub(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP1)))
-		tp2 = entry.Sub(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP2)))
-		tp3 = entry.Sub(atr.Mul(decimal.NewFromFloat(cfg.ATRMultiplierTP3)))
+		sl = entry.Add(atrSLDist)
+		tp1 = entry.Sub(atrTP1Dist)
+		tp2 = entry.Sub(atrTP2Dist)
+		tp3 = entry.Sub(atrTP3Dist)
 	}
 	sl = enforceSLDirection(direction, entry, sl, atr, cfg, decimal.Zero)
 	return

@@ -2832,7 +2832,19 @@ func main() {
 						if ms, ok := snap.(*marketdata.MarketSnapshot); ok && ms != nil {
 							stateMgr.Update(normalizeXAUUSD(ms.Symbol), func(s *features.MarketState) {
 								ind := ms.Indicators
-								s.Indicators.ATR = decimal.NewFromFloat(ind.ATR)
+								// Validate snapshot ATR before trusting it. The Windows/MQL
+								// data-agent intermittently reports ATR ≈ price (a feed
+								// defect); a corrupted ATR propagates into every SL/TP
+								// geometry and can yield impossible levels (e.g.
+								// TP1 = entry - entry*2.5). Only accept a positive ATR that
+								// is well below price (gold ATR is rarely > 2% of price).
+								priceRef := s.CurrentPrice.InexactFloat64()
+								if priceRef <= 0 && ms.Tick.Bid > 0 && ms.Tick.Ask > 0 {
+									priceRef = (ms.Tick.Bid + ms.Tick.Ask) / 2
+								}
+								if ind.ATR > 0 && (priceRef <= 0 || ind.ATR < priceRef*0.02) {
+									s.Indicators.ATR = decimal.NewFromFloat(ind.ATR)
+								}
 								s.Indicators.RSI = decimal.NewFromFloat(ind.RSI)
 								s.Indicators.EMA9 = decimal.NewFromFloat(ind.EMA9)
 								s.Indicators.EMA21 = decimal.NewFromFloat(ind.EMA21)
@@ -3179,7 +3191,17 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 		if s.Indicators.BBWidthZScore.IsZero() && evalState.Indicators.BBWidthZScore.GreaterThan(decimal.Zero) {
 			s.Indicators.BBWidthZScore = evalState.Indicators.BBWidthZScore
 		}
-		// If ATR is still zero (no MT5 snapshot), use locally-computed
+		// Prefer the locally-computed (candle-derived) ATR over the agent
+		// snapshot. The Windows/MQL data-agent intermittently reports ATR ≈ price
+		// (feed defect); a corrupted ATR propagates into every SL/TP geometry and
+		// can yield impossible levels (e.g. TP1 = entry - entry*2.5). Local ATR is
+		// derived from candles and is authoritative. Agent RSI/EMA/ADX etc. are
+		// still used via the fallback block below when local ATR is unavailable.
+		if !evalState.Indicators.ATR.IsZero() {
+			s.Indicators.ATR = evalState.Indicators.ATR
+		}
+		// If ATR is still zero (no MT5 snapshot AND no local computation), use
+		// locally-computed indicators as a last resort.
 		if s.Indicators.ATR.IsZero() {
 			s.Indicators.ATR = evalState.Indicators.ATR
 			s.Indicators.RSI = evalState.Indicators.RSI

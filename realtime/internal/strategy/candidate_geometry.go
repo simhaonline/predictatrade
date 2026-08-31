@@ -150,6 +150,25 @@ func BuildCandidateTradeGeometry(state *features.MarketState, direction types.Di
 	atrTP2 := atr.Mul(decimal.NewFromFloat(candidateCfg.ATRMultiplierTP2))
 	atrTP3 := atr.Mul(decimal.NewFromFloat(candidateCfg.ATRMultiplierTP3))
 
+	// Defense-in-depth: never let a corrupted ATR (e.g. ≈ price) produce an
+	// impossible TP/SL (TP1 = entry - entry*2.5). Cap every distance at 5% of
+	// entry — a target farther than that is not a real level and would be
+	// rejected by the EA anyway. Normal gold TPs are < ~1% of price, so this
+	// only triggers on malformed ATR input.
+	maxDist := geo.Entry.Mul(decimal.NewFromFloat(0.05))
+	if atrSL.GreaterThan(maxDist) {
+		atrSL = maxDist
+	}
+	if atrTP1.GreaterThan(maxDist) {
+		atrTP1 = maxDist
+	}
+	if atrTP2.GreaterThan(maxDist) {
+		atrTP2 = maxDist
+	}
+	if atrTP3.GreaterThan(maxDist) {
+		atrTP3 = maxDist
+	}
+
 	if direction == types.DirectionBuy {
 		geo.StopLoss = geo.Entry.Sub(atrSL)
 		geo.TP1 = geo.Entry.Add(atrTP1)
