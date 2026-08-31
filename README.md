@@ -27,7 +27,7 @@ MT4/MT5 → Windows Agent → WebSocket → Go Realtime Engine :13081
                     ┌─────────────────────┼──────────────────┐
                     ▼                     ▼                  ▼
             Market Ingestion        Feature Registry    Strategy Engines
-            (candles/ticks)        (42 indicators)     (5 engines)
+            (candles/ticks)        (42 indicators)     (6 engines)
                     │                     │                  │
                     └─────────────────────┴────────┬─────────┘
                                                     ▼
@@ -66,7 +66,10 @@ MT4/MT5 → Windows Agent → WebSocket → Go Realtime Engine :13081
 | Ultra Scalping | ULTRA_SCALPING | M1 | 60 | 5m | LIVE |
 | Standard Swing | STANDARD_SWING | M15/H1 | 68 | 30m | LIVE |
 | Trend Swing | TREND_SWING | H1/H4 | 70 | 60m | LIVE |
-| MARNIE_FIB | MARNIE_FIB | H1 | 70 | 60m | SHADOW |
+| EQFE | MARNIE_FIB | H1 | 70 | 60m | LIVE |
+| ATEN | ATEN | H1/H4 | 70 | 60m | LIVE |
+
+> `MARNIE_FIB` is the internal strategy ID and is displayed to users as **EQFE**. The six strategies are gated by plan entitlement: FREE → STANDARD_SCALPING only (max 5 signals/day); STANDARD → STANDARD_SCALPING + STANDARD_SWING; PRO → all 4 core; ELITE → all 6 (incl. EQFE + ATEN). Signal visibility is server-enforced.
 
 ## Evidence Scoring
 
@@ -104,7 +107,7 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 - **Capital-protection sizing:** SuggestedLot, RiskDollars, RiskPctOfEquity, SLDistancePoints displayed in expandable rows
 - **Calibrated probability:** Shows "Pending" until calibration model is validated (§16, §36)
 - **Signal Class:** ADVISORY vs EXECUTABLE classification with color coding
-- **Multi-tab strategy filtering:** All 5 strategy engines (including MARNIE_FIB) with directional sub-filters
+- **Multi-tab strategy filtering:** All 6 strategy engines (including MARNIE_FIB/EQFE and ATEN) with directional sub-filters
 
 ## v1.17.3 Features (29 August 2026)
 

@@ -15,7 +15,7 @@ The admin dashboard home shows real-time system health:
 
 | Widget | What it shows | Alert threshold |
 |--------|---------------|:---------------:|
-| Engine Status | Strategy engine liveness (5 engines) | Any engine DEGRADED or DOWN |
+| Engine Status | Strategy engine liveness (6 engines) | Any engine DEGRADED or DOWN |
 | Market Feeds | TwelveData, FMP, Ollama status | Any feed UNAVAILABLE |
 | Indicators | 35/42 live, 7 warming | <30 live indicators |
 | Signal Pipeline | Signals generated, NO-TRADE count, gate failures | >50% NO-TRADE rate |
@@ -59,7 +59,7 @@ Navigate to Admin → Users. Lists all registered users with:
 ## 3. Subscription & Billing Management
 
 ### Plans (Admin → Plans)
-Active plans: FREE, STANDARD ($99/mo), PRO ($299/mo), ELITE ($699/mo)
+Active plans: FREE ($0), STANDARD ($49/mo), PRO ($199/mo), ELITE ($499/mo)
 - View/edit: price, strategy limits, feature entitlements
 - Create new plans or hide legacy plans
 - Plan changes take effect on next billing cycle
@@ -81,7 +81,7 @@ Active plans: FREE, STANDARD ($99/mo), PRO ($299/mo), ELITE ($699/mo)
 ## 4. Referral & Commission Management
 
 ### Referral Program
-- **Commission tiers:** Standard (10/3/1%), Pro (15/4/2%), Elite (18/5/2%)
+- **Commission tiers (level 1 / 2 / 3+):** Standard (10/4/1%), Pro (15/5/2%), Elite (20/6/2%). Free-tier referrals are excluded — commission is credited only on a **paid** conversion (settled revenue), never for a referred Free account.
 - **Multipliers:** First purchase (100%), Second (75%), Recurring (50%)
 - View referral tree per user (up to 3 levels)
 - Commission ledger: all earned, reserved, settled entries

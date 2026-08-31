@@ -112,6 +112,22 @@ export class CommissionsService {
     );
     if (chain.rows.length === 0) return { credited: 0 };
 
+    // Spec (MASTER PROMPT): Free-tier referrals do NOT earn commission.
+    // Commission is credited only when the referred user upgrades to a PAID plan
+    // (settled revenue on a non-FREE plan). Free plans carry no commission rules,
+    // but we guard explicitly so a misconfigured FREE rule can never pay out and
+    // so the exclusion is auditable.
+    const planRes = await this.pool.query('SELECT code FROM control.plans WHERE id = $1', [planId]);
+    const planCode = planRes.rows[0]?.code;
+    if (!planCode || planCode === 'FREE') {
+      await this.pool.query(
+        `INSERT INTO referral.referral_events (id, event_type, referred_user_id, referrer_user_id, payment_id, metadata, created_at)
+         VALUES (gen_random_uuid(), 'FREE_REFERRAL_NO_COMMISSION', $1, $2, $3, $4, now())`,
+        [sourceUserId, chain.rows[0]?.parent_user_id ?? null, purchaseId, JSON.stringify({ planId, planCode })],
+      ).catch(() => {});
+      return { credited: 0, skipped: 'free_plan_excluded' };
+    }
+
     const sponsorChain: string[] = [];
     chain.rows.forEach((r) => {
       sponsorChain[Number(r.level) - 1] = r.parent_user_id;
@@ -218,6 +234,18 @@ export class CommissionsService {
           ],
         );
       }
+      // Spec (MASTER PROMPT): record the paid-conversion event so the referral
+      // program is auditable end-to-end (referred user upgraded to a paid plan).
+      await client.query(
+        `INSERT INTO referral.referral_events (id, event_type, referred_user_id, referrer_user_id, payment_id, metadata, created_at)
+         VALUES (gen_random_uuid(), 'PAID_CONVERSION', $1, $2, $3, $4, now())`,
+        [
+          sourceUserId,
+          sponsorChain[0] ?? null,
+          purchaseId,
+          JSON.stringify({ planId, planCode, levels: result.commissions.length }),
+        ],
+      );
       await client.query('COMMIT');
       return { credited: result.commissions.length };
     } catch (e: any) {

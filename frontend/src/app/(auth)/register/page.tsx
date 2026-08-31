@@ -109,7 +109,10 @@ function RegisterForm() {
           Create your account
         </h1>
         <p style={{ fontSize: "14px", color: "#6c707a", margin: "0", lineHeight: "1.5" }}>
-          Join Predict-A-Trade — XAUUSD real-time signal intelligence.
+          Join Predict-A-Trade — XAUUSD real-time signal intelligence.{" "}
+          <Link href="/pricing" style={{ color: "#205fdc", fontWeight: 600, textDecoration: "none" }}>
+            View plans &amp; pricing
+          </Link>
         </p>
       </div>
 

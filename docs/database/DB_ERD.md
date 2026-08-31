@@ -165,7 +165,7 @@ erDiagram
     tr_signals {
         uuid id PK
         uuid user_id FK
-        string strategy_id "5 engines"
+        string strategy_id "6 engines"
         string signal_class "ADVISORY|EXECUTABLE"
         string direction "BUY|SELL|NO-TRADE"
         numeric entry_price

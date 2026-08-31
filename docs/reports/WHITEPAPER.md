@@ -10,7 +10,7 @@ Predict-A-Trade is a production-grade algorithmic trading platform for XAUUSD (G
 
 The platform is designed for three primary stakeholders: individual traders seeking high-quality XAUUSD signals, introducing brokers managing client portfolios, and institutional desks requiring auditable, reproducible trading logic.
 
-**Current Status:** GO (100/100 production readiness). All 5 critical production blockers closed. 28/28 Go test packages passing. 5 strategy engines generating live signals.
+**Current Status:** GO (100/100 production readiness). All 5 critical production blockers closed. 28/28 Go test packages passing. 6 strategy engines generating live signals.
 
 ---
 
@@ -95,7 +95,7 @@ The platform enforces strict boundaries between five operational planes:
 1. **Market Ingestion** — Ticks from MT5 broker (via WebSocket agent) or TwelveData API
 2. **Candle Aggregation** — Ticks aggregated into OHLC by timeframe (M1-H4)
 3. **Feature Computation** — 42 indicators computed on bar-close (zero repainting)
-4. **Strategy Evaluation** — 5 engines evaluate independently, evidence scored across 13 pillars
+4. **Strategy Evaluation** — 6 engines evaluate independently, evidence scored across 13 pillars
 5. **Gate Pipeline** — 16 ordered gates evaluate in sequence (VETO terminates)
 6. **Signal Persistence** — Passing signals stored in TimescaleDB with full evidence chain
 7. **Delivery** — WebSocket broadcast to dashboards and Windows agents
@@ -249,10 +249,10 @@ The platform distinguishes process-alive from market-data-fresh:
 
 | Plan | Monthly | Annual | Strategies | Signals/Day | Key Features |
 |------|:------:|:------:|:---------:|:-----------:|-------------|
-| FREE | $0 | — | Standard Scalping | 2 | Basic dashboard |
-| STANDARD | $99 | $990 | All 5 engines | Unlimited | Real-time signals |
-| PRO | $299 | $2,990 | All 5 engines | Unlimited | + Backtesting, ML, priority support |
-| ELITE | $699 | $6,990 | All 5 engines | Unlimited | + API access, personal manager |
+| FREE | $0 | — | Standard Scalping (STANDARD_SCALPING) | 5 | Basic dashboard, advisory signals |
+| STANDARD | $49 | $490 | Standard Scalping + Standard Swing | Unlimited | Real-time signals |
+| PRO | $199 | $1,990 | All 4 core strategies | Unlimited | + Backtesting, ML, priority support |
+| ELITE | $499 | $4,990 | All 6 (incl. EQFE/MARNIE_FIB + ATEN) | Unlimited | + API access, personal manager |
 
 ### 7.2 Referral Program
 
@@ -260,11 +260,13 @@ Multi-level commission structure:
 
 | Plan | Level 1 | Level 2 | Level 3 |
 |------|:-------:|:-------:|:-------:|
-| Standard | 10% | 3% | 1% |
-| Pro | 15% | 4% | 2% |
-| Elite | 18% | 5% | 2% |
+| Standard | 10% | 4% | 1% |
+| Pro | 15% | 5% | 2% |
+| Elite | 20% | 6% | 2% |
 
 Purchase multipliers: First (100%), Second (75%), Recurring (50%)
+
+> **Free-tier referrals are excluded.** A referred user on the Free plan generates no commission. Commission is credited only when the referral **upgrades to a paid plan** (validated revenue settles via NOWPayments/Stripe IPN), and is computed through the multi-level chain.
 
 ### 7.3 Payment Processing
 

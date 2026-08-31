@@ -18,10 +18,13 @@ Predict-A-Trade generates XAUUSD trading signals using 5 strategy engines, 42 te
 ### Plan Tiers
 | Plan | Price | Strategies | Signals/Day | Features |
 |------|:-----:|:---------:|:-----------:|----------|
-| FREE | $0 | Standard Scalping | 2 | Basic dashboard, delayed signals |
-| STANDARD | $99/mo | All 5 engines | Unlimited | Real-time signals, indicators, analysis |
-| PRO | $299/mo | All 5 engines | Unlimited | + Backtesting, priority support, ML insights |
-| ELITE | $699/mo | All 5 engines | Unlimited | + Personal account manager, API access, custom strategies |
+| FREE | $0 | Standard Scalping (STANDARD_SCALPING) | 5 | Basic dashboard, advisory/real-time STANDARD_SCALPING signals (max 5/day) |
+| STANDARD | $49/mo | Standard Scalping + Standard Swing | Unlimited | Real-time signals, indicators, analysis |
+| PRO | $199/mo | All 4 core strategies (scalping & swing, ultra & trend) | Unlimited | + Backtesting, priority support, ML insights |
+| ELITE | $499/mo | All 6 strategies incl. EQFE (MARNIE_FIB) + ATEN | Unlimited | + Personal account manager, API access, custom strategies |
+
+> Strategy codes map to display names: STANDARD_SCALPING, ULTRA_SCALPING, STANDARD_SWING, TREND_SWING, MARNIE_FIB (shown as **EQFE**), ATEN (Aetherial Technical Engine Node).
+> Signal visibility is **server-enforced** by plan entitlement — you only ever receive signals for strategies your plan permits, and Free is capped at 5 signals/day.
 
 ---
 
@@ -154,7 +157,8 @@ View the evidence chain by clicking any signal in the dashboard.
 - Your unique referral code
 - Earnings summary (total earned, pending, paid)
 - Referral tree (who signed up under your code)
-- Commission rates: Standard 10%, Pro 15%, Elite 18%
+- Commission rates (level 1): Standard 10%, Pro 15%, Elite 20%, decreasing by referral level (multi-level up to 5)
+- **Free-tier referrals are excluded** — you earn commission only when the person you referred upgrades to a **paid** plan; a referred Free account generates no commission until they convert to paid.
 
 ---
 
