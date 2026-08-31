@@ -329,19 +329,26 @@ func htfTrendFilter(state *features.MarketState, direction types.Direction) bool
 	if state == nil || direction == types.DirectionNoTrade || direction == types.DirectionError {
 		return true
 	}
-	h1Candle, hasH1 := state.Candles[types.TFH1]
-	if !hasH1 || h1Candle == nil {
+	// RELAXED: use the H4 close as the higher-timeframe trend reference instead
+	// of H1. An H1 pullback below a rising H1 close no longer vetoes a valid
+	// entry; only a genuine H4 downtrend (price below H4 close) blocks the
+	// direction. Falls back to H1 when H4 isn't present in the candle set.
+	var refClose decimal.Decimal
+	if h4, ok := state.Candles[types.TFH4]; ok && h4 != nil {
+		refClose = h4.Close
+	} else if h1, ok := state.Candles[types.TFH1]; ok && h1 != nil {
+		refClose = h1.Close
+	} else {
 		return true
 	}
-	h1Close := h1Candle.Close
 	currentPrice := state.CurrentPrice
-	buffer := h1Close.Mul(decimal.NewFromFloat(0.0005))
+	buffer := refClose.Mul(decimal.NewFromFloat(0.0005))
 	if direction == types.DirectionBuy {
-		if currentPrice.LessThan(h1Close.Sub(buffer)) {
+		if currentPrice.LessThan(refClose.Sub(buffer)) {
 			return false
 		}
 	} else if direction == types.DirectionSell {
-		if currentPrice.GreaterThan(h1Close.Add(buffer)) {
+		if currentPrice.GreaterThan(refClose.Add(buffer)) {
 			return false
 		}
 	}

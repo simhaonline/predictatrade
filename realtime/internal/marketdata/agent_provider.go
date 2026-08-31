@@ -1107,8 +1107,8 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 			MarketClosed bool   `json:"market_closed"`
 		}
 		if err := json.Unmarshal(data, &lv); err == nil {
-			log.Printf("[AGENT-LIVENESS] agent=%s terminal=%s:%s symbol=%s market_closed=true",
-				agentID, lv.Source, lv.Account, lv.Symbol)
+			log.Printf("[AGENT-LIVENESS] agent=%s terminal=%s:%s symbol=%s market_closed=%v",
+				agentID, lv.Source, lv.Account, lv.Symbol, lv.MarketClosed)
 		}
 		return
 

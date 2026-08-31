@@ -524,10 +524,11 @@ func (pm *PipeManager) processMessage(line string) {
 		// terminal registered (dashboard ONLINE) and the license resolvable.
 		// No price payload — nothing is forwarded to the engine's price path.
 		var lv struct {
-			Symbol  string `json:"symbol"`
-			Source  string `json:"source"`
-			Account string `json:"account"`
-			Broker  string `json:"broker"`
+			Symbol       string `json:"symbol"`
+			Source       string `json:"source"`
+			Account      string `json:"account"`
+			Broker       string `json:"broker"`
+			MarketClosed bool   `json:"market_closed"`
 		}
 		if err := json.Unmarshal([]byte(payload), &lv); err != nil {
 			return
@@ -566,7 +567,7 @@ func (pm *PipeManager) processMessage(line string) {
 				"type": "LIVENESS", "agent_id": pm.currentDeviceID(),
 				"symbol": lv.Symbol, "source": clientType,
 				"account": lv.Account, "broker": lv.Broker,
-				"market_closed": true,
+				"market_closed": lv.MarketClosed,
 			})
 			pm.wsSender(data)
 		}
