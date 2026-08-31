@@ -2804,13 +2804,21 @@ func main() {
 									// from updated EAs). Never stamp processing time as the
 									// bar's market time (prompt.md Sections 13-15).
 									barTime := marketdata.ParseSnapshotTime(bar.Time)
-									s.Candles[tf] = &types.Candle{
-										Symbol: normalizeXAUUSD(ms.Symbol), Timeframe: tf,
-										Open: decimal.NewFromFloat(bar.Open), High: decimal.NewFromFloat(bar.High),
-										Low: decimal.NewFromFloat(bar.Low), Close: decimal.NewFromFloat(bar.Close),
-										Volume: bar.Volume, Source: ms.Source,
-										Quality: types.CandleComplete, IsClosed: false,
-										Time: barTime,
+									// Only merge the agent bar if it is NEWER than the candle
+									// the aggregator already holds. This prevents a stale
+									// CopyRates bar (e.g. a throttled PENDING-license data
+									// agent) from clobbering a fresher tick-built or external
+									// candle already in state — the root cause of "stale
+									// market" on the dashboard.
+									if existing, ok := s.Candles[tf]; !ok || existing.Time.Before(barTime) {
+										s.Candles[tf] = &types.Candle{
+											Symbol: normalizeXAUUSD(ms.Symbol), Timeframe: tf,
+											Open: decimal.NewFromFloat(bar.Open), High: decimal.NewFromFloat(bar.High),
+											Low: decimal.NewFromFloat(bar.Low), Close: decimal.NewFromFloat(bar.Close),
+											Volume: bar.Volume, Source: ms.Source,
+											Quality: types.CandleComplete, IsClosed: false,
+											Time: barTime,
+										}
 									}
 								}
 							})
@@ -2895,6 +2903,37 @@ func processTick(tick *types.Tick, validator *marketdata.TickValidator, staleDet
 	}
 	observability.TickLatencyMs.WithLabelValues(tick.Symbol).Observe(float64(latencyMs))
 	aggregator.ProcessTick(tick)
+	// Keep the live forming candle(s) in engine state fresh directly from ticks,
+	// independent of the (sometimes congested) candle pipeline channel. This is
+	// the fix for "stale market" on the dashboard: even if the Master Node
+	// CopyRates feed lags or candleChan backs up, the in-memory market view tracks
+	// the live tick stream every tick. The flush goroutine persists this to
+	// market.candles on its interval so the REST/DB path stays fresh too.
+	forming := aggregator.GetCurrentCandles(tick.Symbol)
+	if len(forming) > 0 {
+		stateMgr.Update(tick.Symbol, func(state *features.MarketState) {
+			for tf, c := range forming {
+				// Anchor the live forming candle to the CURRENT real-time bucket so
+				// the dashboard never shows a stale bucket even if the agent's
+				// reported tick timestamp lags (the data agent's clock can trail
+				// real time). OHLC still comes from the live tick aggregation.
+				c.Time = aggregator.CurrentBucketStart(tf)
+				c.IsClosed = false
+				c.Quality = types.CandlePartial
+				if existing, ok := state.Candles[tf]; !ok {
+					state.Candles[tf] = c
+				} else if existing.IsClosed {
+					// Never downgrade a closed candle with a forming one of the
+					// same/older bucket; only replace when the forming bar is newer.
+					if c.Time.After(existing.Time) {
+						state.Candles[tf] = c
+					}
+				} else if !existing.Time.After(c.Time) {
+					state.Candles[tf] = c
+				}
+			}
+		})
+	}
 	stateMgr.Update(tick.Symbol, func(state *features.MarketState) {
 		state.LastTick = tick
 		state.CurrentPrice = tick.Mid
@@ -2979,7 +3018,14 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 		}
 	}
 	stateMgr.Update(candle.Symbol, func(state *features.MarketState) {
-		state.Candles[candle.Timeframe] = candle
+		// Never let a STALE (older-bucket) candle overwrite a fresher one already
+		// in state. This prevents a throttled/lagging Master Node CopyRates bar
+		// (e.g. PENDING-license data agent) from clobbering a live tick-built
+		// fallback candle — the root cause of "stale market" on the dashboard.
+		// Same-bucket (forming) candles are still updated so the bar tracks live.
+		if existing, ok := state.Candles[candle.Timeframe]; !ok || !existing.Time.After(candle.Time) {
+			state.Candles[candle.Timeframe] = candle
+		}
 	})
 	state := stateMgr.Get(candle.Symbol)
 	// Evaluate features in the registry dedicated to THIS timeframe —

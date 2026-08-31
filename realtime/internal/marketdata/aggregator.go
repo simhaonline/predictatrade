@@ -26,6 +26,16 @@ type Aggregator struct {
 	// Master Node are the authoritative candle source. The aggregator then stops
 	// emitting tick-built candles so engine candles match MT5 exactly.
 	externalCandles bool
+	// lastExternal tracks the most recent external (CopyRates) candle time per
+	// symbol/timeframe so the aggregator can detect when the Master Node bar
+	// stream goes stale and fall back to building fresh candles from the live
+	// tick stream. Fixes stale-market on the dashboard when the data agent's
+	// CopyRates feed lags (e.g. throttled PENDING-license EA).
+	lastExternalMu sync.Mutex
+	lastExternal   map[string]map[types.Timeframe]time.Time
+	// externalStaleAfter is how long since the last fresh external candle before
+	// we treat that timeframe's bar feed as stale and fall back to ticks.
+	externalStaleAfter time.Duration
 }
 
 // TimeframeDuration returns the duration of a timeframe. Exported so callers
@@ -56,6 +66,8 @@ func NewAggregator(offsetFunc func() int) *Aggregator {
 	return &Aggregator{
 		candles: make(map[string]map[types.Timeframe]*candleBuilder),
 		candleChan: make(chan *types.Candle, 256),
+		lastExternal: make(map[string]map[types.Timeframe]time.Time),
+		externalStaleAfter: 90 * time.Second,
 		supportedTFs: []types.Timeframe{
 			types.TFM1, types.TFM5, types.TFM15, types.TFM30,
 			types.TFH1, types.TFH4, types.TFD1,
@@ -79,21 +91,43 @@ func (a *Aggregator) UseExternalCandles() {
 // into the candle pipeline so it flows to persistence, WebSocket and strategy
 // evaluation exactly as received from MT5.
 func (a *Aggregator) PushExternalCandle(c *types.Candle) {
+	a.lastExternalMu.Lock()
+	if a.lastExternal[c.Symbol] == nil {
+		a.lastExternal[c.Symbol] = make(map[types.Timeframe]time.Time)
+	}
+	a.lastExternal[c.Symbol][c.Timeframe] = c.Time
+	a.lastExternalMu.Unlock()
 	select {
 	case a.candleChan <- c:
 	default:
 	}
 }
 
+// externalStale reports whether the external (CopyRates) candle feed for a
+// symbol/timeframe is stale (no fresh bar within externalStaleAfter), or has
+// never been received. When true, callers should fall back to tick-built
+// candles so the engine never serves stale market data.
+func (a *Aggregator) externalStale(symbol string, tf types.Timeframe) bool {
+	a.lastExternalMu.Lock()
+	defer a.lastExternalMu.Unlock()
+	tfs, ok := a.lastExternal[symbol]
+	if !ok {
+		return true
+	}
+	lt, ok := tfs[tf]
+	if !ok {
+		return true
+	}
+	return time.Since(lt) > a.externalStaleAfter
+}
+
 // ProcessTick ingests a tick and updates all timeframe candle builders.
 func (a *Aggregator) ProcessTick(tick *types.Tick) {
 	// When broker CopyRates sync is active, the Master Node supplies authoritative
-	// candles; skip tick re-aggregation entirely so engine candles match MT5 exactly.
+	// candles. We still aggregate live ticks so we always hold a FRESH fallback
+	// candle, but only EMIT tick-built candles when the external bar feed is stale
+	// (see externalStale) — otherwise the authoritative external candle wins.
 	a.mu.Lock()
-	if a.externalCandles {
-		a.mu.Unlock()
-		return
-	}
 	defer a.mu.Unlock()
 
 	symbol := tick.Symbol
@@ -116,7 +150,11 @@ func (a *Aggregator) ProcessTick(tick *types.Tick) {
 		if !exists || !builder.bucketStart.Equal(bucketStart) {
 			// Previous candle completed — emit it
 			if exists && builder.updated {
-				a.emitCandle(builder, true)
+				// In external mode, only emit the tick-built closed candle if the
+				// Master Node bar feed is stale; otherwise the external candle wins.
+				if !a.externalCandles || a.externalStale(symbol, tf) {
+					a.emitCandle(builder, true)
+				}
 			}
 			// Start new candle
 			a.candles[symbol][tf] = &candleBuilder{
@@ -171,24 +209,48 @@ func (a *Aggregator) FlushClosedCandles(ctx context.Context) {
 			return
 		case <-ticker.C:
 			a.mu.Lock()
+			stale := false
 			// External (broker CopyRates) mode: the Master Node is authoritative
-			// for candle completion; do not emit tick-based candles.
+			// for candle completion. Skip tick-based candles UNLESS the bar feed is
+			// stale — then fall back to fresh tick-built candles (see loop body).
 			if a.externalCandles {
-				a.mu.Unlock()
-				continue
+				// Determine staleness once for this iteration.
+				stale = false
+				for sym, tfs := range a.candles {
+					for tf := range tfs {
+						if a.externalStale(sym, tf) {
+							stale = true
+						}
+						break
+					}
+					if stale {
+						break
+					}
+				}
+				if !stale {
+					a.mu.Unlock()
+					continue
+				}
 			}
 			off := a.offsetFunc()
 			// "now" expressed in the broker session timezone.
 			brokerNow := time.Now().UTC().Add(time.Duration(off) * time.Hour)
 			for symbol, tfs := range a.candles {
 				for tf, builder := range tfs {
-					if !builder.updated {
-						continue
-					}
-					// Candle completes when broker-local time passes the bucket end.
-					bucketEndLocal := builder.bucketStart.Add(time.Duration(off) * time.Hour).Add(builder.period)
-					if brokerNow.After(bucketEndLocal) {
-						a.emitCandle(builder, true)
+				if !builder.updated {
+					continue
+				}
+				// Fallback (external stale): surface the live forming candle so
+				// dashboards/charts show current price action, not a stale bar.
+				if a.externalCandles && a.externalStale(symbol, tf) {
+					a.emitCandle(builder, false)
+				}
+				// Candle completes when broker-local time passes the bucket end.
+				bucketEndLocal := builder.bucketStart.Add(time.Duration(off) * time.Hour).Add(builder.period)
+				// Only emit tick-built closed candles when NOT in external mode, or when
+				// the external bar feed is stale (external handles completion when fresh).
+				if (!a.externalCandles || a.externalStale(symbol, tf)) && brokerNow.After(bucketEndLocal) {
+					a.emitCandle(builder, true)
 						newLocalStart := brokerNow.Truncate(builder.period)
 						a.candles[symbol][tf] = &candleBuilder{
 							symbol:      symbol,
@@ -286,6 +348,52 @@ func (a *Aggregator) GetCandleHistory(symbol string, tf types.Timeframe, count i
 		return nil
 	}
 	return []*types.Candle{c}
+}
+
+// GetCurrentCandles returns a snapshot of all in-progress (forming) candles the
+// aggregator is currently building from the live tick stream for a symbol. This
+// is the freshest possible market view and is used to keep the engine state —
+// and therefore the dashboard — current even when the Master Node CopyRates
+// (external) feed is stale or the candle pipeline channel is congested.
+func (a *Aggregator) GetCurrentCandles(symbol string) map[types.Timeframe]*types.Candle {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make(map[types.Timeframe]*types.Candle)
+	if tfs, ok := a.candles[symbol]; ok {
+		for tf, b := range tfs {
+			if !b.updated {
+				continue
+			}
+			out[tf] = &types.Candle{
+				Symbol:    b.symbol,
+				Timeframe: b.timeframe,
+				Time:      b.bucketStart,
+				Open:      b.open,
+				High:      b.high,
+				Low:       b.low,
+				Close:     b.close,
+				Volume:    b.volume,
+				Source:    "AGGREGATOR",
+				Quality:   types.CandlePartial,
+				IsClosed:  false,
+				Alignment: a.alignmentForOffset(),
+			}
+		}
+	}
+	return out
+}
+
+// CurrentBucketStart returns the broker-aligned start time of the CURRENT (live)
+// candle bucket for a timeframe, computed from the gateway's real UTC clock —
+// NOT from the (possibly lagging) Master Node reported timestamp. This keeps the
+// live forming candle anchored to real time even when agent ticks/snapshots
+// carry a stale SourceTimestamp, so the dashboard never shows a stale bucket.
+func (a *Aggregator) CurrentBucketStart(tf types.Timeframe) time.Time {
+	off := a.offsetFunc()
+	period := timeframeDuration(tf)
+	now := time.Now().UTC()
+	brokerLocal := now.Add(time.Duration(off) * time.Hour)
+	return brokerLocal.Truncate(period).Add(-time.Duration(off) * time.Hour)
 }
 
 func timeframeDuration(tf types.Timeframe) time.Duration {

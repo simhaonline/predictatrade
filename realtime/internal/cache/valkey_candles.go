@@ -60,7 +60,7 @@ func (v *ValkeyCache) SetChartCandles(symbol, timeframe, source string, limit in
 	if err != nil {
 		return err
 	}
-	return v.client.Set(v.ctx, key, b, 60*time.Second).Err()
+	return v.client.Set(v.ctx, key, b, 10*time.Second).Err()
 }
 
 // GetChartCandles retrieves cached chart candles from Valkey.
