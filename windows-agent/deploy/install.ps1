@@ -208,22 +208,46 @@ Write-Host ""
 # Users can manually add C:\PredictATrade to exclusions if needed
 Write-Host "[1/9] Ready"
 
-# Step 1b: Clean slate — kill any previously-running agent / stale service so a
-# leftover or duplicate instance cannot hold the health port (9000), the MT IPC
-# pipes, or send a stop signal to the new instance mid-start (which looked like a
-# ~0.7s self-death in the field). Runs before any download/start.
-function Stop-AllPatAgents {
-    foreach ($name in @("pat-agent-client", "pat-agent-master")) {
-        try { & "$InstallDir\nssm.exe" stop $name 2>&1 | Out-Null } catch {}
-        try { sc.exe stop $name 2>&1 | Out-Null } catch {}
-        try { & "$InstallDir\nssm.exe" remove $name confirm 2>&1 | Out-Null } catch {}
-        try { sc.exe delete $name 2>&1 | Out-Null } catch {}
+# Step 1a: Per-role run-lock so a second (re)run cannot clobber an in-progress
+# install of the SAME role (its uninstall step would SIGTERM the first run's
+# freshly-started agent). Scoped by $ServiceName so a client run never blocks or
+# touches a master run, and vice-versa. Stale locks from crashed runs are ignored
+# (we verify the recorded PID is still alive).
+$installLock = Join-Path $env:TEMP ("pat_install_" + $ServiceName + ".lock")
+if (Test-Path $installLock) {
+    $lp = (Get-Content $installLock -ErrorAction SilentlyContinue)
+    $live = $false
+    if ($lp) { try { $live = ((Get-Process -Id $lp -ErrorAction SilentlyContinue) -ne $null) } catch {} }
+    if ($live) {
+        Write-Host "  WARN: Another $ServiceName installer is already running (PID $lp). Exiting to avoid clobbering it."
+        exit 1
     }
-    Get-Process -Name "pat-agent","pat-master","nssm" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
 }
-Stop-AllPatAgents
-Write-Host "  OK: Stale agent/service processes cleared"
+Set-Content -Path $installLock -Value $pid -ErrorAction SilentlyContinue
+
+# Step 1b: Check → uninstall ONLY the role being installed, then the install
+# step recreates it. This must NEVER disturb the other role: a Client install
+# must not touch the Master Node agent (pat-agent-master / pat-master.exe) and
+# vice-versa. We also never kill the nssm process itself — nssm manages BOTH
+# roles' services, so stopping it would take down the Master Node too. We only
+# stop THIS role's own service (nssm handles that cleanly) and kill only this
+# role's exe process.
+function Uninstall-RoleAgent {
+    $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if (-not $svc) { Write-Host "  OK: No existing $ServiceName — clean install."; return }
+    Write-Host "  Found existing $ServiceName — uninstalling before reinstall..."
+    try { & "$InstallDir\nssm.exe" stop $ServiceName 2>&1 | Out-Null } catch {}
+    try { sc.exe stop $ServiceName 2>&1 | Out-Null } catch {}
+    Start-Sleep -Seconds 2
+    try { & "$InstallDir\nssm.exe" remove $ServiceName confirm 2>&1 | Out-Null } catch {}
+    try { sc.exe delete $ServiceName 2>&1 | Out-Null } catch {}
+    # Kill only THIS role's exe (client = pat-agent.exe, master = pat-master.exe).
+    $roleExe = if ($Mode -eq "master") { "pat-master" } else { "pat-agent" }
+    Get-Process -Name $roleExe -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    Write-Host "  OK: $ServiceName uninstalled (other role untouched)."
+}
+Uninstall-RoleAgent
 
 # Step 2: Create directories
 Write-Host "[2/9] Creating installation directory..."
@@ -671,4 +695,5 @@ Write-Host "  To uninstall: irm $RootUrl/uninstall.ps1 | iex   (use: -Mode $role
 Write-Host "  To update:    irm $RootUrl/install-$roleName.ps1 | iex"
 Write-Host "=========================================="
 Write-Host ""
+Remove-Item $installLock -Force -ErrorAction SilentlyContinue
 if (-not $Unattended) { Read-Host "Press Enter to close" }
