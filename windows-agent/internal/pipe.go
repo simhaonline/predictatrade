@@ -25,6 +25,7 @@ type TerminalInfo struct {
 	LastActivity  time.Time // last tick/INIT/LICENSE_CHECK/MASTER_TICK — drives liveness
 	Balance       float64
 	Equity        float64
+	FreeMargin    float64
 	Profit        float64
 	Currency      string
 	Leverage      int
@@ -33,6 +34,33 @@ type TerminalInfo struct {
 	SellPositions int
 	TotalLots     float64
 	FloatingPnL   float64
+}
+
+// forwardAccountInfo sends the terminal's account equity/free-margin/leverage to
+// the Go realtime engine so the margin gate and lot-sizing can compute. This is
+// the missing link that lets the engine mark signals EXECUTABLE (without it the
+// engine fails closed — no broker equity telemetry). Sent as ACCOUNT_INFO so the
+// engine hydrates broker state without re-running license validation.
+func (pm *PipeManager) forwardAccountInfo(licKey, account, broker, symbol, currency string, balance, equity, freeMargin float64, leverage int) {
+	if pm.wsSender == nil {
+		return
+	}
+	payload, err := json.Marshal(map[string]interface{}{
+		"type":        "ACCOUNT_INFO",
+		"license_key": licKey,
+		"account":     account,
+		"broker":      broker,
+		"symbol":      symbol,
+		"currency":    currency,
+		"balance":     balance,
+		"equity":      equity,
+		"free_margin": freeMargin,
+		"leverage":    leverage,
+	})
+	if err != nil {
+		return
+	}
+	pm.wsSender(payload)
 }
 
 type PipeManager struct {
@@ -603,6 +631,7 @@ func (pm *PipeManager) processMessage(line string) {
 			Symbol      string  `json:"symbol"`
 			Balance     float64 `json:"balance"`
 			Equity      float64 `json:"equity"`
+			FreeMargin  float64 `json:"free_margin"`
 			Profit      float64 `json:"profit"`
 			Currency    string  `json:"currency"`
 			Leverage    int     `json:"leverage"`
@@ -639,31 +668,36 @@ func (pm *PipeManager) processMessage(line string) {
 			pm.mu.Lock()
 			existing := pm.terminals[terminalKey]
 			if existing == nil {
-				pm.terminals[terminalKey] = &TerminalInfo{
-					ClientType: clientType, Account: initMsg.Account, Broker: initMsg.Broker,
-					Symbol: initMsg.Symbol, LicenseKey: initMsg.LicenseKey, ConnectedAt: time.Now(),
-					LastActivity: time.Now(),
-					Balance:      initMsg.Balance, Equity: initMsg.Equity, Profit: initMsg.Profit,
-					Currency: initMsg.Currency, Leverage: initMsg.Leverage,
-					OpenPositions: initMsg.OpenPos, BuyPositions: initMsg.BuyPos, SellPositions: initMsg.SellPos,
-					TotalLots: initMsg.TotalLots, FloatingPnL: initMsg.FloatingPnL,
-				}
+			pm.terminals[terminalKey] = &TerminalInfo{
+				ClientType: clientType, Account: initMsg.Account, Broker: initMsg.Broker,
+				Symbol: initMsg.Symbol, LicenseKey: initMsg.LicenseKey, ConnectedAt: time.Now(),
+				LastActivity: time.Now(),
+				Balance:      initMsg.Balance, Equity: initMsg.Equity, FreeMargin: initMsg.FreeMargin, Profit: initMsg.Profit,
+				Currency: initMsg.Currency, Leverage: initMsg.Leverage,
+				OpenPositions: initMsg.OpenPos, BuyPositions: initMsg.BuyPos, SellPositions: initMsg.SellPos,
+				TotalLots: initMsg.TotalLots, FloatingPnL: initMsg.FloatingPnL,
+			}
 				if pm.onTerminalConnect != nil {
 					go pm.onTerminalConnect(*pm.terminals[terminalKey])
 				}
 			} else {
-				existing.Balance = initMsg.Balance
-				existing.Equity = initMsg.Equity
-				existing.Profit = initMsg.Profit
-				existing.OpenPositions = initMsg.OpenPos
-				existing.BuyPositions = initMsg.BuyPos
-				existing.SellPositions = initMsg.SellPos
-				existing.TotalLots = initMsg.TotalLots
-				existing.FloatingPnL = initMsg.FloatingPnL
-				existing.LastActivity = time.Now()
-			}
-			pm.mu.Unlock()
+			existing.Balance = initMsg.Balance
+			existing.Equity = initMsg.Equity
+			existing.FreeMargin = initMsg.FreeMargin
+			existing.Profit = initMsg.Profit
+			existing.OpenPositions = initMsg.OpenPos
+			existing.BuyPositions = initMsg.BuyPos
+			existing.SellPositions = initMsg.SellPos
+			existing.TotalLots = initMsg.TotalLots
+			existing.FloatingPnL = initMsg.FloatingPnL
+			existing.LastActivity = time.Now()
 		}
+		pm.mu.Unlock()
+		// Forward account telemetry to the engine so the margin gate + lot-sizing
+		// can compute. Without this the engine never receives equity/free-margin
+		// and fails closed (no signal ever becomes executable).
+		pm.forwardAccountInfo(initMsg.LicenseKey, initMsg.Account, initMsg.Broker, initMsg.Symbol, initMsg.Currency, initMsg.Balance, initMsg.Equity, initMsg.FreeMargin, initMsg.Leverage)
+	}
 
 	case "LICENSE_CHECK":
 		var lic LicenseCheckMsg
@@ -689,10 +723,12 @@ func (pm *PipeManager) processMessage(line string) {
 			// Heuristic: if the payload mentions MT4 or has a symbol, check further
 			// The EA sends its type in the init message; we track it here
 		}
-		// Parse account data from LICENSE_CHECK message (balance, equity, profit, positions)
+		// Parse account data from LICENSE_CHECK message (balance, equity, free margin, leverage, profit, positions)
 		var accountData struct {
 			Balance       float64 `json:"balance"`
 			Equity        float64 `json:"equity"`
+			FreeMargin    float64 `json:"free_margin"`
+			Leverage      int     `json:"leverage"`
 			Profit        float64 `json:"profit"`
 			OpenPositions int     `json:"open_positions"`
 		}
@@ -731,13 +767,37 @@ func (pm *PipeManager) processMessage(line string) {
 			existing.LicenseKey = lic.LicenseKey
 			existing.Balance = accountData.Balance
 			existing.Equity = accountData.Equity
+			existing.FreeMargin = accountData.FreeMargin
+			existing.Leverage = accountData.Leverage
 			existing.Profit = accountData.Profit
 			existing.FloatingPnL = accountData.Profit
 			existing.OpenPositions = accountData.OpenPositions
 			existing.LastActivity = time.Now()
 			pm.mu.Unlock()
 		}
+		// Forward account telemetry to the engine (enables executable signals).
+		pm.forwardAccountInfo(lic.LicenseKey, lic.Account, lic.Broker, lic.Symbol, "", accountData.Balance, accountData.Equity, accountData.FreeMargin, accountData.Leverage)
 		log.Printf("License validated: %s (%s) — terminals: %d", pm.licStatus, pm.licPlan, len(pm.terminals))
+
+	case "ACCOUNT_INFO":
+		var acct struct {
+			LicenseKey string  `json:"license_key"`
+			Account    string  `json:"account"`
+			Broker     string  `json:"broker"`
+			Symbol     string  `json:"symbol"`
+			Currency   string  `json:"currency"`
+			Balance    float64 `json:"balance"`
+			Equity     float64 `json:"equity"`
+			FreeMargin float64 `json:"free_margin"`
+			Leverage   int     `json:"leverage"`
+		}
+		if json.Unmarshal([]byte(payload), &acct) != nil {
+			return
+		}
+		if acct.Equity > 0 || acct.FreeMargin > 0 {
+			pm.forwardAccountInfo(acct.LicenseKey, acct.Account, acct.Broker, acct.Symbol, acct.Currency, acct.Balance, acct.Equity, acct.FreeMargin, acct.Leverage)
+		}
+		return
 
 	case "EXECUTION_ACK":
 		log.Printf("Exec ACK: %s", payload)

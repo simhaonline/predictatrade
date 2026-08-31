@@ -834,6 +834,7 @@ void OnTimer()
 
     PAT_Watchdog();
     PAT_HistoryPoll();
+    SendAccountInfo();
 }
 
 void PAT_Watchdog()
@@ -1474,7 +1475,26 @@ void SendInitMessage()
                  ",\"buy_positions\":" + IntegerToString(buyCount) +
                  ",\"sell_positions\":" + IntegerToString(sellCount) +
                  ",\"total_lots\":" + DoubleToString(totalLots, 2) +
+                 ",\"free_margin\":" + DoubleToString(AccountFreeMargin(), 2) +
                  ",\"floating_pnl\":" + DoubleToString(AccountProfit(), 2) +
+                 "}\n";
+    PAT_Append(PAT_TICK_FILE, msg);
+}
+
+//+------------------------------------------------------------------+
+//| Periodic account telemetry → engine (enables executable signals).   |
+//+------------------------------------------------------------------+
+void SendAccountInfo()
+{
+    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.08\",\"account\":\"" + g_accountID +
+                 "\",\"broker\":\"" + AccountCompany() +
+                 "\",\"symbol\":\"" + g_symbol +
+                 "\",\"currency\":\"" + AccountCurrency() +
+                 "\",\"license_key\":\"" + g_licenseKey +
+                 ",\"balance\":" + DoubleToString(AccountBalance(), 2) +
+                 ",\"equity\":" + DoubleToString(AccountEquity(), 2) +
+                 ",\"free_margin\":" + DoubleToString(AccountFreeMargin(), 2) +
+                 ",\"leverage\":" + IntegerToString(AccountLeverage()) +
                  "}\n";
     PAT_Append(PAT_TICK_FILE, msg);
 }
@@ -1489,6 +1509,7 @@ void RequestLicenseValidation()
                  "\",\"balance\":" + DoubleToStr(AccountBalance(), 2) +
                  ",\"equity\":" + DoubleToStr(AccountEquity(), 2) +
                  ",\"profit\":" + DoubleToStr(AccountProfit(), 2) +
+                 ",\"free_margin\":" + DoubleToStr(AccountFreeMargin(), 2) +
                  ",\"open_positions\":" + IntegerToString(OrdersTotal()) +
                  "}\n";
     PAT_Append(PAT_TICK_FILE, msg);

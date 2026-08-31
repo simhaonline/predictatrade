@@ -892,6 +892,7 @@ void OnTimer()
 
     PAT_Watchdog();
     PAT_HistoryPoll();
+    SendAccountInfo();
 }
 
 void PAT_Watchdog()
@@ -1300,11 +1301,36 @@ void SendInitMessage()
                  ",\"open_positions\":" + IntegerToString(totalPos) +
                  ",\"buy_positions\":" + IntegerToString(buyCount) +
                  ",\"sell_positions\":" + IntegerToString(sellCount) +
-                 ",\"total_lots\":" + DoubleToString(totalLots, 2) +
-                 ",\"floating_pnl\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
-                 "}\n";
+                  ",\"total_lots\":" + DoubleToString(totalLots, 2) +
+                  ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_FREEMARGIN), 2) +
+                  ",\"floating_pnl\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
+                  "}\n";
     PAT_Append(PAT_TICK_FILE, msg);
     Print("Init message sent with account data - balance: ", AccountInfoDouble(ACCOUNT_BALANCE));
+}
+
+//+------------------------------------------------------------------+
+//| Periodic account telemetry → engine. Sends equity/free-margin/leverage
+//| every timer tick so the engine's margin gate and lot-sizing can compute
+//| and mark signals EXECUTABLE (without it the engine fails closed).
+//+------------------------------------------------------------------+
+void SendAccountInfo()
+{
+    if(g_connection != "CONNECTED") return;
+    // Ensure we read THIS EA's bound account, not whatever is active.
+    if(g_accountID != "" && (int)AccountInfoInteger(ACCOUNT_LOGIN) != (int)StringToInteger(g_accountID))
+       AccountSwitch(StringToInteger(g_accountID));
+    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.08\",\"account\":\"" + g_accountID +
+                 "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
+                 "\",\"symbol\":\"" + g_symbol +
+                 "\",\"currency\":\"" + AccountInfoString(ACCOUNT_CURRENCY) +
+                 "\",\"license_key\":\"" + g_licenseKey +
+                 "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
+                 ",\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) +
+                 ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_FREEMARGIN), 2) +
+                 ",\"leverage\":" + IntegerToString((int)AccountInfoInteger(ACCOUNT_LEVERAGE)) +
+                 "}\n";
+    PAT_Append(PAT_TICK_FILE, msg);
 }
 
 //+------------------------------------------------------------------+
@@ -1320,9 +1346,10 @@ void RequestLicenseValidation()
                  "\",\"license_key\":\"" + g_licenseKey +
                  "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
                  ",\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) +
-                 ",\"profit\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
-                 ",\"open_positions\":" + IntegerToString(PositionsTotal()) +
-                 "}\n";
+                  ",\"profit\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
+                  ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_FREEMARGIN), 2) +
+                  ",\"open_positions\":" + IntegerToString(PositionsTotal()) +
+                  "}\n";
     PAT_Append(PAT_TICK_FILE, msg);
     Print("License validation with account data - balance: ", AccountInfoDouble(ACCOUNT_BALANCE));
 }

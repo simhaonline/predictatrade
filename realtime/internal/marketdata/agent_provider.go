@@ -1332,6 +1332,11 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		// account's equity reaches risk gating even when the Master Node EA is
 		// attached to a different (e.g. demo) account.
 		p.hydrateAccountFromJSON(agentID, data)
+	case "ACCOUNT_INFO":
+		// Periodic/INIT account telemetry from the signal (exec) EA, forwarded by
+		// the Windows Agent. Hydrates broker equity/free-margin/leverage so the
+		// margin gate and lot-sizing can compute (enables executable signals).
+		p.hydrateAccountFromJSON(agentID, data)
 	case "MASTER_DEINIT":
 		// Master Node lifecycle events — logged but no tick processing needed
 		// These are informational messages from the data collection EA
