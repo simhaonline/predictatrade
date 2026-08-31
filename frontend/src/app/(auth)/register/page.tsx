@@ -26,6 +26,21 @@ function RegisterForm() {
   const [optInSms, setOptInSms] = useState(false);
   const [optInPhone, setOptInPhone] = useState(false);
 
+  // ── Onboarding / KYC-lite profile fields (MASTER PROMPT signup) ──
+  const [mobile, setMobile] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
+  const [telegram, setTelegram] = useState("");
+  const [instagramHandle, setInstagramHandle] = useState("");
+  const [facebookProfile, setFacebookProfile] = useState("");
+  const [addressLine1, setAddressLine1] = useState("");
+  const [addressLine2, setAddressLine2] = useState("");
+  const [city, setCity] = useState("");
+  const [stateRegion, setStateRegion] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [country, setCountry] = useState("");
+  const [preferredBroker, setPreferredBroker] = useState("");
+  const [referralSource, setReferralSource] = useState("");
+
   // Password strength calculation (memoized — no setState in effect)
   const passwordStrength = useMemo(() => {
     let score = 0;
@@ -60,6 +75,19 @@ function RegisterForm() {
         optInEmailMarketing: optInEmail,
         optInSmsMarketing: optInSms,
         optInPhoneMarketing: optInPhone,
+        addressLine1: addressLine1 || undefined,
+        addressLine2: addressLine2 || undefined,
+        city: city || undefined,
+        stateRegion: stateRegion || undefined,
+        postalCode: postalCode || undefined,
+        country: country || undefined,
+        mobile: mobile || undefined,
+        whatsapp: whatsapp || undefined,
+        telegram: telegram || undefined,
+        instagramHandle: instagramHandle || undefined,
+        facebookProfile: facebookProfile || undefined,
+        preferredBroker: preferredBroker || undefined,
+        referralSource: referralSource || undefined,
       });
       const redirect = new URLSearchParams(window.location.search).get("redirect");
       window.location.href = redirect === "live" ? "/login?registered=1&redirect=live" : "/login?registered=1";
@@ -168,6 +196,97 @@ function RegisterForm() {
               onFocus={(e) => e.target.style.borderColor = "#205fdc"}
               onBlur={(e) => e.target.style.borderColor = "#d7d3c9"}
               placeholder="PAT-XXXX..." />
+          </div>
+
+          {/* ── Profile & Contact Details (MASTER PROMPT onboarding) ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            <p style={{ fontSize: "12px", fontWeight: 700, color: "#343842", margin: "4px 0 0 0", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              Profile &amp; Contact Details <span style={{ fontWeight: 400, color: "#9ba3b4", textTransform: "none", letterSpacing: "0" }}>(optional — helps personalize your experience)</span>
+            </p>
+
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 160px" }}>
+                <label style={labelStyle}>Mobile number</label>
+                <input type="tel" autoComplete="tel" value={mobile} onChange={(e) => setMobile(e.target.value)} style={inputStyle} placeholder="+1 555 000 0000" />
+              </div>
+              <div style={{ flex: "1 1 160px" }}>
+                <label style={labelStyle}>WhatsApp number <span style={optStyle}>(optional)</span></label>
+                <input type="tel" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} style={inputStyle} placeholder="+1 555 000 0000" />
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 160px" }}>
+                <label style={labelStyle}>Telegram username <span style={optStyle}>(optional)</span></label>
+                <input type="text" value={telegram} onChange={(e) => setTelegram(e.target.value)} style={inputStyle} placeholder="@username" />
+              </div>
+              <div style={{ flex: "1 1 160px" }}>
+                <label style={labelStyle}>Instagram handle <span style={optStyle}>(optional)</span></label>
+                <input type="text" value={instagramHandle} onChange={(e) => setInstagramHandle(e.target.value)} style={inputStyle} placeholder="@handle" />
+              </div>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Facebook profile link <span style={optStyle}>(optional)</span></label>
+              <input type="url" value={facebookProfile} onChange={(e) => setFacebookProfile(e.target.value)} style={inputStyle} placeholder="https://facebook.com/..." />
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 160px" }}>
+                <label style={labelStyle}>Address line 1</label>
+                <input type="text" autoComplete="address-line1" value={addressLine1} onChange={(e) => setAddressLine1(e.target.value)} style={inputStyle} placeholder="Street address" />
+              </div>
+              <div style={{ flex: "1 1 160px" }}>
+                <label style={labelStyle}>Address line 2 <span style={optStyle}>(optional)</span></label>
+                <input type="text" autoComplete="address-line2" value={addressLine2} onChange={(e) => setAddressLine2(e.target.value)} style={inputStyle} placeholder="Apt, suite, etc." />
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 120px" }}>
+                <label style={labelStyle}>City</label>
+                <input type="text" autoComplete="address-level2" value={city} onChange={(e) => setCity(e.target.value)} style={inputStyle} placeholder="City" />
+              </div>
+              <div style={{ flex: "1 1 120px" }}>
+                <label style={labelStyle}>State / Region</label>
+                <input type="text" autoComplete="address-level1" value={stateRegion} onChange={(e) => setStateRegion(e.target.value)} style={inputStyle} placeholder="State / Region" />
+              </div>
+              <div style={{ flex: "1 1 120px" }}>
+                <label style={labelStyle}>Postal code</label>
+                <input type="text" autoComplete="postal-code" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} style={inputStyle} placeholder="Postal code" />
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 160px" }}>
+                <label style={labelStyle}>Country</label>
+                <input type="text" autoComplete="country-name" value={country} onChange={(e) => setCountry(e.target.value)} style={inputStyle} placeholder="Country" />
+              </div>
+              <div style={{ flex: "1 1 160px" }}>
+                <label style={labelStyle}>Which broker do you use? <span style={optStyle}>(optional)</span></label>
+                <select value={preferredBroker} onChange={(e) => setPreferredBroker(e.target.value)} style={inputStyle}>
+                  <option value="">Prefer not to say</option>
+                  <option value="Xelance">Xelance</option>
+                  <option value="Equiti">Equiti</option>
+                  <option value="IC Markets">IC Markets</option>
+                  <option value="MetaTrader/MetaQuotes">MetaTrader / MetaQuotes</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label style={labelStyle}>How did you hear about us? <span style={optStyle}>(optional)</span></label>
+              <select value={referralSource} onChange={(e) => setReferralSource(e.target.value)} style={inputStyle}>
+                <option value="">Select one</option>
+                <option value="Search Engine">Search Engine</option>
+                <option value="Social Media">Social Media</option>
+                <option value="Friend or Referral">Friend or Referral</option>
+                <option value="YouTube">YouTube</option>
+                <option value="Online Ad">Online Ad</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
           </div>
 
           {/* ── Divider ── */}
@@ -313,6 +432,19 @@ const inputStyle: React.CSSProperties = {
   outline: "none",
   boxSizing: "border-box",
   transition: "border-color 0.15s",
+};
+
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: "12px",
+  fontWeight: 600,
+  color: "#343842",
+  marginBottom: "6px",
+};
+
+const optStyle: React.CSSProperties = {
+  fontWeight: 400,
+  color: "#9ba3b4",
 };
 
 export default function RegisterPage() {
