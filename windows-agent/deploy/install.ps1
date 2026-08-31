@@ -208,6 +208,23 @@ Write-Host ""
 # Users can manually add C:\PredictATrade to exclusions if needed
 Write-Host "[1/9] Ready"
 
+# Step 1b: Clean slate — kill any previously-running agent / stale service so a
+# leftover or duplicate instance cannot hold the health port (9000), the MT IPC
+# pipes, or send a stop signal to the new instance mid-start (which looked like a
+# ~0.7s self-death in the field). Runs before any download/start.
+function Stop-AllPatAgents {
+    foreach ($name in @("pat-agent-client", "pat-agent-master")) {
+        try { & "$InstallDir\nssm.exe" stop $name 2>&1 | Out-Null } catch {}
+        try { sc.exe stop $name 2>&1 | Out-Null } catch {}
+        try { & "$InstallDir\nssm.exe" remove $name confirm 2>&1 | Out-Null } catch {}
+        try { sc.exe delete $name 2>&1 | Out-Null } catch {}
+    }
+    Get-Process -Name "pat-agent","pat-master","nssm" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+}
+Stop-AllPatAgents
+Write-Host "  OK: Stale agent/service processes cleared"
+
 # Step 2: Create directories
 Write-Host "[2/9] Creating installation directory..."
 if (-not (Test-Path $InstallDir)) { New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null }
@@ -215,6 +232,9 @@ $logsDir = Join-Path $InstallDir "logs"
 if (-not (Test-Path $logsDir)) { New-Item -ItemType Directory -Path $logsDir -Force | Out-Null }
 # Agent log file (mirrors cmd/client|master/main.go: agent.log / master_agent.log).
 $AgentLog = Join-Path $logsDir $(if ($Mode -eq "master") { "master_agent.log" } else { "agent.log" })
+# nssm-captured stdout/stderr (must be defined before nssm set AppStdout/AppStderr).
+$stdoutLog = Join-Path $logsDir "pat-agent-stdout.log"
+$stderrLog = Join-Path $logsDir "pat-agent-stderr.log"
 Write-Host "  OK: $InstallDir"
 
 # Step 2a: Apply Defender exclusions BEFORE downloading the unsigned binary.
@@ -558,7 +578,9 @@ for ($round = 1; $round -le 3 -and -not $serviceRunning; $round++) {
     # Not running after this round: dump the exact last log lines so nothing is
     # hidden, repair, and loop (the final failure summary prints after round 3).
     Write-Host "  Attempt $round failed — agent log tail:"
-    if ($AgentLog -and (Test-Path $AgentLog)) { Get-Content $AgentLog -Tail 6 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("      {0}" -f $_) } }
+    if ($AgentLog -and (Test-Path $AgentLog)) { Get-Content $AgentLog -Tail 40 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("      {0}" -f $_) } }
+    if (Test-Path $stdoutLog) { Write-Host "  --- nssm stdout ($stdoutLog) ---"; Get-Content $stdoutLog -Tail 20 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("      {0}" -f $_) } }
+    if (Test-Path $stderrLog) { Write-Host "  --- nssm stderr ($stderrLog) ---"; Get-Content $stderrLog -Tail 20 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("      {0}" -f $_) } }
     # Remove a broken service definition so the next round starts clean.
     if ($useNssm) { & $nssmDest remove $ServiceName confirm 2>&1 | Out-Null }
     sc.exe delete $ServiceName 2>&1 | Out-Null
