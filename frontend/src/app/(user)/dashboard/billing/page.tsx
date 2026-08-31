@@ -39,7 +39,7 @@ const planCopy: Record<Plan["code"], string> = {
   FREE: "Explore Predict-A-Trade with one scalping strategy.",
   STANDARD: "Focused XAUUSD trading with Standard Scalping + Standard Swing.",
   PRO: "Advanced intelligence with all four strategies, up to 3 devices.",
-  ELITE: "Complete Predict-A-Trade intelligence across all five strategies including MarnieFib, 5 devices, full auto.",
+  ELITE: "Complete Predict-A-Trade intelligence across all five strategies including EQFE, 5 devices, full auto.",
 };
 
 // Tier hierarchy for upgrade/downgrade logic
