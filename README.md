@@ -68,8 +68,9 @@ MT4/MT5 → Windows Agent → WebSocket → Go Realtime Engine :13081
 | Trend Swing | TREND_SWING | H1/H4 | 70 | 60m | LIVE |
 | EQFE | MARNIE_FIB | H1 | 70 | 60m | LIVE |
 | ATEN | ATEN | H1/H4 | 70 | 60m | LIVE |
+| Arcanist | ARCANIST | M5/M15 | 70 | 180m | ADVISORY |
 
-> `MARNIE_FIB` is the internal strategy ID and is displayed to users as **EQFE**. The six strategies are gated by plan entitlement: FREE → STANDARD_SCALPING only (max 5 signals/day); STANDARD → STANDARD_SCALPING + STANDARD_SWING; PRO → all 4 core; ELITE → all 6 (incl. EQFE + ATEN). Signal visibility is server-enforced.
+> `MARNIE_FIB` is the internal strategy ID and is displayed to users as **EQFE**. The seven strategies are gated by plan entitlement: FREE → STANDARD_SCALPING only (max 5 signals/day); STANDARD → STANDARD_SCALPING + STANDARD_SWING; PRO → all 4 core; ELITE → all 7 (incl. EQFE, ATEN, Arcanist). Arcanist is delivered ADVISORY-only (not operator-armed for execution) until it completes validation/backtesting. Signal visibility is server-enforced.
 
 ## Evidence Scoring
 
@@ -107,7 +108,7 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 - **Capital-protection sizing:** SuggestedLot, RiskDollars, RiskPctOfEquity, SLDistancePoints displayed in expandable rows
 - **Calibrated probability:** Shows "Pending" until calibration model is validated (§16, §36)
 - **Signal Class:** ADVISORY vs EXECUTABLE classification with color coding
-- **Multi-tab strategy filtering:** All 6 strategy engines (including MARNIE_FIB/EQFE and ATEN) with directional sub-filters
+- **Multi-tab strategy filtering:** All 7 strategy engines (including MARNIE_FIB/EQFE, ATEN and Arcanist) with directional sub-filters
 
 ## v1.17.3 Features (29 August 2026)
 
@@ -167,7 +168,7 @@ Located in `realtime/`. Key packages:
 
 - `internal/marketdata` — agent provider, tick/candle aggregation, COT, DXY providers
 - `internal/features` — 42 indicators, structure, regime, VWAP, Fibonacci, FVG, pivot points
-- `internal/strategy` — 5 strategy engines, evidence scoring, confluence, geometry
+- `internal/strategy` — 7 strategy engines, evidence scoring, confluence, geometry
 - `internal/gates` — 16 hard risk gates (ordered, fail-closed)
 - `internal/signal` — master decision engine, cooldown, duplicate prevention
 - `internal/gateway` — HTTP, dashboard WS, Windows Agent WS handlers
