@@ -634,6 +634,12 @@ void SendMarketSnapshot()
     msg += "\"session_vwap\":" + DoubleToString(CalculateSessionVWAP(), 5);
     msg += "}";
 
+    //--- Ensure we read the equity of the account this EA is bound to, not whatever
+    //    account happens to be active in a multi-account terminal (which can cause a
+    //    misread of the wrong account's balance/equity).
+    if(g_accountID != "" && (int)AccountInfoInteger(ACCOUNT_LOGIN) != (int)StringToInteger(g_accountID))
+       AccountSwitch(StringToInteger(g_accountID));
+
     //--- Account info
     if(SendAccountInfo)
     {

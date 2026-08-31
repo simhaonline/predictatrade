@@ -4625,6 +4625,32 @@ func runPnLAnchorLoop(gateRegistry *gates.Registry, valkeyCache *cache.ValkeyCac
 		}
 		now := time.Now().UTC()
 		snap := pnlTracker.Update(eq, now)
+		// Data-integrity guard: a severe equity drawdown with ZERO open positions
+		// is impossible as a real trading loss (you cannot lose double-digit % of
+		// equity with no positions). Such a reading is a misread/garbage equity
+		// feed (e.g. a multi-account terminal returning the wrong account), NOT a
+		// capital event. Reject it so a bad equity feed cannot trigger a false
+		// daily-loss VETO — surface as UNKNOWN and keep the last good anchor.
+		if bs.TotalCount == 0 &&
+			(snap.PeriodPc[risk.PeriodDay] <= -50 ||
+				snap.PeriodPc[risk.PeriodWeek] <= -50 ||
+				snap.PeriodPc[risk.PeriodMonth] <= -50) {
+			observability.Log.Warn().
+				Float64("day_pct", snap.PeriodPc[risk.PeriodDay]).
+				Float64("week_pct", snap.PeriodPc[risk.PeriodWeek]).
+				Float64("month_pct", snap.PeriodPc[risk.PeriodMonth]).
+				Int("open_positions", bs.TotalCount).
+				Msg("[PNL] severe drawdown with zero open positions — rejecting misread equity feed")
+			unknown := gates.GateState{
+				State:         types.GateUnknown,
+				EvaluatedAt:   now,
+				SourceVersion: "pnl_tracker",
+				Quality:       types.QualityAuthoritative,
+			}
+			gateRegistry.UpdateState(types.GateDailyLoss, unknown)
+			gateRegistry.UpdateState(types.GateProfitTarget, unknown)
+			continue
+		}
 		gateRegistry.UpdateState(types.GateDailyLoss, gates.GateState{
 			GateID: types.GateDailyLoss, State: types.GatePass, Value: snap,
 			EvaluatedAt: now, SourceVersion: "pnl_tracker",

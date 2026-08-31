@@ -1283,6 +1283,12 @@ void SendInitMessage()
             else if(type == POSITION_TYPE_SELL) { sellCount++; totalLots += vol; }
         }
     }
+    //--- Ensure we read the equity of the account this EA is bound to, not whatever
+    //    account happens to be active in a multi-account terminal (else the engine
+    //    receives a misread of the wrong account's equity, which can trip risk gates).
+    if(g_accountID != "" && (int)AccountInfoInteger(ACCOUNT_LOGIN) != (int)StringToInteger(g_accountID))
+       AccountSwitch(StringToInteger(g_accountID));
+
     string msg = "INIT|{\"ea_version\":\"1.08\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                  "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
                  "\",\"license_key\":\"" + g_licenseKey +
@@ -1304,6 +1310,10 @@ void SendInitMessage()
 //+------------------------------------------------------------------+
 void RequestLicenseValidation()
 {
+    //--- Ensure we read the equity of the account this EA is bound to (see INIT above).
+    if(g_accountID != "" && (int)AccountInfoInteger(ACCOUNT_LOGIN) != (int)StringToInteger(g_accountID))
+       AccountSwitch(StringToInteger(g_accountID));
+
     string msg = "LICENSE_CHECK|{\"account\":\"" + g_accountID +
                  "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                  "\",\"symbol\":\"" + g_symbol +
