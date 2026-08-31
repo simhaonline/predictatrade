@@ -4,7 +4,8 @@ import { useAuth } from "@/providers/auth-provider";
 import { customInstance } from "@/lib/axios-instance";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
-import { IconUser, IconLock, IconBell, IconEye, IconEyeOff, IconShieldCheck } from "@tabler/icons-react";
+import { IconUser, IconLock, IconBell, IconEye, IconEyeOff, IconShieldCheck, IconCopy, IconCheck } from "@tabler/icons-react";
+import { QRCodeSVG } from "qrcode.react";
 import AccessibilitySettings from "@/components/accessibility-settings";
 import StatusBadge from "@/components/admin/status-badge";
 
@@ -24,6 +25,50 @@ export default function AdminSettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPasswords, setShowPasswords] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+
+  // MFA setup flow state
+  const [mfaSetup, setMfaSetup] = useState<{ secret: string; otpauth: string; recoveryCodes: string[] } | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaVerifying, setMfaVerifying] = useState(false);
+  const [mfaRecoveryCodes, setMfaRecoveryCodes] = useState<string[] | null>(null);
+  const [mfaError, setMfaError] = useState<string | null>(null);
+
+  const startMfaSetup = async () => {
+    setMfaError(null);
+    try {
+      const data = await customInstance.post<{ secret: string; otpauth: string; recoveryCodes: string[] }>("/auth/mfa/setup");
+      setMfaSetup(data.data);
+      setMfaRecoveryCodes(null);
+      setMfaCode("");
+    } catch {
+      setMfaError("Failed to start MFA setup");
+      toast.error("Failed to start MFA setup");
+    }
+  };
+
+  const verifyMfaCode = async () => {
+    if (!mfaCode.trim()) { setMfaError("Enter the 6-digit code from your authenticator app"); return; }
+    setMfaVerifying(true);
+    setMfaError(null);
+    try {
+      const data = await customInstance.post<{ mfaEnabled: boolean; recoveryCodes: string[] }>("/auth/mfa/verify", { code: mfaCode.trim() });
+      setMfaRecoveryCodes(data.data.recoveryCodes);
+      setMfaSetup(null);
+      await refreshUser();
+      toast.success("MFA enabled");
+    } catch {
+      setMfaError("Invalid code — try again");
+      toast.error("Invalid MFA code");
+    } finally {
+      setMfaVerifying(false);
+    }
+  };
+
+  const copyRecoveryCodes = () => {
+    if (!mfaRecoveryCodes) return;
+    navigator.clipboard?.writeText(mfaRecoveryCodes.join("\n")).catch(() => {});
+    toast.success("Recovery codes copied");
+  };
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -168,10 +213,55 @@ export default function AdminSettingsPage() {
             </div>
             <StatusBadge status={user?.mfaEnabled ? "active" : "inactive"} />
           </div>
-          {user?.mfaEnabled ? (
+
+          {mfaRecoveryCodes ? (
+            <div className="space-y-3">
+              <p className="text-sm text-pat-text-primary font-medium">MFA enabled — save these recovery codes</p>
+              <p className="text-xs text-pat-text-muted">Each code can be used once if you lose access to your authenticator. Store them somewhere safe.</p>
+              <div className="bg-pat-bg-surface-secondary rounded-md p-3 font-mono text-sm space-y-1">
+                {mfaRecoveryCodes.map((c) => <div key={c}>{c}</div>)}
+              </div>
+              <button onClick={copyRecoveryCodes}
+                className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-md bg-pat-primary text-pat-primary-foreground hover:bg-pat-primary-hover">
+                <IconCopy size={14} /> Copy recovery codes
+              </button>
+            </div>
+          ) : mfaSetup ? (
+            <div className="space-y-4">
+              <p className="text-xs text-pat-text-secondary">Scan this QR code with Google Authenticator / Authy, then enter the 6-digit code to confirm.</p>
+              <div className="flex justify-center bg-white rounded-md p-3 w-fit">
+                <QRCodeSVG value={mfaSetup.otpauth} size={176} />
+              </div>
+              <div>
+                <p className="text-xs text-pat-text-muted mb-1">Or enter this secret manually:</p>
+                <code className="block bg-pat-bg-surface-secondary rounded px-2 py-1 text-xs break-all">{mfaSetup.secret}</code>
+              </div>
+              <div className="space-y-2">
+                <input
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value)}
+                  placeholder="123456"
+                  inputMode="numeric"
+                  maxLength={6}
+                  className="w-full rounded-md border border-pat-input-border bg-pat-input-bg px-3 py-2 text-sm text-pat-input-text"
+                />
+                {mfaError && <p className="text-xs text-pat-danger">{mfaError}</p>}
+                <div className="flex gap-2">
+                  <button onClick={verifyMfaCode} disabled={mfaVerifying}
+                    className="px-4 py-2 text-sm font-medium bg-pat-primary text-pat-primary-foreground rounded-md hover:bg-pat-primary-hover disabled:opacity-50">
+                    {mfaVerifying ? "Verifying…" : "Verify & Enable"}
+                  </button>
+                  <button onClick={() => { setMfaSetup(null); setMfaCode(""); setMfaError(null); }}
+                    className="px-4 py-2 text-sm rounded-md border border-pat-border text-pat-text-secondary">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : user?.mfaEnabled ? (
             <p className="text-xs text-pat-text-secondary">MFA is currently enabled. Contact support to disable.</p>
           ) : (
-            <button onClick={async () => { try { await customInstance.post("/auth/mfa/setup"); toast.success("MFA setup initiated"); } catch { toast.error("MFA setup failed"); } }}
+            <button onClick={startMfaSetup}
               className="px-4 py-2 text-sm font-medium bg-pat-primary text-pat-primary-foreground rounded-md hover:bg-pat-primary-hover transition-colors">
               Setup MFA
             </button>

@@ -506,19 +506,31 @@ export class AuthService {
     const secret = otp.authenticator.generateSecret();
     const user = await this.pool.query('SELECT email FROM iam.users WHERE id = $1', [userId]);
     if (user.rows.length === 0) throw new NotFoundException('User not found');
+    const recoveryCodes = this.generateRecoveryCodes(10);
     await this.pool.query(
-      `INSERT INTO iam.mfa_methods (id, user_id, method_type, secret, is_enabled, created_at)
-       VALUES ($1, $2, 'TOTP', $3, false, now())
-       ON CONFLICT (user_id, method_type) DO UPDATE SET secret = $3`,
-      [crypto.randomUUID(), userId, secret],
+      `INSERT INTO iam.mfa_methods (id, user_id, method_type, secret, recovery_codes, is_enabled, created_at)
+       VALUES ($1, $2, 'TOTP', $3, $4, false, now())
+       ON CONFLICT (user_id, method_type) DO UPDATE SET secret = $3, recovery_codes = $4, is_enabled = false`,
+      [crypto.randomUUID(), userId, secret, recoveryCodes],
     );
     const otpauth = otp.authenticator.keyuri(user.rows[0].email, 'Predict-A-Trade', secret);
-    return { secret, otpauth };
+    return { secret, otpauth, recoveryCodes };
+  }
+
+  /** Generates N single-use recovery codes (format XXXX-XXXX, uppercased). */
+  private generateRecoveryCodes(n: number): string[] {
+    const codes: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const a = crypto.randomBytes(2).toString('hex').toUpperCase();
+      const b = crypto.randomBytes(2).toString('hex').toUpperCase();
+      codes.push(`${a}-${b}`);
+    }
+    return codes;
   }
 
   async verifyMfa(userId: string, code: string) {
     const r = await this.pool.query(
-      `SELECT secret FROM iam.mfa_methods WHERE user_id = $1 AND method_type = 'TOTP'`, [userId],
+      `SELECT secret, recovery_codes FROM iam.mfa_methods WHERE user_id = $1 AND method_type = 'TOTP'`, [userId],
     );
     if (r.rows.length === 0) throw new NotFoundException('MFA not set up');
     const valid = otp.authenticator.verify({ token: code, secret: r.rows[0].secret });
@@ -526,7 +538,7 @@ export class AuthService {
     await this.pool.query(
       `UPDATE iam.mfa_methods SET is_enabled = true WHERE user_id = $1 AND method_type = 'TOTP'`, [userId],
     );
-    return { mfaEnabled: true };
+    return { mfaEnabled: true, recoveryCodes: (r.rows[0].recovery_codes as string[]) ?? [] };
   }
 
   /* ─── Forgot / Reset password ─── */
