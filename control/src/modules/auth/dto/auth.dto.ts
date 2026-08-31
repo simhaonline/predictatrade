@@ -6,6 +6,21 @@ export class RegisterDto {
   @IsOptional() @IsString() @MaxLength(100) displayName?: string;
   @IsOptional() @IsString() referralCode?: string;
 
+  // ── Onboarding / KYC-lite profile fields (MASTER PROMPT signup) ──
+  @IsOptional() @IsString() @MaxLength(255) addressLine1?: string;
+  @IsOptional() @IsString() @MaxLength(255) addressLine2?: string;
+  @IsOptional() @IsString() @MaxLength(120) city?: string;
+  @IsOptional() @IsString() @MaxLength(120) stateRegion?: string;
+  @IsOptional() @IsString() @MaxLength(40) postalCode?: string;
+  @IsOptional() @IsString() @MaxLength(120) country?: string;
+  @IsOptional() @IsString() @MaxLength(40) mobile?: string;
+  @IsOptional() @IsString() @MaxLength(40) whatsapp?: string;
+  @IsOptional() @IsString() @MaxLength(80) telegram?: string;
+  @IsOptional() @IsString() @MaxLength(80) instagramHandle?: string;
+  @IsOptional() @IsString() @MaxLength(255) facebookProfile?: string;
+  @IsOptional() @IsString() @MaxLength(80) preferredBroker?: string;
+  @IsOptional() @IsString() @MaxLength(120) referralSource?: string;
+
   // ── Required consent fields (must be true) ──
   @IsDefined() @IsBoolean() agreeToTerms: boolean;
   @IsDefined() @IsBoolean() acknowledgePrivacyPolicy: boolean;

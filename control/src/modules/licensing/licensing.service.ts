@@ -1,5 +1,6 @@
 import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Pool } from 'pg';
+import { createHash } from 'crypto';
 import { DB_POOL } from '../../common/database.module';
 
 @Injectable()
@@ -176,7 +177,7 @@ export class LicensingService {
       const combined = [
         fp.machine_guid, fp.system_uuid, fp.motherboard, fp.disk, fp.installation_id,
       ].join('|');
-      fingerprintHash = crypto.createHash('sha256').update(combined).digest('hex');
+      fingerprintHash = createHash('sha256').update(combined).digest('hex');
     }
 
     // Find or create device

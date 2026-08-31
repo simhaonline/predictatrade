@@ -400,7 +400,7 @@ func (h *HTTPServer) handleSignals(w http.ResponseWriter, r *http.Request) {
 	// on any lookup error or empty entitlements, expose nothing rather than
 	// leak strategies the user is not entitled to.
 	if needsPlanFilter {
-		allowed, derr := h.persister.GetUserAllowedStrategies(ctx, userID)
+		allowed, maxPerDay, derr := h.persister.GetUserSignalEntitlement(ctx, userID)
 		if derr != nil || len(allowed) == 0 {
 			signals = []*types.Signal{}
 		} else {
@@ -415,6 +415,11 @@ func (h *HTTPServer) handleSignals(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			signals = filtered
+			// Spec (MASTER PROMPT): Free tier is capped at max_signals_per_day
+			// (e.g. 5). Server-authoritative daily quota — never exceed it.
+			if maxPerDay > 0 && len(signals) > maxPerDay {
+				signals = signals[:maxPerDay]
+			}
 		}
 	}
 

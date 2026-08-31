@@ -469,7 +469,7 @@ func (p *Persister) GetUserAllowedStrategies(ctx context.Context, userID string)
 	if err := row.Scan(&raw); err != nil {
 		if err == sql.ErrNoRows {
 			// No active subscription -> FREE default (server-authoritative).
-			return []string{"STANDARD_SWING"}, nil
+			return []string{"STANDARD_SCALPING"}, nil
 		}
 		return nil, err
 	}
@@ -478,9 +478,42 @@ func (p *Persister) GetUserAllowedStrategies(ctx context.Context, userID string)
 		return nil, err
 	}
 	if len(strategies) == 0 {
-		return []string{"STANDARD_SWING"}, nil
+		return []string{"STANDARD_SCALPING"}, nil
 	}
 	return strategies, nil
+}
+
+// GetUserSignalEntitlement returns the strategy IDs a user may view plus the
+// plan's per-day signal cap (0 = unlimited). It mirrors the control plane's
+// getEntitlements so signal visibility and quota are server-authoritative and
+// cannot be bypassed client-side. No active subscription -> FREE default
+// (STANDARD_SCALPING, cap 5/day per the MASTER PROMPT spec).
+func (p *Persister) GetUserSignalEntitlement(ctx context.Context, userID string) (allowed []string, maxPerDay int, err error) {
+	row := p.db.QueryRowContext(ctx, `
+		SELECT COALESCE(NULLIF(s.selected_strategies, '[]'::jsonb), p.allowed_strategies)::text,
+		       COALESCE(p.max_signals_per_day, 0)::int
+		FROM billing.subscriptions s
+		JOIN control.plans p ON p.id = s.plan_id
+		WHERE s.user_id = $1 AND s.status IN ('ACTIVE','TRIAL','GRACE','CANCEL_AT_PERIOD_END')
+		ORDER BY s.created_at DESC LIMIT 1
+	`, userID)
+	var raw string
+	var max int
+	if err := row.Scan(&raw, &max); err != nil {
+		if err == sql.ErrNoRows {
+			// No active subscription -> FREE default (server-authoritative).
+			return []string{"STANDARD_SCALPING"}, 5, nil
+		}
+		return nil, 0, err
+	}
+	var strategies []string
+	if err := json.Unmarshal([]byte(raw), &strategies); err != nil {
+		return nil, 0, err
+	}
+	if len(strategies) == 0 {
+		strategies = []string{"STANDARD_SCALPING"}
+	}
+	return strategies, max, nil
 }
 
 // HealthCheck verifies database connectivity.

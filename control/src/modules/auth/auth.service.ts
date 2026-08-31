@@ -95,9 +95,22 @@ export class AuthService {
     // New users land in PENDING — an admin must approve them before they can
     // log in (login hard-blocks non-ACTIVE at auth.service.ts:198).
     await this.pool.query(
-      `INSERT INTO iam.users (id, email, password_hash, full_name, status, email_verified, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, 'PENDING', false, now(), now())`,
-      [userId, dto.email, passwordHash, dto.displayName || dto.email.split('@')[0]],
+      `INSERT INTO iam.users (
+         id, email, password_hash, full_name, status, email_verified, created_at, updated_at,
+         address_line1, address_line2, city, state_region, postal_code, country,
+         mobile, whatsapp, telegram, instagram_handle, facebook_profile, preferred_broker, referral_source
+       )
+       VALUES (
+         $1, $2, $3, $4, 'PENDING', false, now(), now(),
+         $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+       )`,
+      [
+        userId, dto.email, passwordHash, dto.displayName || dto.email.split('@')[0],
+        dto.addressLine1 ?? null, dto.addressLine2 ?? null, dto.city ?? null, dto.stateRegion ?? null,
+        dto.postalCode ?? null, dto.country ?? null, dto.mobile ?? null, dto.whatsapp ?? null,
+        dto.telegram ?? null, dto.instagramHandle ?? null, dto.facebookProfile ?? null,
+        dto.preferredBroker ?? null, dto.referralSource ?? null,
+      ],
     );
     await this.pool.query(
       `INSERT INTO audit.audit_events (actor_type, actor_id, action, entity_type, entity_id, reason, new_value)
