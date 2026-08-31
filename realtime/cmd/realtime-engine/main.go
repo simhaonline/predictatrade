@@ -1547,8 +1547,27 @@ func main() {
 	// When a MARKET_SNAPSHOT arrives with account_info, hydrate exposure/margin gates
 	// from live broker account data — replaces the dead hydrateBrokerAccountState function.
 	agentProvider.SetBrokerAccountHydrateFn(func(agentID string, account *marketdata.SnapshotAccount, positions *marketdata.SnapshotPositions) {
-		_ = agentID // per-client account state is recorded by AgentProvider.RecordAgentAccount
 		now := time.Now().UTC()
+
+		// DIAGNOSTIC: observe exactly what each agent reports for account equity so
+		// we can confirm the funded (exec) trading account is the one hydrating the
+		// shared margin view, not the Master (data) node's market-data account.
+		if account != nil {
+			log.Printf("[ACCT-FEED] agent=%s data_node=%v equity=%.2f free_margin=%.2f leverage=%d currency=%s",
+				agentID, agentProvider.IsDataNode(agentID), account.Equity, account.FreeMargin, account.Leverage, account.Currency)
+		}
+
+		// SOW/design intent (agent_provider.go ~1208): the Master (data) node is a
+		// pure market-data feed and MUST NOT overwrite the user's trading account's
+		// shared broker/margin view. Only hydrate the shared broker state, the
+		// margin/exposure gates and the server-side SL monitor from the exec
+		// (Client) node — otherwise a small/demo data-feed account (e.g.
+		// free_margin≈2.69) poisons the funded account's risk gates and caps every
+		// lot to 0, blocking all live execution. Per-client state is still recorded
+		// independently by AgentProvider.RecordAgentAccount.
+		if agentProvider.IsDataNode(agentID) {
+			return
+		}
 
 		// v1.15.0 SL ENFORCEMENT (was dead code): scan snapshot positions for
 		// PAT positions missing SL and send CLOSE_POSITION. Wired to run on

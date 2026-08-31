@@ -647,6 +647,8 @@ func (p *AgentProvider) hydrateAccountFromJSON(agentID string, data []byte) {
 	if err := json.Unmarshal(data, &acct); err != nil {
 		return
 	}
+	log.Printf("[ACCT-INIT] agent=%s balance=%.2f equity=%.2f free_margin=%.2f leverage=%d currency=%s broker=%s",
+		agentID, acct.Balance, acct.Equity, acct.FreeMargin, acct.Leverage, acct.Currency, acct.Broker)
 	if acct.Balance <= 0 && acct.Equity <= 0 {
 		return
 	}
