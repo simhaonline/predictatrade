@@ -801,7 +801,18 @@ func (pm *PipeManager) processMessage(line string) {
 
 	case "EXECUTION_ACK":
 		log.Printf("Exec ACK: %s", payload)
-		if pm.wsSender != nil {
+		// CRITICAL: the engine routes by a top-level "type" field
+		// (agent_provider.HandleAgentMessage). Send the ack fields at the top
+		// level WITH a "type":"EXECUTION_ACK" so the engine can route it and run
+		// server-side SL verification / position tracking. Without this the ACK
+		// was dropped (default branch) and the engine stayed blind to fills.
+		var ackMap map[string]interface{}
+		if json.Unmarshal([]byte(payload), &ackMap) == nil {
+			ackMap["type"] = "EXECUTION_ACK"
+			if out, err := json.Marshal(ackMap); err == nil && pm.wsSender != nil {
+				pm.wsSender(out)
+			}
+		} else if pm.wsSender != nil {
 			pm.wsSender([]byte(payload))
 		}
 
@@ -833,8 +844,9 @@ func (pm *PipeManager) processMessage(line string) {
 	case "CLOSE_ACK":
 		// NEW v1.06: Forward position close acknowledgement
 		log.Printf("Close ACK: %s", payload)
+		wrapped := fmt.Sprintf(`{"type":"CLOSE_ACK","payload":%s}`, payload)
 		if pm.wsSender != nil {
-			pm.wsSender([]byte(payload))
+			pm.wsSender([]byte(wrapped))
 		}
 
 	case "TRADE_RESULT":
