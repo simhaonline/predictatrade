@@ -20,6 +20,7 @@ interface DeviceActivation {
   installation_id?: string;
   fingerprint_hash?: string;
   activated_at?: string;
+  terminal_connected?: boolean;
 }
 
 interface UserDevice {
@@ -66,18 +67,20 @@ export default function UserMtClientPage() {
   }>({
     queryKey: ["user-mt-agents"],
     queryFn: async () => {
-      // Derive terminal status from the user's own registered devices
-      // Each device has client_type (MT4/MT5) and connection_status
+      // Terminal link state lives on each device's `activations` array, keyed by
+      // client_type (MT4/MT5) with `terminal_connected` reflecting the live link —
+      // NOT on the device object itself.
       const userDevices = devices || [];
-      const mt4Devices = userDevices.filter((d) => d.client_type === "MT4");
-      const mt5Devices = userDevices.filter((d) => d.client_type === "MT5");
-      const onlineDevices = userDevices.filter((d) => d.connection_status === "ONLINE");
+      const onlineDevices = userDevices.filter((d) => d.status === "ONLINE" || d.connection_status === "ONLINE");
+      const acts = userDevices.flatMap((d) => (d.activations || []) as DeviceActivation[]);
+      const mt4Connected = acts.filter((a) => a.client_type === "MT4" && a.terminal_connected).length;
+      const mt5Connected = acts.filter((a) => a.client_type === "MT5" && a.terminal_connected).length;
       return {
         agents_connected: onlineDevices.length,
         agents_online: onlineDevices.length > 0,
         snapshot_count: 0,
-        mt4_connected: mt4Devices.filter((d) => d.connection_status === "ONLINE").length,
-        mt5_connected: mt5Devices.filter((d) => d.connection_status === "ONLINE").length,
+        mt4_connected: mt4Connected,
+        mt5_connected: mt5Connected,
         backend_reachable: true,
       };
     },

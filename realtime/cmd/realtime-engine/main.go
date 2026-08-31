@@ -190,6 +190,36 @@ func publishConnectionState(agentID string, online bool, mt4, mt5 bool) {
 		return
 	}
 	if online {
+		// Ensure a terminal-activation record exists for each connected terminal so
+		// the user dashboard can reflect the live MT4/MT5 link. The manual
+		// activation flow creates this row too, but the engine only UPDATEs it below
+		// — so if the user/agent never completed the manual step the row would be
+		// missing and the dashboard would show the terminal OFFLINE even though the
+		// agent reports it connected. Seed it idempotently here.
+		for _, tt := range []struct {
+			ct        string
+			connected bool
+		}{{"MT4", mt4}, {"MT5", mt5}} {
+			if !tt.connected {
+				continue
+			}
+			insRes, insErr := globalPersister.GetDB().ExecContext(ctx,
+				`INSERT INTO licensing.device_activations
+				   (id, license_id, device_id, client_type, terminal_connected, last_account_update)
+				 SELECT gen_random_uuid(), d.bound_license_id, d.id, $2::text, true, now()
+				 FROM licensing.devices d WHERE d.id = $1::uuid
+				 AND NOT EXISTS (
+				   SELECT 1 FROM licensing.device_activations da
+				   WHERE da.device_id = $1::uuid AND da.client_type = $2::text)`,
+				deviceID, tt.ct)
+			if insErr != nil {
+				observability.Log.Error().Err(insErr).Str("device_id", deviceID).Str("client_type", tt.ct).
+					Msg("seedActivation: INSERT failed")
+			} else if n, _ := insRes.RowsAffected(); n > 0 {
+				observability.Log.Info().Str("device_id", deviceID).Str("client_type", tt.ct).
+					Msg("seedActivation: created terminal activation row")
+			}
+		}
 		// Reflect the per-terminal MT4/MT5 link state on the device's activations.
 		_, _ = globalPersister.GetDB().ExecContext(ctx,
 			`UPDATE licensing.device_activations SET terminal_connected=$1 WHERE device_id=$2 AND client_type='MT4'`,
