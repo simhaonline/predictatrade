@@ -233,30 +233,50 @@ func (g *TotalCostGate) Evaluate(input GateInput, state GateState) GateEvaluatio
 		StateVersion: state.SourceVersion,
 	}
 
-	if input.TakeProfit1 != 0 && input.EntryPrice != 0 {
-		targetDist := abs(input.TakeProfit1 - input.EntryPrice)
-		if targetDist > 0 && input.RoundTripCost > 0 {
-			costToTarget := input.RoundTripCost / targetDist
-
-			// Bug 6: scalping cost strictness — veto `total_cost` when the
-			// actual round-trip cost exceeds CostToTP1MaxPct of TP1 distance.
-			if g.CostToTP1MaxPct > 0 && g.ScalpingStrategies[input.StrategyID] &&
-				costToTarget > g.CostToTP1MaxPct {
-				if g.Logger != nil {
-					g.Logger.Warn().
-						Str("strategy", string(input.StrategyID)).
-						Float64("round_trip_cost", input.RoundTripCost).
-						Float64("tp1_distance", targetDist).
-						Float64("cost_to_tp1_ratio", costToTarget).
-						Float64("max_cost_to_tp1_pct", g.CostToTP1MaxPct).
-						Msg("[TOTAL_COST] scalping candidate rejected — cost arithmetic")
-				}
-				eval.Result = types.GateVeto
-				eval.ReasonCodes = []string{"total_cost"}
-				return eval
+	if input.EntryPrice != 0 && input.RoundTripCost > 0 {
+		tps := []float64{input.TakeProfit1, input.TakeProfit2, input.TakeProfit3}
+		bestDist := 0.0
+		for _, tp := range tps {
+			if tp == 0 {
+				continue
 			}
+			d := abs(tp - input.EntryPrice)
+			if d > bestDist {
+				bestDist = d
+			}
+		}
 
-			if g.MaxCostToTarget > 0 && costToTarget > g.MaxCostToTarget {
+		// Bug 6: scalping cost strictness — veto `total_cost` when the
+		// actual round-trip cost exceeds CostToTP1MaxPct of TP1 distance.
+		// Scalps exit at TP1, so this is evaluated against TP1 specifically.
+		if g.CostToTP1MaxPct > 0 && g.ScalpingStrategies[input.StrategyID] &&
+			input.TakeProfit1 != 0 {
+			tp1Dist := abs(input.TakeProfit1 - input.EntryPrice)
+			if tp1Dist > 0 {
+				costToTP1 := input.RoundTripCost / tp1Dist
+				if costToTP1 > g.CostToTP1MaxPct {
+					if g.Logger != nil {
+						g.Logger.Warn().
+							Str("strategy", string(input.StrategyID)).
+							Float64("round_trip_cost", input.RoundTripCost).
+							Float64("tp1_distance", tp1Dist).
+							Float64("cost_to_tp1_ratio", costToTP1).
+							Float64("max_cost_to_tp1_pct", g.CostToTP1MaxPct).
+							Msg("[TOTAL_COST] scalping candidate rejected — cost arithmetic")
+					}
+					eval.Result = types.GateVeto
+					eval.ReasonCodes = []string{"total_cost"}
+					return eval
+				}
+			}
+		}
+
+		// General cap evaluated against the FARTHEST target so a multi-TP
+		// strategy (e.g. swing with a close TP1 but far TP2/TP3) is not vetoed
+		// purely on its nearest target.
+		if g.MaxCostToTarget > 0 && bestDist > 0 {
+			costToTarget := input.RoundTripCost / bestDist
+			if costToTarget > g.MaxCostToTarget {
 				eval.Result = types.GateVeto
 				eval.ReasonCodes = []string{string(types.NTTotalCostExceeded)}
 				return eval
@@ -333,27 +353,47 @@ func (g *RRNetExpectancyGate) Evaluate(input GateInput, state GateState) GateEva
 		StateVersion: state.SourceVersion,
 	}
 
-	if input.StopLoss != 0 && input.TakeProfit1 != 0 && input.EntryPrice != 0 {
-		// Geometry sanity: SL and TP must bracket the entry on the correct sides.
-		// A mis-bracketed trade has undefined R:R and must never be executable.
-		if input.Direction == types.DirectionBuy && !(input.StopLoss < input.EntryPrice && input.TakeProfit1 > input.EntryPrice) {
-			eval.Result = types.GateVeto
-			eval.ReasonCodes = []string{string(types.NTPoorRR), "INVALID_SLTP_GEOMETRY"}
-			return eval
+	if input.StopLoss != 0 && input.EntryPrice != 0 {
+		// Geometry sanity: every present TP must bracket the entry on the correct
+		// side. A mis-bracketed trade has undefined R:R and must never be executable.
+		tps := []float64{input.TakeProfit1, input.TakeProfit2, input.TakeProfit3}
+		for _, tp := range tps {
+			if tp == 0 {
+				continue
+			}
+			if input.Direction == types.DirectionBuy && !(tp > input.EntryPrice) {
+				eval.Result = types.GateVeto
+				eval.ReasonCodes = []string{string(types.NTPoorRR), "INVALID_SLTP_GEOMETRY"}
+				return eval
+			}
+			if input.Direction == types.DirectionSell && !(tp < input.EntryPrice) {
+				eval.Result = types.GateVeto
+				eval.ReasonCodes = []string{string(types.NTPoorRR), "INVALID_SLTP_GEOMETRY"}
+				return eval
+			}
 		}
-		if input.Direction == types.DirectionSell && !(input.TakeProfit1 < input.EntryPrice && input.StopLoss > input.EntryPrice) {
-			eval.Result = types.GateVeto
-			eval.ReasonCodes = []string{string(types.NTPoorRR), "INVALID_SLTP_GEOMETRY"}
-			return eval
+		// Assess the BEST (farthest) target so a multi-TP strategy whose TP1 is
+		// close but TP2/TP3 are far is not vetoed on its nearest target alone.
+		bestRR := 0.0
+		for _, tp := range tps {
+			if tp == 0 {
+				continue
+			}
+			d := abs(tp - input.EntryPrice)
+			if d > 0 {
+				rr := d / abs(input.EntryPrice-input.StopLoss)
+				if rr > bestRR {
+					bestRR = rr
+				}
+			}
 		}
-		grossRR := abs(input.TakeProfit1-input.EntryPrice) / abs(input.EntryPrice-input.StopLoss)
 		// Absolute floor: never trade R:R < 1.0 regardless of configuration, so a
 		// mis-set MIN_RR can never admit negative-expectancy trades.
 		minRR := g.MinGrossRR
 		if minRR < 1.0 {
 			minRR = 1.0
 		}
-		if grossRR < minRR {
+		if bestRR < minRR {
 			eval.Result = types.GateVeto
 			eval.ReasonCodes = []string{string(types.NTPoorRR)}
 			return eval

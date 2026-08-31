@@ -75,12 +75,28 @@ func (g *ProfitabilityGate) Evaluate(input GateInput, state GateState) GateEvalu
 
 	// Independent recomputation from the concrete geometry. Only assess when we
 	// have both a score (so the win-rate model is meaningful) and geometry.
-	if input.SignalScore == 0 || input.EntryPrice == 0 || input.StopLoss == 0 || input.TakeProfit1 == 0 {
+	if input.SignalScore == 0 || input.EntryPrice == 0 || input.StopLoss == 0 {
 		// Cannot assess — fail open (data-quality / geometry gates handle absence).
 		return eval
 	}
-	entry, sl, tp1, cost := input.EntryPrice, input.StopLoss, input.TakeProfit1, input.RoundTripCost
-	winDist := absF(tp1 - entry)
+	entry, sl, cost := input.EntryPrice, input.StopLoss, input.RoundTripCost
+	// Assess against the BEST (farthest) target so a multi-TP strategy whose TP1 is
+	// close but TP2/TP3 are far is not vetoed on its nearest target alone.
+	bestWin := 0.0
+	for _, tp := range []float64{input.TakeProfit1, input.TakeProfit2, input.TakeProfit3} {
+		if tp == 0 {
+			continue
+		}
+		d := absF(tp - entry)
+		if d > bestWin {
+			bestWin = d
+		}
+	}
+	if bestWin == 0 {
+		// No usable target — fail open (geometry gates handle absence).
+		return eval
+	}
+	winDist := bestWin
 	lossDist := absF(entry - sl)
 	netWin := winDist - cost
 	netLoss := lossDist + cost

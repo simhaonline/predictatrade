@@ -60,6 +60,8 @@ type GateInput struct {
 	EntryPrice         float64
 	StopLoss           float64
 	TakeProfit1        float64
+	TakeProfit2        float64
+	TakeProfit3        float64
 	RoundTripCost      float64
 	CurrentExposure    float64
 	MaxExposure        float64

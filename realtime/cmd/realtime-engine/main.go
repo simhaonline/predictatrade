@@ -308,44 +308,56 @@ func markBarProcessed(strategyID, symbol string, tf types.Timeframe, barOpenTime
 // present" rule is preserved. This never suppresses signal generation — it only
 // fixes the price levels so the EA does not reject a trade (e.g. a corrupted ATR
 // or structural-pivot computation emitting a negative TP such as -7416).
-func sanitizeSignalLevels(signal *types.Signal) {
-	if signal == nil {
-		return
-	}
-	dir := string(signal.Direction)
+// sanitizeLevels repairs invalid Entry/SL/TP levels in-place on the given
+// decimal fields. dir is the signal direction string
+// (BUY/SELL/BUY_CANDIDATE/SELL_CANDIDATE). It is fail-soft and NON-BLOCKING:
+// it only rewrites a level when it is missing, negative, or on the wrong side
+// of entry. A present-but-valid level is never touched. See sanitizeSignalLevels
+// for the contract.
+//
+// IMPORTANT: this MUST run BEFORE gate evaluation (DecideWithAdvanced), not only
+// at broadcast time. Gates such as wrong_side_sl and total_cost evaluate the raw
+// levels; if an unsanitized (e.g. wrong-side or negative) level reaches them
+// first, they veto a trade that the repair would have made perfectly executable,
+// and the signal is downgraded to ADVISORY before the repair is ever applied.
+func sanitizeLevels(dir string, entry, sl, tp1, tp2, tp3 *decimal.Decimal) {
 	isBuy := dir == "BUY" || dir == "BUY_CANDIDATE"
 	isSell := dir == "SELL" || dir == "SELL_CANDIDATE"
 	if !isBuy && !isSell {
 		return
 	}
-	entry := signal.EntryPrice
-	if entry.LessThanOrEqual(decimal.Zero) {
+	if entry == nil || sl == nil || tp1 == nil || tp2 == nil || tp3 == nil {
+		return
+	}
+	entryVal := *entry
+	if entryVal.LessThanOrEqual(decimal.Zero) {
 		return
 	}
 	// Derive a sane risk distance: prefer a valid SL, else 0.5% of entry.
+	slVal := *sl
 	risk := decimal.Zero
 	if isBuy {
-		if signal.StopLoss.GreaterThan(decimal.Zero) && signal.StopLoss.LessThan(entry) {
-			risk = entry.Sub(signal.StopLoss)
+		if slVal.GreaterThan(decimal.Zero) && slVal.LessThan(entryVal) {
+			risk = entryVal.Sub(slVal)
 		} else {
-			risk = entry.Mul(decimal.NewFromFloat(0.005))
-			signal.StopLoss = entry.Sub(risk)
+			risk = entryVal.Mul(decimal.NewFromFloat(0.005))
+			*sl = entryVal.Sub(risk)
 		}
 	} else {
-		if signal.StopLoss.GreaterThan(decimal.Zero) && signal.StopLoss.GreaterThan(entry) {
-			risk = signal.StopLoss.Sub(entry)
+		if slVal.GreaterThan(decimal.Zero) && slVal.GreaterThan(entryVal) {
+			risk = slVal.Sub(entryVal)
 		} else {
-			risk = entry.Mul(decimal.NewFromFloat(0.005))
-			signal.StopLoss = entry.Add(risk)
+			risk = entryVal.Mul(decimal.NewFromFloat(0.005))
+			*sl = entryVal.Add(risk)
 		}
 	}
 	// Cap risk so a corrupted SL can never produce an absurd target.
-	maxRisk := entry.Mul(decimal.NewFromFloat(0.05))
+	maxRisk := entryVal.Mul(decimal.NewFromFloat(0.05))
 	if risk.GreaterThan(maxRisk) {
 		risk = maxRisk
 	}
 	if risk.LessThanOrEqual(decimal.Zero) {
-		risk = entry.Mul(decimal.NewFromFloat(0.005))
+		risk = entryVal.Mul(decimal.NewFromFloat(0.005))
 	}
 	// Repair TPs only when present-but-invalid (zero means "not used").
 	repairTP := func(tp *decimal.Decimal, rr float64) {
@@ -353,26 +365,78 @@ func sanitizeSignalLevels(signal *types.Signal) {
 		present := !v.IsZero()
 		valid := present
 		if isBuy {
-			valid = valid && v.GreaterThan(entry)
+			valid = valid && v.GreaterThan(entryVal)
 		} else {
-			valid = valid && v.LessThan(entry)
+			valid = valid && v.LessThan(entryVal)
 		}
 		if present && !valid {
 			if isBuy {
-				*tp = entry.Add(risk.Mul(decimal.NewFromFloat(rr)))
+				*tp = entryVal.Add(risk.Mul(decimal.NewFromFloat(rr)))
 			} else {
-				*tp = entry.Sub(risk.Mul(decimal.NewFromFloat(rr)))
+				*tp = entryVal.Sub(risk.Mul(decimal.NewFromFloat(rr)))
 			}
 		}
 	}
-	repairTP(&signal.TP1, 1.0)
-	repairTP(&signal.TP2, 2.0)
-	repairTP(&signal.TP3, 3.0)
+	repairTP(tp1, 1.0)
+	repairTP(tp2, 2.0)
+	repairTP(tp3, 3.0)
+}
+
+func sanitizeSignalLevels(signal *types.Signal) {
+	if signal == nil {
+		return
+	}
+	sanitizeLevels(string(signal.Direction),
+		&signal.EntryPrice, &signal.StopLoss, &signal.TP1, &signal.TP2, &signal.TP3)
+}
+
+// sanitizeStratResult repairs the raw strategy result levels in-place BEFORE
+// gate evaluation so hard gates (wrong_side_sl, total_cost, etc.) see the
+// tradeable (sanitized) levels instead of raw/possibly-corrupt ones.
+func sanitizeStratResult(r *strategy.StrategyResult) {
+	if r == nil {
+		return
+	}
+	sanitizeLevels(string(r.Direction),
+		&r.EntryPrice, &r.StopLoss, &r.TP1, &r.TP2, &r.TP3)
+}
+
+// seedMarketLevels fills a missing (zero) entry price with the current market
+// quote so a directional strategy result can still become an executable signal.
+// Only a missing entry is backfilled; a real strategy-provided entry is never
+// overridden. SL/TP are left for sanitizeLevels to derive from the entry.
+func seedMarketLevels(r *strategy.StrategyResult, bid, ask decimal.Decimal) {
+	if r == nil {
+		return
+	}
+	dir := string(r.Direction)
+	isBuy := dir == "BUY" || dir == "BUY_CANDIDATE"
+	isSell := dir == "SELL" || dir == "SELL_CANDIDATE"
+	if !isBuy && !isSell {
+		return
+	}
+	var market decimal.Decimal
+	if isBuy {
+		market = ask
+	} else {
+		market = bid
+	}
+	if market.LessThanOrEqual(decimal.Zero) {
+		return
+	}
+	if r.EntryPrice.LessThanOrEqual(decimal.Zero) {
+		r.EntryPrice = market
+	}
 }
 
 func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, signal *types.Signal) {
 	if signal == nil {
 		return
+	}
+	// Guarantee a stable, valid signal ID so the delivery ledger (signal_deliveries)
+	// and reconciliation records never receive an empty uuid.
+	if signal.ID == "" {
+		signal.ID = uuid.New().String()
 	}
 	// SERVER-SIDE LEVEL REPAIR (defense-in-depth, non-blocking): guarantee the
 	// EA never receives an invalid level (e.g. negative TP) that it would reject.
@@ -3914,6 +3978,11 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 						spreadNow, _ := mergedState.Spread.Float64()
 						candRoundTripCost := decimal.NewFromFloat(spreadNow + cfg.SlippageCostPoints + cfg.CommissionCostPoints)
 						candEntitlement := gates.ResolveEntitlementState(gateRegistry)
+						// Seed market entry (if strategy gave none) and repair levels
+						// BEFORE gate evaluation so wrong_side_sl / total_cost see
+						// tradeable (not zero/corrupt) levels.
+						seedMarketLevels(&stratResult, mergedState.Bid, mergedState.Ask)
+						sanitizeStratResult(&stratResult)
 						candDecision := engine.DecideWithAdvanced(buildAdvancedInput(sigengine.DecisionInput{
 							MarketClosed: globalAgentProvider != nil && globalAgentProvider.IsMarketClosed(), NextMarketOpen: nextMarketOpen(time.Now().UTC()),
 							StrategyID: strat.ID(), Direction: advDir, Timeframe: candle.Timeframe,
@@ -4300,6 +4369,11 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				break
 			}
 		}
+		// Seed market entry (if strategy gave none) and repair levels BEFORE gate
+		// evaluation so wrong_side_sl / total_cost see tradeable (not zero/corrupt)
+		// levels — otherwise valid trades get vetoed and downgraded to ADVISORY.
+		seedMarketLevels(&stratResult, mergedState.Bid, mergedState.Ask)
+		sanitizeStratResult(&stratResult)
 		decision := engine.DecideWithAdvanced(buildAdvancedInput(sigengine.DecisionInput{
 			MarketClosed: globalAgentProvider != nil && globalAgentProvider.IsMarketClosed(), NextMarketOpen: nextMarketOpen(time.Now().UTC()),
 			StrategyID: strat.ID(), Direction: stratResult.Direction,
@@ -4553,6 +4627,9 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			decision.Signal.AiVerification = aiVerificationStatus(cfg)
 			decision.Signal.RiskDecision = riskDecisionText(decision, string(strat.ID()))
 			decision.Signal.Executable = decision.AllGatesPass && entitlementState.ExecutionPermitted
+			if decision.Signal.ID == "" {
+				decision.Signal.ID = uuid.New().String()
+			}
 			reconciler.RecordSignal(decision.Signal)
 			broadcastSignalToAll(wsHub, agentHub, decision.Signal)
 			if engTracker != nil {

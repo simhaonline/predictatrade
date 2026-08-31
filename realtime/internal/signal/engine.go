@@ -243,6 +243,8 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 		EntryPrice:         toFloat(input.EntryPrice),
 		StopLoss:           toFloat(input.StopLoss),
 		TakeProfit1:        toFloat(input.TP1),
+		TakeProfit2:        toFloat(input.TP2),
+		TakeProfit3:        toFloat(input.TP3),
 		RoundTripCost:      toFloat(input.RoundTripCost),
 		CurrentExposure:    input.CurrentExposure,
 		MaxExposure:        input.MaxExposure,
