@@ -481,14 +481,27 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHu
 		// from their license. If the agent's plan doesn't include this strategy,
 		// the signal is NOT sent to that agent at all.
 		// This is the REAL enforcement — the signal never reaches the EA.
-		agentHub.SendFilteredSignalToAgents(eventID, streamID, "SIGNAL", priority, "1.0.0", payload, string(signal.StrategyID))
+		//
+		// EXECUTABLE signals are delivered ONLY to the primary exec agent per
+		// license (highest version / newest connection) to prevent duplicate
+		// positions when multiple agent instances of the same account are
+		// connected (e.g. a rebuilt v1.2.47 and a stale v1.2.44). ADVISORY
+		// signals still broadcast to every entitled agent for dashboard display.
+		var deliveryRecipients []string
+		if signal.Executable {
+			deliveryRecipients = agentHub.SelectExecutableRecipients()
+			agentHub.SendExecutableSignalToPrimary(eventID, streamID, "SIGNAL", priority, "1.0.0", payload, string(signal.StrategyID))
+		} else {
+			agentHub.SendFilteredSignalToAgents(eventID, streamID, "SIGNAL", priority, "1.0.0", payload, string(signal.StrategyID))
+			deliveryRecipients = agentHub.GetAgentIDs()
+		}
 		// #3 Delivery ledger: record a per-agent delivery state + sequence number
 		// for every entitled agent this signal was routed to (server-side filter
 		// applied). Enables future replay-on-reconnect once the Windows Agent ACKs
 		// signals with (signal_id, device_id). Expiry is swept by the background
 		// MarkExpired ticker.
 		if globalDeliveryMgr != nil {
-			for _, aid := range agentHub.GetAgentIDs() {
+			for _, aid := range deliveryRecipients {
 				if !isStrategyAllowedForAgent(aid, string(signal.StrategyID)) {
 					continue
 				}
@@ -500,7 +513,7 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHu
 		// BE-6: record the delivery leg of reconciliation so ACK-timeout
 		// detection has a stable delivery timestamp to measure against.
 		if globalReconciler != nil {
-			globalReconciler.RecordDelivery(signal.ID, fmt.Sprintf("agents:%d", agentHub.AgentCount()))
+			globalReconciler.RecordDelivery(signal.ID, fmt.Sprintf("agents:%d", len(deliveryRecipients)))
 		}
 		observability.Log.Info().
 			Str("signal_id", signal.ID).
@@ -1932,6 +1945,36 @@ func main() {
 				return false
 			}
 			return agentProvider.AgentAccountOK(agentID)
+		})
+
+		// EXECUTABLE delivery deduplication: map agentID → license_key so only the
+		// primary instance per license receives an executable signal. Cached in
+		// memory; falls back to a single shared bucket when a license can't be
+		// resolved (still prevents duplicate positions across agent instances).
+		var agentLicenseCache = struct {
+			sync.RWMutex
+			m map[string]string
+		}{m: map[string]string{}}
+		agentHub.SetLicenseOfFn(func(agentID string) string {
+			agentLicenseCache.RLock()
+			if l, ok := agentLicenseCache.m[agentID]; ok {
+				agentLicenseCache.RUnlock()
+				return l
+			}
+			agentLicenseCache.RUnlock()
+			if globalPersister != nil {
+				var lic string
+				_ = globalPersister.GetDB().QueryRowContext(context.Background(),
+					`SELECT license_key FROM trading.agent_user_bindings WHERE agent_id = $1 ORDER BY last_seen_at DESC LIMIT 1`,
+					agentID).Scan(&lic)
+				if lic != "" {
+					agentLicenseCache.Lock()
+					agentLicenseCache.m[agentID] = lic
+					agentLicenseCache.Unlock()
+					return lic
+				}
+			}
+			return ""
 		})
 
 		// Ingest/signal decoupling seam. Default = in-process DirectBus

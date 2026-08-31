@@ -892,6 +892,7 @@ void OnTimer()
 
     PAT_Watchdog();
     PAT_HistoryPoll();
+    SendAccountInfo();
 }
 
 void PAT_Watchdog()
@@ -1238,7 +1239,7 @@ void SendTickToAgent()
     if(TickIntervalMs > 0)
     {
         uint elapsed = GetTickCount() - g_lastTickSend;
-        if(elapsed < (uint)TickIntervalMs) return;
+        if(TickIntervalMs != 0 && elapsed < (uint)TickIntervalMs) return;
     }
     g_lastTickSend = GetTickCount();
 
@@ -1283,6 +1284,15 @@ void SendInitMessage()
             else if(type == POSITION_TYPE_SELL) { sellCount++; totalLots += vol; }
         }
     }
+    //--- Ensure we read the equity of the account this EA is bound to, not whatever
+    //    account happens to be active in a multi-account terminal (else the engine
+    //    receives a misread of the wrong account's equity, which can trip risk gates).
+    // MQL5 has no programmatic account switching — the EA always reads the
+    // account currently logged into the terminal. Warn (do not switch) if the
+    // bound account id does not match, so telemetry is never silently wrong.
+    if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
+       Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
+
     string msg = "INIT|{\"ea_version\":\"1.08\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                  "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
                  "\",\"license_key\":\"" + g_licenseKey +
@@ -1294,25 +1304,61 @@ void SendInitMessage()
                  ",\"open_positions\":" + IntegerToString(totalPos) +
                  ",\"buy_positions\":" + IntegerToString(buyCount) +
                  ",\"sell_positions\":" + IntegerToString(sellCount) +
-                 ",\"total_lots\":" + DoubleToString(totalLots, 2) +
-                 ",\"floating_pnl\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
-                 "}\n";
+                  ",\"total_lots\":" + DoubleToString(totalLots, 2) +
+                  ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
+                  ",\"floating_pnl\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
+                  "}\n";
     PAT_Append(PAT_TICK_FILE, msg);
     Print("Init message sent with account data - balance: ", AccountInfoDouble(ACCOUNT_BALANCE));
 }
 
 //+------------------------------------------------------------------+
+//| Periodic account telemetry → engine. Sends equity/free-margin/leverage
+//| every timer tick so the engine's margin gate and lot-sizing can compute
+//| and mark signals EXECUTABLE (without it the engine fails closed).
+//+------------------------------------------------------------------+
+void SendAccountInfo()
+{
+    if(g_connection != "CONNECTED") return;
+    // Ensure we read THIS EA's bound account, not whatever is active.
+    // MQL5 has no programmatic account switching — the EA always reads the
+    // account currently logged into the terminal. Warn (do not switch) if the
+    // bound account id does not match, so telemetry is never silently wrong.
+    if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
+       Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
+    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.08\",\"account\":\"" + g_accountID +
+                 "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
+                 "\",\"symbol\":\"" + g_symbol +
+                 "\",\"currency\":\"" + AccountInfoString(ACCOUNT_CURRENCY) +
+                 "\",\"license_key\":\"" + g_licenseKey +
+                 "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
+                 ",\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) +
+                 ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
+                 ",\"leverage\":" + IntegerToString((int)AccountInfoInteger(ACCOUNT_LEVERAGE)) +
+                 "}\n";
+    PAT_Append(PAT_TICK_FILE, msg);
+}
+
+//+------------------------------------------------------------------+
 void RequestLicenseValidation()
 {
+    //--- Ensure we read the equity of the account this EA is bound to (see INIT above).
+    // MQL5 has no programmatic account switching — the EA always reads the
+    // account currently logged into the terminal. Warn (do not switch) if the
+    // bound account id does not match, so telemetry is never silently wrong.
+    if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
+       Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
+
     string msg = "LICENSE_CHECK|{\"account\":\"" + g_accountID +
                  "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                  "\",\"symbol\":\"" + g_symbol +
                  "\",\"license_key\":\"" + g_licenseKey +
                  "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
                  ",\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) +
-                 ",\"profit\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
-                 ",\"open_positions\":" + IntegerToString(PositionsTotal()) +
-                 "}\n";
+                  ",\"profit\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
+                  ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
+                  ",\"open_positions\":" + IntegerToString(PositionsTotal()) +
+                  "}\n";
     PAT_Append(PAT_TICK_FILE, msg);
     Print("License validation with account data - balance: ", AccountInfoDouble(ACCOUNT_BALANCE));
 }
@@ -1651,6 +1697,16 @@ void HandleSignal(string json)
     if(AvoidSwapCharges && IsNearSwapTime()) { Print("SIGNAL BLOCKED: AvoidSwapCharges + near swap-time (broker ", TimeToString(TimeCurrent(), TIME_MINUTES), ") — NO-TRADE"); g_signalsFiltered++; return; }
     if(IsTripleSwapDay()) { Print("SIGNAL BLOCKED: AvoidTripleSwapDay=true and today is ", TripleSwapDay, " (triple-swap) — ALL signals vetoed, NO-TRADE. Set EA input AvoidTripleSwapDay=false to trade today."); g_signalsFiltered++; return; }
     g_signalsDisplayed++;
+
+    // Only auto-trade CONFIRMED executable signals. ADVISORY / NO_TRADE signals
+    // are displayed for context but must never open a position — this prevents
+    // trading on non-confirmed reads and duplicate fills when both advisory and
+    // executable signals are delivered to the same agent.
+    if(g_signalClass != "EXECUTABLE")
+    {
+        Print("SIGNAL DISPLAY-ONLY: class=", g_signalClass, " — not EXECUTABLE, skip auto-trade");
+        return;
+    }
 
     Print("SIGNAL-EXEC-CHECK dir=", g_signalDirection, " class=", g_signalClass,
           " AutoExecute=", AutoExecute, " ExecuteCandidates=", ExecuteCandidates,

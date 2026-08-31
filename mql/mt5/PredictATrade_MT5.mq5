@@ -1698,6 +1698,16 @@ void HandleSignal(string json)
     if(IsTripleSwapDay()) { Print("SIGNAL BLOCKED: AvoidTripleSwapDay=true and today is ", TripleSwapDay, " (triple-swap) — ALL signals vetoed, NO-TRADE. Set EA input AvoidTripleSwapDay=false to trade today."); g_signalsFiltered++; return; }
     g_signalsDisplayed++;
 
+    // Only auto-trade CONFIRMED executable signals. ADVISORY / NO_TRADE signals
+    // are displayed for context but must never open a position — this prevents
+    // trading on non-confirmed reads and duplicate fills when both advisory and
+    // executable signals are delivered to the same agent.
+    if(g_signalClass != "EXECUTABLE")
+    {
+        Print("SIGNAL DISPLAY-ONLY: class=", g_signalClass, " — not EXECUTABLE, skip auto-trade");
+        return;
+    }
+
     Print("SIGNAL-EXEC-CHECK dir=", g_signalDirection, " class=", g_signalClass,
           " AutoExecute=", AutoExecute, " ExecuteCandidates=", ExecuteCandidates,
           " conn=", g_connection, " lic=", g_licenseStatus);

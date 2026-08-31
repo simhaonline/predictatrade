@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,12 +29,14 @@ type AgentDataProvider interface {
 const maxAgentConnections = 100
 
 type AgentConnection struct {
-	ID       string
-	Role     string // "data" (Master node) | "exec" (Client node) — from ?role= query
-	conn     *websocket.Conn
-	send     chan []byte
-	done     chan struct{} // signals both read and write goroutines to stop
-	doneOnce sync.Once     // guards close of done against double-close panics
+	ID          string
+	Role        string // "data" (Master node) | "exec" (Client node) — from ?role= query
+	Version     string // agent build version (captured from AGENT_TELEMETRY)
+	ConnectedAt time.Time
+	conn        *websocket.Conn
+	send        chan []byte
+	done        chan struct{} // signals both read and write goroutines to stop
+	doneOnce    sync.Once     // guards close of done against double-close panics
 }
 
 // closeDone safely closes the done channel exactly once, even if both the
@@ -64,6 +67,13 @@ type AgentHub struct {
 	// executable signals. Fail-open: nil check (or a nil-returning func) means
 	// all clients pass.
 	riskCheckFn func(agentID string) bool
+
+	// licenseOfFn maps an agentID to its license key. Used to deduplicate
+	// EXECUTABLE signal delivery: only the primary (newest/highest-version)
+	// exec agent per license receives an executable signal, preventing the same
+	// account from opening duplicate positions when multiple agent instances
+	// (e.g. a rebuilt v1.2.47 and a stale v1.2.44) are connected at once.
+	licenseOfFn func(agentID string) string
 
 	// Ingest bus — decouples data-collection (inbound agent messages) from the
 	// signal engine. Default is a DirectBus (in-process, same as before). When
@@ -296,6 +306,151 @@ func (h *AgentHub) BroadcastSignalToAgents(eventID, streamID, eventType, priorit
 	h.mu.RUnlock()
 }
 
+// SetLicenseOfFn registers the agentID→license resolver used for executable
+// delivery deduplication.
+func (h *AgentHub) SetLicenseOfFn(fn func(agentID string) string) {
+	h.mu.Lock()
+	h.licenseOfFn = fn
+	h.mu.Unlock()
+}
+
+// SetAgentVersion records the reported agent build version for an agent.
+func (h *AgentHub) SetAgentVersion(agentID, version string) {
+	h.mu.Lock()
+	if a, ok := h.agents[agentID]; ok {
+		a.Version = version
+	}
+	h.mu.Unlock()
+}
+
+// versionGreater reports whether semantic version a > b (e.g. "1.2.47">"1.2.44").
+// Falls back to lexicographic comparison when a field is not numeric.
+func versionGreater(a, b string) bool {
+	as := strings.Split(a, ".")
+	bs := strings.Split(b, ".")
+	n := len(as)
+	if len(bs) > n {
+		n = len(bs)
+	}
+	for i := 0; i < n; i++ {
+		var ai, bi int
+		if i < len(as) {
+			ai, _ = strconv.Atoi(as[i])
+		}
+		if i < len(bs) {
+			bi, _ = strconv.Atoi(bs[i])
+		}
+		if ai != bi {
+			return ai > bi
+		}
+	}
+	return false
+}
+
+// SelectExecutableRecipients returns the set of exec-agent IDs that should
+// receive an EXECUTABLE signal. To prevent duplicate positions on the same
+// account, at most ONE exec agent per license is returned: the one with the
+// highest reported version, tie-broken by most-recent connection time. Agents
+// whose license is unknown are all collapsed into a single bucket (so a
+// rebuilt agent does not duplicate an older instance of the same account).
+func (h *AgentHub) SelectExecutableRecipients() []string {
+	h.mu.RLock()
+	type cand struct {
+		id  string
+		ver string
+		t   time.Time
+	}
+	byLicense := map[string][]cand{}
+	for id, a := range h.agents {
+		if a.Role != "exec" {
+			continue
+		}
+		lic := "NO_LICENSE"
+		if h.licenseOfFn != nil {
+			if l := h.licenseOfFn(id); l != "" {
+				lic = l
+			}
+		}
+		byLicense[lic] = append(byLicense[lic], cand{id, a.Version, a.ConnectedAt})
+	}
+	h.mu.RUnlock()
+
+	out := make([]string, 0, len(byLicense))
+	for _, cs := range byLicense {
+		best := cs[0]
+		for _, c := range cs[1:] {
+			if versionGreater(c.ver, best.ver) || (c.ver == best.ver && c.t.After(best.t)) {
+				best = c
+			}
+		}
+		out = append(out, best.id)
+	}
+	return out
+}
+
+// SendExecutableSignalToPrimary delivers an EXECUTABLE signal only to the
+// primary exec agent per license (see SelectExecutableRecipients), while still
+// applying the per-agent strategy entitlement and per-client risk filters.
+// Returns the number of agents the signal was actually delivered to.
+func (h *AgentHub) SendExecutableSignalToPrimary(eventID, streamID, eventType, priority, schemaVersion string, payload []byte, strategyID string) int {
+	if len(payload) == 0 {
+		return 0
+	}
+
+	envelope := map[string]interface{}{
+		"event_id":       eventID,
+		"stream_id":      streamID,
+		"schema_version": schemaVersion,
+		"timestamp":      time.Now().UTC(),
+		"type":           eventType,
+		"priority":       priority,
+		"payload":        json.RawMessage(payload),
+	}
+
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return 0
+	}
+
+	recipients := h.SelectExecutableRecipients()
+	h.mu.RLock()
+	sent := 0
+	skipped := 0
+	log.Printf("[SIGNAL-XMIT-PRIMARY] strategy=%s exec_recipients=%d hub_agents=%d", strategyID, len(recipients), len(h.agents))
+	for _, agentID := range recipients {
+		agent, ok := h.agents[agentID]
+		if !ok {
+			continue
+		}
+		allowed := true
+		if h.strategyFilter != nil {
+			allowed = h.strategyFilter(agentID, strategyID)
+		}
+		if !allowed {
+			skipped++
+			continue
+		}
+		if h.riskCheckFn != nil && !h.riskCheckFn(agentID) {
+			skipped++
+			continue
+		}
+		select {
+		case agent.send <- data:
+			sent++
+		default:
+		}
+	}
+	h.mu.RUnlock()
+
+	if sent > 0 {
+		log.Printf("[SIGNAL-DELIVERY-PRIMARY] strategy=%s sent=%d agents", strategyID, sent)
+	}
+	if skipped > 0 {
+		log.Printf("[SIGNAL-FILTER-PRIMARY] strategy=%s sent=%d skipped=%d", strategyID, sent, skipped)
+	}
+	return sent
+}
+
 // SendFilteredSignalToAgents sends a signal only to agents whose license
 // allows the given strategy. This is server-side entitlement enforcement —
 // unauthorized agents never receive signals for strategies they haven't paid for.
@@ -409,11 +564,13 @@ func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) 
 		agentID = uuid.New().String()
 	}
 	agent := &AgentConnection{
-		ID:   agentID,
-		Role: role,
-		conn: conn,
-		send: make(chan []byte, 64),
-		done: make(chan struct{}),
+		ID:          agentID,
+		Role:        role,
+		Version:     "",
+		ConnectedAt: time.Now().UTC(),
+		conn:        conn,
+		send:        make(chan []byte, 64),
+		done:        make(chan struct{}),
 	}
 	h.register <- agent
 
@@ -485,6 +642,7 @@ func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) 
 			var typeCheck struct {
 				Type         string `json:"type"`
 				AgentID      string `json:"agent_id"`
+				Version      string `json:"version"`
 				MT4Connected bool   `json:"mt4_connected"`
 				MT5Connected bool   `json:"mt5_connected"`
 			}
@@ -496,6 +654,11 @@ func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) 
 				if typeCheck.AgentID != "" {
 					log.Printf("[AGENT-WS] Heartbeat from %s: mt4=%v mt5=%v", agentID, typeCheck.MT4Connected, typeCheck.MT5Connected)
 					h.updateAgentTerminals(agentID, typeCheck.MT4Connected, typeCheck.MT5Connected)
+				}
+				// Capture the agent build version reported in AGENT_TELEMETRY so
+				// executable delivery can prefer the newest agent instance.
+				if typeCheck.Type == "AGENT_TELEMETRY" && typeCheck.Version != "" {
+					h.SetAgentVersion(agentID, typeCheck.Version)
 				}
 			}
 			// Route inbound agent message through the ingest bus. Default is the

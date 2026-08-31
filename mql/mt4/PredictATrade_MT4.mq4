@@ -1870,6 +1870,16 @@ void HandleSignal(string json)
 
     g_signalsDisplayed++;
 
+    // Only auto-trade CONFIRMED executable signals. ADVISORY / NO_TRADE signals
+    // are displayed for context but must never open a position — this prevents
+    // trading on non-confirmed reads and duplicate fills when both advisory and
+    // executable signals are delivered to the same agent.
+    if(g_signalClass != "EXECUTABLE")
+    {
+        Print("SIGNAL DISPLAY-ONLY: class=", g_signalClass, " — not EXECUTABLE, skip auto-trade");
+        return;
+    }
+
     if(AutoExecute && g_signalDirection == "BUY")
         ExecuteBuy();
     else if(AutoExecute && g_signalDirection == "SELL")
