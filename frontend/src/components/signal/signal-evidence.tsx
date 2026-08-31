@@ -1,5 +1,6 @@
 "use client";
 import { IconChevronUp, IconShieldCheck, IconBrain, IconListDetails, IconTarget } from "@tabler/icons-react";
+import { strategyLabel } from "@/lib/strategy-labels";
 
 /** Loose source shape — both admin (DiagnosticRecord[]) and user (PillarContributions) shapes are accepted. */
 export interface SignalEvidenceSource {
@@ -138,7 +139,7 @@ export default function SignalEvidencePanel({ sig }: { sig: SignalEvidenceSource
       {/* Header */}
       <div className="flex flex-wrap items-center gap-3">
         <span className={`text-base font-bold ${dirText}`}>{dir}</span>
-        <span className="text-xs text-pat-text-secondary">{sig.StrategyID?.replace(/_/g, " ")}</span>
+        <span className="text-xs text-pat-text-secondary">{strategyLabel(sig.StrategyID)}</span>
         <span className="text-xs text-pat-text-muted">{sig.Symbol || "XAUUSD"}</span>
         <span className="ml-auto flex items-center gap-3 text-xs">
           <span><span className="text-pat-text-muted">Score </span><span className="text-pat-text-primary font-medium">{score > 0 ? score.toFixed(1) : "—"}</span></span>

@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { customInstance } from "@/lib/axios-instance";
+import { strategyLabel } from "@/lib/strategy-labels";
 import { toast } from "sonner";
 import { IconBuildingBank, IconTrendingUp, IconX } from "@tabler/icons-react";
 import StatusBadge from "@/components/ui/status-badge";
@@ -73,7 +74,7 @@ export default function AdminBrokersPage() {
           {strategies.map((s) => (
             <button key={s} onClick={() => setSelectedStrategy(s)}
               className={`rounded px-3 py-1.5 text-xs ${selectedStrategy === s ? "bg-primary text-primary-foreground" : "border border-pat-border text-pat-text-secondary"}`}>
-              {s.replace(/_/g, " ")}
+              {strategyLabel(s)}
             </button>
           ))}
         </div>

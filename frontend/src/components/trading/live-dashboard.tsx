@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getGlobalWs, type WsMessage, type MarketDataEvent, type SignalEvent } from "@/lib/websocket";
 import { rafBatch, RingBuffer } from "@/lib/performance";
+import { strategyLabel } from "@/lib/strategy-labels";
 
 export default function LiveDashboard({ isAdmin }: { isAdmin: boolean }) {
   void isAdmin;
@@ -68,7 +69,7 @@ export default function LiveDashboard({ isAdmin }: { isAdmin: boolean }) {
         <div className="space-y-2">
           {signals.map((s) => (
             <div key={s.id} className="flex items-center justify-between rounded-md bg-pat-bg-surface-secondary px-3 py-2">
-              <div className="text-sm font-medium text-pat-text-primary">{s.direction} <span className="text-pat-text-muted">{s.strategy}</span></div>
+              <div className="text-sm font-medium text-pat-text-primary">{s.direction} <span className="text-pat-text-muted">{strategyLabel(s.strategy)}</span></div>
               <div className="text-xs text-pat-text-secondary">Prob: {(s.probability * 100).toFixed(1)}%</div>
             </div>
           ))}

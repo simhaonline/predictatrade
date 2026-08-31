@@ -2,6 +2,7 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
+import { strategyLabel } from "@/lib/strategy-labels";
 import { getGlobalWs, type WsMessage } from "@/lib/websocket";
 import { format } from "date-fns";
 
@@ -98,7 +99,7 @@ export function SignalPipeline() {
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <span className={`text-xs font-bold ${dirColor(s.Direction)}`}>{s.Direction}</span>
-                    <span className="text-xs text-pat-text-secondary">{s.StrategyID?.replace(/_/g, " ")}</span>
+                    <span className="text-xs text-pat-text-secondary">{strategyLabel(s.StrategyID)}</span>
                     {isCandidate && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-pat-warning/20 text-pat-warning">MICROPROFIT</span>
                     )}

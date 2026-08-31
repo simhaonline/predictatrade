@@ -1,6 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
+import { strategyLabel } from "@/lib/strategy-labels";
 import { IconChartBar } from "@tabler/icons-react";
 
 interface RankRow {
@@ -60,7 +61,7 @@ export default function AdminSignalAccuracyPage() {
               {rows.map((r, i) => (
                 <tr key={r.strategyId} className="hover:bg-pat-table-hover">
                   <td className="px-3 py-3 text-pat-text-muted">{i + 1}</td>
-                  <td className="px-3 py-3 text-pat-text-primary font-medium">{r.strategyId.replace(/_/g, " ")}</td>
+                  <td className="px-3 py-3 text-pat-text-primary font-medium">{strategyLabel(r.strategyId)}</td>
                   <td className="px-3 py-3 text-right tabular-nums">{r.total}</td>
                   <td className="px-3 py-3 text-right tabular-nums">{r.resolved}</td>
                   <td className="px-3 py-3 text-right tabular-nums text-pat-success">{r.wins}</td>

@@ -1,6 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
+import { strategyLabel } from "@/lib/strategy-labels";
 import { IconChartBar, IconLock } from "@tabler/icons-react";
 import { fetchLicenses } from "@/lib/user-licensing-api";
 import { visibleStrategies, planRank } from "@/lib/subscription-access";
@@ -69,7 +70,7 @@ export default function UserSignalAccuracyPage() {
               {visible.map((r, i) => (
                 <tr key={r.strategyId} className="hover:bg-pat-table-hover">
                   <td className="px-3 py-3 text-pat-text-muted">{i + 1}</td>
-                  <td className="px-3 py-3 text-pat-text-primary font-medium">{r.strategyId.replace(/_/g, " ")}</td>
+                  <td className="px-3 py-3 text-pat-text-primary font-medium">{strategyLabel(r.strategyId)}</td>
                   <td className="px-3 py-3 text-right tabular-nums">{r.resolved}</td>
                   <td className="px-3 py-3 text-right tabular-nums text-pat-success">{r.wins}</td>
                   <td className="px-3 py-3 text-right tabular-nums text-pat-danger">{r.losses}</td>

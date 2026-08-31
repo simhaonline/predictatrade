@@ -1,6 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
+import { strategyLabel } from "@/lib/strategy-labels";
 
 interface MarketState {
   MTF?: { Score?: number; States?: Record<string, number> };
@@ -48,7 +49,7 @@ export function MtfPulse({ snapshot }: MtfPulseProps) {
         <h3 className="text-sm font-semibold text-pat-text-primary">Multi-Timeframe Pulse</h3>
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-pat-text-muted">Consensus:</span>
-          <span className={`text-xs font-bold ${consensusColor}`}>{consensus.replace(/_/g, " ")}</span>
+          <span className={`text-xs font-bold ${consensusColor}`}>{strategyLabel(consensus)}</span>
           <span className="text-[10px] text-pat-text-muted">({mtfScore.toFixed(1)})</span>
         </div>
       </div>

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
+import { strategyLabel } from "@/lib/strategy-labels";
 import { getGlobalWs, type WsMessage, type MarketDataEvent, type FeedStatus } from "@/lib/websocket";
 import { rafBatch } from "@/lib/performance";
 import { useServerTime, formatBrokerTime, formatDrift } from "@/lib/use-server-time";
@@ -63,7 +64,7 @@ export function MarketHeader() {
       : entitlements?.allowed_strategies ?? []
   ) as string[];
   const activeStrategyLabel = activeStrategies.length
-    ? activeStrategies.map((s) => s.replace(/_/g, " ")).join(", ")
+    ? activeStrategies.map((s) => strategyLabel(s)).join(", ")
     : "—";
 
   useEffect(() => {

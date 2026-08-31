@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
+import { strategyLabel } from "@/lib/strategy-labels";
 import { getGlobalWs, type ConnectionState } from "@/lib/websocket";
 import { IconChartBar, IconCoins, IconCheck, IconHourglass } from "@tabler/icons-react";
 import { format } from "date-fns";
@@ -564,7 +565,7 @@ function SignalCard({ signal }: { signal: SignalRecord }) {
             signal.Direction === "NO-TRADE" ? "text-pat-text-muted" :
             "text-pat-text-muted"
           }`}>{signal.Direction}</span>
-          <span className="text-xs text-pat-text-muted">{signal.StrategyID?.replace(/_/g, " ") || "Unknown"}</span>
+          <span className="text-xs text-pat-text-muted">{strategyLabel(signal.StrategyID) || "Unknown"}</span>
         </div>
         <div className="flex items-center gap-3 text-xs">
           <span className="text-pat-text-muted">Score: <span className="text-pat-text-primary font-mono">{score.toFixed(1)}</span></span>
@@ -661,7 +662,7 @@ function CompactSignalsView({ signals }: { signals: SignalRecord[] }) {
         <div key={s.ID} className="flex items-center justify-between text-xs rounded-md bg-pat-bg-surface-secondary/30 px-2 py-1.5">
           <div className="flex items-center gap-2">
             <span className={`font-bold ${s.Direction.includes("BUY") ? "text-pat-success" : "text-pat-danger"}`}>{s.Direction.replace("_", " ")}</span>
-            <span className="text-pat-text-muted">{s.StrategyID?.replace(/_/g, " ") || "Unknown"}</span>
+            <span className="text-pat-text-muted">{strategyLabel(s.StrategyID) || "Unknown"}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-pat-text-muted">Score: <span className="font-mono text-pat-text-primary">{parseFloat(s.RawScore || "0").toFixed(1)}</span></span>

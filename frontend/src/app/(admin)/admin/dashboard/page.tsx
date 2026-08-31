@@ -371,7 +371,7 @@ export default function AdminDashboardPage() {
                 <div key={s.id} className="flex items-center justify-between rounded-md bg-pat-bg-surface-secondary px-3 py-2">
                   <div className="flex items-center gap-2">
                     <span className={`text-xs font-bold ${s.direction === "BUY" ? "text-pat-success" : s.direction === "SELL" ? "text-pat-danger" : "text-pat-text-muted"}`}>{s.direction}</span>
-                    <span className="text-xs text-pat-text-muted">{s.strategy.replace(/_/g, ' ')}</span>
+                    <span className="text-xs text-pat-text-muted">{strategyLabel(s.strategy)}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     {s.qualityGrade && <span className="text-[9px] px-1 py-0.5 rounded-full border bg-pat-info/15 text-pat-info">{s.qualityGrade}</span>}
