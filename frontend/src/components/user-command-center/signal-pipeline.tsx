@@ -14,6 +14,7 @@ interface EngineSignal {
   Evidence?: Array<{ pillar?: string; feature?: string; contribution?: string; direction?: string }>;
   ReasonCodes?: string[]; CreatedAt: string; ExpiresAt?: string;
   Regime?: string; Session?: string; Executable?: boolean;
+  SignalClass?: string; // ADVISORY | EXECUTABLE — server-authoritative classification
 }
 
 export function SignalPipeline() {
@@ -91,7 +92,8 @@ export function SignalPipeline() {
             const evidence = s.Evidence ?? [];
             const keyEvidence = evidence.slice(0, 3).map(e => e.feature || e.pillar || "").filter(Boolean);
             const isCandidate = s.Direction.includes("CANDIDATE");
-            const isExecutable = s.Executable;
+            const isExecutable = s.Executable || s.SignalClass === "EXECUTABLE";
+            const isAdvisory = s.SignalClass === "ADVISORY" || (isCandidate && !isExecutable);
 
             return (
               <div key={s.ID} className={`rounded-lg border p-3 ${dirBg(s.Direction)}`}>
@@ -100,7 +102,10 @@ export function SignalPipeline() {
                   <div className="flex items-center gap-2">
                     <span className={`text-xs font-bold ${dirColor(s.Direction)}`}>{s.Direction}</span>
                     <span className="text-xs text-pat-text-secondary">{strategyLabel(s.StrategyID)}</span>
-                    {isCandidate && (
+                    {isAdvisory && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-pat-info/20 text-pat-info" title="Advisory-only — not routed to your terminal for execution">ADVISORY</span>
+                    )}
+                    {isCandidate && !isAdvisory && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-pat-warning/20 text-pat-warning">MICROPROFIT</span>
                     )}
                     {isExecutable && (
