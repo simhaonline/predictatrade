@@ -41,8 +41,8 @@ type Config struct {
 }
 
 func LoadConfig() *Config {
-	liveWS := resolveWSURL("PAT_LIVE_WS_URL", "wss://live.predictatrade.com/ws/v1/agent")
-	dataWS := resolveWSURL("PAT_DATA_WS_URL", "wss://live.predictatrade.com/ws/v1/data")
+	liveWS := resolveWSURL("PAT_LIVE_WS_URL", "wss://api.predictatrade.com/ws/v1/agent")
+	dataWS := resolveWSURL("PAT_DATA_WS_URL", "wss://api.predictatrade.com/ws/v1/data")
 	apiURL := getEnv("PAT_API_URL", "https://api.predictatrade.com/api/v1")
 	mode := getEnv("PAT_AGENT_MODE", "exec")
 	dataDir := getEnv("PAT_DATA_DIR", "C:\\ProgramData\\PredictATrade")

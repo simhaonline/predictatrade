@@ -8,7 +8,7 @@
     Usage:  irm https://downloads.predictatrade.com/windows-agent/master/install.ps1 | iex
 #>
 
-param([string]$EngineHost = "live.predictatrade.com", [string]$LicenseKey = "")
+param([string]$EngineHost = "api.predictatrade.com", [string]$LicenseKey = "")
 
 $root = "https://downloads.predictatrade.com/windows-agent"
 $tmp  = Join-Path $env:TEMP ("pat_install_" + [guid]::NewGuid().ToString("N") + ".ps1")

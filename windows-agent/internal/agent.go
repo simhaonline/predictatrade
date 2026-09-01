@@ -342,7 +342,7 @@ func (a *Agent) Start() error {
 	a.pipeManager.Start()
 	log.Printf("File IPC started at %d folder(s): %v", len(commonDirs), commonDirs)
 
-	// Connect to live.predictatrade.com WebSocket. Supervised so a transient
+	// Connect to api.predictatrade.com WebSocket. Supervised so a transient
 	// panic can never permanently kill the reconnect loop (resilience fix).
 	go a.supervise(a.connectLoop)
 
@@ -789,7 +789,7 @@ func (a *Agent) loadOrCreateDeviceKey() error {
 	return nil
 }
 
-// connectLoop maintains WebSocket connection to live.predictatrade.com
+// connectLoop maintains WebSocket connection to api.predictatrade.com
 func (a *Agent) connectLoop() {
 	for {
 		select {
@@ -889,7 +889,7 @@ func (a *Agent) connect() error {
 	a.conn = conn
 	a.mu.Unlock()
 
-	log.Printf("Connected to live.predictatrade.com")
+	log.Printf("Connected to api.predictatrade.com")
 
 	// W3: send a signed handshake so the server can reject impersonated agents.
 	a.sendWSHandshake()

@@ -1064,7 +1064,7 @@ func main() {
 	}
 	if isAgentProvider {
 		log.Info().Msg("Using AgentProvider — waiting for Windows MT5 Agent connection for real tick data")
-		log.Info().Msg("Connect your MT5 Windows Agent to: wss://live.predictatrade.com/ws/v1/agent")
+		log.Info().Msg("Connect your MT5 Windows Agent to: wss://api.predictatrade.com/ws/v1/agent")
 	}
 
 	// Feature engines

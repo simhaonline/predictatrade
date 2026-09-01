@@ -16,7 +16,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet("client","master")][string]$Mode = "client",
-    [string]$EngineHost = "live.predictatrade.com",
+    [string]$EngineHost = "api.predictatrade.com",
     [string]$BaseUrl = "https://downloads.predictatrade.com/windows-agent",
     # License key for this device. When supplied, it is written to the agent's
     # PAT_LICENSE_KEY machine env so the agent auto-activates the device on first
@@ -80,15 +80,6 @@ function Add-DefenderExclusions {
         if (-not (Test-Path $p)) { New-Item -ItemType Directory -Path $p -Force | Out-Null }
         try { Add-MpPreference -ExclusionPath $p -ErrorAction Stop; $addedOk = $true }
         catch { Write-Host "  WARN: Could not add Defender exclusion (Add-MpPreference) for $p`: $_" }
-        # Best-effort registry fallback — on some Tamper-Protection configs
-        # Add-MpPreference is silently dropped while a direct registry exclusion
-        # still takes effect. Non-fatal.
-        try {
-            $regPath = "HKLM:\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths"
-            if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
-            New-ItemProperty -Path $regPath -Name $p -Value 0 -PropertyType DWord -Force | Out-Null
-            $addedOk = $true
-        } catch {}
     }
     # VERIFY the exclusions actually landed. On Windows 10/11 consumer editions
     # with Tamper Protection ON (default), Add-MpPreference is SILENTLY BLOCKED
