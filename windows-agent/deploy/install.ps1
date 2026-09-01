@@ -200,7 +200,7 @@ if (-not $isAdmin) {
 # ─── NOW RUNNING AS ADMIN ───
 Write-Host ""
 Write-Host "=========================================="
-Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.50"
+Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.51"
 Write-Host "=========================================="
 Write-Host ""
 
@@ -410,21 +410,23 @@ for ($attempt = 1; $attempt -le 4; $attempt++) {
 if (-not $downloadOk -or -not (Test-Path $agentPath) -or (Get-Item $agentPath).Length -lt 1KB) {
     Write-Host ""
     Write-Host "  FATAL: could not place a valid $AgentExe after retries."
-    Write-Host "  Most likely: Windows Defender/Tamper Protection. Do ONE manual step:"
-    Write-Host "    Windows Security > Virus & threat protection > Manage settings >"
-    Write-Host "    Exclusions > Add folder > C:\PredictATrade   (and $env:ProgramData\PredictATrade)"
-    Write-Host "  then simply re-run this command — it will complete automatically."
+    Write-Host "  If this is a PRODUCTION build it MUST be Authenticode-signed with a"
+    Write-Host "  CA code-signing certificate — an unsigned agent is blocked by Windows"
+    Write-Host "  SmartScreen/Defender on customer machines. Use a signed build (set"
+    Write-Host "  PAT_SIGN_CERT when building) or contact the vendor for one."
+    Write-Host "  For LOCAL/dev testing only: add a Windows Security exclusion for"
+    Write-Host "  C:\PredictATrade and re-run."
     if (-not $IsUnattended) { Read-Host "Press Enter to close" }
     exit 1
 }
 $fileSize = (Get-Item $agentPath).Length
 Write-Host "  OK: $AgentExe ready ($([math]::Round($fileSize/1MB, 1)) MB)"
 
-# Step 5b: Stop Windows Defender from blocking the agent. The binary is shipped
-# UNSIGNED (no self-signed or CA signature) by default, which is a supported production
-# path. Defender may quarantine/block it on download/run, so we add a SCOPED exclusion
-# for the agent's own directories. Only attempted when the installer is elevated (RunAs).
-# (Optional: supply a CA code-signing cert via PAT_SIGN_CERT and the binary is signed.)
+# Step 5b: For a SIGNED production build Windows Defender/AV will not quarantine the
+# agent, so this exclusion step is only a fallback for local/unsigned dev builds.
+# Production builds MUST be Authenticode-signed with a CA cert (set PAT_SIGN_CERT when
+# building). The installer still adds a scoped Defender exclusion when elevated, as a
+# harmless safety net for dev/test machines.
 try {
     $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
     if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -470,10 +472,10 @@ try {
     Write-Host "  OK: $AgentExe launched (exit $($warm.ExitCode)) — SmartScreen reputation established."
 } catch {
     Write-Host "  WARN: Could not launch $AgentExe interactively: $($_.Exception.Message.Split("`n")[0])"
-    Write-Host "        Windows SmartScreen is blocking this UNSIGNED binary. Fix (one time):"
-    Write-Host "        - Temporarily turn OFF 'SmartScreen for apps' (Windows Security > App & browser control),"
-    Write-Host "          re-run this installer, then turn it back ON; OR"
-    Write-Host "        - Double-click C:\PredictATrade\Master\$AgentExe once and choose 'Run anyway'."
+    Write-Host "        Windows SmartScreen is blocking this UNSIGNED binary (expected for local/dev builds)."
+    Write-Host "        For LOCAL testing only: double-click C:\PredictATrade\Master\$AgentExe once and choose"
+    Write-Host "        'Run anyway' to allow this machine — or add a Windows Security exclusion for C:\PredictATrade."
+    Write-Host "        PRODUCTION: install a build signed with a CA code-signing certificate instead."
 }
 
 # Step 6: Acquire NSSM (service manager — wraps the agent console binary as a
@@ -694,10 +696,13 @@ if (-not $serviceRunning) {
 
 if (-not $serviceRunning) {
     Write-Host ""
-    Write-Host "  NOT RUNNING after self-healing rounds. One manual step remains:"
-    Write-Host "    1. Windows Security > Virus & threat protection > Exclusions >"
-    Write-Host "       Add folder: C:\PredictATrade  (and $env:ProgramData\PredictATrade)"
-    Write-Host "    2. Re-run this install command — it will finish by itself."
+    Write-Host "  NOT RUNNING after self-healing rounds."
+    Write-Host "  PRODUCTION: the agent binary must be Authenticode-signed with a CA"
+    Write-Host "  code-signing certificate, otherwise Windows blocks it on customer"
+    Write-Host "  machines. Use a signed build (set PAT_SIGN_CERT when building)."
+    Write-Host "  LOCAL/dev only: allow this machine once via Windows Security"
+    Write-Host "  (Exclusions > add C:\PredictATrade) or run the exe and choose"
+    Write-Host "  'Run anyway', then re-run this installer."
     Write-Host ""
 }
 
@@ -712,7 +717,7 @@ try {
     $serverVersion = (Invoke-WebRequest -Uri "$RootUrl/version.txt" -UseBasicParsing -TimeoutSec 10).Content.Trim()
     Write-Host "  Server version: v$serverVersion"
 } catch {
-    $serverVersion = "1.2.50"
+    $serverVersion = "1.2.51"
     Write-Host "  WARN: Could not fetch server version — using default v$serverVersion"
 }
 Set-Content -Path (Join-Path $InstallDir "version.txt") -Value $serverVersion -NoNewline

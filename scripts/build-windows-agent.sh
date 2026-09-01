@@ -106,6 +106,33 @@ EOF
 CLIENT_CHECKSUM_AMD64=""
 MASTER_CHECKSUM_AMD64=""
 
+# ─── Code signing (Authenticode) ───
+# Signs every built .exe with a CA-issued code-signing certificate when
+# PAT_SIGN_CERT (a .pfx) and PAT_SIGN_CERT_PASSWORD are provided. This is what
+# makes Windows SmartScreen/Defender trust the agent on CUSTOMER machines with no
+# prompts and no Defender exclusions. Without it the binary is left UNSIGNED
+# (dev/local only) — customers must NEVER receive an unsigned build. Uses an
+# RFC3161 timestamp so the signature stays valid after the cert expires.
+sign_exe() {
+  local bin="$1"
+  if [[ -z "${PAT_SIGN_CERT:-}" || -z "${PAT_SIGN_CERT_PASSWORD:-}" ]]; then
+    return 0
+  fi
+  if ! command -v osslsigncode >/dev/null 2>&1; then
+    log "WARN: PAT_SIGN_CERT set but osslsigncode not found — binary left UNSIGNED"
+    return 0
+  fi
+  local ts="${PAT_TIMESTAMP_URL:-http://timestamp.digicert.com}"
+  local tmp="${bin}.signed"
+  if osslsigncode sign -pkcs12 "$PAT_SIGN_CERT" -pass "$PAT_SIGN_CERT_PASSWORD" -t "$ts" -h sha256 -in "$bin" -out "$tmp" 2>/dev/null; then
+    mv -f "$tmp" "$bin"
+    log "Signed (Authenticode + RFC3161 timestamp): $bin"
+  else
+    rm -f "$tmp"
+    log "WARN: signing failed for $bin — left UNSIGNED"
+  fi
+}
+
 for role in client master; do
   exe=$( [ "$role" = "client" ] && echo "pat-agent" || echo "pat-master" )
   for arch in "${ARCHES[@]}"; do
@@ -114,6 +141,7 @@ for role in client master; do
     GOTOOLCHAIN=go1.23.0 GOOS=windows GOARCH=$arch CGO_ENABLED=0 go build -trimpath \
       -ldflags="-s -w -X github.com/predictatrade/windows-agent/internal/agent.AgentVersion=$NEW_VERSION" \
       -o "$BIN" "./cmd/$role/" || fatal "$role/$arch build failed"
+    sign_exe "$BIN"
     SUM=$(sha256sum "$BIN" | cut -d' ' -f1)
     log "$role/$arch SHA256: $SUM"
     mkdir -p "$DEPLOY_DIR/$role/$arch"
