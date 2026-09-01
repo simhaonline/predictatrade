@@ -514,15 +514,7 @@ func (h *AgentHub) SendFilteredSignalToAgents(eventID, streamID, eventType, prio
 	}
 }
 
-// HandleAgentWebSocket upgrades and serves a Windows Agent connection.
-// forcedRole, when non-empty, OVERRIDES any client-supplied ?role= query param.
-// This makes the agent's role authoritative by ENDPOINT, not by an unauthenticated
-// client claim: the dedicated data endpoint forces role="data" (Master price feed)
-// and the agent endpoint forces role="exec" (Client trade node). Previously the
-// role was taken verbatim from the client query string, so any authenticated
-// client could connect to /ws/v1/agent?role=data and poison the server-authoritative
-// Entry/SL/TP with its own (wrong) prices — the root cause of "wrong price".
-func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request, forcedRole string) {
+func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Agent authentication.
 	//
 	// Preferred: a per-device JWT minted by the control plane at device
@@ -536,28 +528,6 @@ func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request, 
 	authed := false
 	agentID := r.URL.Query().Get("agentId")
 	role := r.URL.Query().Get("role") // "data" (Master) or "exec" (Client)
-	if forcedRole != "" {
-		// Endpoint-authoritative role: never trust the client-supplied value.
-		role = forcedRole
-	}
-	// CRITICAL price-feed integrity: only the authorized Master (data) node may
-	// feed market price/bars/indicators. Claiming role="data" requires MASTER_TOKEN
-	// when the operator sets it. This closes the spoof where any authenticated
-	// client connected with ?role=data and poisoned Entry/SL/TP with its own (wrong)
-	// price. When MASTER_TOKEN is unset the gate is permissive (legacy behavior) so
-	// an existing Master keeps working; set MASTER_TOKEN to lock it down.
-	if role == "data" {
-		if mt := os.Getenv("MASTER_TOKEN"); mt != "" {
-			provided := r.Header.Get("X-Master-Token")
-			if provided == "" {
-				provided = r.URL.Query().Get("masterToken")
-			}
-			if subtle.ConstantTimeCompare([]byte(provided), []byte(mt)) != 1 {
-				http.Error(w, "master token required", http.StatusForbidden)
-				return
-			}
-		}
-	}
 	if sub, ok := agentAuthJWT(r); ok && sub != "" {
 		authed = true
 		agentID = sub // bind connection identity to the verified credential
