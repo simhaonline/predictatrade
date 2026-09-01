@@ -886,11 +886,17 @@ func (a *Agent) connect() error {
 	} else if a.config.AgentWSToken != "" {
 		reqHeader.Set("X-Agent-Token", a.config.AgentWSToken)
 	}
-	conn, _, err := dialer.Dial(url, reqHeader)
+	conn, resp, err := dialer.Dial(url, reqHeader)
 	if err != nil {
 		// On an auth failure the token may be expired/revoked — clear it so the
-		// next attempt re-bootstraps a fresh one.
-		if strings.Contains(err.Error(), "401") {
+		// next attempt re-bootstraps a fresh one. NOTE: gorilla returns
+		// ErrBadHandshake ("websocket: bad handshake") for every non-101
+		// response — the status code lives on the response, NOT in the error
+		// string. Checking err.Error() for "401" never matched, so a stale or
+		// expired WSToken was never cleared and the agent 401-looped forever
+		// (the 2026-09-01 "WSS URL OFFLINE" incident).
+		if resp != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
+			log.Printf("WARN: backend rejected credentials (HTTP %d) — clearing cached ws token to force re-activation", resp.StatusCode)
 			a.config.WSToken = ""
 		}
 		return err
