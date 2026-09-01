@@ -153,9 +153,20 @@ for role in client master; do
 # windows-agent/<role>/<arch>/<exe>.exe to avoid duplicate files in the deploy tree.
 done
 
-# Per-arch manifests (windows-agent/<role>/<arch>/update-manifest.json) are the
-# ONLY manifests published. The agent fetches the arch-specific one, with the
-# per-arch amd64 manifest as fallback (see agent.go). No role-root manifests.
+# Legacy compatibility manifests: pre-1.2.x agents poll
+#   /windows-agent/update-manifest.json          (root)
+#   /windows-agent/<role>/update-manifest.json   (role root)
+# Without these the old fleet can never self-update (they 404 hourly and stay
+# on their stale build forever). Publish the amd64 manifest at both legacy
+# paths — amd64 is the overwhelmingly common fleet build, and the manifest's
+# download_url still points at the correct arch-specific exe for amd64 hosts.
+# (Modern agents fetch the arch-specific path and never read these.)
+write_manifest client amd64 pat-agent "$CLIENT_CHECKSUM_AMD64"
+cp "$DEPLOY_DIR/client/amd64/update-manifest.json" "$DEPLOY_DIR/update-manifest.json"
+cp "$DEPLOY_DIR/client/amd64/update-manifest.json" "$DEPLOY_DIR/client/update-manifest.json"
+write_manifest master amd64 pat-master "$MASTER_CHECKSUM_AMD64"
+cp "$DEPLOY_DIR/master/amd64/update-manifest.json" "$DEPLOY_DIR/master/update-manifest.json"
+log "Published legacy manifests (root + role-root) for pre-1.2.x agent fleets"
 
 # ─── Step 6: Update version.txt (shared) ───
 echo -n "$NEW_VERSION" > "$VERSION_FILE"

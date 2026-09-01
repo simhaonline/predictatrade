@@ -37,6 +37,8 @@ $IsUnattended = $Unattended
 if ([string]::IsNullOrWhiteSpace($BaseUrl) -or $BaseUrl -eq "https://downloads.predictatrade.com/windows-agent") {
     $BaseUrl = "https://downloads.predictatrade.com/windows-agent"
 }
+# NOTE: $RoleDir is defined further below (after the role param block); the
+# stale-wrapper normalization that needs it lives right after its definition.
 
 # ─── Self-logging ───
 # The install is launched by a wrapper that elevates via -Verb RunAs, which spawns
@@ -154,6 +156,16 @@ $NssmExe     = "nssm.exe"
 # MT5/MT4 are x64, but we ship amd64/386/arm64 so the agent runs on any Windows
 # and the installer never fails on an unusual architecture.
 $RoleDir = if ($Mode -eq "master") { "master" } else { "client" }
+
+# Defensive normalization: older bootstrap wrappers passed -BaseUrl with the
+# role already appended (…/windows-agent/master), and the download URL below
+# appends $RoleDir again → master/master/… → 404 (2026-09-01 incident).
+# Strip a trailing role segment so the download URL is correct either way.
+$roleSuffix = "/$RoleDir"
+if ($BaseUrl.ToLower().EndsWith($roleSuffix)) {
+    Write-Host "[config] BaseUrl already includes role suffix '$roleSuffix' — normalizing (stale wrapper detected)"
+    $BaseUrl = $BaseUrl.Substring(0, $BaseUrl.Length - $roleSuffix.Length)
+}
 $rawArch = $env:PROCESSOR_ARCHITECTURE
 # On ARM64 Windows a 32-bit (x86/WOW64) PowerShell reports PROCESSOR_ARCHITECTURE
 # = "x86" and the real arch in PROCESSOR_ARCHITEW6432 = "ARM64". Account for that so

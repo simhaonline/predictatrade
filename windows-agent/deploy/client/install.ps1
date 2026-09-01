@@ -20,11 +20,11 @@ try {
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if ($isAdmin) {
     # Already elevated — run inline so output is visible in THIS terminal.
-    & powershell.exe -ExecutionPolicy Bypass -NoProfile -File "$tmp" -Mode client -BaseUrl "$BaseUrl/client"
+    & powershell.exe -ExecutionPolicy Bypass -NoProfile -File "$tmp" -Mode client -BaseUrl "$BaseUrl"
     exit $LASTEXITCODE
 }
 
 # Not elevated: request elevation. Output will appear in the new elevated window
 # and is also captured to %TEMP%\pat_install_client.log by install.ps1 itself.
-$p = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy","Bypass","-NoProfile","-File","`"$tmp`"","-Mode","client","-BaseUrl","$BaseUrl/client" -Verb RunAs -Wait -PassThru
+$p = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy","Bypass","-NoProfile","-File","`"$tmp`"","-Mode","client","-BaseUrl","$BaseUrl" -Verb RunAs -Wait -PassThru
 exit $p.ExitCode
