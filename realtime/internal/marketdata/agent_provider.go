@@ -1149,6 +1149,13 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 			log.Printf("[marketdata] MARKET_SNAPSHOT unmarshal failed (agent=%s): %v — payload snippet: %s", agentID, err, string(raw))
 			return
 		}
+		// Normalize broker-specific symbol variants (XAUUSD.sd / .e / .m / GOLD.sb …)
+		// to the canonical "XAUUSD" BEFORE storing into MarketState. Without this the
+		// master feed (e.g. Equiti's "XAUUSD.sd") is persisted under that raw symbol,
+		// so any consumer keyed on "XAUUSD" — the dashboard market feed — never
+		// receives the fresh tick and shows a stale price. normalizeSymbol is the
+		// engine's single source of truth for this; apply it here at intake.
+		snapshot.Symbol = normalizeSymbol(snapshot.Symbol)
 		p.snapshotMu.Lock()
 		p.lastSnapshot = &snapshot
 		p.snapshotCount++
