@@ -287,6 +287,21 @@ $ServiceEnvVars = @(
     "$EngineEnvVar=$EngineWsUrl",
     "PAT_API_URL=$ApiBaseUrl"
 )
+# Shared agent WS token (AGENT_WS_TOKEN) — the engine requires it on the agent
+# WebSocket upgrade (legacy/shared auth path, used by license-less Master
+# Nodes). The build script injects the deploy-wide value below (placeholder
+# 'REDACTED_ROTATED'); never commit the real value anywhere else. Written BOTH
+# as a per-service env var and to windows-agent.env next to the exe, which is
+# where the agent's resolveAgentWSToken() looks (exe dir + PAT_DATA_DIR).
+$AgentWsToken = "@AGENT_WS_TOKEN@"
+if (-not [string]::IsNullOrWhiteSpace($AgentWsToken) -and $AgentWsToken -ne "REDACTED_ROTATED") {
+    $ServiceEnvVars += "AGENT_WS_TOKEN=$AgentWsToken"
+    $agentEnvFile = Join-Path $InstallDir "windows-agent.env"
+    Set-Content -Path $agentEnvFile -Value "AGENT_WS_TOKEN=$AgentWsToken" -Encoding ASCII
+    Write-Host "  OK: Agent shared WS token written (service env + $agentEnvFile)"
+} else {
+    Write-Host "  WARN: AGENT_WS_TOKEN not embedded in this installer build — agents with no license key CANNOT authenticate to the engine WS"
+}
 Write-Host "  OK: Engine URL ($RoleLabel) = $EngineWsUrl"
 Write-Host "  OK: Control API URL = $ApiBaseUrl"
 Write-Host "  OK: Auto-update service name = $ServiceName"

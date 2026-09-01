@@ -180,6 +180,24 @@ if [[ -f "$INSTALL_PS1" ]]; then
     log "Updated install.ps1 version strings → v$NEW_VERSION"
 fi
 
+# ─── Step 6c: Embed the shared agent WS token into the installer ───
+# The engine requires AGENT_WS_TOKEN on the agent WebSocket (license-less
+# Master Nodes have no other credential). Without it every agent dial 401s
+# forever (2026-09-01 incident). The token lives ONLY in infra/env (gitignored);
+# the build injects it into the SERVED installer, never into git.
+TOKEN_SOURCE="$ROOT_DIR/infra/env/windows-agent.env"
+if [[ -f "$TOKEN_SOURCE" ]] && grep -q "^AGENT_WS_TOKEN=" "$TOKEN_SOURCE"; then
+    WS_TOKEN=$(grep "^AGENT_WS_TOKEN=" "$TOKEN_SOURCE" | head -1 | cut -d= -f2-)
+    if [[ -n "$WS_TOKEN" ]]; then
+        sed -i "s|@AGENT_WS_TOKEN@|$WS_TOKEN|" "$INSTALL_PS1"
+        log "Embedded AGENT_WS_TOKEN into install.ps1 (served copy)"
+    else
+        log "WARN: infra/env/windows-agent.env AGENT_WS_TOKEN is empty — installer will warn at install time"
+    fi
+else
+    log "WARN: infra/env/windows-agent.env not found — installer built WITHOUT AGENT_WS_TOKEN"
+fi
+
 # ─── Step 8: Verify live endpoints ───
 log "Verifying live download endpoints..."
 for ep in \
