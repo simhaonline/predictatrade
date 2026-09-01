@@ -1,13 +1,30 @@
 <#
-.SYNOPSIS   Predict-A-Trade XAUUSD — Windows Client Agent Installer
+.SYNOPSIS
+    Predict-A-Trade XAUUSD — Windows Client Agent Installer
 .DESCRIPTION
-    Thin role wrapper kept in the client folder for organization. It delegates to
-    the canonical installer (windows-agent/deploy/install.ps1) in client mode.
+    Installs the Predict-A-Trade Windows Client Agent (execution role) as a
+    Windows service. The Client Agent connects to the engine EXEC port 13081 and
+    is authorized to place/close XAUUSD orders on behalf of subscribed users.
     Usage:  irm https://downloads.predictatrade.com/windows-agent/client/install.ps1 | iex
 #>
+
+$BaseUrl = "https://downloads.predictatrade.com/windows-agent"
+$tmp = Join-Path $env:TEMP ("pat_install_client_" + [guid]::NewGuid().ToString("N") + ".ps1")
 try {
-    irm "https://downloads.predictatrade.com/windows-agent/install-client.ps1" | iex
+    Invoke-WebRequest -Uri "$BaseUrl/install.ps1" -OutFile $tmp -UseBasicParsing -TimeoutSec 30 -Headers @{ "Cache-Control" = "no-cache" }
 } catch {
-    Write-Host "[client/install] ERROR: failed to start installer: $_"
+    Write-Host "[install-client] ERROR: failed to download installer: $_"
     exit 1
 }
+
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($isAdmin) {
+    # Already elevated — run inline so output is visible in THIS terminal.
+    & powershell.exe -ExecutionPolicy Bypass -NoProfile -File "$tmp" -Mode client -BaseUrl "$BaseUrl/client"
+    exit $LASTEXITCODE
+}
+
+# Not elevated: request elevation. Output will appear in the new elevated window
+# and is also captured to %TEMP%\pat_install_client.log by install.ps1 itself.
+$p = Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy","Bypass","-NoProfile","-File","`"$tmp`"","-Mode","client","-BaseUrl","$BaseUrl/client" -Verb RunAs -Wait -PassThru
+exit $p.ExitCode

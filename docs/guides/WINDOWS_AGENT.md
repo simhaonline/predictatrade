@@ -180,8 +180,8 @@ The download server serves `windows-agent/deploy/` at `https://downloads.predict
 | File | Purpose |
 |------|---------|
 | `install.ps1` | Shared installer (role selected via `-Mode client\|master`). |
-| `install-client.ps1` | Thin wrapper → installs `pat-agent-client` (exec, port 13081). |
-| `install-master.ps1` | Thin wrapper → installs `pat-agent-master` (data, port 13091). |
+| `client/install.ps1` | Thin wrapper → installs `pat-agent-client` (exec, port 13081). |
+| `master/install.ps1` | Thin wrapper → installs `pat-agent-master` (data, port 13091). |
 | `uninstall.ps1` | Uninstaller (role-aware via `-Mode client\|master\|all`; always removes both). |
 | `status.ps1` | Status report (role-aware via `-Mode`). |
 | `health-check.ps1` | Hang/crash monitor (role-aware via `-Mode`); used by Scheduled Task. |

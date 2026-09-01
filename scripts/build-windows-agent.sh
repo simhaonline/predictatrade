@@ -37,12 +37,8 @@ DEPLOY_MASTER_DIR="$DEPLOY_DIR/master"
 
 DEPLOY_CLIENT_EXE="$DEPLOY_CLIENT_DIR/pat-agent.exe"
 DEPLOY_MASTER_EXE="$DEPLOY_MASTER_DIR/pat-master.exe"
-DEPLOY_ROOT_CLIENT_EXE="$DEPLOY_DIR/pat-agent.exe"
-DEPLOY_ROOT_MASTER_EXE="$DEPLOY_DIR/pat-master.exe"
 
 VERSION_FILE="$DEPLOY_DIR/version.txt"
-CLIENT_MANIFEST="$DEPLOY_DIR/update-manifest.json"
-MASTER_MANIFEST="$DEPLOY_MASTER_DIR/update-manifest.json"
 VERSION_GO="$AGENT_DIR/internal/version.go"
 
 # ─── Helpers ───
@@ -152,37 +148,14 @@ for role in client master; do
       if [ "$role" = "client" ]; then CLIENT_CHECKSUM_AMD64=$SUM; else MASTER_CHECKSUM_AMD64=$SUM; fi
     fi
   done
-  # Role-root (amd64) copy kept for backward-compatibility / simplest URLs
-  cp "$DEPLOY_DIR/$role/amd64/$exe.exe" "$DEPLOY_DIR/$role/$exe.exe"
-  chmod 0644 "$DEPLOY_DIR/$role/$exe.exe"
+
+# NOTE: no root/role-root binary copies. Each arch lives ONLY at
+# windows-agent/<role>/<arch>/<exe>.exe to avoid duplicate files in the deploy tree.
 done
 
-# Legacy deploy-root copies (older installers / direct links)
-cp "$DEPLOY_DIR/client/amd64/pat-agent.exe" "$DEPLOY_ROOT_CLIENT_EXE"
-cp "$DEPLOY_DIR/master/amd64/pat-master.exe" "$DEPLOY_ROOT_MASTER_EXE"
-chmod 0644 "$DEPLOY_ROOT_CLIENT_EXE" "$DEPLOY_ROOT_MASTER_EXE"
-
-# Role-root manifests (amd64) — what pre-multi-arch agents fetch as fallback
-cat > "$CLIENT_MANIFEST" << EOF
-{
-    "version": "$NEW_VERSION",
-    "download_url": "https://downloads.predictatrade.com/windows-agent/client/pat-agent.exe",
-    "checksum": "$CLIENT_CHECKSUM_AMD64",
-    "min_version": "1.0.0",
-    "release_notes": "v$NEW_VERSION — Windows Agent (Client).",
-    "timestamp": "$TIMESTAMP"
-}
-EOF
-cat > "$MASTER_MANIFEST" << EOF
-{
-    "version": "$NEW_VERSION",
-    "download_url": "https://downloads.predictatrade.com/windows-agent/master/pat-master.exe",
-    "checksum": "$MASTER_CHECKSUM_AMD64",
-    "min_version": "1.0.0",
-    "release_notes": "v$NEW_VERSION — Windows Master Node (data-only).",
-    "timestamp": "$TIMESTAMP"
-}
-EOF
+# Per-arch manifests (windows-agent/<role>/<arch>/update-manifest.json) are the
+# ONLY manifests published. The agent fetches the arch-specific one, with the
+# per-arch amd64 manifest as fallback (see agent.go). No role-root manifests.
 
 # ─── Step 6: Update version.txt (shared) ───
 echo -n "$NEW_VERSION" > "$VERSION_FILE"
@@ -199,8 +172,8 @@ fi
 # ─── Step 8: Verify live endpoints ───
 log "Verifying live download endpoints..."
 for ep in \
-    "windows-agent/client/pat-agent.exe" \
-    "windows-agent/master/pat-master.exe" \
+    "windows-agent/client/amd64/pat-agent.exe" \
+    "windows-agent/master/amd64/pat-master.exe" \
     "windows-agent/client/amd64/pat-agent.exe" \
     "windows-agent/client/386/pat-agent.exe" \
     "windows-agent/client/arm64/pat-agent.exe" \

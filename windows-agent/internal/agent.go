@@ -364,7 +364,7 @@ func (a *Agent) Start() error {
 	arch := runtime.GOARCH // amd64, 386, arm64
 	defaultManifest := fmt.Sprintf("https://downloads.predictatrade.com/windows-agent/%s/%s/update-manifest.json", roleDir, arch)
 	manifestURL := getEnv("PAT_UPDATE_MANIFEST_URL", defaultManifest)
-	fallbackManifest := fmt.Sprintf("https://downloads.predictatrade.com/windows-agent/%s/update-manifest.json", roleDir)
+	fallbackManifest := fmt.Sprintf("https://downloads.predictatrade.com/windows-agent/%s/amd64/update-manifest.json", roleDir)
 	defaultSvc := "pat-agent-client"
 	if a.role == "data" {
 		defaultSvc = "pat-agent-master"

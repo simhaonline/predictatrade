@@ -26,12 +26,12 @@ Client and a Master Node run side-by-side on one Windows box.
 
 ### Client Agent (execution)
 ```powershell
-irm https://downloads.predictatrade.com/windows-agent/install-client.ps1 | iex
+irm https://downloads.predictatrade.com/windows-agent/client/install.ps1 | iex
 ```
 
 ### Master Node (data-only)
 ```powershell
-irm https://downloads.predictatrade.com/windows-agent/install-master.ps1 | iex
+irm https://downloads.predictatrade.com/windows-agent/master/install.ps1 | iex
 ```
 
 The installer:
@@ -126,7 +126,7 @@ irm https://downloads.predictatrade.com/windows-agent/update-client.ps1 | iex
 irm https://downloads.predictatrade.com/windows-agent/update-master.ps1 | iex
 ```
 
-> Re-running the installer (`install-client.ps1` / `install-master.ps1`) performs
+> Re-running the installer (`client/install.ps1` / `master/install.ps1`) performs
 > the same update; the `update-*.ps1` scripts are thin aliases for clarity.
 > The agent also self-updates hourly, so most fixes arrive automatically.
 
@@ -258,8 +258,8 @@ Shared (both roles): `C:\ProgramData\PredictATrade\logs\` (service logs),
 | File | Purpose |
 |------|---------|
 | `install.ps1` | Shared installer (role selected via `-Mode client|master`). **Before stopping/starting the service it kills any leftover background `cmd`/agent process** so a stale process can't hold the port/file lock. |
-| `install-client.ps1` | Thin wrapper → installs `pat-agent-client` (exec, port 13081). |
-| `install-master.ps1` | Thin wrapper → installs `pat-agent-master` (data, port 13091). |
+| `client/install.ps1` | Thin wrapper → installs `pat-agent-client` (exec, port 13081). |
+| `master/install.ps1` | Thin wrapper → installs `pat-agent-master` (data, port 13091). |
 | `update.ps1` | Shared updater (role via `-Mode client|master`); stops service, kills background cmd/agent, swaps the SHA256-verified binary, restarts. |
 | `update-client.ps1` | Thin wrapper → updates `pat-agent-client`. |
 | `update-master.ps1` | Thin wrapper → updates `pat-agent-master`. |
@@ -336,8 +336,8 @@ agent records `UNKNOWN` → the EA denies access.
 
 Fix — re-run the installer (it now pins the correct value):
 ```powershell
-irm https://downloads.predictatrade.com/windows-agent/install-client.ps1 | iex
-irm https://downloads.predictatrade.com/windows-agent/install-master.ps1 | iex
+irm https://downloads.predictatrade.com/windows-agent/client/install.ps1 | iex
+irm https://downloads.predictatrade.com/windows-agent/master/install.ps1 | iex
 ```
 Or set it manually and restart both services:
 ```powershell
