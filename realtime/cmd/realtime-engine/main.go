@@ -1660,14 +1660,28 @@ func main() {
 	go func() {
 		staleTicker := time.NewTicker(2 * time.Second)
 		defer staleTicker.Stop()
-		const feedStaleAfter = 15 * time.Second
+		// 90s matches the data-health STALE window used by /api/v1/agents/status
+		// (and the authoritative signal-gating StaleChecker). A tighter window
+		// falsely flagged the feed STALE because the Master Node streams ticks in
+		// bursts (snapshots every ~30-60s); we must not mark candles stale while
+		// real market data is still arriving.
+		const feedStaleAfter = 90 * time.Second
 		sym := normalizeXAUUSD("XAUUSD")
 		for range staleTicker.C {
 			st := stateMgr.Get(sym)
 			if st == nil {
 				continue
 			}
-			stale := time.Since(st.Timestamp) > feedStaleAfter
+			// Base freshness on the actual last market-data arrival (tick OR
+			// snapshot) reported by the provider, not only st.Timestamp (which
+			// advances solely on raw ticks and lags during bursty gaps).
+			lastData := st.Timestamp
+			if globalAgentProvider != nil {
+				if t := globalAgentProvider.LastMarketDataAt(); !t.IsZero() {
+					lastData = t
+				}
+			}
+			stale := time.Since(lastData) > feedStaleAfter
 			stateMgr.Update(sym, func(s *features.MarketState) {
 				for tf, c := range s.Candles {
 					if c == nil || c.IsClosed {

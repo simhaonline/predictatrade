@@ -1130,7 +1130,13 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		// CRITICAL: market snapshots (price/bars/indicators) come ONLY from the
 		// Master (data) node. Client (exec) nodes send account/trade data only and
 		// must never feed the snapshot pipeline (would mix a client terminal's
-		// price into signal generation). Ignore client snapshots entirely.
+		// price into signal generation).
+		// A MARKET_SNAPSHOT is itself authoritative proof the sender is the data
+		// node. Establish the role here so the feed survives engine restarts — the
+		// Master EA does NOT re-send MASTER_INIT on reconnect, so without this the
+		// reconnected data node's role is lost and every snapshot is silently
+		// dropped (NO_DATA / STALE). SetAgentRole keeps any existing data role.
+		p.SetAgentRole(agentID, "data")
 		if !p.IsDataNode(agentID) {
 			return
 		}

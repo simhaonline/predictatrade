@@ -73,7 +73,20 @@ func (h *HTTPServer) handleFeeds(w http.ResponseWriter, r *http.Request) {
 			"last_snapshot":   lastSnapshot,
 		},
 		"divergence": map[string]interface{}{
-			"status":      func() string { if latencyP50 > 5000 { return "degraded" }; return "ok" }(),
+			// Snapshot cadence is bursty by design (Master Node streams
+			// snapshots every ~30-60s). Flag degraded/stale only when data is
+			// genuinely slow/stopped — matching the 90s/180s data-health windows
+			// used by /api/v1/agents/status (not a 5s false-positive).
+			"status": func() string {
+				switch {
+				case latencyP50 >= 180000:
+					return "stale"
+				case latencyP50 >= 90000:
+					return "degraded"
+				default:
+					return "ok"
+				}
+			}(),
 			"last_tick_age_ms": int64(latencyP50),
 		},
 		"tick_rate": map[string]interface{}{
