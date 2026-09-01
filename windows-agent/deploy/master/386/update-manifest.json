@@ -1,8 +1,8 @@
 {
     "version": "1.2.55",
     "download_url": "https://downloads.predictatrade.com/windows-agent/master/386/pat-master.exe",
-    "checksum": "cdef6c89569cbf4a57ac6c576c5a1b60d504e082217063c4bdde96d1689e0265",
+    "checksum": "febfec2ac84d73468ef8765c6d3ed5535fffce281cd37169989ed1cbe28554d8",
     "min_version": "1.0.0",
     "release_notes": "v1.2.55 — Windows Agent (master). Multi-arch build (386): pat-master.exe.",
-    "timestamp": "2026-09-01T13:28:34Z"
+    "timestamp": "2026-09-01T13:29:25Z"
 }

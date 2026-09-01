@@ -1,8 +1,8 @@
 {
     "version": "1.2.55",
     "download_url": "https://downloads.predictatrade.com/windows-agent/master/amd64/pat-master.exe",
-    "checksum": "f4ce61aca8fcfedaa51b383249ae4f04e395122f250b4563064fb8ed501cb104",
+    "checksum": "2a67b3ae4f9dacfce4b84fd4817dd69c059f6945e0469a13b0a209a6933a30e1",
     "min_version": "1.0.0",
     "release_notes": "v1.2.55 — Windows Agent (master). Multi-arch build (amd64): pat-master.exe.",
-    "timestamp": "2026-09-01T13:28:34Z"
+    "timestamp": "2026-09-01T13:29:25Z"
 }
