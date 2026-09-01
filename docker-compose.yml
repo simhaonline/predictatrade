@@ -399,12 +399,16 @@ services:
     # aws-cli image sets ENTRYPOINT=aws; override so the shell loop below runs
     # under /bin/sh instead of being passed to `aws` as a subcommand.
     entrypoint: ["/bin/sh", "-c"]
-    command: >
-      while true; do
-        echo \"[backup-sync] $$(date -u) syncing /pgdata/wal_archive -> s3://$${S3_BUCKET}/$${S3_PREFIX}\";
-        aws s3 sync /pgdata/wal_archive s3://$${S3_BUCKET}/$${S3_PREFIX} --endpoint-url $${S3_ENDPOINT} --no-progress 2>&1 || echo '[backup-sync] sync failed, retrying';
-        sleep 60;
-      done
+    # The loop must arrive at `sh -c` as ONE argument. List form guarantees it
+    # (a folded scalar block is word-split by compose into separate Cmd entries,
+    # so only "while true" reached sh and the container syntax-error looped).
+    command:
+      - |
+        while true; do
+          echo "[backup-sync] $$(date -u) syncing /pgdata/wal_archive -> s3://$${S3_BUCKET}/$${S3_PREFIX}";
+          aws s3 sync /pgdata/wal_archive s3://$${S3_BUCKET}/$${S3_PREFIX} --endpoint-url $${S3_ENDPOINT} --no-progress 2>&1 || echo '[backup-sync] sync failed, retrying';
+          sleep 60;
+        done
 
 volumes:
   pat-mail-spool:
