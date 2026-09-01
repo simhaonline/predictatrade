@@ -101,9 +101,10 @@ export default function UserMtClientPage() {
   };
 
   const downloadFiles = [
-    { name: "Windows Agent (Installer)", file: "https://downloads.predictatrade.com/windows-agent/install.ps1", desc: "Automated installer — run in PowerShell as Administrator", size: "9.2 MB", icon: IconBrandWindows, type: "exe", primary: true },
-    { name: "MT5 Expert Advisor (Compiled)", file: "/downloads/Predict-A-Trade.ex5", desc: "Pre-compiled EA for MetaTrader 5 — ready to use, no compilation needed", size: "128 KB", icon: IconTerminal2, type: "ex5" },
-    { name: "MT4 Expert Advisor (Compiled)", file: "/downloads/PredictATrade.ex4", desc: "Pre-compiled EA for MetaTrader 4 — ready to use, no compilation needed", size: "104 KB", icon: IconTerminal2, type: "ex4" },
+    { name: "Windows Agent (Client) — Installer", file: "https://downloads.predictatrade.com/windows-agent/client/install.ps1", desc: "Execution agent — run in PowerShell as Administrator (auto-selects amd64 / 386 / arm64)", size: "~7.6 MB", icon: IconBrandWindows, type: "ps1", primary: true },
+    { name: "Windows Master Node — Installer", file: "https://downloads.predictatrade.com/windows-agent/master/install.ps1", desc: "Data-only node — feeds live market data (run in PowerShell as Administrator)", size: "~7.6 MB", icon: IconBrandWindows, type: "ps1" },
+    { name: "MT5 Expert Advisor (Compiled)", file: "https://downloads.predictatrade.com/mql/compiled_executable/Predict-A-Trade.ex5", desc: "Pre-compiled EA for MetaTrader 5 — ready to use, no compilation needed", size: "128 KB", icon: IconTerminal2, type: "ex5" },
+    { name: "MT4 Expert Advisor (Compiled)", file: "https://downloads.predictatrade.com/mql/compiled_executable/PredictATrade.ex4", desc: "Pre-compiled EA for MetaTrader 4 — ready to use, no compilation needed", size: "104 KB", icon: IconTerminal2, type: "ex4" },
   ];
 
   const installSteps: { id: InstallStep; label: string }[] = [
@@ -118,24 +119,26 @@ export default function UserMtClientPage() {
   // Full installation steps shown inline on the dashboard (no toggling required).
   const guideSteps: Record<InstallStep, { title: string; steps: string[] }> = {
     download: {
-      title: "Install the Windows Agent",
+      title: "Install the Windows Agents",
       steps: [
         "Open PowerShell as Administrator (Right-click Start → Windows PowerShell (Admin)).",
-        "Copy and paste this command: irm https://downloads.predictatrade.com/windows-agent/install.ps1 | iex",
-        "Press Enter. The installer will download and install the agent automatically.",
-        "If Windows Defender prompts, click 'Allow' — the agent is safe and verified.",
-        "The agent installs as a Windows Service (pat-agent) and starts automatically.",
+        "Client (execution) agent — copy and run: irm https://downloads.predictatrade.com/windows-agent/client/install.ps1 | iex",
+        "Master (data) node — on the same or another machine run: irm https://downloads.predictatrade.com/windows-agent/master/install.ps1 | iex",
+        "Press Enter. The installer auto-detects your CPU architecture (amd64 / 386 / arm64) and installs the service automatically.",
+        "On the one-time Windows SmartScreen prompt, click 'Run anyway' — the agent is built from our release but the binary is currently unsigned on your machine.",
+        "Client installs as service 'pat-agent' (status at http://127.0.0.1:9000); Master installs as 'pat-master' (status at http://127.0.0.1:9001).",
         "Download the MT5 (.ex5) or MT4 (.ex4) Expert Advisor from the buttons above.",
       ],
     },
     install: {
-      title: "Verify the Windows Agent",
+      title: "Verify the Windows Agents",
       steps: [
-        "Open Task Manager → Services tab → look for 'pat-agent' (should be Running).",
-        "Open your browser and go to http://127.0.0.1:9000 — should show agent status page.",
-        "If the service is not running, open PowerShell as Admin and run:",
-        "  irm https://downloads.predictatrade.com/windows-agent/install.ps1 | iex",
-        "The agent automatically connects to the Predict-A-Trade signal engine.",
+        "Open Task Manager → Services tab → look for 'pat-agent' (Client) and 'pat-master' (Master) — both should be Running.",
+        "Client status page: http://127.0.0.1:9000 — Master status page: http://127.0.0.1:9001.",
+        "If a service is not running, open PowerShell as Admin and re-run its installer:",
+        "  Client: irm https://downloads.predictatrade.com/windows-agent/client/install.ps1 | iex",
+        "  Master:  irm https://downloads.predictatrade.com/windows-agent/master/install.ps1 | iex",
+        "The agents auto-connect to the Predict-A-Trade signal engine (Client → exec port 13081, Master → data port 13091).",
         "No license key needed in the agent — the EA handles license validation.",
       ],
     },
@@ -200,7 +203,7 @@ export default function UserMtClientPage() {
       <div>
         <h1 className="text-xl font-bold text-pat-text-primary">MetaTrader Client</h1>
         <p className="text-sm text-pat-text-secondary mt-1">
-          Download the Windows Agent and MQL Expert Advisors. Manage your registered devices and terminals.
+          Download the Windows Client Agent, Master (data) Node and MQL Expert Advisors. Manage your registered devices and terminals.
         </p>
       </div>
 
@@ -273,7 +276,7 @@ export default function UserMtClientPage() {
           This page shows your <strong>Client Agent</strong> (execution) connection. Live
           <strong> signal delivery</strong> (signals → EA) and <strong>candle delivery</strong> (agent
           → engine) are reported on the local Windows Agent dashboard:
-          Client <code>http://127.0.0.1:9000</code>.
+          Client <code>http://127.0.0.1:9000</code>, Master (data) node <code>http://127.0.0.1:9001</code>.
         </div>
       </div>
 
