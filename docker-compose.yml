@@ -373,10 +373,14 @@ services:
       - pat-net
     restart: always
 
-  # ─── Off-host WAL backup sync (S3) ───
-  # Continuously mirrors the local WAL archive volume to an external S3 bucket.
+  # ─── Off-host backup sync (S3) ───
+  # Continuously mirrors two sources to the external S3 bucket:
+  #   1. /pgdata/wal_archive  -> s3://$S3_BUCKET/$S3_PREFIX       (PITR WAL segments)
+  #   2. /pgbackups           -> s3://$S3_BUCKET/$DB_S3_PREFIX    (logical pg_dump archives
+  #      written by scripts/backup/backup.sh — these dumps contain market.ticks, i.e.
+  #      the realtime tick history; there are no separate tick files to sync)
   # Decoupled from PostgreSQL: Postgres only writes locally (fast, fail-closed);
-  # this sidecar ships the WALs off-host. Credentials come from infra/env/.env
+  # this sidecar ships everything off-host. Credentials come from infra/env/.env
   # (BACKUP_S3_*). No secrets are committed.
   backup-sync:
     image: amazon/aws-cli:latest
@@ -391,8 +395,11 @@ services:
       S3_BUCKET: ${BACKUP_S3_BUCKET}
       S3_ENDPOINT: ${BACKUP_S3_ENDPOINT}
       S3_PREFIX: ${BACKUP_S3_PREFIX:-predictatrade/wal}
+      DB_S3_PREFIX: ${BACKUP_S3_DB_PREFIX:-predictatrade/db}
     volumes:
       - pat-pgdata:/pgdata:ro
+      # Host-side logical dumps produced by scripts/backup/backup.sh (every 6h cron)
+      - /var/backups/predictatrade:/pgbackups:ro
     restart: always
     networks:
       - pat-net
@@ -404,9 +411,19 @@ services:
     # so only "while true" reached sh and the container syntax-error looped).
     command:
       - |
+        # Hetzner S3 rejects bursty multipart/concurrent requests from aws-cli
+        # (botocore NoneType errors) — serialize uploads and retry harder.
+        mkdir -p /tmp/aws && printf '[default]\ns3 =\n  max_concurrent_requests = 1\n  max_queue_size = 1\n  multipart_threshold = 64MB\nmax_attempts = 10\nretry_mode = adaptive\n' > /tmp/aws/config;
+        export AWS_CONFIG_FILE=/tmp/aws/config;
         while true; do
           echo "[backup-sync] $$(date -u) syncing /pgdata/wal_archive -> s3://$${S3_BUCKET}/$${S3_PREFIX}";
-          aws s3 sync /pgdata/wal_archive s3://$${S3_BUCKET}/$${S3_PREFIX} --endpoint-url $${S3_ENDPOINT} --no-progress 2>&1 || echo '[backup-sync] sync failed, retrying';
+          aws s3 sync /pgdata/wal_archive s3://$${S3_BUCKET}/$${S3_PREFIX} --endpoint-url $${S3_ENDPOINT} --no-progress 2>&1 || echo '[backup-sync] WAL sync failed, retrying';
+          echo "[backup-sync] $$(date -u) syncing /pgbackups -> s3://$${S3_BUCKET}/$${DB_S3_PREFIX}";
+          # Only timestamped dump artifacts (backup_2*.dump + sha256 sidecars) —
+          # never logs, lock files, or old test dumps. A dump caught mid-write
+          # re-uploads once complete (size/mtime change); restores must verify
+          # the .sha256 sidecar before trusting any object.
+          aws s3 sync /pgbackups s3://$${S3_BUCKET}/$${DB_S3_PREFIX} --exclude '*' --include 'backup_2*.dump' --include 'backup_2*.sha256' --endpoint-url $${S3_ENDPOINT} --no-progress 2>&1 || echo '[backup-sync] DB dump sync failed, retrying';
           sleep 60;
         done
 

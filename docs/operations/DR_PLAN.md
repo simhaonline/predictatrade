@@ -1,5 +1,5 @@
 # Predict-A-Trade — IT Disaster Recovery Plan
-## v1.17.4 — 30 August 2026
+## v1.18.0 — 01 September 2026
 
 ---
 
@@ -216,27 +216,28 @@ tar -czf "/backups/ssl/certs_$(date +%Y%m%d).tar.gz" \
     /etc/letsencrypt/
 ```
 
-### 6.2 Cloud Backup (Offsite — AWS S3)
+### 6.2 Cloud Backup (Offsite — Hetzner S3, ACTIVE)
+
+> **v1.18.0 status:** live and verified. The `pat-backup-sync` sidecar
+> (docker-compose.yml) ships WAL segments and 6-hourly logical dumps to
+> `s3://pat-backup` at `hel1.your-objectstorage.com` every 60 seconds —
+> no cron needed. Credentials/config: `infra/env/.env` (`BACKUP_S3_*`).
+> Operational detail, verify/restore commands: see
+> [BACKUP_RESTORE.md §8](BACKUP_RESTORE.md#8-off-host-backup-hetzner-s3--active).
 
 ```bash
-# Daily offsite sync (cron: 0 4 * * *)
-#!/bin/bash
-S3_BUCKET="s3://predictatrade-backups/production"
+# The sidecar covers this continuously; the manual equivalent is:
+S3_BUCKET="s3://pat-backup/predictatrade"
+ENDPOINT="https://hel1.your-objectstorage.com"   # from BACKUP_S3_ENDPOINT
 
-# Sync PostgreSQL dumps
-aws s3 sync /backups/postgres/ "${S3_BUCKET}/postgres/" \
-    --storage-class STANDARD_IA \
-    --sse AES256
+# Sync PostgreSQL dumps (sidecar: /pgbackups -> predictatrade/db)
+aws s3 sync /var/backups/predictatrade/ "${S3_BUCKET}/db/" \
+    --exclude '*' --include 'backup_2*.dump' --include 'backup_2*.sha256' \
+    --endpoint-url "${ENDPOINT}"
 
-# Sync config backups
-aws s3 sync /backups/config/ "${S3_BUCKET}/config/" \
-    --storage-class STANDARD_IA \
-    --sse AES256
-
-# Sync WAL archives
-aws s3 sync /backups/wal/ "${S3_BUCKET}/wal/" \
-    --storage-class STANDARD_IA \
-    --sse AES256
+# Sync WAL archives (sidecar: /pgdata/wal_archive -> predictatrade/wal)
+aws s3 sync /var/lib/docker/volumes/xauusd_pat-pgdata/_data/wal_archive/ \
+    "${S3_BUCKET}/wal/" --endpoint-url "${ENDPOINT}"
 ```
 
 ### 6.3 Offsite Backup (Alternative Provider — Google Cloud Storage)
@@ -281,12 +282,13 @@ aws s3api put-object-legal-hold \
 
 | Backup | Frequency | Retention | Storage | Encryption |
 |--------|:---------:|:---------:|---------|:----------:|
-| WAL archiving | Continuous | 7 days | Local + S3 | AES256 |
-| Full DB dump | Daily | 30 days local, 90 days S3 | Local + S3 | AES256 |
-| Config files | Daily | 30 days | Local + S3 | AES256 |
-| SSL certificates | Weekly | 90 days | Local + S3 | AES256 |
-| Offsite (GCS) | Weekly | 52 weeks | GCS | GCS-managed |
-| Immutable archive | Monthly | 7 years | S3 Glacier | AES256 + legal hold |
+| WAL archiving | Continuous | Local archive | Local + Hetzner S3 (`predictatrade/wal`) | TLS in transit |
+| Full DB dump | Every 6 hours | 30 days local | Local + Hetzner S3 (`predictatrade/db`) | TLS in transit |
+| Offsite (GCS) | Weekly (planned) | 52 weeks | GCS | GCS-managed |
+| Immutable archive | Monthly (planned) | 7 years | S3 Glacier | AES256 + legal hold |
+
+Note: the GCS and Glacier rows are future hardening options — Hetzner S3 is
+the only off-host destination currently configured.
 
 ---
 
