@@ -27,6 +27,20 @@ func main() {
 		logDir = filepath.Join(os.Getenv("PROGRAMDATA"), "PredictATrade", "logs")
 	}
 	os.MkdirAll(logDir, 0755)
+
+	// Role-correct defaults WITHOUT relying on installer env vars. If this
+	// binary is started manually (double-click, task manager, bare console)
+	// the per-service env (PAT_HEALTH_PORT=9001 etc.) is absent, and the
+	// health server silently landed on the CLIENT's default port 9000 —
+	// operators then see ":9001 not working" while the agent is fine
+	// (2026-09-01 incident). The binary knows its role: hard-set the role
+	// defaults unless the operator explicitly overrode them.
+	if os.Getenv("PAT_HEALTH_PORT") == "" {
+		os.Setenv("PAT_HEALTH_PORT", "9001")
+	}
+	if os.Getenv("PAT_SERVICE_NAME") == "" {
+		os.Setenv("PAT_SERVICE_NAME", "pat-agent-master")
+	}
 	logFile, err := os.OpenFile(filepath.Join(logDir, "master_agent.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		// Can't open file — use discard writer so log.Println never panics

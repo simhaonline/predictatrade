@@ -1,8 +1,8 @@
 {
     "version": "1.2.55",
     "download_url": "https://downloads.predictatrade.com/windows-agent/client/386/pat-agent.exe",
-    "checksum": "8e8126f8045700dac234c78da358e40bbdd48916e34836bb5011f13a6043a180",
+    "checksum": "53c6f6d7dcedaf4b2a0c5f2a181b7c1fd33f1b15630262cc4662a339e99ab549",
     "min_version": "1.0.0",
     "release_notes": "v1.2.55 — Windows Agent (client). Multi-arch build (386): pat-agent.exe.",
-    "timestamp": "2026-09-01T13:32:37Z"
+    "timestamp": "2026-09-01T14:17:51Z"
 }
