@@ -50,7 +50,10 @@ type Agent struct {
 	pipeManager      *PipeManager
 	health           *healthServer
 	updater          *Updater
-	processedSignals map[string]bool // idempotency: track processed signal IDs
+	processedSignals map[string]bool // idempotency: track processed signal IDs (FIFO-bounded, pruned on insert)
+	signalsMu        sync.Mutex      // guards processedSignals/signalOrder (WS read goroutine + status snapshot)
+	maxTrackedSignals int             // cap on processedSignals entries
+	signalOrder      []string        // insertion order for pruning processedSignals
 	clockDriftMs     int64           // clock drift (server - local) in ms
 
 	halted   bool      // W8: set by KILL_SWITCH — stop forwarding and disconnect
@@ -146,6 +149,7 @@ func newBaseAgent(config *Config, role string) *Agent {
 		heartbeat:        30 * time.Second,
 		reconnectDelay:   3 * time.Second,
 		processedSignals: make(map[string]bool),
+		maxTrackedSignals: 2048,
 	}
 }
 
@@ -263,7 +267,12 @@ func (a *Agent) getStatus() AgentStatus {
 	signalsDelivered := a.signalsDelivered
 	lastCandleAt := a.lastCandleAt
 	lastSignalAt := a.lastSignalAt
+	lastSignal := a.lastSignal
 	a.deliveryMu.Unlock()
+
+	a.mu.Lock()
+	drift := a.clockDriftMs
+	a.mu.Unlock()
 
 	return AgentStatus{
 		Version:             AgentVersion,
@@ -278,8 +287,8 @@ func (a *Agent) getStatus() AgentStatus {
 		MT5Connected:        mt5,
 		TerminalConnected:   mt4 || mt5,
 		LastHeartbeat:       lhb.UTC().Format(time.RFC3339),
-		LastSignal:          a.lastSignal.UTC().Format(time.RFC3339),
-		ClockDriftMs:        a.clockDriftMs,
+		LastSignal:          lastSignal.UTC().Format(time.RFC3339),
+		ClockDriftMs:        drift,
 		CandlesDelivered:    candlesDelivered,
 		LastCandleDelivered: lastCandleAt.UTC().Format(time.RFC3339),
 		SignalsDelivered:    signalsDelivered,
@@ -386,6 +395,7 @@ func (a *Agent) activateDevice(fp *HardwareFingerprint) error {
 	activationReq := map[string]interface{}{
 		"license_key": a.config.LicenseKey,
 		"client_type": "MT5", // Initial activation as MT5; individual terminals register separately
+		"role":        a.role,
 		"fingerprint": fp,
 		"terminal": map[string]string{
 			"name":       "PredictATrade Agent",
@@ -539,6 +549,7 @@ func (a *Agent) refreshToken() error {
 	reqBody, _ := json.Marshal(map[string]string{
 		"refresh_token": a.config.RefreshToken,
 		"device_id":     a.config.DeviceID,
+		"role":          a.role,
 	})
 	resp, err := http.Post(a.config.APIURL+"/devices/refresh", "application/json", bytes.NewReader(reqBody))
 	if err != nil {
@@ -1272,6 +1283,9 @@ func (a *Agent) heartbeatLoop() {
 			// The server sends server_time in its responses. We track the
 			// last known drift to include in heartbeat for monitoring.
 			localNow := time.Now().UTC()
+			a.mu.Lock()
+			driftMs := a.clockDriftMs
+			a.mu.Unlock()
 			hb := HeartbeatData{
 				DeviceID:        a.deviceID,
 				DeviceIDCP:      a.config.DeviceID,
@@ -1288,13 +1302,20 @@ func (a *Agent) heartbeatLoop() {
 				AgentVersion:    AgentVersion,
 				MTConnected:     a.pipeManager != nil,
 				LatencyMs:       0, // Updated below after measuring round-trip
-				ClockDriftMs:    a.clockDriftMs,
+				ClockDriftMs:    driftMs,
 				AuthMAC:         a.wsHMAC(a.deviceID + "|" + localNow.Format(time.RFC3339)),
 			}
 			data, _ := json.Marshal(hb)
 			sendStart := time.Now()
-			conn.WriteMessage(websocket.TextMessage, data)
-			a.lastHeartbeat = time.Now()
+			// Route through sendToServer — gorilla/websocket allows only ONE
+			// concurrent writer per connection. A direct conn.WriteMessage here
+			// races with sendToServer's writes (ticks/telemetry/pipe traffic) and
+			// panics the connection goroutines.
+			if err := a.sendToServer(data); err == nil {
+				a.mu.Lock()
+				a.lastHeartbeat = time.Now()
+				a.mu.Unlock()
+			}
 
 			// Measure round-trip latency from the ACK timestamp
 			// The Go server responds with {"type":"ACK","timestamp":"<RFC3339>"}
@@ -1305,14 +1326,14 @@ func (a *Agent) heartbeatLoop() {
 			hb.LatencyMs = latencyMs
 
 			// Log clock drift warning if significant
-			absDrift := a.clockDriftMs
+			absDrift := driftMs
 			if absDrift < 0 {
 				absDrift = -absDrift
 			}
 			if absDrift > 120000 { // > 2 minutes
-				log.Printf("WARN: Clock drift %dms — Windows clock may not be NTP-synced! Run 'w32tm /resync' to fix.", a.clockDriftMs)
+				log.Printf("WARN: Clock drift %dms — Windows clock may not be NTP-synced! Run 'w32tm /resync' to fix.", driftMs)
 			} else if absDrift > 30000 { // > 30 seconds
-				log.Printf("WARN: Clock drift %dms — consider syncing Windows clock via NTP.", a.clockDriftMs)
+				log.Printf("WARN: Clock drift %dms — consider syncing Windows clock via NTP.", driftMs)
 			}
 
 		case <-a.stopChan:

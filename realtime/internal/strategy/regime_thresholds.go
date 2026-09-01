@@ -25,15 +25,19 @@ import (
 
 // ─── Live-tunable threshold overrides (no recompile needed) ───
 // PAT_CANDIDATE_THRESHOLD: global candidate (advisory) bar applied to every
-//   strategy/regime. Default 6 — lowered from the 10/15 built-ins so a single
-//   strategy's clear directional read (e.g. RawScore 8.71 with dominant long)
-//   surfaces as a tradeable candidate instead of being silently dropped as
-//   NO-TRADE. Set via env to retune without a code change.
+//   strategy/regime. Default 0 = use the built-in per-strategy/per-regime
+//   thresholds (RANGE 15, TREND 10, …) which keep neutral/noisy markets at
+//   NO-TRADE — NO-TRADE is a first-class result and must never be converted
+//   to a forced signal by a low global bar (strategy acceptance tests
+//   TestRecovery_NeverConvertsNoTradeToBuySell / TestNoForcedSignals_*).
+//   Operators may set e.g. PAT_CANDIDATE_THRESHOLD=6 to surface a single
+//   strategy's clear directional read as a candidate; do so only after
+//   recalibrating on a corrected master feed.
 // PAT_TRADE_THRESHOLD: global qualified-execution bar. Default 0 = use the
 //   built-in per-regime trade threshold (keeps AutoExecute gated). Set a value
 //   only after recalibrating on the corrected master feed.
 var (
-	candidateThresholdOverride = readEnvFloat("PAT_CANDIDATE_THRESHOLD", 6)
+	candidateThresholdOverride = readEnvFloat("PAT_CANDIDATE_THRESHOLD", 0)
 	tradeThresholdOverride    = readEnvFloat("PAT_TRADE_THRESHOLD", 0)
 )
 

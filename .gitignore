@@ -96,6 +96,12 @@ realtime/realtime-engine
 # Local debug screenshots (not source)
 Screenshot_*.png
 
+# Windows-agent runtime artifacts (never commit; agent writes these at runtime)
+windows-agent/AppData/
+# A malformed path (literal "C:\..." as a directory name) once created by a
+# Windows-side misconfigured run; never allow it back in.
+windows-agent/C:*
+
 # Runtime-generated live calibration retrains (regenerated hourly by the engine)
 realtime/calibration/calibration_*_live.json
 

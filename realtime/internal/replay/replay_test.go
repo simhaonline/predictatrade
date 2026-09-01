@@ -32,9 +32,9 @@ func TestReplayEngine_RunsSuccessfully(t *testing.T) {
 		t.Error("Should have regime distribution")
 	}
 
-	// Should have strategy funnels for all 4 strategies
-	if len(result.StrategyFunnels) != 6 {
-		t.Errorf("Expected 6 strategy funnels, got %d", len(result.StrategyFunnels))
+	// Should have strategy funnels for all 7 registered strategies
+	if len(result.StrategyFunnels) != 7 {
+		t.Errorf("Expected 7 strategy funnels, got %d", len(result.StrategyFunnels))
 	}
 
 	// Each funnel should have evaluations

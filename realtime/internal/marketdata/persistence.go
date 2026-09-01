@@ -492,6 +492,104 @@ func (p *Persister) GetRecentTrades(ctx context.Context, limit int, strategy str
 	return trades, nil
 }
 
+// GetRecentTradesForUser returns only trades whose executing agent is bound to
+// the supplied user. This is the server-authoritative tenant boundary for the
+// realtime trade-history API; admin callers may use GetRecentTrades directly.
+func (p *Persister) GetRecentTradesForUser(ctx context.Context, userID string, limit int, strategy string) ([]*TradeResult, error) {
+	query := `
+		SELECT t.id, t.signal_id, t.account_id, t.strategy_id, t.symbol, t.direction,
+			t.broker_ticket, t.entry_price, t.exit_price, t.stop_loss, t.take_profit,
+			t.pnl, t.pnl_points, t.pnl_percent, t.lot_size,
+			t.is_win, t.is_loss, t.is_breakeven, t.close_reason,
+			t.opened_at, t.closed_at, t.trading_day, t.created_at,
+			t.time_in_trade_seconds, t.mae, t.mfe, t.timeframe
+		FROM trading.trade_results t
+		JOIN trading.agent_user_bindings b
+		  ON b.agent_id = replace(t.account_id, 'agent:', '')
+		WHERE b.user_id = $1
+	`
+	args := []interface{}{userID}
+	if strategy != "" {
+		query += ` AND t.strategy_id = $2`
+		args = append(args, strategy)
+		query += ` ORDER BY t.closed_at DESC LIMIT $3`
+		args = append(args, limit)
+	} else {
+		query += ` ORDER BY t.closed_at DESC LIMIT $2`
+		args = append(args, limit)
+	}
+
+	rows, err := p.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var trades []*TradeResult
+	for rows.Next() {
+		tr := &TradeResult{}
+		var signalID, brokerTicket, sl, tp, lot, closeReason sql.NullString
+		var openedAt, closedAt, createdAt sql.NullTime
+		var tradingDay sql.NullTime
+		var timeInTrade sql.NullInt64
+		var maeN, fmeN, tfN sql.NullString
+		if err := rows.Scan(
+			&tr.ID, &signalID, &tr.AccountID, &tr.StrategyID, &tr.Symbol, &tr.Direction,
+			&brokerTicket, &tr.EntryPrice, &tr.ExitPrice, &sl, &tp,
+			&tr.PnL, &tr.PnLPoints, &tr.PnLPercent, &lot,
+			&tr.IsWin, &tr.IsLoss, &tr.IsBreakeven, &closeReason,
+			&openedAt, &closedAt, &tradingDay, &createdAt,
+			&timeInTrade, &maeN, &fmeN, &tfN,
+		); err != nil {
+			continue
+		}
+		if timeInTrade.Valid {
+			tr.TimeInTradeSeconds = timeInTrade.Int64
+		}
+		if maeN.Valid {
+			tr.MAE = maeN.String
+		}
+		if fmeN.Valid {
+			tr.MFE = fmeN.String
+		}
+		if tfN.Valid {
+			tr.Timeframe = tfN.String
+		}
+		if signalID.Valid {
+			tr.SignalID = signalID.String
+		}
+		if brokerTicket.Valid {
+			tr.BrokerTicket = brokerTicket.String
+		}
+		if sl.Valid {
+			tr.StopLoss = sl.String
+		}
+		if tp.Valid {
+			tr.TakeProfit = tp.String
+		}
+		if lot.Valid {
+			tr.LotSize = lot.String
+		}
+		if closeReason.Valid {
+			tr.CloseReason = closeReason.String
+		}
+		if openedAt.Valid {
+			tr.OpenedAt = openedAt.Time
+		}
+		if closedAt.Valid {
+			tr.ClosedAt = closedAt.Time
+		}
+		if tradingDay.Valid {
+			tr.TradingDay = tradingDay.Time.Format("2006-01-02")
+		}
+		if createdAt.Valid {
+			tr.CreatedAt = createdAt.Time
+		}
+		trades = append(trades, tr)
+	}
+	return trades, nil
+}
+
 // GetUserAllowedStrategies returns the strategy IDs a user's active
 // subscription entitles them to see. It mirrors the control plane's
 // getEntitlements logic so signal visibility is server-authoritative and

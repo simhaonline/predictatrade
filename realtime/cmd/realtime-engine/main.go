@@ -53,6 +53,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/predictatrade/realtime/internal/types"
+	"github.com/predictatrade/realtime/internal/version"
 	"github.com/shopspring/decimal"
 )
 
@@ -3710,7 +3711,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				PipelineVersion:      "1.0.0",
 				StrategyVersion:      "1.0.0",
 				ConfigurationVersion: "1.0.0",
-				ApplicationVersion:   "1.0.0",
+				ApplicationVersion:   version.Version,
 			}); err == nil {
 				pipelineExecID = pid
 				// Log the strategy evaluation as a pipeline step
@@ -3720,7 +3721,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				_ = auditLogger.LogStep(pipeCtx, audit.PipelineStep{
 					PipelineExecutionID: pid,
 					EngineName:          string(strat.ID()),
-					EngineVersion:       "1.0",
+					EngineVersion:       version.Version,
 					Timeframe:           string(candle.Timeframe),
 					StartedAt:           stepStart,
 					Status:              "COMPLETED",
@@ -4260,7 +4261,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 							StrategyID:          string(strat.ID()),
 							MarketDataTimestamp: candle.Time,
 							DataSource:          sig.SourceMode,
-							ApplicationVersion:  "1.0.0",
+							ApplicationVersion:  version.Version,
 						})
 						_ = auditLogger.CompletePipeline(ac, pipelineExecID, candSigID, "CANDIDATE", map[string]interface{}{
 							"strategy":  string(strat.ID()),
@@ -4365,7 +4366,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 					StrategyID:          string(strat.ID()),
 					MarketDataTimestamp: candle.Time,
 					DataSource:          sig.SourceMode,
-					ApplicationVersion:  "1.0.0",
+					ApplicationVersion:  version.Version,
 				})
 				_ = auditLogger.CompletePipeline(ac, pipelineExecID, ntSigID, "NO_TRADE", map[string]interface{}{"reason": "insufficient_score"})
 				acCancel()
@@ -4439,7 +4440,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 					StrategyID:          string(strat.ID()),
 					MarketDataTimestamp: candle.Time,
 					DataSource:          sig.SourceMode,
-					ApplicationVersion:  "1.0.0",
+					ApplicationVersion:  version.Version,
 				})
 				_ = auditLogger.CompletePipeline(ac, pipelineExecID, ntSigID, "NO_TRADE", map[string]interface{}{"reason": "insufficient_score"})
 				acCancel()
@@ -4525,7 +4526,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 					StrategyID:          string(strat.ID()),
 					MarketDataTimestamp: candle.Time,
 					DataSource:          sig.SourceMode,
-					ApplicationVersion:  "1.0.0",
+					ApplicationVersion:  version.Version,
 				})
 				_ = auditLogger.CompletePipeline(ac, pipelineExecID, ntSigID, "NO_TRADE", map[string]interface{}{"reason": "insufficient_score"})
 				acCancel()
@@ -4862,7 +4863,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 					StrategyID:          string(strat.ID()),
 					MarketDataTimestamp: candle.Time,
 					DataSource:          decision.Signal.SourceMode,
-					ApplicationVersion:  "1.0.0",
+					ApplicationVersion:  version.Version,
 				})
 				// Determine pipeline status from signal direction
 				pipeStatus := "COMPLETED"

@@ -7,11 +7,11 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"strings"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -73,7 +73,6 @@ func (c *Client) isEntitled(strategyID types.StrategyID) bool {
 	return false
 }
 
-
 // extractUserIDFromJWT parses and CRYPTOGRAPHICALLY VERIFIES a JWT token.
 // This is the ONLY way WebSocket client identity is established — never from query params.
 // The JWT secret is loaded from the JWT_SECRET environment variable, shared with NestJS.
@@ -117,9 +116,9 @@ func validateJWTFull(tokenString string) (string, string, error) {
 	}
 
 	var claims struct {
-		Sub string `json:"sub"`
-		Exp int64  `json:"exp"`
-		Iat int64  `json:"iat"`
+		Sub  string `json:"sub"`
+		Exp  int64  `json:"exp"`
+		Iat  int64  `json:"iat"`
 		Role string `json:"role"`
 	}
 	if err := json.Unmarshal(payload, &claims); err != nil {
@@ -203,7 +202,7 @@ func NewWebSocketHub(allowedOrigins []string) *WebSocketHub {
 
 	return &WebSocketHub{
 		clients:    make(map[string]*Client),
-		register:    make(chan *Client),
+		register:   make(chan *Client),
 		unregister: make(chan *Client),
 		broadcast:  make(chan *EventEnvelope, 512),
 		upgrader: websocket.Upgrader{
@@ -448,18 +447,18 @@ func (h *WebSocketHub) BroadcastMarketSnapshot(snapshot interface{}) {
 	if snapshot == nil {
 		return
 	}
-	payload, err := json.Marshal(snapshot)
+	payload, err := json.Marshal(sanitizeMarketSnapshot(snapshot))
 	if err != nil {
 		return
 	}
 	event := EventEnvelope{
 		EventID:       uuid.New().String(),
-		StreamID:     "market_snapshot",
+		StreamID:      "market_snapshot",
 		SchemaVersion: "1.0.0",
-		Timestamp:    time.Now().UTC(),
-		Type:         "MARKET_SNAPSHOT",
-		Priority:     "P1",
-		Payload:      payload,
+		Timestamp:     time.Now().UTC(),
+		Type:          "MARKET_SNAPSHOT",
+		Priority:      "P1",
+		Payload:       payload,
 	}
 	h.mu.RLock()
 	for _, client := range h.clients {
@@ -475,12 +474,12 @@ func (h *WebSocketHub) BroadcastMarketSnapshot(snapshot interface{}) {
 
 // AgentStatus represents the connection status of Windows Agents.
 type AgentStatus struct {
-	AgentsConnected      int  `json:"agents_connected"`
-	AgentsOnline         bool `json:"agents_online"`
-	DataAgentsConnected  int  `json:"data_agents_connected"`
-	SnapshotCount        uint64 `json:"snapshot_count"`
-	LastSnapshotTime     *time.Time `json:"last_snapshot_time,omitempty"`
-	Timestamp            time.Time `json:"timestamp"`
+	AgentsConnected     int        `json:"agents_connected"`
+	AgentsOnline        bool       `json:"agents_online"`
+	DataAgentsConnected int        `json:"data_agents_connected"`
+	SnapshotCount       uint64     `json:"snapshot_count"`
+	LastSnapshotTime    *time.Time `json:"last_snapshot_time,omitempty"`
+	Timestamp           time.Time  `json:"timestamp"`
 }
 
 // BroadcastAgentStatus broadcasts agent connection status to all connected clients.
@@ -491,12 +490,12 @@ func (h *WebSocketHub) BroadcastAgentStatus(status AgentStatus) {
 	}
 	event := EventEnvelope{
 		EventID:       uuid.New().String(),
-		StreamID:     "agent_status",
+		StreamID:      "agent_status",
 		SchemaVersion: "1.0.0",
-		Timestamp:    time.Now().UTC(),
-		Type:         "AGENT_STATUS",
-		Priority:     "P2",
-		Payload:      payload,
+		Timestamp:     time.Now().UTC(),
+		Type:          "AGENT_STATUS",
+		Priority:      "P2",
+		Payload:       payload,
 	}
 	h.mu.RLock()
 	for _, client := range h.clients {
@@ -508,4 +507,24 @@ func (h *WebSocketHub) BroadcastAgentStatus(status AgentStatus) {
 		}
 	}
 	h.mu.RUnlock()
+}
+
+func sanitizeMarketSnapshot(snapshot interface{}) interface{} {
+	if snapshot == nil {
+		return nil
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		return nil
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil
+	}
+	delete(m, "account")
+	delete(m, "account_info")
+	delete(m, "positions")
+	delete(m, "broker")
+	delete(m, "node")
+	return m
 }

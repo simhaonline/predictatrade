@@ -160,7 +160,7 @@ int OnInit()
     {
         g_connection = "OFFLINE";
         Print("WARNING: Windows Agent not detected.");
-        Print("Ensure pat-agent.exe is running on this machine.");
+        Print("Ensure pat-master.exe (Master Node agent) is running on this machine.");
         Print("Agent writes heartbeat to FILE_COMMON folder.");
     }
 

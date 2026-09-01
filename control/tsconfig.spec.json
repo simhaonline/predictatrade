@@ -4,5 +4,6 @@
     "module": "ESNext",
     "moduleResolution": "node",
     "isolatedModules": true
-  }
+  },
+  "exclude": ["node_modules", "dist"]
 }

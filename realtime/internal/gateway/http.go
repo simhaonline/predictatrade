@@ -21,6 +21,7 @@ import (
 	"github.com/predictatrade/realtime/internal/marketdata"
 	"github.com/predictatrade/realtime/internal/observability"
 	"github.com/predictatrade/realtime/internal/types"
+	"github.com/predictatrade/realtime/internal/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/shopspring/decimal"
 )
@@ -257,14 +258,14 @@ func (h *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":        status,
-		"db":            dbStatus,
-		"cache":         cacheStatus,
+		"status": status,
+		"db":     dbStatus,
+		"cache":  cacheStatus,
 		"emergency_halt": map[string]interface{}{
-			"active":   haltActive,
-			"level":    haltLevel,
-			"reason":   haltReason,
-			"since":    haltSince,
+			"active": haltActive,
+			"level":  haltLevel,
+			"reason": haltReason,
+			"since":  haltSince,
 		},
 		"timestamp":     time.Now().UTC().Format(time.RFC3339),
 		"server_time":   time.Now().UTC().Format(time.RFC3339),
@@ -272,7 +273,7 @@ func (h *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"broker_time":   time.Now().UTC().Add(time.Duration(brokerOff) * time.Hour).Format(time.RFC3339),
 		"time_mode":     timeModeLabel(brokerOff),
 		"service":       "realtime-engine",
-		"version":       "1.0.0",
+		"version":       version.Version,
 		"ws_clients":    h.hub.ClientCount(),
 		"agents":        h.agentHub.AgentCount(),
 	})
@@ -433,7 +434,6 @@ func (h *HTTPServer) handleSignals(w http.ResponseWriter, r *http.Request) {
 func (h *HTTPServer) handleTrades(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Entitlement check: only authenticated callers receive trade history.
 	if !isAuthenticatedRequest(r) {
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "authentication required"})
@@ -452,12 +452,35 @@ func (h *HTTPServer) handleTrades(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"trades": []interface{}{}, "note": "no_database"})
 		return
 	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	trades, err := h.persister.GetRecentTrades(ctx, limit, strategy)
+
+	authHeader := r.Header.Get("Authorization")
+	userID := ""
+	role := ""
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		if uid, rl, err := validateJWTFull(strings.TrimPrefix(authHeader, "Bearer ")); err == nil && uid != "" {
+			userID, role = uid, rl
+		}
+	}
+	if userID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid or expired token"})
+		return
+	}
+
+	isAdmin := strings.EqualFold(role, "ADMIN") || strings.EqualFold(role, "SUPER_ADMIN")
+	var trades []*marketdata.TradeResult
+	var err error
+	if isAdmin {
+		trades, err = h.persister.GetRecentTrades(ctx, limit, strategy)
+	} else {
+		trades, err = h.persister.GetRecentTradesForUser(ctx, userID, limit, strategy)
+	}
 	if err != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 	if trades == nil {
@@ -754,10 +777,13 @@ func (h *HTTPServer) handleMarketSnapshot(w http.ResponseWriter, r *http.Request
 		}
 		response["bars"] = mt5Snapshot.Bars
 		response["vwap"] = mt5Snapshot.VWAP
-		response["account_info"] = mt5Snapshot.AccountInfo
 		response["symbol_info"] = mt5Snapshot.SymbolInfo
 		response["session"] = mt5Snapshot.Session
-		response["positions"] = mt5Snapshot.Positions
+		if uid, rl, err := validateJWTFull(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")); err == nil && uid != "" &&
+			(strings.EqualFold(rl, "ADMIN") || strings.EqualFold(rl, "SUPER_ADMIN")) {
+			response["account_info"] = mt5Snapshot.AccountInfo
+			response["positions"] = mt5Snapshot.Positions
+		}
 
 		// Build indicators map: start with MT5 values, then add locally-computed
 		indMap := map[string]interface{}{}
@@ -1117,10 +1143,25 @@ func (h *HTTPServer) handleSignalResume(w http.ResponseWriter, r *http.Request) 
 		json.NewEncoder(w).Encode(map[string]string{"error": "authorization required for signal resume"})
 		return
 	}
-	if _, err := extractUserIDFromJWT(strings.TrimPrefix(authHeader, "Bearer ")); err != nil {
+	userID := ""
+	role := ""
+	if uid, rl, err := validateJWTFull(strings.TrimPrefix(authHeader, "Bearer ")); err != nil || uid == "" {
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid or expired token"})
 		return
+	} else {
+		userID, role = uid, rl
+	}
+	if !strings.EqualFold(role, "ADMIN") && !strings.EqualFold(role, "SUPER_ADMIN") && h.persister != nil {
+		ctxOwn, cancelOwn := context.WithTimeout(r.Context(), 3*time.Second)
+		var owned int
+		err := h.persister.GetDB().QueryRowContext(ctxOwn, `SELECT 1 FROM licensing.devices WHERE id=$1::uuid AND user_id=$2::uuid LIMIT 1`, deviceID, userID).Scan(&owned)
+		cancelOwn()
+		if err != nil || owned != 1 {
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{"error": "device_not_owned"})
+			return
+		}
 	}
 
 	// Parse last acknowledged sequence

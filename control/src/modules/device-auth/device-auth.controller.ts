@@ -28,7 +28,7 @@ export class DeviceAuthController {
   async refresh(@Body() body: any) {
     if (!body.refresh_token) throw new BadRequestException('refresh_token is required');
     if (!body.device_id) throw new BadRequestException('device_id is required');
-    return this.deviceAuthService.refresh(body.refresh_token, body.device_id);
+    return this.deviceAuthService.refresh(body.refresh_token, body.device_id, body.role);
   }
 
   /**

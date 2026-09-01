@@ -288,7 +288,7 @@ services:
       SMTP_TLS_LISTEN: ":465"
       # SEC-1: no committed default password. PAT_MAIL_USERS must be supplied via
       # infra/env/*.env (gitignored) in the form "user:password".
-      SMTP_USERS: "${PAT_MAIL_USERS}"
+      SMTP_USERS: "${PAT_MAIL_USERS:-}"
       ALLOWED_FROM_DOMAINS: "predictatrade.com"
       MAIL_DOMAIN: "pat.predictatrade.com"
       DKIM_SELECTOR: "pat1"
@@ -396,12 +396,15 @@ services:
     restart: always
     networks:
       - pat-net
+    # aws-cli image sets ENTRYPOINT=aws; override so the shell loop below runs
+    # under /bin/sh instead of being passed to `aws` as a subcommand.
+    entrypoint: ["/bin/sh", "-c"]
     command: >
-      sh -c "while true; do
+      while true; do
         echo \"[backup-sync] $$(date -u) syncing /pgdata/wal_archive -> s3://$${S3_BUCKET}/$${S3_PREFIX}\";
         aws s3 sync /pgdata/wal_archive s3://$${S3_BUCKET}/$${S3_PREFIX} --endpoint-url $${S3_ENDPOINT} --no-progress 2>&1 || echo '[backup-sync] sync failed, retrying';
         sleep 60;
-      done"
+      done
 
 volumes:
   pat-mail-spool:

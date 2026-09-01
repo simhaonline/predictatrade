@@ -23,24 +23,17 @@ import (
 // Returns the parsed time in UTC, or time.Now().UTC() if parsing fails.
 func parseMQLTimestamp(s string) time.Time {
 	if s == "" {
-		return time.Now().UTC()
+		return time.Time{}
 	}
-	// Try ISO8601 first (new format from updated EAs)
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
 		return t.UTC()
 	}
-	// Try parsing with dots → convert to dashes
-	dashFormat := strings.ReplaceAll(s, ".", "-")
-	// Try "2026-08-21 19:25:11" (without timezone — assume broker time)
-	// We can't know the broker offset, so use gateway time instead
-	if t, err := time.Parse("2006-01-02 15:04:05", dashFormat); err == nil {
-		// This is broker time without timezone info — we can't trust it as UTC
-		// Use gateway time instead for accuracy
-		_ = t // discard — we use gateway time
-		return time.Now().UTC()
+	dash := strings.ReplaceAll(s, ".", "-")
+	if t, err := time.Parse("2006-01-02 15:04:05", dash); err == nil {
+		return t.UTC()
 	}
-	// Fallback to gateway time
-	return time.Now().UTC()
+	// Unknown timestamp is absent evidence, not a synthesized "now" source time.
+	return time.Time{}
 }
 
 // ParseSnapshotTime exposes MQL snapshot timestamp parsing (ISO8601 preferred,
@@ -240,18 +233,18 @@ type PositionDetail struct {
 // It does NOT generate fake data. If no agent is connected, it produces NO ticks
 // and the system degrades to NO-TRADE (SOW: data quality gate fails closed).
 type AgentProvider struct {
-	marketClosed bool // last snapshot says broker market closed (liveness-only)
-	name         string
-	mu           sync.Mutex
-	agents       map[string]chan *AgentTickMessage // agentID → tick channel
-	agentRoleMu  sync.RWMutex
-	agentRoles   map[string]string // agentID → "data" (Master node) | "exec" (Client node)
+	marketClosed       bool // last snapshot says broker market closed (liveness-only)
+	name               string
+	mu                 sync.Mutex
+	agents             map[string]chan *AgentTickMessage // agentID → tick channel
+	agentRoleMu        sync.RWMutex
+	agentRoles         map[string]string // agentID → "data" (Master node) | "exec" (Client node)
 	dataNodeAuthMu     sync.Mutex
 	dataNodeAuthorized map[string]bool // data nodes already license-authorized
-	tickChan     chan *types.Tick
-	stopChan     chan struct{}
-	running      atomic.Bool
-	validator    *TickValidator
+	tickChan           chan *types.Tick
+	stopChan           chan struct{}
+	running            atomic.Bool
+	validator          *TickValidator
 
 	// Market snapshot storage from Master Node
 	snapshotMu    sync.RWMutex
@@ -616,7 +609,8 @@ func (p *AgentProvider) GetPrimaryAccount(agentID string) *SnapshotAccount {
 		if st == nil || !st.known || st.account == nil {
 			continue
 		}
-		if best == nil || st.equity > best.equity {
+		if best == nil || st.updatedAt.After(best.updatedAt) ||
+			(st.updatedAt.Equal(best.updatedAt) && st.equity > best.equity) {
 			best = st
 		}
 	}
@@ -676,22 +670,22 @@ func (p *AgentProvider) hydrateAccountFromJSON(agentID string, data []byte) {
 }
 
 // AgentAccountOK reports whether a given client may receive EXECUTABLE signals
-// based solely on that client's own account. It is fail-open: an agent with no
-// known/remote account state is allowed (preserving current behavior); only a
-// client whose own account is KNOWN and has no buying power (free margin <= 0)
-// or is stale is isolated. This guarantees one client's blown account never
-// blocks another's signals.
+// based solely on that client's own verified, fresh account state. It is
+// fail-closed: unknown, stale, incomplete, or no-buying-power state rejects the
+// receiving client. One client's blown account cannot contaminate another.
 func (p *AgentProvider) AgentAccountOK(agentID string) bool {
 	p.agentAccMu.Lock()
 	accts := p.agentAccounts[agentID]
 	p.agentAccMu.Unlock()
 	if len(accts) == 0 {
-		return true
+		return false // unknown account state must fail closed for executable delivery
 	}
 	for _, st := range accts {
-		stale := time.Since(st.updatedAt) > 60*time.Second
-		if stale {
-			continue // fail-open on stale data
+		if st == nil || !st.known || st.account == nil {
+			return false
+		}
+		if time.Since(st.updatedAt) > 60*time.Second {
+			return false
 		}
 		if st.freeMargin <= 0 {
 			return false
@@ -816,6 +810,7 @@ func (p *AgentProvider) ensureDataNodeLicense(agentID string) {
 func (p *AgentProvider) Close() error {
 	if p.running.CompareAndSwap(true, false) {
 		close(p.stopChan)
+		close(p.snapshotStop)
 	}
 	return nil
 }
@@ -830,6 +825,28 @@ func (p *AgentProvider) RegisterAgent(agentID string) chan *AgentTickMessage {
 	// Start processing goroutine for this agent
 	go p.processAgentTicks(agentID, ch)
 	return ch
+}
+
+// enqueueAgentTick registers (if necessary) and queues an inbound tick for the
+// authoritative data agent. A full queue is recorded by the existing tick-drop
+// path rather than silently succeeding.
+func (p *AgentProvider) enqueueAgentTick(agentID string, msg *AgentTickMessage) {
+	p.mu.Lock()
+	ch, ok := p.agents[agentID]
+	if !ok {
+		ch = make(chan *AgentTickMessage, 256)
+		p.agents[agentID] = ch
+		go p.processAgentTicks(agentID, ch)
+	}
+	p.mu.Unlock()
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- msg:
+	default:
+		log.Printf("[marketdata] tick queue full — dropping tick for agent=%s", agentID)
+	}
 }
 
 // UnregisterAgent removes an agent when it disconnects.
@@ -907,10 +924,14 @@ func (p *AgentProvider) processAgentTicks(agentID string, ch chan *AgentTickMess
 func normalizeSymbol(s string) string {
 	u := strings.ToUpper(strings.TrimSpace(s))
 	cleaned := strings.NewReplacer("/", "", " ", "", ".", "").Replace(u)
+	// Prefix match on the canonical instrument (XAUUSD / GOLD) so any broker
+	// suffix normalizes: XAUUSD.sd, XAUUSD.e, XAUUSD.m, XAUUSD.pro, GOLD.sb…
+	// A closed variant map silently misses new suffixes (regression 2026-09-01:
+	// "XAUUSD.sd" passed through raw and starved the dashboard snapshot feed).
 	if len(cleaned) >= 6 && cleaned[:6] == "XAUUSD" {
 		return "XAUUSD"
 	}
-	if strings.Contains(cleaned, "XAUUSD") || strings.Contains(cleaned, "GOLD") {
+	if strings.Contains(cleaned, "GOLD") {
 		return "XAUUSD"
 	}
 	return s
@@ -1055,6 +1076,14 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		if !p.IsDataNode(agentID) {
 			return
 		}
+		var msg AgentTickMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return
+		}
+		if msg.Type == "" {
+			msg.Type = msgType
+		}
+		p.enqueueAgentTick(agentID, &msg)
 	case "HEARTBEAT":
 		// Notify main loop that an agent is active — hydrate execution permit gate
 		if p.agentConnectFn != nil {
@@ -1131,12 +1160,9 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		// Master (data) node. Client (exec) nodes send account/trade data only and
 		// must never feed the snapshot pipeline (would mix a client terminal's
 		// price into signal generation).
-		// A MARKET_SNAPSHOT is itself authoritative proof the sender is the data
-		// node. Establish the role here so the feed survives engine restarts — the
-		// Master EA does NOT re-send MASTER_INIT on reconnect, so without this the
-		// reconnected data node's role is lost and every snapshot is silently
-		// dropped (NO_DATA / STALE). SetAgentRole keeps any existing data role.
-		p.SetAgentRole(agentID, "data")
+		// Role is established by the authenticated connection handshake, never by
+		// the message body. An exec agent cannot promote itself to data by sending
+		// MARKET_SNAPSHOT.
 		if !p.IsDataNode(agentID) {
 			return
 		}

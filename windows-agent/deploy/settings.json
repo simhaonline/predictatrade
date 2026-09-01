@@ -9,6 +9,7 @@
     "email_password": "",
     "email_to": "alerts@yourdomain.com",
     "email_from": "predictatrade@yourdomain.com",
+    "_health_check_url_note": "health-check.ps1 ignores this field and probes the per-role port: client :9000, master :9001 (role passed via -Mode). Kept for backward compatibility only.",
     "health_check_url": "http://localhost:9000/health",
     "health_check_timeout_seconds": 5,
     "health_check_interval_minutes": 1,

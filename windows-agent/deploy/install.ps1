@@ -31,10 +31,12 @@ param(
 
 # ─── Config ───
 $IsUnattended = $Unattended
-$BaseUrl     = "https://downloads.predictatrade.com/windows-agent"
 # Root URL always points at the shared assets (nssm, settings, scripts, version).
 # $BaseUrl may be overridden to a role subdir (…/master or …/client) so the
 # role-specific binary is fetched from there; shared assets always come from root.
+if ([string]::IsNullOrWhiteSpace($BaseUrl) -or $BaseUrl -eq "https://downloads.predictatrade.com/windows-agent") {
+    $BaseUrl = "https://downloads.predictatrade.com/windows-agent"
+}
 
 # ─── Self-logging ───
 # The install is launched by a wrapper that elevates via -Verb RunAs, which spawns
@@ -200,7 +202,7 @@ if (-not $isAdmin) {
 # ─── NOW RUNNING AS ADMIN ───
 Write-Host ""
 Write-Host "=========================================="
-Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.53"
+Write-Host "  Predict-A-Trade XAUUSD — Installer"
 Write-Host "=========================================="
 Write-Host ""
 
@@ -249,50 +251,45 @@ Write-Host "  OK: $InstallDir"
 Write-Host "[2a/9] Applying Windows Defender exclusions (pre-download)..."
 Add-DefenderExclusions
 
-# Step 2b: Persist the engine WebSocket URL for this role as a machine-level
-# environment variable (the agent reads PAT_SERVER_URL / PAT_DATA_WS_URL).
-[Environment]::SetEnvironmentVariable($EngineEnvVar, $EngineWsUrl, "Machine") | Out-Null
-Write-Host "  OK: Engine URL ($RoleLabel) = $EngineWsUrl"
-
-# Step 2c: Unique local health port per role so Client + Master can coexist on
-# the same machine (both default to 9000 otherwise → bind conflict).
+# Step 2b: Role-specific configuration.
+#
+# DO NOT write per-role values (PAT_HEALTH_PORT / PAT_LOG_DIR / PAT_SERVICE_NAME /
+# engine WS URL / PAT_API_URL) as Machine-scope env vars: they are shared by ALL
+# agents on the host, so installing master after client clobbers the client's
+# health port, log dir, and auto-update service name (the 2026-08-29 co-located-
+# roles incident class). nssm services get per-service AppEnvironment instead;
+# the sc.exe fallback path inherits machine env (single-role hosts only there).
+# PAT_LICENSE_KEY stays Machine-scope by design: one license per device, both
+# roles read it.
 $HealthPort = if ($Mode -eq "master") { "9001" } else { "9000" }
-[Environment]::SetEnvironmentVariable("PAT_HEALTH_PORT", $HealthPort, "Machine") | Out-Null
 Write-Host "  OK: Local health port = $HealthPort"
 
-# Step 2d: Pin the control-plane API URL. CRITICAL: a stale PAT_API_URL machine
-# env var from a previous install can point at live.predictatrade.com/api/v1,
-# which (on the edge host) proxies /api/v1 to the Go realtime engine — NOT the
-# NestJS control plane. License/device validation then 404s and the EA reports
-# "Access Denied | License: PENDING". The dedicated api.predictatrade.com host
-# proxies /api/v1 to control correctly, so pin it explicitly to override any
-# stale value and make reinstalls deterministic.
+# Step 2d: Per-role values are NOT written to machine scope (see Step 2b).
+# $ServiceEnvVars is consumed below when the nssm service is registered, so each
+# service runs with ITS OWN role config regardless of what the other role set.
 $ApiBaseUrl = "https://api.predictatrade.com/api/v1"
-[Environment]::SetEnvironmentVariable("PAT_API_URL", $ApiBaseUrl, "Machine") | Out-Null
+$ServiceEnvVars = @(
+    "PAT_HEALTH_PORT=$HealthPort",
+    "PAT_LOG_DIR=$logsDir",
+    "PAT_SERVICE_NAME=$ServiceName",
+    "$EngineEnvVar=$EngineWsUrl",
+    "PAT_API_URL=$ApiBaseUrl"
+)
+Write-Host "  OK: Engine URL ($RoleLabel) = $EngineWsUrl"
 Write-Host "  OK: Control API URL = $ApiBaseUrl"
+Write-Host "  OK: Auto-update service name = $ServiceName"
+Write-Host "  OK: Agent log dir = $logsDir"
 
 # Step 2e: Optionally persist the license key so the agent auto-activates the device
 # on first run (unattended installs). When empty, the agent still activates
 # automatically using the key you type into the MT4/MT5 EA — no manual env needed.
+# Machine scope is CORRECT here: one license key per device, shared by both roles.
 if ($LicenseKey -ne "") {
     [Environment]::SetEnvironmentVariable("PAT_LICENSE_KEY", $LicenseKey, "Machine") | Out-Null
     Write-Host "  OK: License key persisted (PAT_LICENSE_KEY)"
 } else {
     Write-Host "  INFO: No -LicenseKey supplied — type the key once in the MT4/MT5 EA; the agent will auto-activate."
 }
-Write-Host "  OK: Control API URL = $ApiBaseUrl"
-
-# Step 2e: Tell the auto-updater the exact Windows service name to stop/start when
-# it swaps the binary. Must match the service registered below (pat-agent-client /
-# pat-agent-master) or the update would target the wrong service and never apply.
-[Environment]::SetEnvironmentVariable("PAT_SERVICE_NAME", $ServiceName, "Machine") | Out-Null
-Write-Host "  OK: Auto-update service name = $ServiceName"
-
-# Step 2f: Point the agent's log file at THIS role's monitored logs folder so its
-# output lands where the installer/operator look (not the default
-# C:\ProgramData\PredictATrade\logs, which looks "empty" from the outside).
-[Environment]::SetEnvironmentVariable("PAT_LOG_DIR", $logsDir, "Machine") | Out-Null
-Write-Host "  OK: Agent log dir = $logsDir"
 
 # Kill any BACKGROUND cmd.exe / agent process left over from a previous manual or
 # failed run. A lingering cmd window running the agent binary holds the port and
@@ -600,6 +597,12 @@ for ($round = 1; $round -le 3 -and -not $serviceRunning; $round++) {
             & $nssmDest set $ServiceName AppExit Default Restart 2>&1 | Out-Null
             & $nssmDest set $ServiceName AppRestartDelay 3000 2>&1 | Out-Null
             & $nssmDest set $ServiceName Start SERVICE_AUTO_START 2>&1 | Out-Null
+            # Per-service environment: this role's OWN health port / log dir /
+            # service name / engine URL — never the other role's values, even
+            # when both roles are installed on the same machine.
+            foreach ($pair in $ServiceEnvVars) {
+                & $nssmDest set $ServiceName AppEnvironmentExtra $pair 2>&1 | Out-Null
+            }
         } else {
             sc.exe create $ServiceName binPath= "`"$agentPath`" $AgentArgs" start= auto 2>&1 | Out-Null
             sc.exe failure $ServiceName reset= 60 actions= restart/5000 2>&1 | Out-Null
@@ -685,6 +688,9 @@ if (-not $serviceRunning) {
                 & $nssmDest set $ServiceName AppExit Default Restart 2>&1 | Out-Null
                 & $nssmDest set $ServiceName AppRestartDelay 3000 2>&1 | Out-Null
                 & $nssmDest set $ServiceName Start SERVICE_AUTO_START 2>&1 | Out-Null
+                foreach ($pair in $ServiceEnvVars) {
+                    & $nssmDest set $ServiceName AppEnvironmentExtra $pair 2>&1 | Out-Null
+                }
             } else {
                 sc.exe create $ServiceName binPath= "`"$agentPath`" $AgentArgs" start= auto 2>&1 | Out-Null
                 sc.exe failure $ServiceName reset= 60 actions= restart/5000 2>&1 | Out-Null
@@ -717,8 +723,9 @@ try {
     $serverVersion = (Invoke-WebRequest -Uri "$RootUrl/version.txt" -UseBasicParsing -TimeoutSec 10).Content.Trim()
     Write-Host "  Server version: v$serverVersion"
 } catch {
-    $serverVersion = "1.2.53"
-    Write-Host "  WARN: Could not fetch server version — using default v$serverVersion"
+    # Fallback: report UNKNOWN instead of a hardcoded stale release number.
+    $serverVersion = "unknown"
+    Write-Host "  WARN: Could not fetch server version — reporting v$serverVersion"
 }
 Set-Content -Path (Join-Path $InstallDir "version.txt") -Value $serverVersion -NoNewline
 

@@ -23,14 +23,30 @@ func (clientHandler) startRoleLoops(a *Agent) {
 func (clientHandler) handleServerMessage(a *Agent, event SignalEvent) {
 	switch event.Type {
 	case "SIGNAL":
-		// Idempotency check
+		// Idempotency check + FIFO-bounded tracking. processedSignals must
+		// never grow unbounded — a long-lived exec agent would leak memory.
+		a.signalsMu.Lock()
 		if a.processedSignals[event.EventID] {
+			a.signalsMu.Unlock()
 			log.Printf("Duplicate signal ignored: %s", event.EventID)
 			return
 		}
 		a.processedSignals[event.EventID] = true
+		a.signalOrder = append(a.signalOrder, event.EventID)
+		if len(a.signalOrder) > a.maxTrackedSignals {
+			// Evict oldest ~1/8 of entries: recent-window idempotency with a
+			// hard memory ceiling instead of an ever-growing map.
+			evict := len(a.signalOrder) - a.maxTrackedSignals + a.maxTrackedSignals/8
+			for i := 0; i < evict && i < len(a.signalOrder); i++ {
+				delete(a.processedSignals, a.signalOrder[i])
+			}
+			a.signalOrder = append([]string(nil), a.signalOrder[evict:]...)
+		}
+		a.signalsMu.Unlock()
 
+		a.deliveryMu.Lock()
 		a.lastSignal = time.Now()
+		a.deliveryMu.Unlock()
 		select {
 		case a.signals <- &event:
 		default:

@@ -27,9 +27,15 @@ param(
 if ($Mode -eq "master") {
     $ServiceName = "pat-agent-master"
     $AgentExe    = "pat-master.exe"
+    $InstallDir  = "C:\PredictATrade\Master"
+    # Master health endpoint (installer sets PAT_HEALTH_PORT=9001 for master).
+    $HealthPort  = 9001
 } else {
     $ServiceName = "pat-agent-client"
     $AgentExe    = "pat-agent.exe"
+    $InstallDir  = "C:\PredictATrade\Client"
+    # Client health endpoint (installer sets PAT_HEALTH_PORT=9000 for client).
+    $HealthPort  = 9000
 }
 
 # ─── Paths ───
@@ -37,7 +43,6 @@ $ScriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SettingsFile = Join-Path $ScriptDir "settings.json"
 $NotifyScript = Join-Path $ScriptDir "notify.ps1"
 $EventSource  = "pat-agent"
-$InstallDir   = "C:\PredictATrade\XAUUSD"
 
 # ─── Helper: Write to Event Log ───
 function Write-PATEventLog {
@@ -79,13 +84,7 @@ try {
     exit 1
 }
 
-$healthUrl     = $settings.health_check_url
 $timeoutSec    = if ($settings.health_check_timeout_seconds) { [int]$settings.health_check_timeout_seconds } else { 5 }
-
-if ([string]::IsNullOrWhiteSpace($healthUrl)) {
-    Write-PATEventLog -Message "health-check.ps1: health_check_url not configured in settings.json — aborting" -Level "Error" -EventId 303
-    exit 1
-}
 
 # ─── Check 1: Is the agent process running? ───
 $agentProcess = Get-Process -Name ($AgentExe -replace '.exe', '') -ErrorAction SilentlyContinue
@@ -157,6 +156,10 @@ if (-not $agentProcess) {
 }
 
 # ─── Check 2: HTTP health endpoint probe ───
+# Per-role health URL overrides settings.json (which cannot know the role):
+# master monitors :9001, client monitors :9000. Probing the WRONG role's port
+# would restart a healthy service when the OTHER role is down.
+$healthUrl = "http://localhost:$HealthPort/health"
 Write-Host "[health-check] Probing $healthUrl (timeout: ${timeoutSec}s)..."
 
 $httpOK = $false

@@ -37,11 +37,12 @@ export class DeviceAuthService {
    * call is required on the hot path. Each client bootstraps this token from its
    * own license key at activation — nothing is manually distributed per client.
    */
-  private mintWsToken(deviceId: string, sessionId?: string, licenseId?: string): string {
+  private mintWsToken(deviceId: string, role: 'data' | 'exec', sessionId?: string, licenseId?: string): string {
     return this.jwt.sign(
       {
         sub: deviceId,
         typ: 'agent-ws',
+        role,
         ...(sessionId ? { sid: sessionId } : {}),
         ...(licenseId ? { lic: licenseId } : {}),
       },
@@ -55,7 +56,7 @@ export class DeviceAuthService {
    * Implements: one license = one device, transactional binding, hardware fingerprint matching.
    */
   async activate(body: ActivationRequest, sourceIp?: string): Promise<ActivationResponse> {
-    const { license_key, client_type, fingerprint, terminal, mt_account } = body;
+    const { license_key, client_type, role, fingerprint, terminal, mt_account } = body;
 
     const client = await this.pool.connect();
     try {
@@ -203,7 +204,7 @@ export class DeviceAuthService {
         `INSERT INTO licensing.license_events (license_id, event_type, reason, metadata, created_at)
          VALUES ($1, 'ACTIVATED', $2, $3, now())`,
         [license.id, isNewDevice ? 'First device activation' : 'Device re-activation',
-         JSON.stringify({ device_id: deviceId, client_type, match_score: isNewDevice ? 100 : undefined })],
+         JSON.stringify({ device_id: deviceId, client_type, role, match_score: isNewDevice ? 100 : undefined })],
       );
 
       await client.query('COMMIT');
@@ -216,7 +217,7 @@ export class DeviceAuthService {
         access_token: accessToken,
         access_token_expires_in: 600,
         token_family: tokenFamily,
-        ws_token: this.mintWsToken(deviceId, sessionId, license.id),
+        ws_token: this.mintWsToken(deviceId, role, sessionId, license.id),
         fingerprint_match_score: isNewDevice ? 100 : undefined,
       };
     } catch (err) {
@@ -231,7 +232,7 @@ export class DeviceAuthService {
    * Refresh access token using rotating refresh token.
    * Implements: token rotation, family-based reuse detection.
    */
-  async refresh(refreshToken: string, deviceId: string): Promise<RefreshResponse> {
+  async refresh(refreshToken: string, deviceId: string, role?: 'data' | 'exec'): Promise<RefreshResponse> {
     const tokenHash = this.hashSecret(refreshToken);
 
     const client = await this.pool.connect();
@@ -322,7 +323,7 @@ export class DeviceAuthService {
         access_token: newAccessToken,
         refresh_token: newRefreshToken,
         access_token_expires_in: 600,
-        ws_token: this.mintWsToken(deviceId),
+        ws_token: this.mintWsToken(deviceId, role ?? 'exec'),
       };
     } catch (err) {
       try { await client.query("ROLLBACK"); } catch (e) { console.error("Rollback failed:", e.message); }
@@ -708,6 +709,7 @@ export class DeviceAuthService {
 export interface ActivationRequest {
   license_key: string;
   client_type: 'MT4' | 'MT5';
+  role?: 'data' | 'exec';
   fingerprint: {
     machine_guid?: string;
     system_uuid?: string;

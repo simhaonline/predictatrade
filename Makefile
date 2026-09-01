@@ -53,9 +53,10 @@ db-test: ## Run migration tests
 
 GO_DIR := realtime
 GO_LDFLAGS := -s -w
+ENGINE_VERSION ?= 1.18.0
 
 go-build: ## Build the Go real-time engine
-	cd $(GO_DIR) && go build -ldflags "$(GO_LDFLAGS)" -o bin/realtime-engine ./cmd/realtime-engine
+	cd $(GO_DIR) && go build -ldflags "$(GO_LDFLAGS) -X github.com/predictatrade/realtime/internal/version.Version=$(ENGINE_VERSION)" -o bin/realtime-engine ./cmd/realtime-engine
 
 go-test: ## Run Go unit tests
 	cd $(GO_DIR) && go test -race -count=1 -timeout=120s ./...
@@ -138,8 +139,9 @@ research-lint: ## Lint Python code
 # Windows Agent
 # ============================================================
 
-agent-build: ## Build Windows Agent (cross-compile for windows/amd64)
-	cd windows-agent && GOOS=windows GOARCH=amd64 go build -ldflags "$(GO_LDFLAGS)" -o bin/pat-agent.exe ./cmd/agent
+agent-build: ## Build Windows Agent (cross-compile both roles for windows/amd64)
+	cd windows-agent && GOOS=windows GOARCH=amd64 go build -ldflags "$(GO_LDFLAGS)" -o bin/pat-agent-client.exe ./cmd/client
+	cd windows-agent && GOOS=windows GOARCH=amd64 go build -ldflags "$(GO_LDFLAGS)" -o bin/pat-agent-master.exe ./cmd/master
 
 agent-test: ## Test Windows Agent
 	cd windows-agent && go test -race -count=1 ./...

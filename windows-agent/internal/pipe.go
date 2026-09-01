@@ -66,6 +66,7 @@ func (pm *PipeManager) forwardAccountInfo(licKey, account, broker, symbol, curre
 type PipeManager struct {
 	commonDirs        []string
 	mu                sync.Mutex
+	stopOnce          sync.Once
 	wsSender          func([]byte) error
 	onTick            func(MT5Tick)
 	running           bool
@@ -275,8 +276,10 @@ func cleanupLegacyIpc() {
 }
 
 func (pm *PipeManager) Stop() {
-	pm.running = false
-	close(pm.stopChan)
+	pm.stopOnce.Do(func() {
+		pm.running = false
+		close(pm.stopChan)
+	})
 }
 
 // --- W3: IPC license signing (anti-spoofing of PAT_license.txt) ---
@@ -457,23 +460,30 @@ func (pm *PipeManager) licenseLoop() {
 			if pm.role == "data" {
 				continue
 			}
+			// Read the license verdict under pm.mu — SetLicenseResult writes these
+			// fields from the WS read goroutine concurrently.
+			pm.mu.Lock()
+			licStatus := pm.licStatus
 			plan := pm.licPlan
+			licKey := pm.licKey
+			licStrategies := pm.licStrategies
+			pm.mu.Unlock()
 			if plan == "" {
 				plan = "ELITE" // never write a blank plan; EA always shows a type
 			}
 			response := LicenseResponse{
 				Type:              "LICENSE_RESPONSE",
-				Status:            pm.licStatus,
+				Status:            licStatus,
 				Plan:              plan,
-				Key:               pm.licKey,
-				AllowedStrategies: pm.licStrategies,
+				Key:               licKey,
+				AllowedStrategies: licStrategies,
 			}
 			respData, _ := json.Marshal(response)
 			for _, d := range pm.commonDirs {
 				os.WriteFile(filepath.Join(d, "PAT_license.txt"), respData, 0644)
 			}
 			// W3: write detached HMAC signature alongside the license file.
-			pm.writeLicenseSig(pm.licStatus, plan)
+			pm.writeLicenseSig(licStatus, plan)
 		case <-pm.stopChan:
 			return
 		}
@@ -643,6 +653,8 @@ func (pm *PipeManager) processMessage(line string) {
 			FloatingPnL float64 `json:"floating_pnl"`
 		}
 		if json.Unmarshal([]byte(payload), &initMsg) == nil && initMsg.LicenseKey != "" {
+			// licKey/licStatus are also read by licenseLoop under pm.mu.
+			pm.mu.Lock()
 			pm.licKey = initMsg.LicenseKey
 			// Do NOT self-approve. Mark pending only on the first validation
 			// (the pipe starts in PENDING). On subsequent EA re-checks we keep
@@ -651,6 +663,7 @@ func (pm *PipeManager) processMessage(line string) {
 			if pm.licStatus == "" {
 				pm.licStatus = "PENDING"
 			}
+			pm.mu.Unlock()
 			log.Printf("EA init: validating license %s account=%s balance=%.2f equity=%.2f positions=%d",
 				initMsg.LicenseKey, initMsg.Account, initMsg.Balance, initMsg.Equity, initMsg.OpenPos)
 			if pm.onLicense != nil {
@@ -710,10 +723,12 @@ func (pm *PipeManager) processMessage(line string) {
 		// repeated EA re-checks don't reset an already-ACTIVE verdict to PENDING
 		// (which caused ACTIVE<->PENDING flicker every ~2s). The authoritative
 		// result from SetLicenseResult still overrides this on success/failure.
+		pm.mu.Lock()
 		pm.licKey = lic.LicenseKey
 		if pm.licStatus == "" {
 			pm.licStatus = "PENDING"
 		}
+		pm.mu.Unlock()
 		if pm.onLicense != nil {
 			go pm.onLicense(lic)
 		}
@@ -946,7 +961,7 @@ func (pm *PipeManager) masterReadLoop() {
 			// correctly-sized PAT_master_data.txt on its next append, and lets us
 			// drain the renamed copy with no lock/offset race.
 			consumedPath := masterPath + ".consumed"
-			if err := os.Rename(masterPath, consumedPath); err == nil {
+			if rerr := os.Rename(masterPath, consumedPath); rerr == nil {
 				// Bytes the EA appended between our ReadFile above and this rename
 				// are captured in consumedPath beyond the data we already processed
 				// — drain just that suffix so we lose nothing.
@@ -962,7 +977,7 @@ func (pm *PipeManager) masterReadLoop() {
 				}
 				_ = os.Remove(consumedPath)
 			} else if doDiag {
-				log.Printf("[IPC] WARN: failed to consume %s: %v", masterPath, err)
+				log.Printf("[IPC] WARN: failed to consume %s: %v", masterPath, rerr)
 			}
 		}
 		time.Sleep(5 * time.Millisecond)

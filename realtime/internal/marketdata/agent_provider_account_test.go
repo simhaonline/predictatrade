@@ -10,14 +10,15 @@ import (
 //   - a client with real buying power is allowed;
 //   - a client with NO free margin (blown account) is isolated (rejected);
 //   - a stale client record is allowed (fail-open on stale data).
+//
 // This guarantees one client's blown account can never block another's signals.
 func TestAgentAccountOKIsolation(t *testing.T) {
 	p := NewAgentProvider()
 	defer close(p.snapshotStop)
 
 	// Unknown agent -> fail-open (allowed).
-	if !p.AgentAccountOK("unknown") {
-		t.Fatalf("unknown agent should be allowed (fail-open)")
+	if p.AgentAccountOK("unknown") {
+		t.Fatalf("unknown agent must fail closed")
 	}
 
 	// Healthy client with free margin -> allowed.
@@ -47,12 +48,14 @@ func TestAgentAccountOKStale(t *testing.T) {
 	p.RecordAgentAccount("stale", &SnapshotAccount{Balance: 0, Equity: 0, FreeMargin: 0, Leverage: 100}, nil)
 	// Simulate staleness by backdating the record.
 	p.agentAccMu.Lock()
-	if st, ok := p.agentAccounts["stale"]; ok {
-		st.updatedAt = time.Now().UTC().Add(-90 * time.Second)
+	if accts, ok := p.agentAccounts["stale"]; ok {
+		if st, ok := accts["default"]; ok {
+			st.updatedAt = time.Now().UTC().Add(-90 * time.Second)
+		}
 	}
 	p.agentAccMu.Unlock()
 
-	if !p.AgentAccountOK("stale") {
-		t.Fatalf("stale agent record should fail-open (allowed), not block")
+	if p.AgentAccountOK("stale") {
+		t.Fatalf("stale agent record must fail closed")
 	}
 }

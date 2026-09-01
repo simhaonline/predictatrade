@@ -2,7 +2,9 @@ package gateway
 
 import (
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -32,6 +34,8 @@ type AgentConnection struct {
 	ID          string
 	Role        string // "data" (Master node) | "exec" (Client node) — from ?role= query
 	Version     string // agent build version (captured from AGENT_TELEMETRY)
+	pendingMu   sync.Mutex
+	pending     [][]byte
 	ConnectedAt time.Time
 	conn        *websocket.Conn
 	send        chan []byte
@@ -392,6 +396,51 @@ func (h *AgentHub) SelectExecutableRecipients() []string {
 // primary exec agent per license (see SelectExecutableRecipients), while still
 // applying the per-agent strategy entitlement and per-client risk filters.
 // Returns the number of agents the signal was actually delivered to.
+func (h *AgentHub) enqueue(agent *AgentConnection, data []byte) {
+	agent.pendingMu.Lock()
+	if len(agent.pending) > 0 {
+		agent.pending = append(agent.pending, data)
+		agent.pendingMu.Unlock()
+		return
+	}
+	agent.pendingMu.Unlock()
+	select {
+	case agent.send <- data:
+	default:
+		agent.pendingMu.Lock()
+		agent.pending = append(agent.pending, data)
+		agent.pendingMu.Unlock()
+	}
+}
+
+func (h *AgentHub) drainPending(agent *AgentConnection) {
+	for {
+		select {
+		case <-agent.done:
+			return
+		default:
+		}
+		agent.pendingMu.Lock()
+		if len(agent.pending) == 0 {
+			agent.pendingMu.Unlock()
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		msg := agent.pending[0]
+		agent.pendingMu.Unlock()
+		select {
+		case agent.send <- msg:
+			agent.pendingMu.Lock()
+			agent.pending = agent.pending[1:]
+			agent.pendingMu.Unlock()
+		case <-agent.done:
+			return
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
 func (h *AgentHub) SendExecutableSignalToPrimary(eventID, streamID, eventType, priority, schemaVersion string, payload []byte, strategyID string) int {
 	if len(payload) == 0 {
 		return 0
@@ -434,11 +483,8 @@ func (h *AgentHub) SendExecutableSignalToPrimary(eventID, streamID, eventType, p
 			skipped++
 			continue
 		}
-		select {
-		case agent.send <- data:
-			sent++
-		default:
-		}
+		h.enqueue(agent, data)
+		sent++
 	}
 	h.mu.RUnlock()
 
@@ -490,19 +536,13 @@ func (h *AgentHub) SendFilteredSignalToAgents(eventID, streamID, eventType, prio
 		}
 		// Per-client risk isolation: a client whose own account has no buying
 		// power must not receive executable signals. This is evaluated on the
-		// RECEIVING agent's own account state and is fail-open, so one client's
-		// blown/over-exposed account can never contaminate another client's
-		// signals or cause a global blackout.
+		// RECEIVING agent's own account state and is fail-closed.
 		if h.riskCheckFn != nil && !h.riskCheckFn(agentID) {
 			skipped++
 			continue
 		}
-		select {
-		case agent.send <- data:
-			sent++
-		default:
-			// Agent buffer full — drop
-		}
+		h.enqueue(agent, data)
+		sent++
 	}
 	h.mu.RUnlock()
 
@@ -527,10 +567,13 @@ func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) 
 	// operator's own non-licensed infrastructure such as a Master data node).
 	authed := false
 	agentID := r.URL.Query().Get("agentId")
-	role := r.URL.Query().Get("role") // "data" (Master) or "exec" (Client)
-	if sub, ok := agentAuthJWT(r); ok && sub != "" {
+	role := ""
+	jwtRole := ""
+	queryRole := r.URL.Query().Get("role")
+	if sub, role, ok := agentAuthJWT(r); ok && sub != "" {
 		authed = true
 		agentID = sub // bind connection identity to the verified credential
+		jwtRole = role
 	}
 	if !authed && os.Getenv("AGENT_WS_TOKEN") != "" {
 		provided := r.Header.Get("X-Agent-Token")
@@ -542,17 +585,20 @@ func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	if !authed {
-		// Legacy baseline: when NO auth mechanism is configured and the agent
-		// presented no credential, accept the connection. This is the state that
-		// existed before per-device agent identity was introduced, so existing
-		// deployed agents keep working without a forced upgrade. A credential
-		// that WAS presented (valid or not) is still verified/rejected above.
-		if os.Getenv("AGENT_WS_TOKEN") == "" && !jwtAttempted(r) {
-			authed = true
-		}
+		http.Error(w, "agent authentication required", http.StatusUnauthorized)
+		return
 	}
 	if !authed {
 		http.Error(w, "agent authentication required", http.StatusUnauthorized)
+		return
+	}
+	if authed && jwtRole != "" {
+		role = jwtRole
+	} else {
+		role = queryRole
+	}
+	if role != "data" && role != "exec" {
+		http.Error(w, "agent role required", http.StatusBadRequest)
 		return
 	}
 
@@ -569,10 +615,11 @@ func (h *AgentHub) HandleAgentWebSocket(w http.ResponseWriter, r *http.Request) 
 		Version:     "",
 		ConnectedAt: time.Now().UTC(),
 		conn:        conn,
-		send:        make(chan []byte, 64),
+		send:        make(chan []byte, 256),
 		done:        make(chan struct{}),
 	}
 	h.register <- agent
+	go h.drainPending(agent)
 
 	confirm, _ := json.Marshal(map[string]interface{}{
 		"type": "CONNECTED", "agentId": agentID, "timestamp": time.Now().UTC(),
@@ -702,12 +749,8 @@ func (h *AgentHub) SendToAgent(agentID string, msgType string, payload interface
 		log.Printf("[SendToAgent] agent NOT FOUND: agent=%s type=%s (total agents=%d)", agentID, msgType, count)
 		return
 	}
-	select {
-	case agent.send <- data:
-		log.Printf("[SendToAgent] SENT: agent=%s type=%s", agentID, msgType)
-	default:
-		log.Printf("[SendToAgent] DROPPED (buffer full): agent=%s type=%s", agentID, msgType)
-	}
+	h.enqueue(agent, data)
+	log.Printf("[SendToAgent] SENT: agent=%s type=%s", agentID, msgType)
 }
 
 // BroadcastToAllAgents sends a JSON message to ALL connected agents.
@@ -724,11 +767,8 @@ func (h *AgentHub) BroadcastToAllAgents(msgType string, payload interface{}) {
 	h.mu.RLock()
 	sent := 0
 	for _, agent := range h.agents {
-		select {
-		case agent.send <- data:
-			sent++
-		default:
-		}
+		h.enqueue(agent, data)
+		sent++
 	}
 	h.mu.RUnlock()
 	log.Printf("[AGENT-WS] Broadcast %s to %d agents", msgType, sent)
@@ -739,7 +779,7 @@ func (h *AgentHub) BroadcastToAllAgents(msgType string, payload interface{}) {
 // param (used when a browser/WS client cannot set headers). A raw shared
 // token (not a JWT) is intentionally NOT accepted here — it falls through to
 // the legacy AGENT_WS_TOKEN check.
-func agentAuthJWT(r *http.Request) (string, bool) {
+func agentAuthJWT(r *http.Request) (string, string, bool) {
 	var raw string
 	if ah := r.Header.Get("Authorization"); strings.HasPrefix(ah, "Bearer ") {
 		raw = strings.TrimPrefix(ah, "Bearer ")
@@ -747,26 +787,40 @@ func agentAuthJWT(r *http.Request) (string, bool) {
 		raw = t
 	}
 	if raw == "" {
-		return "", false
+		return "", "", false
 	}
-	// A valid signed JWT yields the subject (device id). Anything else (e.g. a
-	// raw shared secret) fails verification and is rejected here.
-	if sub, err := extractUserIDFromJWT(raw); err == nil && sub != "" {
-		return sub, true
+	sub, role, err := validateAgentJWT(raw)
+	if err != nil || sub == "" {
+		return "", "", false
 	}
-	return "", false
+	return sub, role, true
 }
 
-// jwtAttempted reports whether the agent presented a JWT (Bearer header or
-// ?token=), regardless of validity. Used to distinguish "no credential" (fail
-// open to the legacy baseline) from "a credential was sent but invalid"
-// (must be rejected).
-func jwtAttempted(r *http.Request) bool {
-	if strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
-		return true
+func validateAgentJWT(token string) (string, string, error) {
+	if _, _, err := validateJWTFull(token); err != nil {
+		return "", "", err
 	}
-	if r.URL.Query().Get("token") != "" {
-		return true
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return "", "", fmt.Errorf("invalid token format")
 	}
-	return false
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", "", err
+	}
+	var claims struct {
+		Sub  string `json:"sub"`
+		Role string `json:"role"`
+		Typ  string `json:"typ"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return "", "", err
+	}
+	if claims.Typ != "agent-ws" {
+		return "", "", fmt.Errorf("invalid token type")
+	}
+	if claims.Role != "data" && claims.Role != "exec" {
+		return "", "", fmt.Errorf("invalid agent role")
+	}
+	return claims.Sub, claims.Role, nil
 }

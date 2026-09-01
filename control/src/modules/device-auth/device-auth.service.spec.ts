@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 import { DeviceAuthService } from './device-auth.service';
 import { jest } from '@jest/globals';
 import { UnauthorizedException, ConflictException, NotFoundException } from '@nestjs/common';

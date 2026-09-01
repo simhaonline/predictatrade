@@ -389,28 +389,24 @@ func TestEdgeValidationGateArmed(t *testing.T) {
 	}
 }
 
-// TestPositionCapsAuthorized verifies that when the operator has authorized live
-// trading and the strategy is armed, a missing broker position snapshot does NOT
-// block the signal (EA enforces caps locally). Without authorization it still
-// degrades (fail-closed).
+// TestPositionCapsAuthorized verifies that operator authorization never turns
+// missing broker position data into a safety pass. Unknown positions always
+// degrade; verified position data is still required for executable delivery.
 func TestPositionCapsAuthorized(t *testing.T) {
 	g := &PositionCapsGate{MaxSameDirection: 1, MaxTotal: 2, MaxPerStrategy: 1}
 	g.SetAuthorized(true)
 	g.SetArmed([]string{"STANDARD_SCALPING"})
 
-	// Authorized + armed, positions unknown → PASS (EA enforces locally).
 	eval := g.Evaluate(GateInput{Direction: types.DirectionBuy, StrategyID: types.StrategyID("STANDARD_SCALPING"), PositionsKnown: false}, GateState{})
-	if eval.Result != types.GatePass || eval.ReasonCodes[0] != ReasonPositionCapsAuthorized {
-		t.Errorf("authorized+armed: result=%s reason=%v, want PASS/position_caps_authorized", eval.Result, eval.ReasonCodes)
+	if eval.Result != types.GateDegraded || eval.ReasonCodes[0] != "positions_unknown" {
+		t.Errorf("authorized+armed: result=%s reason=%v, want DEGRADED/positions_unknown", eval.Result, eval.ReasonCodes)
 	}
 
-	// Authorized but NOT armed → still DEGRADED (positions_unknown).
 	eval2 := g.Evaluate(GateInput{Direction: types.DirectionBuy, StrategyID: types.StrategyID("ULTRA_SCALPING"), PositionsKnown: false}, GateState{})
 	if eval2.Result != types.GateDegraded {
 		t.Errorf("authorized but unarmed: result=%s, want DEGRADED", eval2.Result)
 	}
 
-	// Not authorized at all → DEGRADED regardless of arming.
 	g2 := &PositionCapsGate{MaxSameDirection: 1, MaxTotal: 2, MaxPerStrategy: 1}
 	g2.SetArmed([]string{"STANDARD_SCALPING"})
 	eval3 := g2.Evaluate(GateInput{Direction: types.DirectionBuy, StrategyID: types.StrategyID("STANDARD_SCALPING"), PositionsKnown: false}, GateState{})

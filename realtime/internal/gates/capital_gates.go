@@ -114,14 +114,6 @@ func (g *RiskOversizeGate) Evaluate(input GateInput, state GateState) GateEvalua
 		eval.ReasonCodes = []string{ReasonRiskOversize}
 		return eval
 	}
-	if input.AccountEquity < 100 {
-		// Small account (< $100) — PASS and let EA handle sizing.
-		// The server's risk budget is too tight for small accounts
-		// (1.5% of $37 = $0.56 — less than minimum lot risk).
-		// The EA has real broker data and can make better decisions.
-		eval.Result = types.GatePass
-		return eval
-	}
 	econ := risk.SymbolEconomics{
 		TickValue: input.SymbolTickValue,
 		TickSize:  input.SymbolTickSize,
@@ -265,15 +257,6 @@ func (g *PositionCapsGate) countIssued(strategyID types.StrategyID) int {
 func (g *PositionCapsGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := g.base(state)
 	if !input.PositionsKnown {
-		// Operator-authorized + armed strategy: broker position snapshot is
-		// absent, but the EA enforces position caps locally. Do not block the
-		// EXECUTABLE signal on missing broker data when the operator has
-		// explicitly qualified the strategy for live trading.
-		if g.isAuthorized() && g.isArmed(input.StrategyID) {
-			eval.Result = types.GatePass
-			eval.ReasonCodes = []string{ReasonPositionCapsAuthorized}
-			return eval
-		}
 		eval.Result = types.GateDegraded
 		eval.ReasonCodes = []string{"positions_unknown"}
 		return eval
