@@ -174,6 +174,29 @@ func (a *Agent) safe(fn func()) {
 	fn()
 }
 
+// supervise runs fn in a self-healing restart loop. Unlike safe() — which only
+// recovers a panic and lets the goroutine die — supervise relaunches fn after
+// any panic or unexpected return, so a transient fault in the WebSocket
+// reconnect/heartbeat path can NEVER permanently strand the agent (the exact
+// "Master node stopped and never came back" failure). It only exits when the
+// agent is halting/stopped. No external service-manager restart required.
+func (a *Agent) supervise(fn func()) {
+	for {
+		select {
+		case <-a.stopChan:
+			return
+		default:
+		}
+		a.safe(fn)
+		// fn returned (panic recovered, or clean exit) — restart unless stopping.
+		select {
+		case <-a.stopChan:
+			return
+		case <-time.After(1 * time.Second):
+		}
+	}
+}
+
 func maskSecret(s string) string {
 	if len(s) <= 6 {
 		return "******"
@@ -319,11 +342,12 @@ func (a *Agent) Start() error {
 	a.pipeManager.Start()
 	log.Printf("File IPC started at %d folder(s): %v", len(commonDirs), commonDirs)
 
-	// Connect to live.predictatrade.com WebSocket
-	go a.safe(a.connectLoop)
+	// Connect to live.predictatrade.com WebSocket. Supervised so a transient
+	// panic can never permanently kill the reconnect loop (resilience fix).
+	go a.supervise(a.connectLoop)
 
-	// Start heartbeat
-	go a.safe(a.heartbeatLoop)
+	// Start heartbeat. Supervised for the same self-healing reason.
+	go a.supervise(a.heartbeatLoop)
 
 	// Start role-specific loops (Client launches the signal processor; the
 	// Master Node is data-only and starts no extra loops).
