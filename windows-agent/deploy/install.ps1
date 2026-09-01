@@ -297,6 +297,9 @@ Write-Host "  OK: Agent log dir = $logsDir"
 # Step 3: Stop existing service if running
 Write-Host "[3/9] Stopping existing service if running..."
 $nssmDest = Join-Path $InstallDir $NssmExe
+# Kill any lingering background cmd/agent processes BEFORE touching the service,
+# so a leftover process doesn't hold the port / binary lock.
+Stop-BackgroundAgentProcesses -ExeName $AgentExe
 $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($svc) {
     if ($svc.Status -eq "Running") {
@@ -344,6 +347,28 @@ function Repair-DefenderBlock {
     # Protection may refuse; the post-check reports it loudly).
     Add-MpPreference -ExclusionPath $InstallDir -ErrorAction SilentlyContinue
     Add-MpPreference -ExclusionPath (Join-Path $env:ProgramData 'PredictATrade') -ErrorAction SilentlyContinue
+}
+
+# Kill any BACKGROUND cmd.exe / agent process left over from a previous manual or
+# failed run. A lingering cmd window running the agent binary holds the port and
+# the file lock, which makes the Windows Service fail to start (empty nssm logs).
+# This is the most common cause of "install/update silently does nothing". Always
+# called before stopping the service and again before each start attempt.
+function Stop-BackgroundAgentProcesses {
+    param([string]$ExeName)
+    try {
+        # cmd.exe windows that launched the agent (e.g. `cmd /k pat-master.exe`).
+        $cmds = Get-CimInstance Win32_Process -Filter "Name = 'cmd.exe'" -ErrorAction SilentlyContinue
+        foreach ($c in $cmds) {
+            if ($c.CommandLine -and ($c.CommandLine -like "*$ExeName*" -or $c.CommandLine -like "*$InstallDir*")) {
+                try { Stop-Process -Id $c.ProcessId -Force -ErrorAction SilentlyContinue } catch {}
+            }
+        }
+        # The agent exe itself if it is running outside NSSM (double-click / cmd).
+        $procs = Get-Process -Name ([System.IO.Path]::GetFileNameWithoutExtension($ExeName)) -ErrorAction SilentlyContinue
+        if ($procs) { $procs | Stop-Process -Force -ErrorAction SilentlyContinue }
+    } catch {}
+    Start-Sleep -Seconds 1
 }
 
 $downloadOk = $false
@@ -536,6 +561,8 @@ function Test-AgentHealthy {
 
 for ($round = 1; $round -le 3 -and -not $serviceRunning; $round++) {
     if ($round -gt 1) { Write-Host "  Repair round $round — Defender/quarantine re-check + fresh start..." }
+    # Kill any lingering background cmd/agent process so the start can succeed.
+    Stop-BackgroundAgentProcesses -ExeName $AgentExe
     # Re-assert Defender allow before every start attempt.
     Repair-DefenderBlock -Path $agentPath
 

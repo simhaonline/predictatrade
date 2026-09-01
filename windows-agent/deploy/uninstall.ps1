@@ -250,12 +250,22 @@ foreach ($svcName in $ServicesToRemove) {
 # ─── 1.5. Kill any running agent processes (in case service didn't stop) ───
 Write-Host "[uninstall] Killing any running agent processes..."
 # Kill BOTH role processes regardless of -Mode so the uninstall is thorough.
+# Also kill any background cmd.exe windows that launched the agent (a lingering
+# cmd holds the binary/port and can keep the service from stopping cleanly).
 $procNames = @("pat-agent", "pat-master")
 $agentProcs = @()
 foreach ($pn in $procNames) {
     $p = Get-Process -Name $pn -ErrorAction SilentlyContinue
     if ($p) { $agentProcs += $p }
 }
+try {
+    $cmds = Get-CimInstance Win32_Process -Filter "Name = 'cmd.exe'" -ErrorAction SilentlyContinue
+    foreach ($c in $cmds) {
+        if ($c.CommandLine -and ($c.CommandLine -like "*pat-agent*" -or $c.CommandLine -like "*pat-master*" -or $c.CommandLine -like "*PredictATrade*")) {
+            try { Stop-Process -Id $c.ProcessId -Force -ErrorAction SilentlyContinue } catch {}
+        }
+    }
+} catch {}
 if ($agentProcs) {
     $agentProcs | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 2

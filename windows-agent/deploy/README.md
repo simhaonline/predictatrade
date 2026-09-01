@@ -15,8 +15,10 @@ from `cmd/client`) and `pat-master.exe` (Master Node, built from `cmd/master`).
 The role is fixed by the binary itself (no runtime `--mode` flag). This lets a
 Client and a Master Node run side-by-side on one Windows box.
 
-> Default engine host is `live.predictatrade.com`. To point at a different
-> server, run the installer with `-EngineHost your.host`.
+> Default engine host is `api.predictatrade.com` (the internal API host — all
+> agent/engine traffic uses this; `live.predictatrade.com` is the public
+> view-only dashboard only). To point at a different server, run the installer
+> with `-EngineHost your.host`.
 
 ---
 
@@ -86,13 +88,20 @@ Restart-Service pat-agent-client   # or pat-agent-master
 Or create `%ProgramData%\PredictATrade\windows-agent.env` containing
 `AGENT_WS_TOKEN=<your-agent-ws-token>` and restart the service.
 
-Download the latest EA sources (v1.17.2 MasterAppend fix) from:
-- https://downloads.predictatrade.com/windows-agent/PredictATrade_MasterNode_MT5.mq5
-- https://downloads.predictatrade.com/windows-agent/PredictATrade_MT5.mq5
-(older MT4: PredictATrade_MasterNode_MT4.mq4 / PredictATrade_MT4.mq4)
+**MQL sources live in ONE place only — the `mql/` folder** of the repository
+(`mql/mt5/` for MT5, `mql/mt4/` for MT4, `mql/compiled_executable/` for the
+compiled `.ex4`/`.ex5`). They are intentionally NOT duplicated under
+`windows-agent/deploy/` to avoid drift/confusion. Current EA sources:
 
-Copy them into each terminal's `MQL5\Experts\` (or `MQL4\Experts\`) folder
-and compile in MetaEditor (F7) before attaching.
+- `mql/mt5/PredictATrade_MasterNode_MT5.mq5` (Master Node, MT5)
+- `mql/mt5/PredictATrade_MT5.mq5` (Execution EA, MT5)
+- `mql/mt4/PredictATrade_MasterNode_MT4.mq4` (Master Node, MT4)
+- `mql/mt4/PredictATrade_MT4.mq4` (Execution EA, MT4)
+
+The compiled `.ex4`/`.ex5` are distributed to clients via the download portal
+(`frontend/public/downloads` and `nginx/downloads`). Copy the sources into each
+terminal's `MQL5\Experts\` (or `MQL4\Experts\`) folder and compile in MetaEditor
+(F7) before attaching.
 
 > The EA can be on **any chart timeframe** (M1/M5/M15/H1…). Execution is by
 > symbol + price levels, not chart timeframe, so a client chart on M15 still
@@ -102,18 +111,23 @@ and compile in MetaEditor (F7) before attaching.
 
 ## 2. Update
 
-Re-run the **same** installer command for the role you want to update. It
-downloads the latest binary, stops the existing service, swaps the exe, and
-restarts — preserving `settings.json`.
+Use the dedicated updater for the role. It re-runs the shared installer in that
+role, which **stops the service, kills any leftover background `cmd`/agent
+process** (a lingering `cmd` holding the port is the usual cause of a silent
+"service failed to start"), downloads the latest binary (SHA256-verified), swaps
+the exe, and restarts — preserving `settings.json`.
 
 ```powershell
 # Update Client
-irm https://downloads.predictatrade.com/windows-agent/install-client.ps1 | iex
+irm https://downloads.predictatrade.com/windows-agent/update-client.ps1 | iex
 
 # Update Master
-irm https://downloads.predictatrade.com/windows-agent/install-master.ps1 | iex
+irm https://downloads.predictatrade.com/windows-agent/update-master.ps1 | iex
 ```
-*(Use the correct host: `downloads.predictatrade.com`.)*
+
+> Re-running the installer (`install-client.ps1` / `install-master.ps1`) performs
+> the same update; the `update-*.ps1` scripts are thin aliases for clarity.
+> The agent also self-updates hourly, so most fixes arrive automatically.
 
 ---
 
@@ -242,10 +256,13 @@ Shared (both roles): `C:\ProgramData\PredictATrade\logs\` (service logs),
 
 | File | Purpose |
 |------|---------|
-| `install.ps1` | Shared installer (role selected via `-Mode client|master`). |
+| `install.ps1` | Shared installer (role selected via `-Mode client|master`). **Before stopping/starting the service it kills any leftover background `cmd`/agent process** so a stale process can't hold the port/file lock. |
 | `install-client.ps1` | Thin wrapper → installs `pat-agent-client` (exec, port 13081). |
 | `install-master.ps1` | Thin wrapper → installs `pat-agent-master` (data, port 13091). |
-| `uninstall.ps1` | Uninstaller; always removes BOTH roles + legacy dir, their services (via `sc.exe delete` so it works for NSSM- or native-registered services), task, event source, IPC files and Defender exclusion; ends with a cleanup-verification report. `-Mode` is optional (affects messaging only). |
+| `update.ps1` | Shared updater (role via `-Mode client|master`); stops service, kills background cmd/agent, swaps the SHA256-verified binary, restarts. |
+| `update-client.ps1` | Thin wrapper → updates `pat-agent-client`. |
+| `update-master.ps1` | Thin wrapper → updates `pat-agent-master`. |
+| `uninstall.ps1` | Uninstaller; always removes BOTH roles + legacy dir, their services (via `sc.exe delete` so it works for NSSM- or native-registered services), task, event source, IPC files and Defender exclusion; also kills any background `cmd`/agent process. Ends with a cleanup-verification report. `-Mode` is optional (affects messaging only). |
 | `verify-cleanup.ps1` | Standalone, non-destructive audit proving no agent remnants remain. Checks BOTH roles explicitly (Master Node + Client Agent) plus shared/legacy items (services/processes/dirs/task/event-source/IPC). Optional mode arg: `master`, `client`, or `all` (default). Run after uninstall. |
 | `status.ps1` | Status report (role-aware via `-Mode`). |
 | `health-check.ps1` | Hang/crash monitor (role-aware via `-Mode`); used by Scheduled Task. |
@@ -253,7 +270,6 @@ Shared (both roles): `C:\ProgramData\PredictATrade\logs\` (service logs),
 | `pat-master.exe` | Master Node binary (separate build from the distinct `cmd/master` entrypoint). |
 | `notify.ps1` | Multi-channel notification dispatcher. |
 | `settings.json` | Config template (notification + health params). |
-| `install.bat` | Batch launcher — delegates to `install.ps1 -Mode` (keeps separate dirs + nssm reuse). |
 | `version.txt` | Current version number. |
 | `update-manifest.json` | Version + SHA256 for auto-update. |
 | `<role>/<arch>/<exe>.exe` | Per-architecture binaries (`client`\|`master` × `amd64`\|`386`\|`arm64`) fetched by the installer based on detected Windows arch. |
