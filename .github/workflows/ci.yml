@@ -64,19 +64,6 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: python -m pytest tests/ -v --tb=short
 
-  windows-agent:
-    name: Windows Agent (cross-compile)
-    runs-on: ubuntu-latest
-    defaults: { run: { working-directory: windows-agent } }
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with: { go-version: '1.23' }
-      - run: go mod download
-      - run: go test ./...
-      - run: GOOS=windows GOARCH=amd64 go build -o bin/pat-agent.exe ./cmd/client
-      - run: GOOS=windows GOARCH=amd64 go build -o bin/pat-master.exe ./cmd/master
-
   security:
     name: Security Scan
     runs-on: ubuntu-latest

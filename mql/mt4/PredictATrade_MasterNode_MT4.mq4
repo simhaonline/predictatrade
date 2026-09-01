@@ -27,7 +27,11 @@
 input int     SnapshotIntervalMs = 10;     // HFT: 10ms snapshot (1-5ms co-located)
 input int     TickIntervalMs     = 0;       // 0 = every tick (HFT: 1-5ms when co-located)
 input string  BrokerSymbol      = "";     // Empty = auto-detect chart symbol
-input bool    SendTickData      = true;   // Send tick data to Agent
+input string  PATCloudURL       = "https://api.predictatrade.com"; // Cloud API base URL (add to WebRequest allowlist)
+input string  MasterDeviceId    = "";     // Device UUID (optional — auto-activation from MasterLicenseKey)
+input string  MasterDeviceSecret= "";     // Device secret (optional)
+input string  MasterLicenseKey  = "";     // Master (data-node) license key for auto-activation
+input bool    SendTickData      = true;   // Send tick data to Cloud
 input bool    SendSnapshots     = true;   // Send comprehensive market snapshots
 input bool    SendIndicators    = true;   // Include indicator values in snapshots
 input bool    SendMultiTF       = true;   // Include multi-timeframe bar data
@@ -43,11 +47,7 @@ input string  EmailNotifyAddress   = "";     // Email for notifications (uses MT
 input int     NotifyCooldownSec    = 300;    // Min seconds between repeated notifications
 
 //=== IPC Files (in FILE_COMMON folder — shared with Windows Agent) ===
-#define PAT_MASTER_FILE  "PAT_master_data.txt"
-#define PAT_HEARTBEAT    "PAT_heartbeat.txt"
-// PAT_RESYNC is written by the Windows Agent (on engine REQUEST_SNAPSHOT nudge)
-// and polled by this EA to force an immediate MARKET_SNAPSHOT re-emit.
-#define PAT_RESYNC       "PAT_resync.txt"
+// (resync flag file removed — REQUEST_SNAPSHOT arrives on the edge queue)
 
 //=== Timeframes for multi-TF bar data ===
 // Per-TF broker CopyRates sync: the engine ingests these bars directly so its
@@ -94,7 +94,7 @@ string FormatISO8601UTC(datetime t)
 //+------------------------------------------------------------------+
 int OnInit()
 {
-    Print("Predict-A-Trade Master Node v1.00 initializing (MT4)...");
+    Print("Predict-A-Trade Master Node v1.19 initializing (MT4)...");
     Print("Mode: DATA COLLECTION ONLY — NO License Key, NO Trading");
 
     g_symbol = BrokerSymbol;
@@ -106,17 +106,17 @@ int OnInit()
     Print("Broker: ", g_broker);
     Print("Account: ", g_accountID);
 
-    if(FileIsExist(PAT_HEARTBEAT, FILE_COMMON))
+    if(MasterEnsureDevice())
     {
         g_connection = "CONNECTED";
-        Print("Windows Agent detected (heartbeat found in common folder)");
+        Print("[MASTER_NODE] Cloud device ready (", g_deviceId, ") — edge ingest mode (v1.19).");
         SendMasterInit();
     }
     else
     {
         g_connection = "OFFLINE";
-        Print("WARNING: Windows Agent not detected.");
-        Print("Ensure pat-master.exe (Master Node agent) is running on this machine.");
+        Print("WARNING: Cloud device not ready — set MasterLicenseKey (or Device Id/Secret) in EA inputs.");
+        Print("Also add ", PATCloudURL, " to Tools→Options→Expert Advisors→WebRequest allowlist.");
     }
 
     UpdatePanel();
@@ -171,15 +171,12 @@ void OnTimer()
 {
     CheckAgentConnection();
 
+    // Engine recovery nudge: REQUEST_SNAPSHOT commands arrive on the edge
+    // queue (control plane) — poll, ack, and force an immediate snapshot.
+    MasterEdgePoll();
+
     if(g_connection == "CONNECTED" && SendSnapshots)
     {
-        // Engine recovery nudge: if the agent dropped a REQUEST_SNAPSHOT flag,
-        // force an immediate snapshot (bypass the snapshot throttle).
-        if(FileIsExist(PAT_RESYNC, FILE_COMMON))
-        {
-            FileDelete(PAT_RESYNC, FILE_COMMON);
-            g_lastSnapshot = 0;
-        }
         SendMarketSnapshot();
     }
 
@@ -238,16 +235,18 @@ void CheckAgentConnection()
     if(GetTickCount() - lastCheck < 2000) return;
     lastCheck = GetTickCount();
 
-    bool agentOnline = FileIsExist(PAT_HEARTBEAT, FILE_COMMON);
-    
-    if(agentOnline)
+    // Option B liveness: "connected" = cloud device credentials ready.
+    // Reachability errors surface from ingest HTTP failures (g_ingestErrCount).
+    bool deviceReady = MasterEnsureDevice();
+
+    if(deviceReady)
     {
         g_connection = "CONNECTED";
         if(!g_lastAgentState)
         {
             g_lastAgentState = true;
-            Print("[AGENT] Windows Agent is now ACTIVE (heartbeat detected)");
-            SendAgentNotification("ACTIVE", "Windows Agent is now ACTIVE and connected to the Master Node.");
+            Print("[CLOUD] Master data device is now ACTIVE (device ", g_deviceId, ")");
+            SendAgentNotification("ACTIVE", "Master Node cloud link is ACTIVE (edge ingest).");
         }
     }
     else
@@ -255,13 +254,13 @@ void CheckAgentConnection()
         if(g_connection == "CONNECTED")
         {
             g_connection = "OFFLINE";
-            Print("[AGENT] Windows Agent heartbeat lost");
+            Print("[CLOUD] Master data device credentials lost");
         }
         if(g_lastAgentState)
         {
             g_lastAgentState = false;
-            Print("[AGENT] Windows Agent is now OFFLINE (heartbeat lost)");
-            SendAgentNotification("OFFLINE", "WARNING: Windows Agent is OFFLINE! No heartbeat detected. Live data feed may be interrupted.");
+            Print("[CLOUD] Master data device is now OFFLINE (activation failed). Live data feed interrupted.");
+            SendAgentNotification("OFFLINE", "WARNING: Master Node cloud link OFFLINE — device activation failed. Check MasterLicenseKey / WebRequest allowlist.");
         }
     }
 }
@@ -620,7 +619,7 @@ void SendMasterInit()
 {
     string msg = "MASTER_INIT|{";
     msg += "\"type\":\"MASTER_INIT\"";
-    msg += ",\"ea_version\":\"1.00\"";
+    msg += ",\"ea_version\":\"1.19\"";
     msg += ",\"node\":\"MASTER\"";
     msg += ",\"platform\":\"MT4\"";
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
@@ -660,72 +659,503 @@ string EscapeJSON(string s)
 }
 
 //+------------------------------------------------------------------+
-//| File I/O using FILE_COMMON (shared between all MT terminals)     |
+//| ══════════ OPTION B TRANSPORT (v1.19.0) ═══════════════════════ |
+//| The Master EA posts market data DIRECTLY to the cloud engine over |
+//| HTTPS — the Windows Agent and its IPC files are gone.             |
+//| Outbound: POST /ingest/agent (Bearer device JWT, role=data).      |
+//| Inbound:  HMAC edge-poll (REQUEST_SNAPSHOT / EMERGENCY_STOP …).   |
 //+------------------------------------------------------------------+
-void MasterWrite(string content)
+string   g_deviceId      = "";
+string   g_deviceSecret  = "";
+string   g_refreshToken  = "";
+string   g_accessToken   = "";
+datetime g_tokenExpiry   = 0;
+bool     g_masterNetShown = false;
+int      g_ingestOkCount  = 0;
+int      g_ingestErrCount = 0;
+long     g_hmacCounter    = 0;
+
+#define PAT_MASTER_DEVICE_FILE "PAT_master_device.txt" // device_id|device_secret|refresh_token
+
+//--- MasterSHA256: pure-MQL4 SHA-256 (FIPS 180-4) over UTF-8 bytes
+int MasterROTR(int x, int n) { return (int)(((uint)x >> n) | ((uint)x << (32 - n))); }
+
+void MasterStoreU32BE(uint v, uchar &outp[], int pos)
 {
-    int retry = 0;
-    while(retry < 3)
-    {
-        int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
-        if(h != -1)
-        {
-            FileWriteString(h, content);
-            FileClose(h);
-            return;
-        }
-        retry++;
-        Sleep(5);
-    }
-    Print("FileOpen WRITE failed after 3 retries: ", PAT_MASTER_FILE, " error=", GetLastError());
+    outp[pos]   = (uchar)((v >> 24) & 0xFF);
+    outp[pos+1] = (uchar)((v >> 16) & 0xFF);
+    outp[pos+2] = (uchar)((v >> 8) & 0xFF);
+    outp[pos+3] = (uchar)(v & 0xFF);
 }
 
- void MasterAppend(string content)
+void MasterSHA256K(uint &k[])
 {
-    // Append (do NOT truncate). The Windows Agent polls PAT_master_data.txt every
-    // ~5ms, reads ALL lines and clears the file. Because MASTER_TICK is written on
-    // every tick while MARKET_SNAPSHOT / MASTER_INIT are written less often, a
-    // truncating write would clobber the snapshot before the agent can read it —
-    // which made the engine receive ticks but never snapshots (silent data feed).
-    // Opening read+write and seeking to the end lets ticks AND snapshots coexist
-    // in the file until the agent drains them.
-    int retry = 0;
-    while(retry < 3)
+    static uint K[64];
+    K[0]=0x428a2f98;  K[1]=0x71374491;  K[2]=0xb5c0fbcf;  K[3]=0xe9b5dba5;
+    K[4]=0x3956c25b;  K[5]=0x59f111f1;  K[6]=0x923f82a4;  K[7]=0xab1c5ed5;
+    K[8]=0xd807aa98;  K[9]=0x12835b01;  K[10]=0x243185be; K[11]=0x550c7dc3;
+    K[12]=0x72be5d74; K[13]=0x80deb1fe; K[14]=0x9bdc06a7; K[15]=0xc19bf174;
+    K[16]=0xe49b69c1; K[17]=0xefbe4786; K[18]=0x0fc19dc6; K[19]=0x240ca1cc;
+    K[20]=0x2de92c6f; K[21]=0x4a7484aa; K[22]=0x5cb0a9dc; K[23]=0x76f988da;
+    K[24]=0x983e5152; K[25]=0xa831c66d; K[26]=0xb00327c8; K[27]=0xbf597fc7;
+    K[28]=0xc6e00bf3; K[29]=0xd5a79147; K[30]=0x06ca6351; K[31]=0x14292967;
+    K[32]=0x27b70a85; K[33]=0x2e1b2138; K[34]=0x4d2c6dfc; K[35]=0x53380d13;
+    K[36]=0x650a7354; K[37]=0x766a0abb; K[38]=0x81c2c92e; K[39]=0x92722c85;
+    K[40]=0xa2bfe8a1; K[41]=0xa81a664b; K[42]=0xc24b8b70; K[43]=0xc76c51a3;
+    K[44]=0xd192e819; K[45]=0xd6990624; K[46]=0xf40e3585; K[47]=0x106aa070;
+    K[48]=0x19a4c116; K[49]=0x1e376c08; K[50]=0x2748774c; K[51]=0x34b0bcb5;
+    K[52]=0x391c0cb3; K[53]=0x4ed8aa4a; K[54]=0x5b9cca4f; K[55]=0x682e6ff3;
+    K[56]=0x748f82ee; K[57]=0x78a5636f; K[58]=0x84c87814; K[59]=0x8cc70208;
+    K[60]=0x90befffa; K[61]=0xa4506ceb; K[62]=0xbef9a3f7; K[63]=0xc67178f2;
+    ArrayCopy(k, K);
+}
+
+void MasterSHA256(const uchar &msg[], uchar &digest[])
+{
+    ulong bitLen = (ulong)ArraySize(msg) * 8;
+    int paddedLen = (int)(((ArraySize(msg) + 8) / 64) + 1) * 64;
+    uchar padded[];
+    ArrayResize(padded, paddedLen);
+    ArrayInitialize(padded, 0);
+    ArrayCopy(padded, msg, 0, 0, ArraySize(msg));
+    padded[ArraySize(msg)] = 0x80;
+    for(int i = 0; i < 8; i++)
+        padded[paddedLen - 1 - i] = (uchar)((bitLen >> (8 * i)) & 0xFF);
+
+    uint h0=0x6a09e667, h1=0xbb67ae85, h2=0x3c6ef372, h3=0xa54ff53a;
+    uint h4=0x510e527f, h5=0x9b05688c, h6=0x1f83d9ab, h7=0x5be0cd19;
+    uint k[64];
+    MasterSHA256K(k);
+
+    uint w[64];
+    for(int off = 0; off < paddedLen; off += 64)
     {
-        int h = FileOpen(PAT_MASTER_FILE, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
-        if(h != -1)
+        for(int t = 0; t < 16; t++)
+            w[t] = ((uint)padded[off + t*4] << 24) | ((uint)padded[off + t*4 + 1] << 16) |
+                   ((uint)padded[off + t*4 + 2] << 8) | (uint)padded[off + t*4 + 3];
+        for(int t = 16; t < 64; t++)
         {
-            FileSeek(h, 0, SEEK_END);
-            FileWriteString(h, content);
-            FileClose(h);
-            return;
+            uint s0 = MasterROTR(w[t-15],7) ^ MasterROTR(w[t-15],18) ^ (w[t-15] >> 3);
+            uint s1 = MasterROTR(w[t-2],17) ^ MasterROTR(w[t-2],19) ^ (w[t-2] >> 10);
+            w[t] = w[t-16] + s0 + w[t-7] + s1;
         }
-        retry++;
-        Sleep(5);
+        uint a=h0, b=h1, c=h2, d=h3, e=h4, f=h5, g=h6, hh=h7;
+        for(int t = 0; t < 64; t++)
+        {
+            uint S1 = MasterROTR(e,6) ^ MasterROTR(e,11) ^ MasterROTR(e,25);
+            uint ch = (e & f) ^ ((~e) & g);
+            uint temp1 = hh + S1 + ch + k[t] + w[t];
+            uint S0 = MasterROTR(a,2) ^ MasterROTR(a,13) ^ MasterROTR(a,22);
+            uint maj = (a & b) ^ (a & c) ^ (b & c);
+            uint temp2 = S0 + maj;
+            hh=g; g=f; f=e; e=d+temp1; d=c; c=b; b=a; a=temp1+temp2;
+        }
+        h0+=a; h1+=b; h2+=c; h3+=d; h4+=e; h5+=f; h6+=g; h7+=hh;
     }
-    // Self-heal: if the append keeps failing (err 5004 = file too long, or a
-    // transient lock race with the Agent), reset the file with a truncating
-    // write and record the message so the market-data feed never dies.
-    int h = FileOpen(PAT_MASTER_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
+
+    ArrayResize(digest, 32);
+    MasterStoreU32BE(h0, digest, 0);  MasterStoreU32BE(h1, digest, 4);
+    MasterStoreU32BE(h2, digest, 8);  MasterStoreU32BE(h3, digest, 12);
+    MasterStoreU32BE(h4, digest, 16); MasterStoreU32BE(h5, digest, 20);
+    MasterStoreU32BE(h6, digest, 24); MasterStoreU32BE(h7, digest, 28);
+}
+
+string MasterSHA256Hex(string text)
+{
+    uchar msg[];
+    StringToCharArray(text, msg, 0, WHOLE_ARRAY, CP_UTF8);
+    ArrayResize(msg, ArraySize(msg) - 1);
+    uchar digest[];
+    MasterSHA256(msg, digest);
+    string hexchars = "0123456789abcdef";
+    string outp = "";
+    for(int i = 0; i < ArraySize(digest); i++)
+    {
+        outp += StringSubstr(hexchars, (digest[i] >> 4) & 0x0F, 1);
+        outp += StringSubstr(hexchars, digest[i] & 0x0F, 1);
+    }
+    return outp;
+}
+
+//--- MasterHmacSha256Hex: HMAC-SHA256 = SHA256(opad || SHA256(ipad || msg))
+string MasterHmacSha256Hex(string key, string message)
+{
+    uchar keyBytes[];
+    int klen = StringToCharArray(key, keyBytes, 0, WHOLE_ARRAY, CP_UTF8) - 1;
+    uchar keyBlock[64];
+    ArrayInitialize(keyBlock, 0);
+    ArrayCopy(keyBlock, keyBytes, 0, 0, MathMin(klen, 64));
+    uchar ipad[64], opad[64];
+    for(int i = 0; i < 64; i++)
+    {
+        ipad[i] = keyBlock[i] ^ 0x36;
+        opad[i] = keyBlock[i] ^ 0x5C;
+    }
+    uchar msgBytes[];
+    StringToCharArray(message, msgBytes, 0, WHOLE_ARRAY, CP_UTF8);
+    ArrayResize(msgBytes, ArraySize(msgBytes) - 1);
+    uchar innerMsg[96];
+    ArrayCopy(innerMsg, ipad, 0, 0, 64);
+    ArrayCopy(innerMsg, msgBytes, 64, 0, ArraySize(msgBytes));
+    uchar innerDigest[];
+    MasterSHA256(innerMsg, innerDigest);
+    uchar outerMsg[96];
+    ArrayCopy(outerMsg, opad, 0, 0, 64);
+    ArrayCopy(outerMsg, innerDigest, 64, 0, 32);
+    uchar digest[];
+    MasterSHA256(outerMsg, digest);
+    string hexchars = "0123456789abcdef";
+    string outp = "";
+    for(int i = 0; i < ArraySize(digest); i++)
+    {
+        outp += StringSubstr(hexchars, (digest[i] >> 4) & 0x0F, 1);
+        outp += StringSubstr(hexchars, digest[i] & 0x0F, 1);
+    }
+    return outp;
+}
+
+//--- MasterHMACSign: canonical v1 device signature (byte-identical to
+//    DeviceAuthService.verifyRequestSignature in the control plane)
+string MasterHMACSign(string path, string body, string deviceId, string deviceSecret, string ts, string nonce)
+{
+    string bodyHash = MasterSHA256Hex(body);
+    string canonical = "v1\n" + ts + "\n" + nonce + "\nPOST\n" + path + "\n" + bodyHash + "\n" + deviceId;
+    return MasterHmacSha256Hex(deviceSecret, canonical);
+}
+
+//--- MasterHTTPPost: plain JSON POST (no auth) → (status, response)
+int MasterHTTPPost(string url, string body, string &response)
+{
+    string headers = "Content-Type: application/json\r\n";
+    uchar data[];
+    StringToCharArray(body, data, 0, WHOLE_ARRAY, CP_UTF8);
+    ArrayResize(data, ArraySize(data) - 1);
+    uchar result[];
+    string resHeaders = "";
+    int status = WebRequest("POST", url, headers, 8000, data, result, resHeaders);
+    response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+    return status;
+}
+
+//--- MasterSignedPost: HMAC-authenticated control-plane POST
+int MasterSignedPost(string path, string body, string &response)
+{
+    string ts = IntegerToString((long)TimeGMT() * 1000 + (GetTickCount() % 1000));
+    g_hmacCounter++;
+    string nonce = MasterSHA256Hex(ts + IntegerToString(g_hmacCounter) + IntegerToString(MathRand()) + IntegerToString(GetTickCount()));
+    string sig = MasterHMACSign(path, body, g_deviceId, g_deviceSecret, ts, nonce);
+
+    string headers = "Content-Type: application/json\r\n"
+                     "X-Device-Id: " + g_deviceId + "\r\n"
+                     "X-Device-Timestamp: " + ts + "\r\n"
+                     "X-Device-Nonce: " + nonce + "\r\n"
+                     "X-Device-Signature: " + sig + "\r\n";
+    uchar data[];
+    StringToCharArray(body, data, 0, WHOLE_ARRAY, CP_UTF8);
+    ArrayResize(data, ArraySize(data) - 1);
+    uchar result[];
+    string resHeaders = "";
+    int status = WebRequest("POST", PATCloudURL + path, headers, 8000, data, result, resHeaders);
+    response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+    return status;
+}
+
+//--- MasterReadState / MasterWriteState: bootstrap persistence (FILE_COMMON)
+string MasterReadState(string filename)
+{
+    if(!FileIsExist(filename, FILE_COMMON)) return "";
+    int h = FileOpen(filename, FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON);
+    if(h == -1) return "";
+    string content = "";
+    while(!FileIsEnding(h))
+    {
+        string line = FileReadString(h);
+        if(StringLen(line) > 0)
+        {
+            if(StringLen(content) > 0) content += "\n";
+            content += line;
+        }
+    }
+    FileClose(h);
+    return content;
+}
+
+void MasterWriteState(string filename, string content)
+{
+    int h = FileOpen(filename, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
     if(h != -1)
     {
         FileWriteString(h, content);
         FileClose(h);
-        Print("MasterAppend self-heal: reset ", PAT_MASTER_FILE, " (prev err ", GetLastError(), ")");
-        return;
     }
-    Print("FileOpen APPEND failed after retries + self-heal: ", PAT_MASTER_FILE, " error=", GetLastError());
 }
 
+//--- MasterJSONString: minimal JSON string-field extractor
+string MasterJSONString(string json, string key)
+{
+    string pat = "\"" + key + "\":\"";
+    int p = StringFind(json, pat);
+    if(p < 0) return "";
+    p += StringLen(pat);
+    int e = StringFind(json, "\"", p);
+    if(e < 0) return "";
+    return StringSubstr(json, p, e - p);
+}
+
+//--- MasterJSONEscape: minimal JSON string escaper
+string MasterJSONEscape(string s)
+{
+    string outp = "";
+    for(int i = 0; i < StringLen(s); i++)
+    {
+        int c = StringGetChar(s, i);
+        if(c == '"') outp += "\\\"";
+        else if(c == '\\') outp += "\\\\";
+        else outp += StringSubstr(s, i, 1);
+    }
+    return outp;
+}
+
+//--- MasterDeviceFingerprint: stable per-terminal identity
+string MasterDeviceFingerprint()
+{
+    string raw = "MT4-MASTER|" + AccountCompany()
+               + "|" + TerminalPath()
+               + "|" + IntegerToString(TerminalBuild());
+    return MasterSHA256Hex(raw);
+}
+
+//--- MasterEnsureDevice: bootstrap credentials (inputs → else persisted → activate)
+bool MasterEnsureDevice()
+{
+    if(StringLen(g_deviceId) > 0 && StringLen(g_deviceSecret) > 0) return true;
+
+    // 1) Persisted bootstrap state (manual split — MQL4 has no StringSplit)
+    string saved = MasterReadState(PAT_MASTER_DEVICE_FILE);
+    if(StringLen(saved) > 0)
+    {
+        string parts[4];
+        int n = 0;
+        string rest = saved;
+        while(true)
+        {
+            int p = StringFind(rest, "|");
+            if(p < 0) { parts[n] = rest; n++; break; }
+            parts[n] = StringSubstr(rest, 0, p);
+            n++;
+            rest = StringSubstr(rest, p + 1);
+            if(n >= 4) break;
+        }
+        if(n >= 2 && StringLen(parts[0]) > 0 && StringLen(parts[1]) > 0)
+        {
+            g_deviceId = parts[0];
+            g_deviceSecret = parts[1];
+            if(n >= 3) g_refreshToken = parts[2];
+            return true;
+        }
+    }
+
+    // 2) Auto-activate against the master license key
+    if(StringLen(MasterLicenseKey) == 0)
+    {
+        if(!g_masterNetShown)
+            Print("[MASTER_NODE] No device credentials and no MasterLicenseKey — set it in EA inputs.");
+        return false;
+    }
+    string fp = MasterDeviceFingerprint();
+    string body = "{\"license_key\":\"" + MasterLicenseKey + "\",\"client_type\":\"MT4\",\"role\":\"data\","
+                  "\"fingerprint\":{\"machine_guid\":\"" + fp + "\",\"os\":\"Windows-MT4\"},"
+                  "\"terminal\":{\"name\":\"" + MasterJSONEscape(AccountCompany()) + "\"}}";
+    string response = "";
+    int status = MasterHTTPPost(PATCloudURL + "/api/v1/devices/activate", body, response);
+    if(status != 200)
+    {
+        Print("[MASTER_NODE] Device activation failed: HTTP ", status, " — ", StringSubstr(response, 0, 200));
+        return false;
+    }
+    g_deviceId     = MasterJSONString(response, "device_id");
+    g_deviceSecret = MasterJSONString(response, "device_secret");
+    g_refreshToken = MasterJSONString(response, "refresh_token");
+    g_accessToken  = MasterJSONString(response, "access_token");
+    if(StringLen(g_deviceId) == 0 || StringLen(g_deviceSecret) == 0)
+    {
+        Print("[MASTER_NODE] Activation response missing device_id/device_secret.");
+        return false;
+    }
+    MasterWriteState(PAT_MASTER_DEVICE_FILE, g_deviceId + "|" + g_deviceSecret + "|" + g_refreshToken + "\n");
+    Print("[MASTER_NODE] Device activated: ", g_deviceId);
+    return true;
+}
+
+//--- MasterEnsureAccessToken: rotate the access token via refresh_token grant.
+bool MasterEnsureAccessToken()
+{
+    if(StringLen(g_accessToken) > 0 && TimeGMT() < g_tokenExpiry) return true;
+    if(!MasterEnsureDevice()) return false;
+    if(StringLen(g_refreshToken) == 0) return false;
+
+    string body = "{\"refresh_token\":\"" + g_refreshToken + "\"}";
+    string response = "";
+    int status = MasterHTTPPost(PATCloudURL + "/api/v1/devices/refresh", body, response);
+    if(status != 200)
+    {
+        if(!g_masterNetShown)
+            Print("[MASTER_NODE] Token refresh failed: HTTP ", status);
+        return false;
+    }
+    g_accessToken  = MasterJSONString(response, "access_token");
+    string newRt   = MasterJSONString(response, "refresh_token");
+    long expiresIn = StrToInteger(MasterJSONString(response, "expires_in"));
+    if(StringLen(newRt) > 0) g_refreshToken = newRt;
+    g_tokenExpiry = TimeGMT() + (expiresIn > 0 ? expiresIn - 60 : 82800);
+    if(StringLen(g_accessToken) == 0) return false;
+    MasterWriteState(PAT_MASTER_DEVICE_FILE, g_deviceId + "|" + g_deviceSecret + "|" + g_refreshToken + "\n");
+    return true;
+}
+
+//+------------------------------------------------------------------+
+//| File I/O using FILE_COMMON (legacy alias — now HTTP transport)    |
+//+------------------------------------------------------------------+
+void MasterWrite(string content)
+{
+    MasterAppend(content);
+}
+
+//+------------------------------------------------------------------+
+//| MasterAppend — outbound message funnel (Option B, v1.19.0).       |
+//| Takes the legacy "TYPE|{json}" wire line (or bare JSON for        |
+//| bar-closed events) and POSTs it to the engine ingest endpoint     |
+//| with the device Bearer JWT. Replaces the PAT_master_data.txt      |
+//| pipe that the Windows Agent used to drain.                        |
+//+------------------------------------------------------------------+
+void MasterAppend(string content)
+{
+    if(!MasterEnsureDevice()) return;
+    if(!MasterEnsureAccessToken()) return;
+
+    string s = content;
+    while(StringLen(s) > 0)
+    {
+        int c = StringGetChar(s, StringLen(s) - 1);
+        if(c == '\n' || c == '\r' || c == 0) s = StringSubstr(s, 0, StringLen(s) - 1);
+        else break;
+    }
+    if(StringLen(s) == 0) return;
+
+    string msgType = "";
+    string payload = s;
+    int sep = StringFind(s, "|");
+    if(sep > 0 && StringGetChar(s, 0) != '{')
+    {
+        // Legacy "TYPE|{json}" line.
+        msgType = StringSubstr(s, 0, sep);
+        payload = StringSubstr(s, sep + 1);
+        if(StringFind(payload, "\"type\"") < 0 && StringGetChar(payload, 0) == '{')
+            payload = "{\"type\":\"" + msgType + "\"," + StringSubstr(payload, 1);
+    }
+    // else: bare JSON (bar-closed event carries its own event_type).
+
+    string headers = "Content-Type: application/json\r\n"
+                     "Authorization: Bearer " + g_accessToken + "\r\n";
+    uchar data[];
+    StringToCharArray(payload, data, 0, WHOLE_ARRAY, CP_UTF8);
+    ArrayResize(data, ArraySize(data) - 1);
+    uchar result[];
+    string resHeaders = "";
+    string url = PATCloudURL + "/ingest/agent?agentId=" + MasterURLEncode(g_deviceId) + "&role=data";
+    int status = WebRequest("POST", url, headers, 5000, data, result, resHeaders);
+    if(status == 401)
+    {
+        // Access token expired — force refresh once and retry.
+        g_accessToken = ""; g_tokenExpiry = 0;
+        if(MasterEnsureAccessToken())
+            MasterAppend(content);
+        return;
+    }
+    if(status != 200)
+    {
+        g_ingestErrCount++;
+        if(!g_masterNetShown)
+        {
+            Print("[MASTER_NODE] ingest failed: HTTP ", status, " type=", msgType);
+            g_masterNetShown = true;
+        }
+        return;
+    }
+    g_masterNetShown = false;
+    g_ingestOkCount++;
+}
+
+//--- MasterURLEncode — percent-encoding for query values
+string MasterURLEncode(string s)
+{
+    string outp = "";
+    for(int i = 0; i < StringLen(s); i++)
+    {
+        int c = StringGetChar(s, i);
+        if((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+           c == '-' || c == '_' || c == '.' || c == '~')
+            outp += CharToStr((uchar)c);
+        else
+            outp += StringFormat("%%%02X", c);
+    }
+    return outp;
+}
+
+//+------------------------------------------------------------------+
+//| MasterEdgePoll — fetch queued server commands (REQUEST_SNAPSHOT,  |
+//| EMERGENCY_STOP …) for this data device via the control plane.     |
+//| Replaces the PAT_resync.txt file nudge (agent transport removed). |
+//+------------------------------------------------------------------+
+void MasterEdgePoll()
+{
+    if(!MasterEnsureDevice()) return;
+    string body = "{\"max_signals\":10}";
+    string response = "";
+    int status = MasterSignedPost("/api/v1/devices/edge-poll", body, response);
+    if(status != 200) return;
+    int pos = 0;
+    while(true)
+    {
+        int qid = StringFind(response, "\"queue_id\":\"", pos);
+        if(qid < 0) break;
+        int qidEnd = StringFind(response, "\"", qid + 12);
+        if(qidEnd < 0) break;
+        string queueId = StringSubstr(response, qid + 12, qidEnd - (qid + 12));
+
+        string typePat = "\"type\":\"";
+        int tp = StringFind(response, typePat, qidEnd);
+        int nextQ = StringFind(response, "\"queue_id\"", qidEnd);
+        string msgType = "";
+        if(tp >= 0 && (nextQ < 0 || tp < nextQ))
+        {
+            int te = StringFind(response, "\"", tp + StringLen(typePat));
+            if(te > 0) msgType = StringSubstr(response, tp + StringLen(typePat), te - (tp + StringLen(typePat)));
+        }
+
+        // ACK first so the item leaves the queue permanently.
+        string ackBody = "{\"queue_id\":\"" + queueId + "\",\"result\":{\"status\":\"PROCESSED\",\"type\":\"" + msgType + "\"}}";
+        MasterSignedPost("/api/v1/devices/edge-ack", ackBody, response);
+
+        if(msgType == "REQUEST_SNAPSHOT")
+        {
+            // Force an immediate snapshot (bypass the snapshot throttle).
+            g_lastSnapshot = 0;
+            Print("[MASTER_NODE] REQUEST_SNAPSHOT nudge received — forcing immediate snapshot.");
+        }
+        pos = qidEnd;
+        if(pos > StringLen(response)) break;
+    }
+}
 //+------------------------------------------------------------------+
 //| Update on-chart panel                                             |
 //+------------------------------------------------------------------+
 void UpdatePanel()
 {
-    string p = "=== PAT Master Node v1.00 ===\n";
+    string p = "=== PAT Master Node v1.19 ===\n";
     p += "Mode: DATA COLLECTION ONLY\n";
     p += "NO License Key · NO Trading\n";
-    p += "Agent:    " + g_connection + "\n";
+    p += "Cloud:    " + g_connection + "\n";
     p += "Broker:   " + g_broker + "\n";
     p += "Account:  " + g_accountID + "\n";
     p += "Symbol:   " + g_symbol + "\n";

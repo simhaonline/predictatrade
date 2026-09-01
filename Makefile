@@ -53,7 +53,7 @@ db-test: ## Run migration tests
 
 GO_DIR := realtime
 GO_LDFLAGS := -s -w
-ENGINE_VERSION ?= 1.18.0
+ENGINE_VERSION ?= 1.19.0
 
 go-build: ## Build the Go real-time engine
 	cd $(GO_DIR) && go build -ldflags "$(GO_LDFLAGS) -X github.com/predictatrade/realtime/internal/version.Version=$(ENGINE_VERSION)" -o bin/realtime-engine ./cmd/realtime-engine
@@ -70,7 +70,6 @@ go-lint: ## Lint Go code
 
 go-format: ## Format Go code
 	cd $(GO_DIR) && gofmt -s -w .
-	cd windows-agent && gofmt -s -w .
 
 go-benchmark: ## Run Go benchmarks
 	cd $(GO_DIR) && go test -bench=. -benchmem ./...
@@ -136,17 +135,6 @@ research-lint: ## Lint Python code
 	cd research && python -m ruff check src/ tests/ 2>/dev/null || echo "ruff not installed"
 
 # ============================================================
-# Windows Agent
-# ============================================================
-
-agent-build: ## Build Windows Agent (cross-compile both roles for windows/amd64)
-	cd windows-agent && GOOS=windows GOARCH=amd64 go build -ldflags "$(GO_LDFLAGS)" -o bin/pat-agent-client.exe ./cmd/client
-	cd windows-agent && GOOS=windows GOARCH=amd64 go build -ldflags "$(GO_LDFLAGS)" -o bin/pat-agent-master.exe ./cmd/master
-
-agent-test: ## Test Windows Agent
-	cd windows-agent && go test -race -count=1 ./...
-
-# ============================================================
 # Aggregated targets
 # ============================================================
 
@@ -154,7 +142,7 @@ all: build test lint
 
 build: go-build control-build frontend-build ## Build all planes
 
-test: go-test control-test frontend-test research-test agent-test ## Run all unit tests
+test: go-test control-test frontend-test research-test ## Run all unit tests
 
 lint: go-lint control-lint frontend-lint research-lint ## Lint all planes
 
@@ -166,7 +154,7 @@ security-scan: ## Run security scans (secrets, deps, SAST)
 	./scripts/security-scan.sh
 
 clean: ## Clean build artifacts
-	rm -rf realtime/bin control/dist frontend/.next frontend/out windows-agent/bin
+	rm -rf realtime/bin control/dist frontend/.next frontend/out
 	cd research && rm -rf build dist *.egg-info
 	find . -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
 

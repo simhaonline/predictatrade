@@ -586,7 +586,8 @@ export class AdminService {
       });
     }
 
-    // 6. Windows Agent - derived from Go engine agents endpoint
+    // 6. EA-direct edge devices (v1.19.0 Option B) — derived from the Go engine
+    // status endpoint (edge_device_state liveness replaces the WS agent hub).
     try {
       const goAgentsUrl = process.env.GO_ENGINE_AGENTS_URL || 'http://127.0.0.1:13081/api/v1/agents/status';
       const controller = new AbortController();
@@ -594,24 +595,24 @@ export class AdminService {
       const res = await fetch(goAgentsUrl, { signal: controller.signal });
       clearTimeout(timeout);
       const data = await res.json();
-      const agentCount = data.agents_connected ?? 0;
-      const agentsOnline = data.agents_online ?? false;
+      const deviceCount = data.agents_connected ?? 0;
+      const devicesOnline = data.agents_online ?? false;
       services.push({
-        service: 'Windows Agent',
-        status: agentsOnline ? 'HEALTHY' : agentCount > 0 ? 'DEGRADED' : 'OFFLINE',
+        service: 'EA Edge Devices',
+        status: devicesOnline ? 'HEALTHY' : deviceCount > 0 ? 'DEGRADED' : 'OFFLINE',
         latency_ms: 0,
         last_check: now,
-        details: agentsOnline
-          ? `Agents connected, ${agentCount} agent(s)`
-          : `No agents, ${agentCount} agent(s) connected`,
+        details: devicesOnline
+          ? `EAs connected, ${deviceCount} device(s)`
+          : `No EAs, ${deviceCount} device(s) connected`,
       });
     } catch {
       services.push({
-        service: 'Windows Agent',
+        service: 'EA-direct devices',
         status: 'UNKNOWN',
         latency_ms: 0,
         last_check: now,
-        details: 'Cannot reach Go engine to determine agent status',
+        details: 'Cannot reach Go engine to determine EA device status',
       });
     }
 

@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"math"
-	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -43,7 +42,6 @@ import (
 	sigengine "github.com/predictatrade/realtime/internal/signal"
 	"github.com/predictatrade/realtime/internal/strategy"
 	"github.com/predictatrade/realtime/internal/strategy/engines"
-	"github.com/predictatrade/realtime/pkg/bus"
 	"github.com/predictatrade/realtime/pkg/health"
 	"github.com/predictatrade/realtime/pkg/macro"
 	"github.com/predictatrade/realtime/pkg/mlengine"
@@ -120,7 +118,6 @@ var globalAgentProvider *marketdata.AgentProvider
 var mlContributionML float64
 var sentimentContributionAI float64
 var globalCrossMarketEngine *crossmarket.Engine
-var globalAgentHub *gateway.AgentHub
 var globalPersister *marketdata.Persister
 var globalReconciler *reconciliation.Reconciler
 var globalDeliveryMgr *sigengine.DeliveryManager
@@ -289,6 +286,92 @@ func publishConnectionState(agentID string, online bool, mt4, mt5 bool) {
 	}
 }
 
+// edgeDeviceCount returns how many EA-direct devices checked in (poll / ack /
+// heartbeat) within the given window. This is the connection-liveness metric
+// that replaced the WS agent count (Option B, v1.19.0).
+func edgeDeviceCount(within time.Duration) int {
+	if globalPersister == nil {
+		return 0
+	}
+	var n int
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	err := globalPersister.GetDB().QueryRowContext(ctx,
+		`SELECT count(*) FROM licensing.edge_device_state
+		  WHERE GREATEST(COALESCE(last_poll_at, to_timestamp(0)),
+		                 COALESCE(last_ack_at, to_timestamp(0)),
+		                 COALESCE(last_heartbeat_at, to_timestamp(0))) > now() - ($1::text)::interval`,
+		fmt.Sprintf("%d seconds", int(within.Seconds()))).Scan(&n)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// queueCommandForDevice enqueues a server command (CLOSE_POSITION,
+// REQUEST_SNAPSHOT, EMERGENCY_STOP …) for one EA-direct device, keyed by the
+// engine's agent/device id. The command is picked up by the EA's next
+// edge-poll. Best-effort: failure is logged and ignored.
+func queueCommandForDevice(agentID, command string, envelope map[string]interface{}) {
+	if globalPersister == nil {
+		return
+	}
+	if envelope == nil {
+		envelope = map[string]interface{}{}
+	}
+	envelope["type"] = "SERVER_COMMAND"
+	envelope["command"] = command
+	envelope["issued_at"] = time.Now().UTC().Format(time.RFC3339)
+	payload, err := json.Marshal(envelope)
+	if err != nil {
+		return
+	}
+	deviceID := deviceIDForAgent(agentID, agentDevice[agentID])
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, err := globalPersister.GetDB().ExecContext(ctx, `
+		INSERT INTO licensing.edge_signal_queue (device_id, signal_id, payload)
+		VALUES ($1::uuid, $2, $3::jsonb)
+		ON CONFLICT DO NOTHING`,
+		deviceID, command, string(payload)); err != nil {
+		observability.Log.Warn().Err(err).Str("device_id", deviceID).Str("command", command).
+			Msg("device command enqueue failed")
+	}
+}
+
+// pushLicenseStatus delivers a LICENSE_STATUS verdict to one EA-direct device
+// via the edge signal queue (the WS transport is gone, v1.19.0). The client EA
+// reads it on its next edge-poll and adjusts its status display/gating.
+func pushLicenseStatus(agentID string, result marketdata.LicenseValidationResult) {
+	payload, err := json.Marshal(result)
+	if err != nil {
+		return
+	}
+	deviceID := deviceIDForAgent(agentID, agentDevice[agentID])
+	queueCommandForDevice(agentID, "LICENSE_STATUS", map[string]interface{}{
+		"license_status": json.RawMessage(payload),
+		"device_id":      deviceID,
+	})
+}
+
+// markDeviceOffline flips a device's connection_status to OFFLINE in the
+// control-plane DB (license invalid/expired/revoked). Replaces the old WS
+// DisconnectAgent enforcement: without enqueue eligibility and ingest
+// liveness, an unlicensed device receives nothing.
+func markDeviceOffline(agentID string) {
+	if globalPersister == nil {
+		return
+	}
+	deviceID := deviceIDForAgent(agentID, agentDevice[agentID])
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, err := globalPersister.GetDB().ExecContext(ctx,
+		`UPDATE licensing.devices SET connection_status='OFFLINE', updated_at=now() WHERE id=$1::uuid`,
+		deviceID); err != nil {
+		observability.Log.Warn().Err(err).Str("device_id", deviceID).Msg("markDeviceOffline failed")
+	}
+}
+
 func setAgentStrategies(agentID string, strategies []string) {
 	agentStrategiesMu.Lock()
 	defer agentStrategiesMu.Unlock()
@@ -347,8 +430,8 @@ func markBarProcessed(strategyID, symbol string, tf types.Timeframe, barOpenTime
 	return false
 }
 
-// broadcastSignalToAll sends a signal to both the frontend dashboard (WebSocketHub)
-// and the Windows Agents (AgentHub) for MT4/MT5 delivery.
+// broadcastSignalToAll delivers a signal to the frontend dashboard (WebSocketHub)
+// and to customer EAs via the edge signal queue (Option B, v1.19.0).
 // sanitizeSignalLevels repairs invalid Entry/SL/TP levels on a signal so the
 // Windows Agent / MT4-5 EA always receives executable, correctly-sided prices.
 // It is fail-soft and NON-BLOCKING: it only rewrites a level when it is missing,
@@ -496,7 +579,7 @@ func seedMarketLevels(r *strategy.StrategyResult, bid, ask decimal.Decimal) {
 	}
 }
 
-func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, signal *types.Signal) {
+func broadcastSignalToAll(wsHub *gateway.WebSocketHub, signal *types.Signal) {
 	if signal == nil {
 		return
 	}
@@ -543,82 +626,87 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHu
 	// FAIL-CLOSED DELIVERY: only executable signals reach the EA. A signal with
 	// Executable == false (blocked by a hard gate, advisory candidate, or
 	// entitlement/license/execution not satisfied) is shown on the dashboard but
-	// is NEVER delivered to the Windows Agent / MT terminal for execution. This
-	// guarantees a vetoed signal cannot be traded even if its direction is
-	// preserved for diagnostics (prompt.md Section 17/29, SOW v1.15.0).
+	// is NEVER delivered for execution. This guarantees a vetoed signal cannot
+	// be traded even if its direction is preserved for diagnostics
+	// (prompt.md Section 17/29, SOW v1.15.0).
 	dir := string(signal.Direction)
 	if signal.Executable && (dir == "BUY" || dir == "SELL" || dir == "BUY_CANDIDATE" || dir == "SELL_CANDIDATE") {
-		payload, _ := json.Marshal(signal)
-		priority := "P1"
-		if signal.Direction != types.DirectionNoTrade {
-			priority = "P0"
+		// EA-direct delivery (Option B, v1.19.0): the Windows-agent WS hub is
+		// gone. EXECUTABLE signals are written directly into
+		// licensing.edge_signal_queue; customer EAs fetch them via
+		// POST /api/v1/devices/edge-poll (HMAC-signed) and ACK via edge-ack.
+		// Strategy entitlement is enforced here at enqueue time (per-device,
+		// plan-whitelisted only) AND re-checked by the poll handler.
+		if globalPersister != nil {
+			go enqueueSignalForDevices(signal)
 		}
-		eventID := uuid.New().String()
-		streamID := fmt.Sprintf("signals:%s", signal.StrategyID)
-
-		// SERVER-SIDE PER-AGENT FILTERING: Check each agent's allowed_strategies
-		// from their license. If the agent's plan doesn't include this strategy,
-		// the signal is NOT sent to that agent at all.
-		// This is the REAL enforcement — the signal never reaches the EA.
-		//
-		// EXECUTABLE signals are delivered ONLY to the primary exec agent per
-		// license (highest version / newest connection) to prevent duplicate
-		// positions when multiple agent instances of the same account are
-		// connected (e.g. a rebuilt v1.2.47 and a stale v1.2.44). ADVISORY
-		// signals still broadcast to every entitled agent for dashboard display.
-		var deliveryRecipients []string
-		if signal.Executable {
-			deliveryRecipients = agentHub.SelectExecutableRecipients()
-			agentHub.SendExecutableSignalToPrimary(eventID, streamID, "SIGNAL", priority, "1.0.0", payload, string(signal.StrategyID))
-		} else {
-			agentHub.SendFilteredSignalToAgents(eventID, streamID, "SIGNAL", priority, "1.0.0", payload, string(signal.StrategyID))
-			deliveryRecipients = agentHub.GetAgentIDs()
-		}
-		// #3 Delivery ledger: record a per-agent delivery state + sequence number
-		// for every entitled agent this signal was routed to (server-side filter
-		// applied). Enables future replay-on-reconnect once the Windows Agent ACKs
-		// signals with (signal_id, device_id). Expiry is swept by the background
-		// MarkExpired ticker.
-		if globalDeliveryMgr != nil {
-			for _, aid := range deliveryRecipients {
-				if !isStrategyAllowedForAgent(aid, string(signal.StrategyID)) {
-					continue
-				}
-				if _, err := globalDeliveryMgr.RecordDelivery(context.Background(), signal, aid, "", ""); err != nil {
-					observability.Log.Warn().Err(err).Str("agent", aid).Msg("delivery record failed")
-				}
-			}
-		}
-		// BE-6: record the delivery leg of reconciliation so ACK-timeout
-		// detection has a stable delivery timestamp to measure against.
+		// #3 Delivery ledger + reconciliation stay authoritative (same as the
+		// WS transport era): record the delivery leg so ACK-timeout detection
+		// has a stable delivery timestamp to measure against.
 		if globalReconciler != nil {
-			globalReconciler.RecordDelivery(signal.ID, fmt.Sprintf("agents:%d", len(deliveryRecipients)))
+			globalReconciler.RecordDelivery(signal.ID, "edge-poll")
 		}
 		observability.Log.Info().
 			Str("signal_id", signal.ID).
 			Str("direction", dir).
 			Str("strategy", string(signal.StrategyID)).
-			Int("agents_connected", agentHub.AgentCount()).
-			Msg("Signal broadcast to Windows Agents for MT4/MT5 delivery")
+			Msg("Signal queued for EA-direct delivery (edge-poll)")
 	}
 }
 
-// newIngestBus builds the inbound-agent message transport. Default is the
-// in-process DirectBus, which dispatches messages to the engine handler
-// synchronously — identical to the pre-NATS behavior. When NATS_URL is set,
-// a NatsBus is used so data-collection is fully decoupled from the signal
-// engine (and a separate ingest service can be introduced without touching the
-// engine). On NATS connect failure it safely falls back to the DirectBus.
+// enqueueSignalForDevices inserts an EXECUTABLE signal into
+// licensing.edge_signal_queue for every eligible EA-direct device. Entitlement
+// is enforced in SQL: only devices with an ACTIVE/PENDING license whose plan
+// whitelist includes the signal's strategy receive it (fail-closed — a device
+// whose plan cannot be resolved is skipped). Idempotent per (device, signal).
+func enqueueSignalForDevices(signal *types.Signal) {
+	if globalPersister == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	payload, err := json.Marshal(signal)
+	if err != nil {
+		return
+	}
+	res, err := globalPersister.GetDB().ExecContext(ctx, `
+		INSERT INTO licensing.edge_signal_queue (device_id, signal_id, payload)
+		SELECT d.id, $1, $2::jsonb
+		  FROM licensing.devices d
+		  JOIN licensing.licenses l ON l.id = d.bound_license_id
+		  LEFT JOIN control.plans p ON p.id = l.plan_id
+		 WHERE d.revoked_at IS NULL
+		   AND l.status IN ('ACTIVE', 'PENDING')
+		   AND (l.allowed_strategies IS NULL
+		        OR l.allowed_strategies::text IN ('', 'null', '[]')
+		        OR l.allowed_strategies::text LIKE '%' || $3 || '%')
+		   AND (p.allowed_strategies IS NULL
+		        OR p.allowed_strategies::text IN ('', 'null', '[]')
+		        OR p.allowed_strategies::text LIKE '%' || $3 || '%')
+		   AND NOT EXISTS (
+		         SELECT 1 FROM licensing.edge_signal_queue q
+		          WHERE q.device_id = d.id AND q.signal_id = $1)`,
+		signal.ID, string(payload), string(signal.StrategyID))
+	if err != nil {
+		observability.Log.Warn().Err(err).Str("signal_id", signal.ID).
+			Msg("edge-signal enqueue failed (EA-direct delivery skipped)")
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		observability.Log.Info().Str("signal_id", signal.ID).Int64("devices", n).
+			Msg("Signal enqueued for EA-direct devices")
+	}
+}
+
 // startHealthMonitor runs a data-independent health loop. It re-evaluates the
 // health manager on a fixed ticker (so it runs even when no candles are
 // processed), alerts via ntfy when the XAUUSD data feed goes stale/critical,
-// and nudges connected agents (REQUEST_SNAPSHOT) to resend a fresh snapshot as a
-// best-effort recovery. This guarantees a silent data feed is never invisible.
+// and nudges EA-direct devices to resend a fresh snapshot as a best-effort
+// recovery (queued via the edge signal queue, v1.19.0). This guarantees a
+// silent data feed is never invisible.
 func startHealthMonitor(
 	hm *health.Manager,
 	sc *health.StaleChecker,
-	agentHub *gateway.AgentHub,
-	dataAgentHub *gateway.AgentHub,
 	agentProvider *marketdata.AgentProvider,
 	notifMgr *notifications.Manager,
 	enqueueNotification func(eventType notifications.EventType, severity, title, message string),
@@ -646,20 +734,23 @@ func startHealthMonitor(
 		}
 	}
 
-	// agentsConnected reports how many agents are currently connected across the
-	// execution hub AND the data/master (Master Node) hub. The market-data feed
-	// is delivered by the Master Node (a data agent), so we must not gate the
-	// outage check solely on execution-agent count — otherwise a connected Master
-	// Node that has gone silent would not be detected.
-	agentsConnected := func() int {
-		n := 0
-		if agentHub != nil {
-			n += agentHub.AgentCount()
+	// deviceActive reports whether any EA-direct device has checked in
+	// (ingest/heartbeat/poll) recently. The market-data feed is delivered by
+	// the Master (data) device, so we must not gate the outage check on
+	// execution devices only.
+	deviceActive := func() bool {
+		if globalPersister == nil {
+			return false
 		}
-		if dataAgentHub != nil {
-			n += dataAgentHub.AgentCount()
-		}
-		return n
+		var n int
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = globalPersister.GetDB().QueryRowContext(ctx,
+			`SELECT count(*) FROM licensing.edge_device_state
+			  WHERE GREATEST(COALESCE(last_poll_at, to_timestamp(0)),
+			                 COALESCE(last_ack_at, to_timestamp(0)),
+			                 COALESCE(last_heartbeat_at, to_timestamp(0))) > now() - interval '120 seconds'`).Scan(&n)
+		return n > 0
 	}
 
 	for range ticker.C {
@@ -670,25 +761,39 @@ func startHealthMonitor(
 		// arrived yet). Also only meaningful when at least one agent is connected.
 		warmedUp := now.Sub(startTime) > 60*time.Second
 
-		// Outage = agents connected but the market STATE feed is down: either no
-		// MARKET_SNAPSHOT/candle has EVER been received, or it is critically stale.
-		// (A lone tick is not enough — signals require snapshot-built state.)
-		// StaleChecker.Check() returns critical=true for both cases.
+		// Outage = an EA-direct device has been active recently but the market
+		// STATE feed is down: either no MARKET_SNAPSHOT/candle has EVER been
+		// received, or it is critically stale. (A lone tick is not enough —
+		// signals require snapshot-built state.) StaleChecker.Check() returns
+		// critical=true for both cases.
 		_, critical, _ := sc.Check()
-		outage := dataFeedOutage(critical, agentsConnected())
+		outage := dataFeedOutage(critical, deviceActive())
 
 		if warmedUp && outage {
 			healthyStreak = 0
-			// Best-effort recovery: prod connected agents to resend a snapshot.
+			// Best-effort recovery: nudge EA-direct devices to resend a snapshot
+			// (queued; the EA picks it up on its next edge-poll).
 			if time.Since(lastNudge) > nudgeInterval {
 				lastNudge = now
-				if agentHub != nil {
-					agentHub.BroadcastToAllAgents("REQUEST_SNAPSHOT", map[string]interface{}{"reason": "stale_data"})
+				if globalPersister != nil {
+					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+					_, err := globalPersister.GetDB().ExecContext(ctx, `
+						INSERT INTO licensing.edge_signal_queue (device_id, signal_id, payload)
+						SELECT d.id, 'REQUEST_SNAPSHOT', '{"type":"SERVER_COMMAND","command":"REQUEST_SNAPSHOT","reason":"stale_data"}'::jsonb
+						  FROM licensing.devices d
+						 WHERE d.revoked_at IS NULL
+						   AND d.connection_status = 'ONLINE'
+						   AND NOT EXISTS (
+						         SELECT 1 FROM licensing.edge_signal_queue q
+						          WHERE q.device_id = d.id AND q.signal_id = 'REQUEST_SNAPSHOT'
+						            AND q.status IN ('PENDING','IN_FLIGHT'))`)
+					cancel()
+					if err != nil {
+						observability.Log.Warn().Err(err).Msg("[HEALTH] REQUEST_SNAPSHOT edge queue failed")
+					} else {
+						observability.Log.Warn().Msg("[HEALTH] Data feed outage — queued REQUEST_SNAPSHOT for EA-direct devices")
+					}
 				}
-				if dataAgentHub != nil {
-					dataAgentHub.BroadcastToAllAgents("REQUEST_SNAPSHOT", map[string]interface{}{"reason": "stale_data"})
-				}
-				observability.Log.Warn().Msg("[HEALTH] Data feed outage — nudged agents with REQUEST_SNAPSHOT")
 			}
 			// Only alert if this is a new outage AND the cooldown since the last
 			// STALE alert has elapsed — prevents notification spam on flicker.
@@ -739,11 +844,12 @@ func nextMarketOpen(nowUTC time.Time) time.Time {
 }
 
 // dataFeedOutage reports whether the market-data (snapshot) feed is in an
-// outage: at least one agent is connected (execution OR Master Node/data) but
-// the snapshot-built market state is missing or critically stale. A lone tick is
-// intentionally NOT sufficient — signals require snapshot-built state.
-func dataFeedOutage(critical bool, agentsConnected int) bool {
-	return agentsConnected > 0 && critical
+// outage: at least one EA-direct device has been active (execution OR Master
+// data device) but the snapshot-built market state is missing or critically
+// stale. A lone tick is intentionally NOT sufficient — signals require
+// snapshot-built state.
+func dataFeedOutage(critical bool, deviceActive bool) bool {
+	return deviceActive && critical
 }
 
 // startReconciliationMonitor runs the BE-6 reconciliation loop. Every check it
@@ -836,19 +942,6 @@ func shouldAlert(alerted map[string]time.Time, signalID string, now time.Time, r
 // the UnacknowledgedOlderThan len() call.
 func unfilledCount(recs []*reconciliation.SignalRecord) int {
 	return len(recs)
-}
-
-func newIngestBus(provider *marketdata.AgentProvider) (bus.IngestBus, bus.IngestSubscriber) {
-	if url := os.Getenv("NATS_URL"); url != "" {
-		nb, err := bus.NewNatsBus(url, "pat.ingest.agent")
-		if err != nil {
-			observability.Log.Error().Err(err).Msg("NATS_URL set but connect failed; falling back to in-process ingest bus")
-			return bus.NewDirectBus(provider.HandleAgentMessage), nil
-		}
-		observability.Log.Info().Str("url", url).Msg("Ingest bus: NATS (data-collection decoupled from signal engine)")
-		return nb, nb
-	}
-	return bus.NewDirectBus(provider.HandleAgentMessage), nil
 }
 
 func main() {
@@ -2026,132 +2119,17 @@ func main() {
 	})
 	go wsHub.Run()
 
-	// Agent hub for Windows MT5 Agent connections (receives real tick data)
-	var agentHub *gateway.AgentHub
-	// Ingest/signal decoupling seam handles (in-process by default; NATS if
-	// NATS_URL set). Declared here so both the exec hub and data hub share them.
-	var ingestBus bus.IngestBus
-	var ingestSub bus.IngestSubscriber
-	if isAgentProvider {
-		agentHub = gateway.NewAgentHub(agentProvider)
-		globalAgentHub = agentHub
-		// Wire up server-side strategy entitlement filter
-		// This ensures signals are only sent to agents whose license allows the strategy
-		agentHub.SetStrategyFilter(func(agentID, strategyID string) bool {
-			allowed := isStrategyAllowedForAgent(agentID, strategyID)
-			if !allowed {
-				observability.Log.Debug().
-					Str("agent_id", agentID).
-					Str("strategy_id", strategyID).
-					Msg("Signal filtered — agent plan does not include this strategy")
-			}
-			return allowed
-		})
-		// Per-client risk isolation at delivery: only deliver executable signals
-		// to clients whose OWN account has buying power. Fail-open by design.
-		// v1.15.0: plus SL-violation suspension — a suspended agent receives NO
-		// signals even after reconnect (in-memory for process lifetime).
-		agentHub.SetRiskCheck(func(agentID string) bool {
-			if isAgentSuspended(agentID) {
-				observability.Log.Warn().Str("agent_id", agentID).
-					Msg("Signal NOT delivered — agent suspended for SL violations")
-				return false
-			}
-			return agentProvider.AgentAccountOK(agentID)
-		})
-
-		// EXECUTABLE delivery deduplication: map agentID → license_key so only the
-		// primary instance per license receives an executable signal. Cached in
-		// memory; falls back to a single shared bucket when a license can't be
-		// resolved (still prevents duplicate positions across agent instances).
-		var agentLicenseCache = struct {
-			sync.RWMutex
-			m map[string]string
-		}{m: map[string]string{}}
-		agentHub.SetLicenseOfFn(func(agentID string) string {
-			agentLicenseCache.RLock()
-			if l, ok := agentLicenseCache.m[agentID]; ok {
-				agentLicenseCache.RUnlock()
-				return l
-			}
-			agentLicenseCache.RUnlock()
-			if globalPersister != nil {
-				var lic string
-				_ = globalPersister.GetDB().QueryRowContext(context.Background(),
-					`SELECT license_key FROM trading.agent_user_bindings WHERE agent_id = $1 ORDER BY last_seen_at DESC LIMIT 1`,
-					agentID).Scan(&lic)
-				if lic != "" {
-					agentLicenseCache.Lock()
-					agentLicenseCache.m[agentID] = lic
-					agentLicenseCache.Unlock()
-					return lic
-				}
-			}
-			return ""
-		})
-
-		// Ingest/signal decoupling seam. Default = in-process DirectBus
-		// (identical to the previous direct call). If NATS_URL is set, inbound
-		// agent messages are enqueued on NATS and dispatched by a subscriber,
-		// fully decoupling data-collection from the signal engine and enabling a
-		// separate ingest service (see AGENTS scale plan).
-		ingestBus, ingestSub = newIngestBus(agentProvider)
-		agentHub.SetIngestBus(ingestBus)
-		agentHub.SetIngestSubscriber(ingestSub)
-		// Publish live terminal-link state (MT4/MT5) reported by the agent's
-		// heartbeat into the control-plane device_activations rows.
-		agentHub.SetOnTerminals(func(agentID string, mt4, mt5 bool) {
-			publishConnectionState(agentID, true, mt4, mt5)
-		})
-		// On disconnect, mark the device OFFLINE so the dashboard shows truth.
-		agentHub.SetOnDisconnect(func(agentID string) {
-			publishConnectionState(agentID, false, false, false)
-		})
-		go agentHub.Run()
-	} else {
-		agentHub = gateway.NewAgentHub(nil) // nil provider — agent WS still accepts connections
-		go agentHub.Run()
-	}
-
-	// ─── Dedicated data-only Master Node (data) agent hub ───
-	// Same marketdata provider (snapshots ingested identically) but a SEPARATE
-	// listener + agent set. Signal delivery (broadcastSignalToAll /
-	// SendFilteredSignalToAgents) uses the exec hub ONLY, so a data agent can
-	// never receive or execute an order — it is purely a market-data source.
-	// This isolates data-collection uptime/accuracy from execution health.
-	var dataAgentHub *gateway.AgentHub
-	if isAgentProvider {
-		dataAgentHub = gateway.NewAgentHub(agentProvider)
-		dataAgentHub.SetIngestBus(ingestBus)
-		go dataAgentHub.Run()
-		dataMux := http.NewServeMux()
-		dataMux.HandleFunc("/ws/v1/data", func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Query().Get("role") != "data" {
-				http.Error(w, "data-agent endpoint requires role=data", http.StatusForbidden)
-				return
-			}
-			dataAgentHub.HandleAgentWebSocket(w, r)
-		})
-		go func() {
-			addr := fmt.Sprintf("%s:%d", cfg.HTTPHost, cfg.AgentDataPort)
-			log.Info().Str("addr", addr).Msg("Data Agent HTTP server starting")
-			if err := http.ListenAndServe(addr, dataMux); err != nil {
-				log.Error().Err(err).Str("addr", addr).Msg("Data Agent HTTP server failed")
-			}
-		}()
-	} else {
-		dataAgentHub = gateway.NewAgentHub(nil)
-		go dataAgentHub.Run()
-	}
+	// v1.19.0 (Option B): the Windows-agent WS hubs are REMOVED. Customer MT4/MT5
+	// EAs talk to the platform directly over HTTPS:
+	//   - Master (data) EAs POST ticks/snapshots to POST /ingest/agent (device JWT)
+	//   - Client (exec) EAs poll POST /api/v1/devices/edge-poll (device HMAC)
+	// No persistent connections, no local binaries, no installers.
+	// Entitlement for signal delivery is enforced at enqueue time in
+	// enqueueSignalForDevices (SQL plan-whitelist filter) and re-checked by the
+	// control plane's poll handler.
 
 	// ─── Data-independent health monitor ───
-	// FIX: healthManager.Update() was previously called ONLY inside processCandle,
-	// which stops running when market data stops. So a silent agent feed was never
-	// re-evaluated — staleness stayed invisible (no alert, no recovery nudge),
-	// exactly the "signals silently stop for an hour" failure. This ticker runs
-	// independently of data flow, alerts via ntfy on stale/critical data, and
-	// nudges connected agents (REQUEST_SNAPSHOT) to resend a fresh snapshot.
-	go startHealthMonitor(healthManager, staleChecker, agentHub, dataAgentHub, agentProvider, notifMgr, enqueueNotification)
+	go startHealthMonitor(healthManager, staleChecker, agentProvider, notifMgr, enqueueNotification)
 
 	// BE-6: signal↔execution reconciliation monitor. A signal that was
 	// delivered but never ACKed, or ACKed but never filled, must surface in
@@ -2160,18 +2138,26 @@ func main() {
 	go startReconciliationMonitor(reconciler, enqueueNotification)
 
 	// ─── Proactive License Validation ───
-	// Server-side: validates licenses for connected agents using agent_user_bindings
-	// table and sends LICENSE_STATUS via WebSocket. No Windows Agent changes needed.
+	// Server-side: re-validates licenses for EA-direct devices that have
+	// reported a device id (MASTER_INIT/CLIENT_INIT) using the
+	// trading.agent_user_bindings table; the LICENSE_STATUS verdict is queued
+	// to the device's edge-poll. v1.19.0: no WebSocket needed.
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 		validated := make(map[string]bool)
 
 		for range ticker.C {
-			if persister == nil || agentHub == nil {
+			if persister == nil {
 				continue
 			}
-			for _, agentID := range agentHub.GetAgentIDs() {
+			agentDeviceMu.RLock()
+			ids := make([]string, 0, len(agentDevice))
+			for id := range agentDevice {
+				ids = append(ids, id)
+			}
+			agentDeviceMu.RUnlock()
+			for _, agentID := range ids {
 				if validated[agentID] {
 					continue
 				}
@@ -2446,17 +2432,15 @@ func main() {
 				Str("signal_id", ack.SignalID).
 				Str("strategy_id", ack.StrategyID).
 				Int64("ticket", ack.Ticket).
-				Msg("SL VIOLATION: EA executed trade WITHOUT stop-loss — sending CLOSE_POSITION")
+				Msg("SL VIOLATION: EA executed trade WITHOUT stop-loss — queueing CLOSE_POSITION")
 
-			// Send CLOSE_POSITION command to the agent
-			if agentHub != nil {
-				agentHub.SendToAgent(agentID, "CLOSE_POSITION", map[string]interface{}{
-					"ticket":    ack.Ticket,
-					"magic":     ack.Magic,
-					"reason":    "SL_VIOLATION_NO_SL",
-					"signal_id": ack.SignalID,
-				})
-			}
+			// v1.19.0 (Option B): queue CLOSE_POSITION for the EA's next poll.
+			queueCommandForDevice(agentID, "CLOSE_POSITION", map[string]interface{}{
+				"ticket":    ack.Ticket,
+				"magic":     ack.Magic,
+				"reason":    "SL_VIOLATION_NO_SL",
+				"signal_id": ack.SignalID,
+			})
 
 			// Record violation for agent suspension logic
 			recordSLViolation(agentID, ack.SignalID, "NO_SL", ack.SL, 0)
@@ -2503,18 +2487,16 @@ func main() {
 						Msg("SL VIOLATION: EA SL differs from server-sent SL — closing position")
 
 					// BE-2: a wrong SL is a hard safety breach. In addition to
-					// recording the violation (which can suspend the agent after
-					// 3 strikes), send CLOSE_POSITION so the mis-protected
-					// position is corrected/closed immediately, matching the
-					// NO_SL path.
-					if agentHub != nil {
-						agentHub.SendToAgent(agentID, "CLOSE_POSITION", map[string]interface{}{
-							"ticket":    ack.Ticket,
-							"magic":     ack.Magic,
-							"reason":    "SL_VIOLATION_MISMATCH",
-							"signal_id": ack.SignalID,
-						})
-					}
+					// recording the violation (which can suspend the device after
+					// 3 strikes), queue CLOSE_POSITION so the mis-protected
+					// position is corrected/closed at the device's next poll,
+					// matching the NO_SL path.
+					queueCommandForDevice(agentID, "CLOSE_POSITION", map[string]interface{}{
+						"ticket":    ack.Ticket,
+						"magic":     ack.Magic,
+						"reason":    "SL_VIOLATION_MISMATCH",
+						"signal_id": ack.SignalID,
+					})
 
 					recordSLViolation(agentID, ack.SignalID, "SL_MISMATCH", ack.SL, expectedSL)
 
@@ -2554,7 +2536,7 @@ func main() {
 		if persister == nil {
 			observability.Log.Warn().Str("license_key", licenseKey).Msg("No DB connection — license validation skipped")
 			result.Error = "database unavailable"
-			agentHub.SendToAgent(agentID, "LICENSE_STATUS", result)
+			pushLicenseStatus(agentID, result)
 			return result
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -2569,7 +2551,7 @@ func main() {
 			result.Valid = true
 			result.Status = "ACTIVE"
 			result.Plan = "DATA_NODE"
-			agentHub.SendToAgent(agentID, "LICENSE_STATUS", result)
+			pushLicenseStatus(agentID, result)
 			return result
 		}
 
@@ -2592,7 +2574,7 @@ func main() {
 			&dailyLossCap, &weeklyLossCap, &monthlyLossCap, &perTradeRisk, &monthlyProfitTarget, &planStratStr); err != nil {
 			observability.Log.Warn().Str("license_key", licenseKey).Msg("License key not found in DB")
 			result.Error = "license key not found"
-			agentHub.SendToAgent(agentID, "LICENSE_STATUS", result)
+			pushLicenseStatus(agentID, result)
 			return result
 		}
 		result.Status = status
@@ -2694,12 +2676,14 @@ func main() {
 			// P0-RT1 enforcement: an invalid/expired/revoked license no longer
 			// just receives a warning — the agent is disconnected so it cannot
 			// keep receiving EXECUTABLE signals or injecting market data.
-			agentHub.DisconnectAgent(agentID, "license "+status)
+			// v1.19.0 (Option B): no WS to disconnect — the invalid license is
+		// enforced by marking the device OFFLINE (stops enqueue + ingest liveness).
+		markDeviceOffline(agentID)
 			enqueueNotification(notifications.EventType("AGENT_LICENSE_INVALID"), "critical",
 				"Agent disconnected — invalid license",
 				fmt.Sprintf("Agent %s was disconnected: license status=%s", agentID, status))
 		}
-		agentHub.SendToAgent(agentID, "LICENSE_STATUS", result)
+		pushLicenseStatus(agentID, result)
 		return result
 	})
 
@@ -2978,8 +2962,7 @@ func main() {
 		}
 	}
 
-	httpServer := gateway.NewHTTPServer(wsHub, persister, stateMgr, agentHub, agentProvider, valkeyCache, xmEngine, newsRiskEngine, engTracker)
-	httpServer.DataAgentHub = dataAgentHub
+	httpServer := gateway.NewHTTPServer(wsHub, persister, stateMgr, agentProvider, valkeyCache, xmEngine, newsRiskEngine, engTracker)
 	// Server-authoritative trading halt (v1.15.0): EMERGENCY_STOP / KILL_SWITCH
 	// set this flag; signal generation and delivery consult it every cycle.
 	emergencyHalt := &gateway.EmergencyHalt{}
@@ -3076,16 +3059,18 @@ func main() {
 				}
 			case <-agentTicker.C:
 				if isAgentProvider && agentProvider != nil {
-					// Write agent status to both WebSocket and Valkey
+					// v1.19.0 (Option B): "connected agents" = EA-direct devices
+					// with fresh edge_device_state check-ins (no WS connections).
+					edgeCount := edgeDeviceCount(2 * time.Minute)
 					agentStatus := gateway.AgentStatus{
-						AgentsConnected:     agentHub.AgentCount(),
-						AgentsOnline:        agentProvider.HasConnectedAgents(),
-						DataAgentsConnected: dataAgentHub.AgentCount(),
+						AgentsConnected:     edgeCount,
+						AgentsOnline:        agentProvider.HasConnectedAgents() || edgeCount > 0,
+						DataAgentsConnected: 0,
 						SnapshotCount:       agentProvider.GetSnapshotCount(),
 						Timestamp:           time.Now().UTC(),
 					}
 					wsHub.BroadcastAgentStatus(agentStatus)
-					observability.DataAgentConnected.Set(float64(dataAgentHub.AgentCount()))
+					observability.DataAgentConnected.Set(0)
 					if valkeyCache != nil {
 						valkeyCache.SetAgentStatus(agentStatus)
 					}
@@ -3134,7 +3119,7 @@ func main() {
 						Msg("Recovered from panic in processCandle — pipeline continues")
 				}
 			}()
-			processCandle(candle, featureReg, stateMgr, strategies, engine, mlEngine, ollamaClient, healthManager, staleChecker, calibConsumer, reconciler, wsHub, agentHub, persister, gateRegistry, cooldownMgr, dupChecker, ptbEngine, auditLogger, xmEngine, xmPersister, xmValidation, engTracker, cfg, posCaps, broker)
+			processCandle(candle, featureReg, stateMgr, strategies, engine, mlEngine, ollamaClient, healthManager, staleChecker, calibConsumer, reconciler, wsHub, persister, gateRegistry, cooldownMgr, dupChecker, ptbEngine, auditLogger, xmEngine, xmPersister, xmValidation, engTracker, cfg, posCaps, broker)
 		}
 
 		for {
@@ -3365,7 +3350,7 @@ func processTick(tick *types.Tick, validator *marketdata.TickValidator, staleDet
 	}
 }
 
-func processCandle(candle *types.Candle, featureReg *features.RegistrySet, stateMgr *features.StateManager, strategies []strategy.Strategy, engine *sigengine.Engine, mlEngine *mlengine.MLEngine, ollamaClient *ollama.OllamaClient, healthManager *health.Manager, staleChecker *health.StaleChecker, calibConsumer *calibration.Consumer, reconciler *reconciliation.Reconciler, wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHub, persister *marketdata.Persister, gateRegistry *gates.Registry, cooldownMgr *sigengine.CooldownManager, dupChecker *sigengine.DuplicateChecker, ptbEngine *ptb.Engine, auditLogger *audit.Logger, xmEngine *crossmarket.Engine, xmPersister *crossmarket.Persister, xmValidation *crossmarket.ValidationPersister, engTracker *engstatus.Tracker, cfg *config.Config, posCaps *gates.PositionCapsGate, broker *brokerAccountState) {
+func processCandle(candle *types.Candle, featureReg *features.RegistrySet, stateMgr *features.StateManager, strategies []strategy.Strategy, engine *sigengine.Engine, mlEngine *mlengine.MLEngine, ollamaClient *ollama.OllamaClient, healthManager *health.Manager, staleChecker *health.StaleChecker, calibConsumer *calibration.Consumer, reconciler *reconciliation.Reconciler, wsHub *gateway.WebSocketHub, persister *marketdata.Persister, gateRegistry *gates.Registry, cooldownMgr *sigengine.CooldownManager, dupChecker *sigengine.DuplicateChecker, ptbEngine *ptb.Engine, auditLogger *audit.Logger, xmEngine *crossmarket.Engine, xmPersister *crossmarket.Persister, xmValidation *crossmarket.ValidationPersister, engTracker *engstatus.Tracker, cfg *config.Config, posCaps *gates.PositionCapsGate, broker *brokerAccountState) {
 	if candle == nil {
 		return
 	}
@@ -4217,7 +4202,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 						sig.Executable = rawScoreF >= tradeThresh && candDecision.AllGatesPass
 					}
 
-					broadcastSignalToAll(wsHub, agentHub, sig)
+					broadcastSignalToAll(wsHub, sig)
 					if persister != nil {
 						go func(s *types.Signal) {
 							ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -4331,7 +4316,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			}
 			reconciler.RecordSignal(sig)
 			observability.SignalsGenerated.WithLabelValues(string(strat.ID()), string(stratResult.Direction)).Inc()
-			broadcastSignalToAll(wsHub, agentHub, sig)
+			broadcastSignalToAll(wsHub, sig)
 			if persister != nil {
 				go func(s *types.Signal) {
 					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -4399,7 +4384,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			reconciler.RecordSignal(sig)
 			observability.SignalsGenerated.WithLabelValues(string(strat.ID()), "BLOCKED").Inc()
 			observability.CooldownRejections.WithLabelValues(string(strat.ID())).Inc()
-			broadcastSignalToAll(wsHub, agentHub, sig)
+			broadcastSignalToAll(wsHub, sig)
 			if persister != nil {
 				go func(s *types.Signal) {
 					pctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -4485,7 +4470,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			reconciler.RecordSignal(sig)
 			observability.SignalsGenerated.WithLabelValues(string(strat.ID()), "BLOCKED").Inc()
 			observability.DuplicateRejections.WithLabelValues(string(strat.ID())).Inc()
-			broadcastSignalToAll(wsHub, agentHub, sig)
+			broadcastSignalToAll(wsHub, sig)
 			if persister != nil {
 				go func(s *types.Signal) {
 					pctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -4815,7 +4800,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				decision.Signal.ID = uuid.New().String()
 			}
 			reconciler.RecordSignal(decision.Signal)
-			broadcastSignalToAll(wsHub, agentHub, decision.Signal)
+			broadcastSignalToAll(wsHub, decision.Signal)
 			if engTracker != nil {
 				engTracker.RecordIssuedSignal(strat.ID(), decision.Signal.SignalReference, time.Now().UTC())
 			}
@@ -5140,10 +5125,9 @@ func recordSLViolation(agentID, signalID, vType string, actualSL, expectedSL flo
 				Int("violation_count", count).
 				Msg("AGENT SUSPENDED: 3+ SL violations — disconnecting and blocking future signals")
 
-			// Disconnect the agent
-			if globalAgentHub != nil {
-				globalAgentHub.DisconnectAgent(agentID, "SL_VIOLATION_THRESHOLD_EXCEEDED")
-			}
+			// v1.19.0 (Option B): no WS to disconnect — mark the device OFFLINE
+			// so it stops receiving signals and its liveness resets.
+			markDeviceOffline(agentID)
 
 			// Persist suspension to audit log
 			if globalPersister != nil {
@@ -5187,15 +5171,13 @@ func checkPositionSLs(positions *marketdata.SnapshotPositions, agentID string) {
 				Int64("magic", pos.Magic).
 				Str("type", pos.Type).
 				Float64("volume", pos.Volume).
-				Msg("POSITION SL VIOLATION: PAT position has no SL — sending CLOSE_POSITION")
+				Msg("POSITION SL VIOLATION: PAT position has no SL — queueing CLOSE_POSITION")
 
-			if globalAgentHub != nil {
-				globalAgentHub.SendToAgent(agentID, "CLOSE_POSITION", map[string]interface{}{
-					"ticket": pos.Ticket,
-					"magic":  pos.Magic,
-					"reason": "MISSING_SL_POSITION_MONITOR",
-				})
-			}
+			queueCommandForDevice(agentID, "CLOSE_POSITION", map[string]interface{}{
+				"ticket": pos.Ticket,
+				"magic":  pos.Magic,
+				"reason": "MISSING_SL_POSITION_MONITOR",
+			})
 
 			recordSLViolation(agentID, "", "POSITION_NO_SL", 0, 0)
 		}

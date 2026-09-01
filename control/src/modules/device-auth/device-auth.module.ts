@@ -7,5 +7,6 @@ import { DatabaseModule } from '../../common/database.module';
   imports: [DatabaseModule],
   controllers: [DeviceAuthController],
   providers: [DeviceAuthService],
+  exports: [DeviceAuthService],
 })
 export class DeviceAuthModule {}

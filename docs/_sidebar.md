@@ -29,7 +29,7 @@
 - **Guides**
   - [Admin Guide](guides/ADMIN_GUIDE.md)
   - [User Guide](guides/USER_GUIDE.md)
-  - [Windows Agent Guide](guides/WINDOWS_AGENT.md)
+  - [EA Client Guide (MT4/MT5)](guides/EA_CLIENT_GUIDE.md)
 
 - **Current Status**
   - [Implementation Status (29 Aug)](reports/IMPLEMENTATION_STATUS.md)

@@ -19,10 +19,10 @@ import { ComplianceModule } from './modules/compliance/compliance.module';
 import { HealthModule } from './modules/health/health.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { DeviceAuthModule } from './modules/device-auth/device-auth.module';
+import { EdgePollModule } from './modules/edge-poll/edge-poll.module';
 import { OperationsModule } from './modules/operations/operations.module';
 import { BacktestModule } from './modules/backtest/backtest.module';
 import { GuestPreviewModule } from './modules/guest-preview/guest-preview.module';
-import { AgentsModule } from './modules/agents/agents.module';
 import { MarketProxyModule } from './modules/market-proxy/market-proxy.module';
 import { FeatureFlagsModule } from './modules/feature-flags/feature-flags.module';
 import { AdminExtrasModule } from './modules/admin-extras/admin-extras.module';
@@ -57,10 +57,10 @@ import { ComplianceInterceptor } from './common/interceptors/compliance.intercep
     HealthModule,
     AdminModule,
     DeviceAuthModule,
+    EdgePollModule,
     OperationsModule,
     BacktestModule,
     GuestPreviewModule,
-    AgentsModule,
     MarketProxyModule,
     FeatureFlagsModule,
     AdminExtrasModule,

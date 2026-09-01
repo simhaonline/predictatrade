@@ -31,7 +31,7 @@
 ### Guides
 - [Admin Guide](guides/ADMIN_GUIDE.md) — System administration: users, billing, signals, agent monitoring, security
 - [User Guide](guides/USER_GUIDE.md) — Dashboard, strategies, signal interpretation, MT4/MT5 setup, troubleshooting
-- [Windows Agent Guide](guides/WINDOWS_AGENT.md) — Client Agent + Master Node roles, install/update/uninstall, health endpoints, EA downloads, deploy files
+- [EA Client Guide (MT4/MT5)](guides/EA_CLIENT_GUIDE.md) — Option B EA-direct cloud transport: install, WebRequest allowlist, signal-delivery guarantees, troubleshooting
 
 ### Reports (historical record — pre-29-Aug state)
 - [Whitepaper](reports/WHITEPAPER.md) — Technical whitepaper: architecture, risk, AI governance, commercial model

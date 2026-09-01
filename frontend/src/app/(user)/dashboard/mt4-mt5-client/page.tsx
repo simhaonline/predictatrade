@@ -6,7 +6,7 @@ import StatusBadge from "@/components/ui/status-badge";
 import {
   IconDownload, IconBrandWindows, IconDeviceDesktop,
   IconClipboard, IconCheck, IconTerminal2, IconRefresh,
-  IconFingerprint, IconShieldCheck, IconLicense,
+  IconFingerprint, IconShieldCheck, IconLicense, IconCloud,
 } from "@tabler/icons-react";
 
 interface DeviceActivation {
@@ -44,7 +44,7 @@ interface UserDevice {
   activations: DeviceActivation[] | null;
 }
 
-type InstallStep = "download" | "install" | "connect" | "mt4" | "mt5" | "verify";
+type InstallStep = "license" | "download" | "allowlist" | "mt4" | "mt5" | "verify";
 
 export default function UserMtClientPage() {
   const [copiedKey, setCopiedKey] = useState(false);
@@ -55,8 +55,11 @@ export default function UserMtClientPage() {
     refetchInterval: 5000,
   });
 
-  // Per-user terminal status — derived from the user's OWN registered devices
-  // NOT global agent status (which shows ALL agents on the server)
+  // Per-user terminal status — derived from the user's OWN registered devices.
+  // Option B (v1.19.0): EAs talk to the cloud directly over HTTPS. A device is
+  // "live" when the control plane has seen it recently (edge-poll/heartbeat
+  // refresh devices.last_seen_at); terminal link state lives on the device's
+  // `activations` array, keyed by client_type (MT4/MT5).
   const { data: agentsStatus, refetch: refetchAgents } = useQuery<{
     agents_connected: number;
     agents_online: boolean;
@@ -67,9 +70,6 @@ export default function UserMtClientPage() {
   }>({
     queryKey: ["user-mt-agents"],
     queryFn: async () => {
-      // Terminal link state lives on each device's `activations` array, keyed by
-      // client_type (MT4/MT5) with `terminal_connected` reflecting the live link —
-      // NOT on the device object itself.
       const userDevices = devices || [];
       const onlineDevices = userDevices.filter((d) => d.status === "ONLINE" || d.connection_status === "ONLINE");
       const acts = userDevices.flatMap((d) => (d.activations || []) as DeviceActivation[]);
@@ -101,16 +101,16 @@ export default function UserMtClientPage() {
   };
 
   const downloadFiles = [
-    { name: "Windows Agent (Client) — Installer", file: "https://downloads.predictatrade.com/windows-agent/client/install.ps1", desc: "Execution agent — run in PowerShell as Administrator (auto-selects amd64 / 386 / arm64)", size: "~7.6 MB", icon: IconBrandWindows, type: "ps1", primary: true },
-    { name: "Windows Master Node — Installer", file: "https://downloads.predictatrade.com/windows-agent/master/install.ps1", desc: "Data-only node — feeds live market data (run in PowerShell as Administrator)", size: "~7.6 MB", icon: IconBrandWindows, type: "ps1" },
-    { name: "MT5 Expert Advisor (Compiled)", file: "https://downloads.predictatrade.com/mql/compiled_executable/Predict-A-Trade.ex5", desc: "Pre-compiled EA for MetaTrader 5 — ready to use, no compilation needed", size: "128 KB", icon: IconTerminal2, type: "ex5" },
-    { name: "MT4 Expert Advisor (Compiled)", file: "https://downloads.predictatrade.com/mql/compiled_executable/PredictATrade.ex4", desc: "Pre-compiled EA for MetaTrader 4 — ready to use, no compilation needed", size: "104 KB", icon: IconTerminal2, type: "ex4" },
+    { name: "MT5 Expert Advisor — Source (.mq5)", file: "https://downloads.predictatrade.com/mql/mt5/PredictATrade_MT5.mq5", desc: "Client EA for MetaTrader 5 — compile in MetaEditor (F7), or grab the pre-compiled binary below when available", size: "~120 KB", icon: IconTerminal2, type: "mq5", primary: true },
+    { name: "MT4 Expert Advisor — Source (.mq4)", file: "https://downloads.predictatrade.com/mql/mt4/PredictATrade_MT4.mq4", desc: "Client EA for MetaTrader 4 — compile in MetaEditor (F7), or use the pre-compiled binary below", size: "~110 KB", icon: IconTerminal2, type: "mq4" },
+    { name: "MT5 Master Data Node — Source (.mq5)", file: "https://downloads.predictatrade.com/mql/mt5/PredictATrade_MasterNode_MT5.mq5", desc: "Optional data node for MetaTrader 5 — streams live XAUUSD ticks/snapshots to the engine (no trading)", size: "~50 KB", icon: IconTerminal2, type: "mq5" },
+    { name: "MT4 Master Data Node — Source (.mq4)", file: "https://downloads.predictatrade.com/mql/mt4/PredictATrade_MasterNode_MT4.mq4", desc: "Optional data node for MetaTrader 4 — streams live XAUUSD ticks/snapshots to the engine (no trading)", size: "~105 KB", icon: IconTerminal2, type: "mq4" },
   ];
 
   const installSteps: { id: InstallStep; label: string }[] = [
-    { id: "download", label: "1. Download" },
-    { id: "install", label: "2. Install Agent" },
-    { id: "connect", label: "3. Enter License" },
+    { id: "license", label: "1. Copy License" },
+    { id: "download", label: "2. Download EA" },
+    { id: "allowlist", label: "3. Allow Cloud URL" },
     { id: "mt4", label: "4. Install MT4 EA" },
     { id: "mt5", label: "5. Install MT5 EA" },
     { id: "verify", label: "6. Verify" },
@@ -119,81 +119,76 @@ export default function UserMtClientPage() {
   // Full installation steps shown inline on the dashboard (no toggling required).
   const guideSteps: Record<InstallStep, { title: string; steps: string[] }> = {
     download: {
-      title: "Install the Windows Agents",
+      title: "Download the Expert Advisors",
       steps: [
-        "Open PowerShell as Administrator (Right-click Start → Windows PowerShell (Admin)).",
-        "Client (execution) agent — copy and run: irm https://downloads.predictatrade.com/windows-agent/client/install.ps1 | iex",
-        "Master (data) node — on the same or another machine run: irm https://downloads.predictatrade.com/windows-agent/master/install.ps1 | iex",
-        "Press Enter. The installer auto-detects your CPU architecture (amd64 / 386 / arm64) and installs the service automatically.",
-        "On the one-time Windows SmartScreen prompt, click 'Run anyway' — the agent is built from our release but the binary is currently unsigned on your machine.",
-        "Client installs as service 'pat-agent' (status at http://127.0.0.1:9000); Master installs as 'pat-master' (status at http://127.0.0.1:9001).",
-        "Download the MT5 (.ex5) or MT4 (.ex4) Expert Advisor from the buttons above.",
+        "No Windows Agent needed — the EA talks to the Predict-A-Trade cloud directly over HTTPS (v1.19).",
+        "Download the EA for your platform: PredictATrade_MT5.mq5 (MT5) or PredictATrade_MT4.mq4 (MT4).",
+        "If a pre-compiled .ex5/.ex4 is available above, you can skip MetaEditor entirely.",
+        "To compile yourself: open the .mq5/.mq4 in MetaEditor (F4 from the terminal) and press F7 — it must show 0 errors.",
+        "Master data node is optional — run it on one terminal to feed live market data to the engine.",
       ],
     },
-    install: {
-      title: "Verify the Windows Agents",
+    allowlist: {
+      title: "Allow the Cloud API in your terminal (one-time, per terminal)",
       steps: [
-        "Open Task Manager → Services tab → look for 'pat-agent' (Client) and 'pat-master' (Master) — both should be Running.",
-        "Client status page: http://127.0.0.1:9000 — Master status page: http://127.0.0.1:9001.",
-        "If a service is not running, open PowerShell as Admin and re-run its installer:",
-        "  Client: irm https://downloads.predictatrade.com/windows-agent/client/install.ps1 | iex",
-        "  Master:  irm https://downloads.predictatrade.com/windows-agent/master/install.ps1 | iex",
-        "The agents auto-connect to the Predict-A-Trade signal engine (Client → exec port 13081, Master → data port 13091).",
-        "No license key needed in the agent — the EA handles license validation.",
+        "In MetaTrader: Tools → Options → Expert Advisors tab.",
+        "Tick 'Allow WebRequest for listed URL'.",
+        "Add: https://api.predictatrade.com",
+        "Click OK. Without this the EA cannot reach the cloud (WebRequest is blocked by default).",
+        "Restart the terminal if the EA still shows 'WebRequest not allowed' in the Experts log.",
       ],
     },
-    connect: {
+    license: {
       title: "Copy Your License Key",
       steps: [
         "Copy your license key from the box above (click the copy icon).",
-        "You will need this key when setting up the MetaTrader EA.",
+        "You will paste this key into the EA inputs — it activates your cloud device automatically.",
         "Your license determines which strategies you can receive:",
         "  FREE: Standard Scalping only",
         "  STANDARD: Standard Scalping + Standard Swing",
         "  PRO: All scalping + swing strategies",
-        "  ELITE: All 5 strategies including EQFE and Ultra Scalping",
-        "Your license is tied to your account — strategy selection is automatic.",
+        "  ELITE: All strategies including Ultra Scalping and MARNIE_FIB",
+        "Signals are filtered server-side by your subscription plan — a FREE device never receives PRO/ELITE strategy signals.",
       ],
     },
     mt4: {
-      title: "Install MT4 Expert Advisor (Compiled .ex4)",
+      title: "Install MT4 Expert Advisor",
       steps: [
-        "Download PredictATrade.ex4 from the button above (pre-compiled — no MetaEditor needed).",
         "Open MetaTrader 4 → File → Open Data Folder → MQL4 → Experts.",
-        "Copy PredictATrade.ex4 into the Experts folder.",
+        "Copy PredictATrade_MT4.mq4 into the Experts folder (or the compiled .ex4 if you downloaded it).",
+        "In MetaEditor, compile the EA (F7) if you downloaded the source — confirm 0 errors.",
         "In MT4, open Navigator (Ctrl+N) → Right-click 'Expert Advisors' → 'Refresh'.",
-        "Drag 'PredictATrade' onto an XAUUSD chart.",
+        "Drag 'PredictATrade_MT4' onto an XAUUSD chart.",
         "In the EA inputs, paste your License Key into the LicenseKey field.",
         "Check 'Allow live trading' → OK.",
         "Enable the 'AutoTrading' button at the top (should turn green).",
-        "The EA will connect to the Windows Agent and start receiving signals.",
+        "The EA activates its device against the cloud and starts polling for signals every few seconds.",
       ],
     },
     mt5: {
-      title: "Install MT5 Expert Advisor (Compiled .ex5)",
+      title: "Install MT5 Expert Advisor",
       steps: [
-        "Download Predict-A-Trade.ex5 from the button above (pre-compiled — no MetaEditor needed).",
         "Open MetaTrader 5 → File → Open Data Folder → MQL5 → Experts.",
-        "Copy Predict-A-Trade.ex5 into the Experts folder.",
+        "Copy PredictATrade_MT5.mq5 into the Experts folder.",
+        "In MetaEditor (F4), compile the EA (F7) — it must show 0 errors.",
         "In MT5, open Navigator → Right-click 'Expert Advisors' → 'Refresh'.",
-        "Drag 'Predict-A-Trade' onto an XAUUSD chart.",
+        "Drag 'PredictATrade' onto an XAUUSD chart.",
         "In the EA inputs, paste your License Key into the LicenseKey field.",
         "Check 'Allow Algo Trading' → OK.",
         "Enable the 'Algo Trading' button at the top (should turn green).",
-        "The EA will connect to the Windows Agent and start receiving signals.",
+        "The EA connects directly to api.predictatrade.com — no local agent, no ports to open.",
       ],
     },
     verify: {
       title: "Verify Your Connection",
       steps: [
-        "Check http://127.0.0.1:9000 — the Client Agent dashboard should show your CLIENT (EA) connection and a live SIGNAL DELIVERY → EA status.",
-        "The Windows Agent sends live market data (candles) to the engine — the client dashboard at http://127.0.0.1:9000 shows the CLIENT (EA) connection and live SIGNAL DELIVERY → EA status.",
-        "In MT4/MT5, check the Experts tab — should show 'License validated — ACTIVE'.",
-        "In MT4/MT5, check the Journal tab — should show 'License strategies from server: ...'",
-        "Your terminal status should appear as 'Online' in the dashboard above.",
+        "In MT4/MT5, check the Experts tab — should show 'Device activated: …' followed by 'License validated — ACTIVE'.",
+        "In MT4/MT5, check the Journal/Experts tab — should show 'License strategies from server: ...'.",
+        "This dashboard lists your device under 'Your Registered Devices' with status Online within ~15 seconds.",
+        "Signals appear on the XAUUSD chart panel and in the Experts log when the engine publishes them.",
         "The EA will only execute strategies allowed by your license plan.",
         "Stop-loss is enforced by the server — trades without SL are automatically closed.",
-        "To update: just re-run the PowerShell install command and replace the .ex4/.ex5 file.",
+        "To update: replace the EA file, recompile, and reload it on the chart — credentials persist in the terminal.",
       ],
     },
   };
@@ -203,7 +198,7 @@ export default function UserMtClientPage() {
       <div>
         <h1 className="text-xl font-bold text-pat-text-primary">MetaTrader Client</h1>
         <p className="text-sm text-pat-text-secondary mt-1">
-          Download the Windows Client Agent, Master (data) Node and MQL Expert Advisors. Manage your registered devices and terminals.
+          Install the EA directly in MetaTrader 4/5 — no Windows Agent required. The EA connects to the Predict-A-Trade cloud over HTTPS, validates your license, and receives only the signals your subscription plan allows.
         </p>
       </div>
 
@@ -230,12 +225,12 @@ export default function UserMtClientPage() {
         </div>
       </div>
 
-      {/* Client Agent — Connection & Signal Delivery (no server connection shown) */}
+      {/* EA cloud link — connection & signal delivery */}
       <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-4">
         <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
           <div className="flex items-center gap-2">
-            <IconDeviceDesktop size={18} className="text-pat-info" />
-            <h2 className="text-sm font-semibold text-pat-text-primary">Client Agent — Connection &amp; Signal Delivery</h2>
+            <IconCloud size={18} className="text-pat-info" />
+            <h2 className="text-sm font-semibold text-pat-text-primary">EA Cloud Link — Signal Delivery</h2>
           </div>
           <button
             onClick={() => refetchAgents()}
@@ -252,10 +247,10 @@ export default function UserMtClientPage() {
               : "bg-pat-danger/10 text-pat-danger border border-pat-danger/20"
           }`}>
             <span className={`inline-block h-1.5 w-1.5 rounded-full ${(agentsStatus?.agents_connected ?? 0) > 0 ? "bg-pat-success animate-pulse" : "bg-pat-danger"}`} />
-            Client Agent: {(agentsStatus?.agents_connected ?? 0) > 0 ? "LIVE" : "OFFLINE"}
+            EA Link: {(agentsStatus?.agents_connected ?? 0) > 0 ? "LIVE" : "OFFLINE"}
           </span>
           <span>
-            {agentsStatus?.agents_connected ?? 0} client agent(s)
+            {agentsStatus?.agents_connected ?? 0} device(s) polling the cloud
           </span>
         </div>
 
@@ -273,21 +268,20 @@ export default function UserMtClientPage() {
         </div>
 
         <div className="mt-3 text-[11px] text-pat-text-muted leading-relaxed">
-          This page shows your <strong>Client Agent</strong> (execution) connection. Live
-          <strong> signal delivery</strong> (signals → EA) and <strong>candle delivery</strong> (agent
-          → engine) are reported on the local Windows Agent dashboard:
-          Client <code>http://127.0.0.1:9000</code>, Master (data) node <code>http://127.0.0.1:9001</code>.
+          Your EA polls the Predict-A-Trade cloud every few seconds (encrypted, license-gated).
+          Signals are delivered <strong>only</strong> for strategies included in your subscription plan,
+          and only when the engine marks them executable.
         </div>
       </div>
 
       {/* Registered devices with terminal details */}
       <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-5">
-        <h2 className="text-sm font-semibold text-pat-text-primary mb-4">Your Registered Devices & Terminals</h2>
+        <h2 className="text-sm font-semibold text-pat-text-primary mb-4">Your Registered Devices &amp; Terminals</h2>
         {isLoading && <div className="text-sm text-pat-text-secondary">Loading...</div>}
         {!isLoading && (!devices || devices.length === 0) && (
           <div className="flex items-center gap-2 py-6">
             <IconDeviceDesktop size={20} className="text-pat-text-muted" />
-            <div className="text-sm text-pat-text-muted">No devices registered yet. Install the Windows Agent to connect.</div>
+            <div className="text-sm text-pat-text-muted">No devices registered yet. Install the EA on an XAUUSD chart — it registers automatically with your license key.</div>
           </div>
         )}
         <div className="space-y-4">
@@ -302,7 +296,7 @@ export default function UserMtClientPage() {
                   <div>
                     <div className="text-sm font-medium text-pat-text-primary">{d.device_name}</div>
                     <div className="text-[10px] text-pat-text-muted">
-                      {d.os} | Host: {d.hostname} | Agent: {d.agent_version}
+                      {d.os} | Host: {d.hostname} | EA: {d.agent_version || "—"}
                     </div>
                   </div>
                 </div>
@@ -412,13 +406,13 @@ export default function UserMtClientPage() {
       {/* Risk protection info */}
       <div className="rounded-xl border border-pat-warning/20 bg-pat-warning/5 p-5">
         <h2 className="text-sm font-semibold text-pat-text-primary mb-2 flex items-center gap-2">
-          <IconShieldCheck size={16} className="text-pat-warning" /> Hardware-Bound License Protection
+          <IconShieldCheck size={16} className="text-pat-warning" /> License &amp; Capital Protection
         </h2>
         <div className="text-xs text-pat-text-muted space-y-1">
-          <div>• Your license is bound to your hardware fingerprint (CPU ID, motherboard serial, disk serial).</div>
-          <div>• No other machine can use your license key — prevents license sharing.</div>
-          <div>• Max {licenses?.[0]?.max_devices || 2} devices and {licenses?.[0]?.max_mt_accounts || 2} MT accounts per license.</div>
-          <div>• Capital protection: 5% daily loss limit, 1% per-trade risk, partial TP (50/30/20).</div>
+          <div>• Your EA authenticates with a per-device credential set derived from your license key — one device = one binding.</div>
+          <div>• Signals are delivered ONLY for strategies your subscription plan allows (enforced server-side at enqueue and again at poll time).</div>
+          <div>• Non-executable signals (advisory, gate-blocked) are never delivered to your EA — fail-closed delivery.</div>
+          <div>• Capital protection: 5% daily loss limit, 1% per-trade risk, partial TP (50/30/20), server-enforced stop-loss.</div>
           <div>• Swap and slippage protection per strategy.</div>
         </div>
       </div>

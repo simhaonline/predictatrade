@@ -1,8 +1,16 @@
 //+------------------------------------------------------------------+
 //|                                          PredictATrade_MT5.mq5   |
-//|                              Predict-A-Trade v1.00               |
+//|                              Predict-A-Trade v1.19.0 (Option B)  |
 //+------------------------------------------------------------------+
-//| ARCHITECTURE: THIN EXECUTOR (FINAL - NO RECOMPILE NEEDED)        |
+//| ARCHITECTURE: THIN EXECUTOR — EA-DIRECT HTTPS (v1.19.0, Option B)|
+//|                                                                  |
+//| The Windows Agent is REMOVED. This EA talks to the cloud direct: |
+//|   - POST {Cloud}/api/v1/devices/edge-poll   (HMAC device auth)   |
+//|     → fetches executable signals, LICENSE_STATUS, commands       |
+//|   - POST {Cloud}/ingest/agent (Bearer device JWT)                |
+//|     → LICENSE_CHECK / ACCOUNT_INFO / LIVENESS / EXECUTION_ACK /  |
+//|       TRADE_RESULT / CLOSE_ACK                                   |
+//|   - POST {Cloud}/api/v1/devices/edge-heartbeat (HMAC)            |
 //|                                                                  |
 //| The Go backend engine is the SOLE authority for:                 |
 //|   - Risk calculation (lot size, risk%, position limits)          |
@@ -14,23 +22,22 @@
 //|   - Trade management commands (CLOSE_POSITION, EMERGENCY_STOP)   |
 //|                                                                  |
 //| The EA ONLY does:                                                |
-//|   1. Receives signal from server (via Windows Agent)             |
-//|   2. Checks: LicenseKey is ACTIVE                                |
-//|   3. Executes trade with server-provided SL/TP/lot               |
-//|   4. Watchdog: verifies SL present every 15s (fail-closed)       |
-//|   5. Reports EXECUTION_ACK + TRADE_RESULT back to server         |
+//|   1. Activates its device against the LicenseKey (one-time,      |
+//|      auto-persisted; or paste Device Id/Secret from dashboard)   |
+//|   2. Polls the edge queue and executes executable signals        |
+//|   3. Watchdog: verifies SL present every 15s (fail-closed)       |
+//|   4. Reports EXECUTION_ACK + TRADE_RESULT back to the server     |
 //|                                                                  |
-//| USER INPUTS (only 3 - shown in EA Properties dialog):            |
-//|   - LicenseKey: Your Predict-A-Trade license key                 |
-//|   - AutoExecute: true = auto-trade, false = display only         |
-//|   - ExecuteCandidates: true = execute candidate signals too      |
+//| REQUIRED ONCE PER TERMINAL (MT5 security model):                 |
+//|   Tools → Options → Expert Advisors → "Allow WebRequest for      |
+//|   listed URL" → add:  https://api.predictatrade.com              |
 //|                                                                  |
 //| ALL other parameters are hardcoded with safe defaults.           |
 //| Changes to risk/strategy/trade management are made on the        |
 //| SERVER - no EA recompile required.                               |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.00"
+#property version   "1.19"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -40,6 +47,10 @@ input bool    AutoExecute    = false;   // SIGNAL_ONLY=true by default (display 
 input bool    BypassDailyLossBlock = false; // Allow new trades even after the soft daily-loss limit is hit. Hard halt (close-all at MaxDailyLossPct) is NEVER bypassed.
 input string  LicenseKey     = "";      // Your Predict-A-Trade license key
 input string  ChartTimeframe = "M1";    // Chart/timeframe this EA instance trades (M1/M5/H1/...)
+input string  PATCloudURL    = "https://api.predictatrade.com"; // Cloud API base URL (must be in WebRequest allowlist)
+input string  PATDeviceId    = "";      // Device UUID (optional — auto-activation from LicenseKey if empty)
+input string  PATDeviceSecret= "";      // Device secret (optional — auto-activation from LicenseKey if empty)
+input int     PATPollMs      = 1000;    // Signal poll interval, ms (>=500)
 
 //=== Strategy Selection ===
 // Strategy selection is controlled by the SERVER based on your license plan.
@@ -56,8 +67,9 @@ input bool    ExecuteCandidates  = false;      // Execute candidates as real tra
 
 //=== Execution Safety v1.00 (mql-fix.md — fail-closed) ===
 
-//=== File names (FILE_COMMON folder — shared with Windows Agent) ===
+//=== File names (FILE_COMMON — device bootstrap state + local log only) ===
 //─-- Internal constants (managed by backend, do not change) ──
+#define PAT_DEVICE_FILE   "PAT_device.txt"   // device_id|device_secret|refresh_token (bootstrap persistence)
 #define SendTickData true
 #define TickIntervalMs 0
 #define BrokerSymbol ""
@@ -99,10 +111,6 @@ input string TripleSwapDay      = "Wednesday"; // Weekday treated as triple-swap
 #define RiskPerTradePct 1.0
 #define UseAutoLotSizing true
 
-#define PAT_TICK_FILE    "PAT_ticks.txt"
-#define PAT_SIGNAL_FILE  "PAT_signals.txt"
-#define PAT_LICENSE_FILE "PAT_license.txt"
-#define PAT_HEARTBEAT    "PAT_heartbeat.txt"
 // Client MT terminal log — formatted [Predict-A-Trade] lines written here (FILE_COMMON)
 // and echoed to the MT Experts log so the trader can see status/signal activity.
 #define PAT_ERROR_LOG    "error.log"
@@ -159,9 +167,9 @@ int           g_signalsFiltered = 0;
 double        g_dailyPnL       = 0;
 double        g_dayStartBalance = 0;
 datetime      g_currentDay    = 0;
- bool          g_tradingBlocked = false;
- bool          g_capitalWarnActive = false;  // edge-trigger for CAPITAL_WARNING emission
- bool          g_hardHaltTriggered = false;
+bool          g_tradingBlocked = false;
+bool          g_capitalWarnActive = false;  // edge-trigger for CAPITAL_WARNING emission
+bool          g_hardHaltTriggered = false;
 int           g_slippageRejects = 0;
 bool          g_equityHalted   = false;
 int           g_magicSeq       = 0;
@@ -512,7 +520,7 @@ bool PAT_PreTradeGate(bool isBuy, double lot, string strategyName)
 
     // Current reference price for margin calculation
     double refPx = isBuy ? SymbolInfoDouble(g_symbol, SYMBOL_ASK)
-                         : SymbolInfoDouble(g_symbol, SYMBOL_BID);
+                        : SymbolInfoDouble(g_symbol, SYMBOL_BID);
 
     // 7. Margin gate (OrderCalcMargin)
     double marginRequired = 0;
@@ -607,7 +615,7 @@ string PAT_ForcedReasonFromCode(int code)
 }
 
 //+------------------------------------------------------------------+
-//| Trade result reporting (TRADE_RESULT + CLOSE_ACK via IPC file)    |
+//| Trade result reporting (TRADE_RESULT + CLOSE_ACK via ingest)      |
 //+------------------------------------------------------------------+
 void PAT_ReportResult(long magic, long ticket, string signalID, string strategyID,
                       string exitReason, double entry, double exitPx, double lots,
@@ -642,10 +650,9 @@ void PAT_ReportResult(long magic, long ticket, string signalID, string strategyI
     msg += ",\"mfe\":0.0";
     msg += ",\"sl_correct\":" + (slCorrect ? "true" : "false");
     msg += "}";
-    PAT_Append(PAT_TICK_FILE, msg + "\n");
+    PAT_Send(msg);
 
-    // CLOSE_ACK is already parsed/forwarded by the Windows Agent
-    // (windows-agent/internal/pipe.go) — sent for pipeline compatibility.
+    // CLOSE_ACK kept for pipeline compatibility (the engine core parses it).
     string ack = "CLOSE_ACK|{";
     ack += "\"ticket\":" + IntegerToString(ticket);
     ack += ",\"reason\":\"" + exitReason + "\"";
@@ -654,7 +661,7 @@ void PAT_ReportResult(long magic, long ticket, string signalID, string strategyI
     ack += ",\"strategy_id\":\"" + strategyID + "\"";
     ack += ",\"magic\":" + IntegerToString(magic);
     ack += "}\n";
-    PAT_Append(PAT_TICK_FILE, ack);
+    PAT_Send(ack);
 
     Print("TRADE_RESULT reported: magic=", magic, " reason=", exitReason,
           " pnl=", DoubleToString(realizedPnl, 2), " signal=", signalID);
@@ -767,8 +774,8 @@ void PAT_HistoryPoll()
             timeInTrade = (long)(TimeCurrent() - g_regOpenTime[idx]);
         }
         PAT_ReportResult(magic, (long)dealTicket, sig, strat, reason, entry, exitPx,
-                         lots, pnl, true, ChartTimeframe, dir, openedAt, sl0, tp1,
-                         pnlPoints, timeInTrade);
+                        lots, pnl, true, ChartTimeframe, dir, openedAt, sl0, tp1,
+                        pnlPoints, timeInTrade);
         GlobalVariableSet(rptName, 1);
     }
 }
@@ -786,7 +793,7 @@ string FormatISO8601UTC(datetime t)
 
 int OnInit()
 {
-    Print("Predict-A-Trade MT5 EA v1.00 initializing...");
+    Print("Predict-A-Trade MT5 EA v1.19 initializing...");
 
     g_symbol = BrokerSymbol;
     if(g_symbol == "") g_symbol = _Symbol;
@@ -821,18 +828,20 @@ int OnInit()
     // Watchdog timer (every 15s)
     EventSetTimer(15);
 
-    if(FileIsExist(PAT_HEARTBEAT, FILE_COMMON))
+    // Option B: no local agent to detect — bootstrap the cloud device and
+    // go ONLINE when credentials are ready. The first poll confirms reachability.
+    if(PAT_EnsureDevice())
     {
         g_connection = "CONNECTED";
-        Print("Windows Agent detected (heartbeat found in common folder)");
+        Print("[Predict-A-Trade] Cloud device ready (", g_deviceId, ") — edge-poll mode.");
         SendInitMessage();
         RequestLicenseValidation();
     }
     else
     {
         g_connection = "OFFLINE";
-        Print("WARNING: Windows Agent not detected.");
-        Print("Ensure pat-agent.exe is running on this machine.");
+        Print("WARNING: Cloud device not ready — set LicenseKey (or Device Id/Secret) in EA inputs.");
+        Print("Also add ", PATCloudURL, " to Tools→Options→Expert Advisors→WebRequest allowlist.");
     }
 
     UpdatePanel();
@@ -843,7 +852,7 @@ void OnDeinit(const int reason)
 {
     EventKillTimer();
     if(g_atrHandle != INVALID_HANDLE) IndicatorRelease(g_atrHandle);
-    PAT_Append(PAT_TICK_FILE, "DEINIT|{}\n");
+    PAT_Send("DEINIT|{}");
     Comment("");
 }
 
@@ -857,8 +866,14 @@ void OnTick()
     if(SendTickData && g_connection == "CONNECTED")
         SendTickToAgent();
 
-    if(g_connection == "CONNECTED")
-        ReadFromAgent();
+    // Option B signal/command fetch (replaces ReadFromAgent file IPC).
+    // Throttled inside PAT_EdgePoll cadence: run at most once per PATPollMs.
+    static uint lastPoll = 0;
+    if(g_connection == "CONNECTED" && GetTickCount() - lastPoll >= (uint)MathMax(PATPollMs, 500))
+    {
+        lastPoll = GetTickCount();
+        PollFromCloud();
+    }
 
     if(g_signalDirection != "NONE" && g_signalTime > 0)
     {
@@ -887,12 +902,17 @@ void OnTimer()
     if(g_connection == "CONNECTED" && (g_lastTickSend == 0 || GetTickCount() - g_lastTickSend > tickGap))
     {
         SendLivenessPing();
-        g_lastTickSend = GetTickCount(); // reuse as "last EA→agent send" so we ping at a sane rate
+        g_lastTickSend = GetTickCount(); // reuse as "last EA→cloud send" so we ping at a sane rate
     }
 
     PAT_Watchdog();
     PAT_HistoryPoll();
     SendAccountInfo();
+
+    // Control-plane heartbeat (HMAC) — every watchdog cycle (15s) keeps the
+    // device liveness fresh in edge_device_state even when the engine ingest
+    // is healthy but quiet (weekend).
+    PAT_EdgeHeartbeat();
 }
 
 void PAT_Watchdog()
@@ -1221,15 +1241,20 @@ void CheckAgentConnection()
     if(GetTickCount() - lastCheck < 2000) return;
     lastCheck = GetTickCount();
 
-    if(FileIsExist(PAT_HEARTBEAT, FILE_COMMON))
-        g_connection = "CONNECTED";
-    else
+    // Option B liveness: "connected" = cloud credentials present. Actual
+    // reachability is tracked by poll success counters (see OnTick/poll loop).
+    bool ready = (StringLen(g_deviceId) > 0 && StringLen(g_deviceSecret) > 0);
+    if(ready && g_connection != "CONNECTED")
     {
-        if(g_connection == "CONNECTED")
-        {
-            Print("Windows Agent heartbeat lost");
-            g_connection = "OFFLINE";
-        }
+        Print("[Predict-A-Trade] Cloud device ready — resuming edge-poll.");
+        g_connection = "CONNECTED";
+        SendInitMessage();
+        RequestLicenseValidation();
+    }
+    else if(!ready && g_connection == "CONNECTED")
+    {
+        Print("[Predict-A-Trade] Cloud device credentials lost — OFFLINE.");
+        g_connection = "OFFLINE";
     }
 }
 
@@ -1264,7 +1289,7 @@ void SendTickToAgent()
     msg += ",\"broker_offset\":" + IntegerToString(TimeGMTOffset() / 3600);
     msg += "}\n";
 
-    PAT_Append(PAT_TICK_FILE, msg);
+    PAT_Send(msg);
 }
 
 //+------------------------------------------------------------------+
@@ -1293,22 +1318,22 @@ void SendInitMessage()
     if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
        Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
 
-    string msg = "INIT|{\"ea_version\":\"1.08\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
-                 "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
-                 "\",\"license_key\":\"" + g_licenseKey +
-                 "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
-                 ",\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) +
-                 ",\"profit\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
-                 ",\"currency\":\"" + AccountInfoString(ACCOUNT_CURRENCY) +
-                 "\",\"leverage\":" + IntegerToString((int)AccountInfoInteger(ACCOUNT_LEVERAGE)) +
-                 ",\"open_positions\":" + IntegerToString(totalPos) +
-                 ",\"buy_positions\":" + IntegerToString(buyCount) +
-                 ",\"sell_positions\":" + IntegerToString(sellCount) +
+    string msg = "INIT|{\"ea_version\":\"1.19\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
+                "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
+                "\",\"license_key\":\"" + g_licenseKey +
+                "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
+                ",\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) +
+                ",\"profit\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
+                ",\"currency\":\"" + AccountInfoString(ACCOUNT_CURRENCY) +
+                "\",\"leverage\":" + IntegerToString((int)AccountInfoInteger(ACCOUNT_LEVERAGE)) +
+                ",\"open_positions\":" + IntegerToString(totalPos) +
+                ",\"buy_positions\":" + IntegerToString(buyCount) +
+                ",\"sell_positions\":" + IntegerToString(sellCount) +
                   ",\"total_lots\":" + DoubleToString(totalLots, 2) +
                   ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
                   ",\"floating_pnl\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
                   "}\n";
-    PAT_Append(PAT_TICK_FILE, msg);
+    PAT_Send(msg);
     Print("Init message sent with account data - balance: ", AccountInfoDouble(ACCOUNT_BALANCE));
 }
 
@@ -1327,16 +1352,16 @@ void SendAccountInfo()
     if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
        Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
     string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.08\",\"account\":\"" + g_accountID +
-                 "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
-                 "\",\"symbol\":\"" + g_symbol +
-                 "\",\"currency\":\"" + AccountInfoString(ACCOUNT_CURRENCY) +
-                 "\",\"license_key\":\"" + g_licenseKey +
-                 "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
-                 ",\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) +
-                 ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
-                 ",\"leverage\":" + IntegerToString((int)AccountInfoInteger(ACCOUNT_LEVERAGE)) +
-                 "}\n";
-    PAT_Append(PAT_TICK_FILE, msg);
+                "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
+                "\",\"symbol\":\"" + g_symbol +
+                "\",\"currency\":\"" + AccountInfoString(ACCOUNT_CURRENCY) +
+                "\",\"license_key\":\"" + g_licenseKey +
+                "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
+                ",\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) +
+                ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
+                ",\"leverage\":" + IntegerToString((int)AccountInfoInteger(ACCOUNT_LEVERAGE)) +
+                "}\n";
+    PAT_Send(msg);
 }
 
 //+------------------------------------------------------------------+
@@ -1350,23 +1375,23 @@ void RequestLicenseValidation()
        Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
 
     string msg = "LICENSE_CHECK|{\"account\":\"" + g_accountID +
-                 "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
-                 "\",\"symbol\":\"" + g_symbol +
-                 "\",\"license_key\":\"" + g_licenseKey +
-                 "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
-                 ",\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) +
+                "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
+                "\",\"symbol\":\"" + g_symbol +
+                "\",\"license_key\":\"" + g_licenseKey +
+                "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
+                ",\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) +
                   ",\"profit\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
                   ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
                   ",\"open_positions\":" + IntegerToString(PositionsTotal()) +
                   "}\n";
-    PAT_Append(PAT_TICK_FILE, msg);
+    PAT_Send(msg);
     Print("License validation with account data - balance: ", AccountInfoDouble(ACCOUNT_BALANCE));
 }
 
 //+------------------------------------------------------------------+
 //| LIVENESS ping — sent from OnTimer when the market produces no ticks |
 //| (weekend/holiday). Keeps the terminal visible (dashboard ONLINE),   |
-//| the license resolved, and the EA→agent chain provably alive. The    |
+//| the license resolved, and the EA→cloud chain provably alive.        |
 //| engine treats LIVENESS as connectivity-only (no price evaluation).  |
 //+------------------------------------------------------------------+
 void SendLivenessPing()
@@ -1377,7 +1402,7 @@ void SendLivenessPing()
     msg += ",\"account\":\""+g_accountID+"\"";
     msg += ",\"broker\":\""+AccountInfoString(ACCOUNT_COMPANY)+"\"";
     msg += ",\"timestamp\":\""+FormatISO8601UTC(TimeGMT())+"\"}\n";
-    PAT_Append(PAT_TICK_FILE, msg);
+    PAT_Send(msg);
 
     // Include a license re-validation with each liveness ping so a fresh key
     // typed into the EA resolves even through a closed market.
@@ -1385,53 +1410,75 @@ void SendLivenessPing()
 }
 
 //+------------------------------------------------------------------+
-void ReadFromAgent()
+//+------------------------------------------------------------------+
+//| PollFromCloud — Option B signal/command fetch (replaces           |
+//| ReadFromAgent's file IPC). Pulls the edge queue via HMAC-signed   |
+//| edge-poll and dispatches each payload by its "type" — the same    |
+//| message vocabulary the WS agent used (SIGNAL / LICENSE_STATUS /   |
+//| CLOSE_POSITION / EMERGENCY_STOP / KILL_SWITCH / SERVER_COMMAND).  |
+//+------------------------------------------------------------------+
+void PollFromCloud()
 {
-    // Read license response
-    if(FileIsExist(PAT_LICENSE_FILE, FILE_COMMON))
+    string items[];
+    string queueIds[];
+    int n = PAT_EdgePoll(items, queueIds);
+    if(n <= 0) return;
+
+    for(int i = 0; i < n; i++)
     {
-        string content = PAT_Read(PAT_LICENSE_FILE);
-        if(StringLen(content) > 0)
+        string payload = items[i];
+        string queueId = queueIds[i];
+        if(StringLen(payload) == 0) continue;
+
+        // Dispatch by payload type. The queue carries: real signals
+        // (payload = the signal JSON), LICENSE_STATUS verdicts, and
+        // SERVER_COMMAND envelopes (CLOSE_POSITION/EMERGENCY_STOP/
+        // KILL_SWITCH/REQUEST_SNAPSHOT…).
+        string msgType = ExtractJSONString(payload, "type");
+
+        if(msgType == "SIGNAL" || ExtractJSONString(payload, "ID") != "")
+            HandleSignal(payload);
+        else if(msgType == "LICENSE_STATUS")
         {
-            HandleLicenseResponse(content);
-            PAT_Clear(PAT_LICENSE_FILE);
-        }
-    }
-
-    // Read signals — check every tick
-    if(FileIsExist(PAT_SIGNAL_FILE, FILE_COMMON))
-    {
-        string content = PAT_Read(PAT_SIGNAL_FILE);
-        if(StringLen(content) > 0)
-        {
-            g_signalsReceived++;
-
-            string lines[];
-            int count = StringSplit(content, '\n', lines);
-
-            for(int i = 0; i < count; i++)
+            // Envelope: {"type":"LICENSE_STATUS","license_status":{...},"device_id":"…"}
+            // The verdict is a nested JSON OBJECT (not a string) — extract it
+            // specifically, falling back to the innermost object only if absent.
+            int licKey = StringFind(payload, "\"license_status\":{");
+            if(licKey >= 0)
             {
-                string line = lines[i];
-                if(StringLen(line) == 0) continue;
-
-                int sep = StringFind(line, "|");
-                if(sep < 0) continue;
-                string msgType = StringSubstr(line, 0, sep);
-                string payload = StringSubstr(line, sep + 1);
-
-                if(msgType == "SIGNAL")
-                    HandleSignal(payload);
-                else if(msgType == "LICENSE_RESPONSE" || msgType == "LICENSE")
-                    HandleLicenseResponse(payload);
-                else if(msgType == "CLOSE_POSITION")
-                    HandleClosePosition(payload);
-                else if(msgType == "EMERGENCY_STOP")
-                    HandleEmergencyStop(payload);
-                else if(msgType == "KILL_SWITCH")
-                    HandleKillSwitch(payload);
+                int licStart = licKey + StringLen("\"license_status\":");
+                string lic = PAT_ExtractJSONObject(payload, licStart);
+                if(StringLen(lic) > 0)
+                    HandleLicenseResponse(lic);
             }
-            PAT_Clear(PAT_SIGNAL_FILE);
+            else
+                HandleLicenseResponse(payload);
         }
+        else if(msgType == "SERVER_COMMAND" || msgType == "CLOSE_POSITION")
+        {
+            string cmd = ExtractJSONString(payload, "command");
+            if(cmd == "") cmd = "CLOSE_POSITION";
+            string inner = ExtractJSONString(payload, "payload");
+            if(cmd == "CLOSE_POSITION")
+                HandleClosePosition(StringLen(inner) > 0 ? inner : payload);
+            else if(cmd == "EMERGENCY_STOP")
+                HandleEmergencyStop(inner);
+            else if(cmd == "KILL_SWITCH")
+                HandleKillSwitch(inner);
+            else
+                Print("[Predict-A-Trade] Server command received: ", cmd);
+        }
+        else if(msgType == "EMERGENCY_STOP")
+            HandleEmergencyStop(payload);
+        else if(msgType == "KILL_SWITCH")
+            HandleKillSwitch(payload);
+        else
+            Print("[Predict-A-Trade] Unknown queue item type: ", msgType);
+
+        // Always ACK so the item leaves the queue permanently.
+        string ackResult = "{\"status\":\"PROCESSED\",\"type\":\"" + msgType + "\"}";
+        PAT_EdgeAck(queueId, ackResult);
+        g_signalsReceived++;
     }
 }
 
@@ -1542,7 +1589,7 @@ void HandleKillSwitch(string payload)
 
     // Report deinit
     string deinitMsg = "DEINIT|{\"reason\":\"SERVER_KILL_SWITCH\",\"closed_positions\":true}\n";
-    PAT_Append(PAT_TICK_FILE, deinitMsg);
+    PAT_Send(deinitMsg);
 
     Print("*** KILL_SWITCH complete — EA stopped ***");
     ExpertRemove();
@@ -1590,7 +1637,7 @@ string PAT_BuildPositionDetails()
 bool IsStrategyEnabled(string strategyID)
 {
     // SERVER-CONTROLLED: Check if strategy is in the server-provided allowed_strategies.
-    // The server ALSO filters signals before sending to the agent (primary defense).
+    // The server ALSO filters signals before enqueueing (primary defense).
     // This EA check is a secondary defense layer.
 
     // If the server OMITTED allowed_strategies entirely (legacy backend /
@@ -1677,7 +1724,7 @@ void HandleSignal(string json)
 
     if(g_connection != "CONNECTED")
     {
-        Print("SIGNAL BLOCKED: agent connection not CONNECTED (g_connection=", g_connection, ")");
+        Print("SIGNAL BLOCKED: cloud connection not CONNECTED (g_connection=", g_connection, ")");
         return;
     }
 
@@ -1701,7 +1748,7 @@ void HandleSignal(string json)
     // Only auto-trade CONFIRMED executable signals. ADVISORY / NO_TRADE signals
     // are displayed for context but must never open a position — this prevents
     // trading on non-confirmed reads and duplicate fills when both advisory and
-    // executable signals are delivered to the same agent.
+    // executable signals are delivered to the same device.
     if(g_signalClass != "EXECUTABLE")
     {
         Print("SIGNAL DISPLAY-ONLY: class=", g_signalClass, " — not EXECUTABLE, skip auto-trade");
@@ -1766,12 +1813,12 @@ void HandleLicenseResponse(string json)
         g_allowedStrategies = cleaned;
     }
 
-    // Only log when the license state actually changes — the agent re-sends
-    // license responses on every heartbeat, so an unconditional log would spam
+    // Only log when the license state actually changes — LICENSE_STATUS
+    // verdicts arrive on every poll cycle, so an unconditional log would spam
     // the terminal every few seconds.
     bool licChanged = (oldStatus != g_licenseStatus) || (oldPlan != g_licensePlan)
-                     || (oldAuth != g_authStatus) || (oldDevice != g_deviceStatus)
-                     || (oldSess != g_sessionStatus) || (oldTrade != g_tradingStatus);
+                    || (oldAuth != g_authStatus) || (oldDevice != g_deviceStatus)
+                    || (oldSess != g_sessionStatus) || (oldTrade != g_tradingStatus);
     if(licChanged)
     {
         Print("License status changed: ", oldStatus, " → ", g_licenseStatus,
@@ -1864,7 +1911,7 @@ void ExecuteBuy()
         ack += ",\"sl\":" + DoubleToString(g_sl, _Digits);
         ack += ",\"tp\":" + DoubleToString(finalTP, _Digits);
         ack += "}\n";
-        PAT_Append(PAT_TICK_FILE, ack);
+        PAT_Send(ack);
         CheckSlippage(posTicket, "BUY", ask);
     }
     else
@@ -1942,7 +1989,7 @@ void ExecuteSell()
         ack += ",\"sl\":" + DoubleToString(g_sl, _Digits);
         ack += ",\"tp\":" + DoubleToString(finalTP, _Digits);
         ack += "}\n";
-        PAT_Append(PAT_TICK_FILE, ack);
+        PAT_Send(ack);
         CheckSlippage(posTicket, "SELL", bid);
     }
     else
@@ -2013,7 +2060,7 @@ void CheckSlippage(ulong ticket, string direction, double requestedPrice)
     slipMsg += ",\"strategy\":\"" + g_signalStrategy + "\"";
     slipMsg += ",\"signal_id\":\"" + g_signalID + "\"";
     slipMsg += "}";
-    PAT_Append(PAT_TICK_FILE, slipMsg + "\n");
+    PAT_Send(slipMsg);
 
     if(RejectOnHighSlippage && MaxSlippagePoints > 0 && slippagePoints > MaxSlippagePoints)
     {
@@ -2034,13 +2081,13 @@ void CheckSlippage(ulong ticket, string direction, double requestedPrice)
 //+------------------------------------------------------------------+
 void PAT_LogDailyLossDeals()
 {
-   MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
-   datetime today = (datetime)(dt.year * 10000 + dt.mon * 100 + dt.day);
-   HistorySelect(TimeCurrent() - 172800, TimeCurrent() + 60);
-   int deals = HistoryDealsTotal();
-   int n = 0;
-   for(int i = 0; i < deals; i++)
-   {
+  MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
+  datetime today = (datetime)(dt.year * 10000 + dt.mon * 100 + dt.day);
+  HistorySelect(TimeCurrent() - 172800, TimeCurrent() + 60);
+  int deals = HistoryDealsTotal();
+  int n = 0;
+  for(int i = 0; i < deals; i++)
+  {
       ulong t = HistoryDealGetTicket(i);
       if(t == 0) continue;
       if(HistoryDealGetString(t, DEAL_SYMBOL) != g_symbol) continue;
@@ -2058,8 +2105,8 @@ void PAT_LogDailyLossDeals()
                   + " | profit: " + DoubleToString(p, 2)
                   + " | swap: " + DoubleToString(s, 2)
                   + " | commission: " + DoubleToString(c, 2));
-   }
-   if(n == 0) PAT_LogLine("CAPITAL DEAL: none counted as today");
+  }
+  if(n == 0) PAT_LogLine("CAPITAL DEAL: none counted as today");
 }
 
 //+------------------------------------------------------------------+
@@ -2093,8 +2140,8 @@ void UpdateCapitalProtection()
         datetime dealDay = (datetime)(dealDt.year * 10000 + dealDt.mon * 100 + dealDt.day);
         if(dealDay != dayStart) continue;
         g_dailyPnL += HistoryDealGetDouble(dealTicket, DEAL_PROFIT)
-                     + HistoryDealGetDouble(dealTicket, DEAL_SWAP)
-                     + HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
+                    + HistoryDealGetDouble(dealTicket, DEAL_SWAP)
+                    + HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
     }
     // Daily loss % is measured against the balance at the start of the broker
     // day. Derive it from realized P&L so it is correct even if the EA is
@@ -2143,7 +2190,7 @@ void UpdateCapitalProtection()
             g_capitalWarnActive = false;  // allow a fresh warning next time we re-enter the band
             Print("CAPITAL PROTECTION (RECOVER): daily loss recovered to ", lossPct, "% — trading re-enabled");
             string recMsg = "CAPITAL_PROTECTION|{\"event_type\":\"RECOVER\",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + ",\"action\":\"RESUMED\"}";
-            PAT_Append(PAT_TICK_FILE, recMsg + "\n");
+            PAT_Send(recMsg);
             PAT_LogLine("CAPITAL | dayOpenBal: " + DoubleToString(dayOpenBalance, 2) + " | dailyPnL: " + DoubleToString(g_dailyPnL, 2) + " | lossPct: " + DoubleToString(lossPct, 2) + " | status: RESUMED (not blocked)");
         }
     }
@@ -2152,7 +2199,7 @@ void UpdateCapitalProtection()
         // Edge-triggered CAPITAL_WARNING: emit only on the transition into the
         // warning band (not on every tick). The EA otherwise appends the warning
         // on every tick while the account sits at/below the threshold, which
-        // floods the agent → engine path. Reset when the account recovers above
+        // floods the EA → engine path. Reset when the account recovers above
         // the warning threshold so a fresh warning can fire later.
         if(lossPct <= -effWarning && !g_tradingBlocked)
         {
@@ -2161,7 +2208,7 @@ void UpdateCapitalProtection()
                 g_capitalWarnActive = true;
                 string warnMsg = "CAPITAL_WARNING|{\"daily_pnl\":" + DoubleToString(g_dailyPnL, 2)
                                + ",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + "}";
-                PAT_Append(PAT_TICK_FILE, warnMsg + "\n");
+                PAT_Send(warnMsg);
             }
         }
         else
@@ -2173,7 +2220,7 @@ void UpdateCapitalProtection()
             g_tradingBlocked = true;
             Print("*** CAPITAL PROTECTION (SOFT): Daily loss ", lossPct, "% — new entries blocked ***");
             string softMsg = "CAPITAL_PROTECTION|{\"event_type\":\"SOFT_HALT\",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + ",\"action\":\"BLOCKED_NEW_ENTRIES_ONLY\"}";
-            PAT_Append(PAT_TICK_FILE, softMsg + "\n");
+            PAT_Send(softMsg);
             PAT_LogLine("CAPITAL | dayOpenBal: " + DoubleToString(dayOpenBalance, 2) + " | dailyPnL: " + DoubleToString(g_dailyPnL, 2) + " | lossPct: " + DoubleToString(lossPct, 2) + " | status: BLOCKED (daily loss)");
             PAT_LogDailyLossDeals();
         }
@@ -2183,7 +2230,7 @@ void UpdateCapitalProtection()
             g_hardHaltTriggered = true;
             Print("*** CAPITAL PROTECTION (HARD): Daily loss ", lossPct, "% — CLOSING ALL POSITIONS ***");
             string hardMsg = "CAPITAL_PROTECTION|{\"event_type\":\"HARD_HALT\",\"daily_pnl_pct\":" + DoubleToString(lossPct, 2) + ",\"action\":\"EMERGENCY_CLOSE_ALL\"}";
-            PAT_Append(PAT_TICK_FILE, hardMsg + "\n");
+            PAT_Send(hardMsg);
             PAT_LogLine("CAPITAL | dayOpenBal: " + DoubleToString(dayOpenBalance, 2) + " | dailyPnL: " + DoubleToString(g_dailyPnL, 2) + " | lossPct: " + DoubleToString(lossPct, 2) + " | status: HARD HALT (closing all)");
             PAT_LogDailyLossDeals();
             if(EmergencyCloseAll)
@@ -2195,7 +2242,7 @@ void UpdateCapitalProtection()
 void UpdatePanel()
 {
     string p = "=== Predict-A-Trade v1.00 ===\n";
-    p += "Agent:    " + g_connection + "\n";
+    p += "Link:     " + g_connection + " (edge-poll ok=" + IntegerToString(g_pollOkCount) + " err=" + IntegerToString(g_pollErrCount) + ")\n";
     p += "License:  " + g_licenseStatus + " (" + g_licensePlan + ")\n";
     p += "Lic.Key:  " + (g_licenseKey == "" ? "NOT SET" : StringSubstr(g_licenseKey, 0, 12) + "...") + "\n";
     p += "Account:  " + g_accountID + "\n";
@@ -2298,10 +2345,9 @@ double ExtractJSONDouble(string json, string key)
 }
 
 //+------------------------------------------------------------------+
-//| File I/O using FILE_COMMON — append-safe                          |
-//| FIXED v1.00: PAT_Append previously used FILE_WRITE which TRUNCATED|
-//| the IPC file (lost messages when agent had not drained fast       |
-//| enough). Now FILE_READ|FILE_WRITE + FileSeek(SEEK_END).           |
+//| File I/O using FILE_COMMON — device bootstrap state + local log   |
+//| (v1.19.0: the IPC pipe files are GONE. Only PAT_device.txt — the  |
+//| persisted device credential — and error.log remain.)              |
 //+------------------------------------------------------------------+
 void PAT_Write(string filename, string content)
 {
@@ -2319,38 +2365,6 @@ void PAT_Write(string filename, string content)
         Sleep(5);
     }
     Print("FileOpen WRITE failed after 3 retries: ", filename, " error=", GetLastError());
-}
-
-void PAT_Append(string filename, string content)
-{
-    int retry = 0;
-    while(retry < 5)
-    {
-        if(retry > 0) Sleep(5);
-        int h = FileOpen(filename, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
-        if(h == INVALID_HANDLE)
-        {
-            // File may not exist yet — create it.
-            h = FileOpen(filename, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
-            if(h != INVALID_HANDLE)
-            {
-                FileSeek(h, 0, SEEK_END);
-                FileWriteString(h, content);
-                FileClose(h);
-                return;
-            }
-        }
-        else
-        {
-            FileSeek(h, 0, SEEK_END);
-            FileWriteString(h, content);
-            FileClose(h);
-            return;
-        }
-        retry++;
-        Sleep(5);
-    }
-    Print("FileOpen APPEND failed after 3 retries: ", filename, " error=", GetLastError());
 }
 
 string PAT_Read(string filename)
@@ -2371,10 +2385,331 @@ string PAT_Read(string filename)
     return content;
 }
 
- void PAT_Clear(string filename)
+//+------------------------------------------------------------------+
+//| ══════════ OPTION B TRANSPORT (v1.19.0) ═══════════════════════ |
+//| HTTPS client: device activation, HMAC signing, edge-poll, ack,   |
+//| heartbeat, and the engine ingest POST.                           |
+//+------------------------------------------------------------------+
+string g_deviceId       = "";
+string g_deviceSecret   = "";
+string g_refreshToken   = "";
+string g_accessToken    = "";     // Bearer JWT for POST /ingest/agent
+datetime g_tokenExpiry  = 0;      // UTC time the access token expires
+bool   g_netDiagnosticsShown = false;
+int    g_pollOkCount    = 0;
+int    g_pollErrCount   = 0;
+long   g_hmacCounter    = 0;      // monotonic nonce component
+
+//--- PAT_HTTPPost: plain JSON POST (no auth) → (status, response)
+int PAT_HTTPPost(string url, string body, string &response)
 {
-    int h = FileOpen(filename, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
-    if(h != INVALID_HANDLE) FileClose(h);
+    string headers = "Content-Type: application/json\r\n";
+    uchar data[];
+    StringToCharArray(body, data, 0, WHOLE_ARRAY, CP_UTF8);
+    ArrayResize(data, ArraySize(data) - 1); // strip trailing NUL
+    uchar result[];
+    string resHeaders = "";
+    int status = WebRequest("POST", url, headers, 5000, data, result, resHeaders);
+    response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+    return status;
+}
+
+//--- PAT_HMACSign: canonical v1 device signature over an outgoing request
+//    canonical = "v1\n<ts>\n<nonce>\nPOST\n<path>\n<sha256(body)>\n<device_id>"
+//    (byte-identical to DeviceAuthService.verifyRequestSignature)
+string PAT_HMACSign(string path, string body, string deviceId, string deviceSecret, string ts, string nonce)
+{
+    string bodyHash = PAT_Sha256Hex(body);
+    string canonical = "v1\n" + ts + "\n" + nonce + "\nPOST\n" + path + "\n" + bodyHash + "\n" + deviceId;
+    return PAT_HmacSha256Hex(deviceSecret, canonical);
+}
+
+//--- PAT_SignedPost: HMAC-authenticated control-plane POST
+//    path: full path as signed, e.g. "/api/v1/devices/edge-poll"
+int PAT_SignedPost(string path, string body, string &response)
+{
+    string ts = IntegerToString((long)TimeGMT() * 1000 + (GetTickCount() % 1000));
+    g_hmacCounter++;
+    string nonce = PAT_Sha256Hex(ts + IntegerToString(g_hmacCounter) + IntegerToString(MathRand()) + IntegerToString(GetTickCount()));
+    string sig = PAT_HMACSign(path, body, g_deviceId, g_deviceSecret, ts, nonce);
+
+    string headers = "Content-Type: application/json\r\n"
+                    "X-Device-Id: " + g_deviceId + "\r\n"
+                    "X-Device-Timestamp: " + ts + "\r\n"
+                    "X-Device-Nonce: " + nonce + "\r\n"
+                    "X-Device-Signature: " + sig + "\r\n";
+    uchar data[];
+    StringToCharArray(body, data, 0, WHOLE_ARRAY, CP_UTF8);
+    ArrayResize(data, ArraySize(data) - 1); // strip trailing NUL
+    uchar result[];
+    string resHeaders = "";
+    int status = WebRequest("POST", PATCloudURL + path, headers, 8000, data, result, resHeaders);
+    response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+    return status;
+}
+
+//--- PAT_EnsureDevice: bootstrap credentials (inputs → else persisted → activate)
+bool PAT_EnsureDevice()
+{
+    if(StringLen(g_deviceId) > 0 && StringLen(g_deviceSecret) > 0) return true;
+
+    // 1) EA inputs (dashboard copy-paste flow)
+    if(StringLen(PATDeviceId) > 0 && StringLen(PATDeviceSecret) > 0)
+    {
+        g_deviceId = PATDeviceId;
+        g_deviceSecret = PATDeviceSecret;
+        PAT_Write(PAT_DEVICE_FILE, g_deviceId + "|" + g_deviceSecret + "\n");
+        Print("[Predict-A-Trade] Device credentials loaded from EA inputs.");
+        return true;
+    }
+
+    // 2) Persisted bootstrap state
+    string saved = PAT_Read(PAT_DEVICE_FILE);
+    if(StringLen(saved) > 0)
+    {
+        string parts[];
+        int n = StringSplit(saved, '|', parts);
+        if(n >= 2 && StringLen(parts[0]) > 0 && StringLen(parts[1]) > 0)
+        {
+            g_deviceId = parts[0];
+            g_deviceSecret = parts[1];
+            if(n >= 3) g_refreshToken = parts[2];
+            return true;
+        }
+    }
+
+    // 3) Auto-activate against the license key
+    if(StringLen(LicenseKey) == 0)
+    {
+        if(!g_netDiagnosticsShown)
+            Print("[Predict-A-Trade] No device credentials and no LicenseKey — set LicenseKey in EA inputs.");
+        return false;
+    }
+    string fp = PAT_DeviceFingerprint();
+    string body = "{\"license_key\":\"" + LicenseKey + "\",\"client_type\":\"MT5\",\"role\":\"exec\","
+                  "\"fingerprint\":{\"machine_guid\":\"" + fp + "\",\"os\":\"Windows-MT5\"},"
+                  "\"terminal\":{\"name\":\"" + AccountInfoString(ACCOUNT_COMPANY) + "\"}}";
+    string response = "";
+    int status = PAT_HTTPPost(PATCloudURL + "/api/v1/devices/activate", body, response);
+    if(status != 200)
+    {
+        Print("[Predict-A-Trade] Device activation failed: HTTP ", status, " — ", StringSubstr(response, 0, 200));
+        return false;
+    }
+    g_deviceId     = ExtractJSONString(response, "device_id");
+    g_deviceSecret = ExtractJSONString(response, "device_secret");
+    g_refreshToken = ExtractJSONString(response, "refresh_token");
+    g_accessToken  = ExtractJSONString(response, "access_token");
+    if(StringLen(g_deviceId) == 0 || StringLen(g_deviceSecret) == 0)
+    {
+        Print("[Predict-A-Trade] Activation response missing device_id/device_secret.");
+        return false;
+    }
+    PAT_Write(PAT_DEVICE_FILE, g_deviceId + "|" + g_deviceSecret + "|" + g_refreshToken + "\n");
+    Print("[Predict-A-Trade] Device activated: ", g_deviceId);
+    return true;
+}
+
+//--- PAT_DeviceFingerprint: stable per-terminal identity
+string PAT_DeviceFingerprint()
+{
+    // Terminal mode + company + account + currency + path of the data folder —
+    // stable across restarts, unique enough per terminal install.
+    string raw = IntegerToString((int)TerminalInfoInteger(TERMINAL_NAME) == 0 ? 0 : 1)
+               + "|" + AccountInfoString(ACCOUNT_COMPANY)
+               + "|" + TerminalInfoString(TERMINAL_PATH)
+               + "|" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD));
+    return PAT_Sha256Hex(raw);
+}
+
+//+------------------------------------------------------------------+
+//| PAT_EdgePoll — fetch the next batch of queued items for this      |
+//| device. Returns number of items; fills parts[] with raw payloads. |
+//+------------------------------------------------------------------+
+int PAT_EdgePoll(string &items[], string &queueIds[])
+{
+    ArrayResize(items, 0);
+    ArrayResize(queueIds, 0);
+    if(!PAT_EnsureDevice()) return -1;
+
+    string body = "{\"max_signals\":10}";
+    string response = "";
+    int status = PAT_SignedPost("/api/v1/devices/edge-poll", body, response);
+    if(status != 200)
+    {
+        g_pollErrCount++;
+        // Expired access token is irrelevant here (HMAC auth) but activation
+        // may have lapsed — surface diagnostics once.
+        if(!g_netDiagnosticsShown)
+        {
+            Print("[Predict-A-Trade] edge-poll failed: HTTP ", status, " — ", StringSubstr(response, 0, 200));
+            g_netDiagnosticsShown = true;
+        }
+        return -1;
+    }
+    g_netDiagnosticsShown = false;
+    g_pollOkCount++;
+
+    // Parse "signal" payloads + "queue_id" per item. Response shape:
+    // {"ok":true,"pending":[{"queue_id":"…","signal_id":"…","signal":{…}}, …]}
+    int pos = 0;
+    while(true)
+    {
+        int qid = StringFind(response, "\"queue_id\":\"", pos);
+        if(qid < 0) break;
+        int qidEnd = StringFind(response, "\"", qid + 12);
+        if(qidEnd < 0) break;
+        string queueId = StringSubstr(response, qid + 12, qidEnd - (qid + 12));
+
+        // The signal payload object: find the "signal":{ … } that follows.
+        int sigKey = StringFind(response, "\"signal\":{", qidEnd);
+        int nextQ  = StringFind(response, "\"queue_id\"", qidEnd);
+        if(sigKey < 0 || (nextQ >= 0 && sigKey > nextQ))
+        {
+            // No signal object in this item (shouldn't happen) — skip.
+            pos = qidEnd;
+            continue;
+        }
+        // Extract the balanced JSON object after "signal":{
+        string payload = PAT_ExtractJSONObject(response, sigKey + 10);
+        int cnt = ArraySize(items);
+        ArrayResize(items, cnt + 1);
+        ArrayResize(queueIds, cnt + 1);
+        items[cnt] = payload;
+        queueIds[cnt] = queueId;
+        pos = sigKey + 10 + StringLen(payload);
+        if(ArraySize(items) >= 20) break;
+    }
+    return ArraySize(items);
+}
+
+//+------------------------------------------------------------------+
+//| PAT_EdgeAck — confirm a queue item (executed / rejected / error). |
+//+------------------------------------------------------------------+
+void PAT_EdgeAck(string queueId, string resultJSON)
+{
+    if(StringLen(queueId) == 0) return;
+    string body = "{\"queue_id\":\"" + queueId + "\",\"result\":" + resultJSON + "}";
+    string response = "";
+    int status = PAT_SignedPost("/api/v1/devices/edge-ack", body, response);
+    if(status != 200)
+        Print("[Predict-A-Trade] edge-ack failed: HTTP ", status, " — ", StringSubstr(response, 0, 120));
+}
+
+//+------------------------------------------------------------------+
+//| PAT_EdgeHeartbeat — liveness + terminal/account metadata.         |
+//+------------------------------------------------------------------+
+void PAT_EdgeHeartbeat()
+{
+    if(!PAT_EnsureDevice()) return;
+    string body = "{\"terminal\":\"MT5\",\"account\":\"" + g_accountID + "\","
+                  "\"symbol\":\"" + g_symbol + "\",\"build\":" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD)) + "}";
+    string response = "";
+    int status = PAT_SignedPost("/api/v1/devices/edge-heartbeat", body, response);
+    if(status != 200 && !g_netDiagnosticsShown)
+        Print("[Predict-A-Trade] edge-heartbeat failed: HTTP ", status);
+}
+
+//+------------------------------------------------------------------+
+//| PAT_Send — outbound message funnel (Option B). Takes the legacy   |
+//| "TYPE|{json}" wire line and POSTs its JSON payload to the engine  |
+//| ingest endpoint. Injects "type" if the payload omits it.          |
+//+------------------------------------------------------------------+
+void PAT_Send(string line)
+{
+    string s = line;
+    // Strip trailing CR/LF/NUL whitespace.
+    while(StringLen(s) > 0)
+    {
+        ushort c = StringGetCharacter(s, StringLen(s) - 1);
+        if(c == '\n' || c == '\r' || c == 0) s = StringSubstr(s, 0, StringLen(s) - 1);
+        else break;
+    }
+    int sep = StringFind(s, "|");
+    if(sep <= 0) return;
+    string msgType = StringSubstr(s, 0, sep);
+    string payload = StringSubstr(s, sep + 1);
+    if(StringLen(msgType) == 0 || StringLen(payload) == 0) return;
+    // Inject "type" when the builder omitted it (INIT/ACCOUNT_INFO/LICENSE_CHECK).
+    if(StringFind(payload, "\"type\"") < 0 && StringGetCharacter(payload, 0) == '{')
+        payload = "{\"type\":\"" + msgType + "\"," + StringSubstr(payload, 1);
+    PAT_PostIngest(msgType, payload);
+}
+
+//--- PAT_PostIngest: POST one already-built payload to the Go engine
+//    (Bearer device JWT) with one-shot 401 retry.
+void PAT_PostIngest(string msgType, string payload)
+{
+    if(!PAT_EnsureDevice()) return;
+    if(!PAT_EnsureAccessToken()) return;
+    string headers = "Content-Type: application/json\r\n"
+                    "Authorization: Bearer " + g_accessToken + "\r\n";
+    uchar data[];
+    StringToCharArray(payload, data, 0, WHOLE_ARRAY, CP_UTF8);
+    ArrayResize(data, ArraySize(data) - 1); // strip trailing NUL
+    uchar result[];
+    string resHeaders = "";
+    string url = PATCloudURL + "/ingest/agent?agentId=" + PAT_URLEncode(g_deviceId) + "&role=exec";
+    int status = WebRequest("POST", url, headers, 5000, data, result, resHeaders);
+    if(status == 401)
+    {
+        // Access token expired — force refresh once and retry.
+        g_accessToken = ""; g_tokenExpiry = 0;
+        if(PAT_EnsureAccessToken())
+            PAT_PostIngest(msgType, payload);
+        return;
+    }
+    if(status != 200)
+        Print("[Predict-A-Trade] ingest ", msgType, " failed: HTTP ", status);
+}
+
+//--- PAT_URLEncode — percent-encoding for query values
+string PAT_URLEncode(string s)
+{
+    string outp = "";
+    uchar bytes[];
+    int n = StringToCharArray(s, bytes, 0, WHOLE_ARRAY, CP_UTF8);
+    for(int i = 0; i < n - 1; i++)   // trailing NUL excluded
+    {
+        uchar c = bytes[i];
+        if((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+           c == '-' || c == '_' || c == '.' || c == '~')
+            outp += CharToString(c);
+        else
+            outp += StringFormat("%%%02X", c);
+    }
+    return outp;
+}
+
+//--- PAT_EnsureAccessToken: rotate the access token via
+//    POST /api/v1/devices/refresh (refresh_token grant).
+bool PAT_EnsureAccessToken()
+{
+    if(StringLen(g_accessToken) > 0 && TimeGMT() < g_tokenExpiry) return true;
+    if(!PAT_EnsureDevice()) return false;
+    if(StringLen(g_refreshToken) == 0)
+    {
+        // Legacy persisted state without a refresh token — re-activate.
+        g_deviceId = ""; g_deviceSecret = ""; PAT_Clear(PAT_DEVICE_FILE);
+        return PAT_EnsureDevice();
+    }
+    string body = "{\"refresh_token\":\"" + g_refreshToken + "\",\"device_id\":\"" + g_deviceId + "\",\"role\":\"exec\"}";
+    string response = "";
+    int status = PAT_HTTPPost(PATCloudURL + "/api/v1/devices/refresh", body, response);
+    if(status != 200)
+    {
+        Print("[Predict-A-Trade] token refresh failed: HTTP ", status, " — re-activating.");
+        g_deviceId = ""; g_deviceSecret = ""; g_refreshToken = "";
+        PAT_Clear(PAT_DEVICE_FILE);
+        return PAT_EnsureDevice();
+    }
+    g_accessToken = ExtractJSONString(response, "access_token");
+    g_refreshToken = ExtractJSONString(response, "refresh_token");
+    // 10-minute server TTL; refresh at 8 minutes to stay ahead of skew.
+    g_tokenExpiry = TimeGMT() + 8 * 60;
+    if(StringLen(g_refreshToken) > 0)
+        PAT_Write(PAT_DEVICE_FILE, g_deviceId + "|" + g_deviceSecret + "|" + g_refreshToken + "\n");
+    return StringLen(g_accessToken) > 0;
 }
 
 //+------------------------------------------------------------------+
@@ -2382,8 +2717,195 @@ string PAT_Read(string filename)
 //| to the MT Experts log AND appends it to error.log (FILE_COMMON)   |
 //| so the trader can see why trading is blocked / what was received.  |
 //+------------------------------------------------------------------+
- void PAT_LogLine(string msg)
+void PAT_LogLine(string msg)
 {
     Print("[Predict-A-Trade] ", msg);
-    PAT_Append(PAT_ERROR_LOG, "[Predict-A-Trade] " + msg + "\n");
+    int h = FileOpen(PAT_ERROR_LOG, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+    if(h == INVALID_HANDLE) return;
+    FileSeek(h, 0, SEEK_END);
+    FileWriteString(h, "[Predict-A-Trade] " + msg + "\n");
+    FileClose(h);
+}
+
+//--- PAT_Clear: truncate a FILE_COMMON file to empty (device re-activation reset)
+void PAT_Clear(string filename)
+{
+    int h = FileOpen(filename, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+    if(h != INVALID_HANDLE) FileClose(h);
+}
+
+//+------------------------------------------------------------------+
+//| PAT_Sha256Hex / PAT_HmacSha256Hex — pure-MQL5 SHA-256 + HMAC.     |
+//| (MQL5 has no native HMAC; this is the standard FIPS 180-4        |
+//| implementation over UTF-8 bytes, output lowercase hex.)          |
+//+------------------------------------------------------------------+
+void PAT_Sha256(const uchar &msg[], uchar &digest[])
+{
+    // Message padding (FIPS 180-4 §5.1)
+    ulong bitLen = (ulong)ArraySize(msg) * 8;
+    int paddedLen = (int)(((ArraySize(msg) + 8) / 64) + 1) * 64;
+    uchar padded[];
+    ArrayResize(padded, paddedLen);
+    ArrayInitialize(padded, 0);
+    ArrayCopy(padded, msg, 0, 0, ArraySize(msg));
+    padded[ArraySize(msg)] = 0x80;
+    for(int i = 0; i < 8; i++)
+        padded[paddedLen - 1 - i] = (uchar)((bitLen >> (8 * i)) & 0xFF);
+
+    // Initial hash values
+    uint h0=0x6a09e667, h1=0xbb67ae85, h2=0x3c6ef372, h3=0xa54ff53a;
+    uint h4=0x510e527f, h5=0x9b05688c, h6=0x1f83d9ab, h7=0x5be0cd19;
+    uint k[64];
+    PAT_Sha256K(k);
+
+    uint w[64];
+    for(int off = 0; off < paddedLen; off += 64)
+    {
+        for(int t = 0; t < 16; t++)
+            w[t] = ((uint)padded[off + t*4] << 24) | ((uint)padded[off + t*4 + 1] << 16) |
+                    ((uint)padded[off + t*4 + 2] << 8) | (uint)padded[off + t*4 + 3];
+        for(int t = 16; t < 64; t++)
+        {
+            uint s0 = PAT_ROTR(w[t-15],7) ^ PAT_ROTR(w[t-15],18) ^ (w[t-15] >> 3);
+            uint s1 = PAT_ROTR(w[t-2],17) ^ PAT_ROTR(w[t-2],19) ^ (w[t-2] >> 10);
+            w[t] = w[t-16] + s0 + w[t-7] + s1;
+        }
+        uint a=h0, b=h1, c=h2, d=h3, e=h4, f=h5, g=h6, hh=h7;
+        for(int t = 0; t < 64; t++)
+        {
+            uint S1 = PAT_ROTR(e,6) ^ PAT_ROTR(e,11) ^ PAT_ROTR(e,25);
+            uint ch = (e & f) ^ ((~e) & g);
+            uint temp1 = hh + S1 + ch + k[t] + w[t];
+            uint S0 = PAT_ROTR(a,2) ^ PAT_ROTR(a,13) ^ PAT_ROTR(a,22);
+            uint maj = (a & b) ^ (a & c) ^ (b & c);
+            uint temp2 = S0 + maj;
+            hh=g; g=f; f=e; e=d+temp1; d=c; c=b; b=a; a=temp1+temp2;
+        }
+        h0+=a; h1+=b; h2+=c; h3+=d; h4+=e; h5+=f; h6+=g; h7+=hh;
+    }
+
+    ArrayResize(digest, 32);
+    PAT_StoreU32BE(h0, digest, 0);  PAT_StoreU32BE(h1, digest, 4);
+    PAT_StoreU32BE(h2, digest, 8);  PAT_StoreU32BE(h3, digest, 12);
+    PAT_StoreU32BE(h4, digest, 16); PAT_StoreU32BE(h5, digest, 20);
+    PAT_StoreU32BE(h6, digest, 24); PAT_StoreU32BE(h7, digest, 28);
+}
+
+void PAT_Sha256K(uint &k[])
+{
+    static const uint K[64] = {
+        0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+        0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+        0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+        0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+        0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+        0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+        0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+        0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2};
+    ArrayCopy(k, K);
+}
+
+uint PAT_ROTR(uint x, int n) { return (x >> n) | (x << (32 - n)); }
+
+void PAT_StoreU32BE(uint v, uchar &outp[], int pos)
+{
+    outp[pos]   = (uchar)((v >> 24) & 0xFF);
+    outp[pos+1] = (uchar)((v >> 16) & 0xFF);
+    outp[pos+2] = (uchar)((v >> 8) & 0xFF);
+    outp[pos+3] = (uchar)(v & 0xFF);
+}
+
+string PAT_BytesToHex(const uchar &bytes[])
+{
+    string hexchars = "0123456789abcdef";
+    string outp = "";
+    for(int i = 0; i < ArraySize(bytes); i++)
+    {
+        outp += StringSubstr(hexchars, (bytes[i] >> 4) & 0x0F, 1);
+        outp += StringSubstr(hexchars, bytes[i] & 0x0F, 1);
+    }
+    return outp;
+}
+
+string PAT_Sha256Hex(string text)
+{
+    uchar msg[];
+    StringToCharArray(text, msg, 0, WHOLE_ARRAY, CP_UTF8);
+    ArrayResize(msg, ArraySize(msg) - 1); // strip trailing NUL
+    uchar digest[];
+    PAT_Sha256(msg, digest);
+    return PAT_BytesToHex(digest);
+}
+
+// HMAC-SHA256 (RFC 2104): H((K⊕opad) || H((K⊕ipad) || m)), K zero-padded to 64 bytes.
+string PAT_HmacSha256Hex(string key, string message)
+{
+    uchar k[], m[];
+    StringToCharArray(key, k, 0, WHOLE_ARRAY, CP_UTF8);
+    ArrayResize(k, ArraySize(k) - 1);
+    StringToCharArray(message, m, 0, WHOLE_ARRAY, CP_UTF8);
+    ArrayResize(m, ArraySize(m) - 1);
+
+    uchar kblock[64];
+    ArrayInitialize(kblock, 0);
+    if(ArraySize(k) > 64)
+    {
+        uchar kh[];
+        PAT_Sha256(k, kh);
+        ArrayCopy(kblock, kh, 0, 0, 32);
+    }
+    else
+        ArrayCopy(kblock, k, 0, 0, ArraySize(k));
+
+    uchar ipad[64], opad[64];
+    for(int i = 0; i < 64; i++)
+    {
+        ipad[i] = kblock[i] ^ 0x36;
+        opad[i] = kblock[i] ^ 0x5C;
+    }
+
+    uchar inner[], innerMsg[], innerDigest[];
+    ArrayCopy(innerMsg, ipad, 0, 0, 64);
+    ArrayCopy(innerMsg, m, 64, 0, ArraySize(m));
+    PAT_Sha256(innerMsg, innerDigest);
+
+    uchar outer[], outerMsg[], outerDigest[];
+    ArrayCopy(outerMsg, opad, 0, 0, 64);
+    ArrayCopy(outerMsg, innerDigest, 64, 0, 32);
+    PAT_Sha256(outerMsg, outerDigest);
+
+    return PAT_BytesToHex(outerDigest);
+}
+
+//+------------------------------------------------------------------+
+//| PAT_ExtractJSONObject — extract a balanced {...} starting at      |
+//| start (which must point at '{'). Handles nested objects/strings.  |
+//+------------------------------------------------------------------+
+string PAT_ExtractJSONObject(string s, int start)
+{
+    if(start < 0 || StringGetCharacter(s, start) != '{') return "";
+    int depth = 0;
+    bool inStr = false;
+    int len = StringLen(s);
+    for(int i = start; i < len; i++)
+    {
+        ushort c = StringGetCharacter(s, i);
+        if(inStr)
+        {
+            if(c == '\\') i++;              // skip escaped char
+            else if(c == '"') inStr = false;
+        }
+        else
+        {
+            if(c == '"') inStr = true;
+            else if(c == '{') depth++;
+            else if(c == '}')
+            {
+                depth--;
+                if(depth == 0)
+                    return StringSubstr(s, start, i - start + 1);
+            }
+        }
+    }
+    return "";
 }

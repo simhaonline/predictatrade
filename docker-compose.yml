@@ -98,9 +98,6 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - HTTP_PORT=13081
       - WS_PORT=13081
-      # Dedicated listener for the data-only Master Node agent (separate from
-      # the execution-agent listener so data-collection uptime is isolated).
-      - AGENT_DATA_PORT=13091
       # NOTE (v1.15.0 / MACRO_AUDIT 2.5): PAT_PAPER_EQUITY and the raised demo
       # position caps were REMOVED. In production, executable arming must gate on
       # VERIFIED broker equity/positions (Client Agent feed), NOT a seeded paper
@@ -118,7 +115,6 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       - "13081:13081"
-      - "13091:13091"
     depends_on:
       postgres:
         condition: service_healthy
@@ -254,7 +250,6 @@ services:
       - ./nginx/snippets:/etc/nginx/snippets:ro
       - ./docs/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - live-dashboard:/var/www/pat-live:ro
-      - ./windows-agent/deploy:/var/www/pat-deploy:ro
       - ./mql:/var/www/mql:ro
       - ./nginx/downloads:/var/www/downloads:ro
       - ssl-certs:/etc/letsencrypt:ro

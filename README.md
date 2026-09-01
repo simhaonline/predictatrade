@@ -2,7 +2,7 @@
 
 Multi-plane XAUUSD trading signal generation and analytics platform.
 
-**Version:** v1.18.0 | **Date:** 1 September 2026 | **Status:** GO — paper/sandbox/advisory signal operation. **LIVE TRADING ARMING AUTHORIZED BY OPERATOR (2026-08-30):** `LIVE_TRADING_AUTHORIZED=true` in `infra/env/realtime.env` (fail-closed capital-protection gates still require a verified broker equity/order feed; no self-promotion to live execution without it). Current **Windows Agent v1.2.53** ships as two roles — **Master Node** (data feed) and **Client Node** (execution) — installed via `client/install.ps1` / `master/install.ps1`; the engine "Market Feed Stale" false-positives and the data-node role-restore-on-restart bug were fixed so the feed shows an honest `LIVE` / `NO_DATA` (never faked).
+**Version:** v1.19.0 | **Date:** 1 September 2026 | **Status:** GO — paper/sandbox/advisory signal operation. **LIVE TRADING ARMING AUTHORIZED BY OPERATOR (2026-08-30):** `LIVE_TRADING_AUTHORIZED=true` in `infra/env/realtime.env` (fail-closed capital-protection gates still require a verified broker equity/order feed; no self-promotion to live execution without it). **v1.19.0 — Option B (EA-direct cloud transport):** the Windows Agent architecture is REMOVED — MetaTrader 4/5 EAs talk to the cloud directly over HTTPS (device activation → HMAC-signed edge-poll for signals/commands, Bearer ingest for market data). No local binaries, no services, no open ports on the trader's machine.
 
 ## Quick Start
 
@@ -43,12 +43,15 @@ MT4/MT5 (Client Node — exec)  ◀────signals/commands───┤
                    (Live Command Center)                                (IAM/billing/licensing)
 ```
 
-> The Windows Agent is split into two roles: the **Master Node** streams XAUUSD
-> `MARKET_SNAPSHOT` to the engine (authoritative live feed, `PROVIDER_MODE=agent`),
-> and the **Client Node** receives executable signals for broker execution. Both are
-> installed from `https://downloads.predictatrade.com/windows-agent/{client,master}/install.ps1`.
-> The engine never fabricates ticks — when the Master Node stops streaming the feed
-> reports `NO_DATA`, not a fake "live".
+> **Option B (v1.19.0):** MetaTrader EAs connect DIRECTLY to the cloud — no Windows Agent.
+> The **Master EA** (data node, any MT4/MT5 terminal) ingests XAUUSD `MARKET_SNAPSHOT`s to
+> the engine via `POST /ingest/agent` (Bearer device JWT, `PROVIDER_MODE=agent`); the
+> **Client EA** activates its device with the license key and polls the control plane
+> (`edge-poll`, HMAC-signed) for executable signals and server commands, ACKing each.
+> Delivery is fail-closed and plan-filtered: only `Executable == true` signals enqueue,
+> and only for devices whose license + plan whitelist the signal's strategy. The engine
+> never fabricates ticks — when the Master EA stops streaming, the feed reports `NO_DATA`,
+> not a fake "live".
 
 ## Services
 
@@ -126,22 +129,29 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 - **Devil Liquidity duplicate-mark fix** — the reversal candle could itself re-qualify as a NEW displacement mark (median body shifts after the first mark), double-charging the same level. Guard: level match normalized by the mark's DETECTION ATR + recency window (`RECLAIM_MAX_BARS` x timeframe duration).
 - **CI rebuilt** — YAML indentation bug (30 consecutive failed runs, 0 jobs) fixed; secret-scan self-exclusion glob fixed; control `.npmrc` legacy-peer-deps documented; psycopg2 importorskip; 6/6 jobs green.
 - **Dashboards runtime-audited (38/38 pages)** — every ADMIN and USER page probed against the live edge with USER + ADMIN tokens; fixed: `POST /subscriptions` 500 (PG17 `$5` type inference), stale e2e specs (cookie seeding, nav counts), 13 pre-existing lint errors.
-- **Windows Agent v1.2.53 verified live** — Client (execution) + Master (data) roles, multi-arch (amd64/386/arm64); binaries + per-arch manifests served byte-exact; EA sources downloadable from `https://downloads.predictatrade.com/mql/compiled_executable/`.
+- **EA-direct transport verified end-to-end** — device activation → HMAC edge-poll → fail-closed plan-filtered enqueue → always-ACK; EA sources served from `https://downloads.predictatrade.com/mql/`.
 
 ## Current Development (1 September 2026)
 
-- **Windows Agent v1.2.53 — Client / Master role split.** The single agent is now two
-  roles deployed from one build:
-  - **Master Node** (`pat-master.exe`) — streams XAUUSD `MARKET_SNAPSHOT` to the engine
-    (authoritative live feed). Installed via
-    `irm https://downloads.predictatrade.com/windows-agent/master/install.ps1 | iex`.
-  - **Client Node** (`pat-agent.exe`) — receives executable signals for broker execution.
-    Installed via
-    `irm https://downloads.predictatrade.com/windows-agent/client/install.ps1 | iex`.
-  - Multi-arch (amd64 / 386 / arm64) with per-arch manifests; MQL EAs served at
-    `https://downloads.predictatrade.com/mql/compiled_executable/` (`.ex4` + `.ex5`).
-  - Note: customer distribution still requires a code-signing certificate (SmartScreen);
-    the build pipeline is env-gated for `osslsigncode` once a cert is supplied.
+- **v1.19.0 — Option B: EA-direct cloud transport (Windows Agent REMOVED).** The
+  `windows-agent/` tree (120MB), its installers, CI job, Makefile targets, compose
+  mounts, dedicated 13091 data-listener, and the `audit.agent_connections` table are
+  all deleted. Replaced by:
+  - **Go engine**: `POST /ingest/agent` (device JWT, `TYPE|{json}` lines) feeds the
+    unchanged `HandleAgentMessage` core; executable signals enqueue straight into
+    `licensing.edge_signal_queue` (fail-closed, plan-whitelisted in SQL).
+  - **Control plane**: `AgentsModule` deleted; the `edge-poll` API (HMAC-signed
+    poll/ack/heartbeat) is the sole EA delivery path, with an entitlement re-check
+    at poll time (license revoked or plan downgraded between enqueue and poll →
+    signal expired, never delivered).
+  - **EAs**: all four (MT4/MT5 × client/master) are single-file pure-MQL HTTPS
+    clients — device bootstrap (`PAT_device.txt`), token rotation, hand-rolled
+    SHA-256/HMAC byte-compatible with `verifyRequestSignature`, Bearer ingest with
+    one-shot 401 retry, HMAC edge-poll every 2s with always-ACK semantics, 15s
+    heartbeat. Version 1.19; MT5 `ea_version` 1.19.
+  - **Frontend**: the MetaTrader Client page is EA-only (WebRequest allowlist +
+    license key + compile steps — no agent installers); `mql/` sources sync to
+    `frontend/public/downloads/`.
 - **Engine "Market Feed Stale" fixes (honest status, no fake data):**
   1. `realtime/internal/gateway/feeds.go` — the `/api/v1/feeds` divergence panel flagged
      `degraded` at a 5s threshold, but the Master Node streams snapshots every ~30–60s by
@@ -169,7 +179,7 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 | NestJS Control | control/ | IAM, subscriptions, billing, licensing | Tick-to-signal hot path |
 | Next.js Frontend | frontend/ | UI rendering | Risk/entitlement authority |
 | Python Research | research/ | Backtesting, calibration, ML | Live tick dependency |
-| Windows/MQL Edge | windows-agent/, mql/ | Order execution | Primary intelligence |
+| Windows/MQL Edge | mql/ | Order execution | Primary intelligence |
 
 ## Current Status (29 August 2026)
 
@@ -191,7 +201,7 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 | BE-6 reconciliation monitor (ACK + fill legs) | LIVE |
 | Supply chain (NestJS 12, 0 high/critical prod) | CLOSED |
 | Dashboards wiring (38/38 pages runtime-probed) | PASS |
-| Windows Agent v1.2.53 (client/master) + installers + MQL downloads | VERIFIED |
+| EA-direct transport (all 4 EAs) + edge-poll + MQL downloads | VERIFIED (compile check: operator) |
 | Migration integrity (69 files, numbered to 099, unique prefixes) | PASS |
 | Secrets out of git (env-file injection) | PASS |
 | MT5 clients connected (EA attach + license) | Operator action |

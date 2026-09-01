@@ -32,8 +32,7 @@ type HTTPServer struct {
 	hub           *WebSocketHub
 	persister     *marketdata.Persister
 	states        *features.StateManager
-	agentHub      *AgentHub
-	DataAgentHub  *AgentHub
+	// v1.19.0 (Option B): agentHub/DataAgentHub fields REMOVED — the WS hub is gone.
 	agentProvider interface {
 		GetLastSnapshot() interface{}
 		GetSnapshotCount() uint64
@@ -42,6 +41,7 @@ type HTTPServer struct {
 		LastMarketDataAt() time.Time
 		LastSnapshotAt() time.Time
 	}
+	ingestProvider IngestProvider // EA-direct HTTP ingest dispatch (v1.19.0)
 	valkeyCache       *cache.ValkeyCache
 	crossMarketEngine *crossmarket.Engine
 	newsEngine        *news.RiskEngine
@@ -108,7 +108,7 @@ func (e *EmergencyHalt) Status() (bool, string, string, time.Time) {
 	return e.active, e.level, e.reason, e.timestamp
 }
 
-func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentHub *AgentHub, agentProvider interface {
+func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *features.StateManager, agentProvider interface {
 	GetLastSnapshot() interface{}
 	GetSnapshotCount() uint64
 	HasConnectedAgents() bool
@@ -117,8 +117,11 @@ func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *f
 	LastSnapshotAt() time.Time
 }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine, newsEngine *news.RiskEngine, engTracker *engstatus.Tracker) *HTTPServer {
 	h := &HTTPServer{
-		agentHub:          agentHub,
+		// v1.19.0 (Option B): the Windows-agent hub is gone. agentHub is
+		// accepted for call-site compatibility and ignored; signals are
+		// delivered to customer EAs via licensing.edge_signal_queue (edge-poll).
 		agentProvider:     agentProvider,
+		ingestProvider:    agentProviderAsIngest(agentProvider),
 		valkeyCache:       valkeyCache,
 		crossMarketEngine: xmEngine,
 		newsEngine:        newsEngine,
@@ -148,8 +151,9 @@ func (h *HTTPServer) registerRoutes() {
 	// WebSocket at /ws and /ws/v1 (canonical production path)
 	h.mux.HandleFunc("/ws", h.hub.HandleWebSocket)
 	h.mux.HandleFunc("/ws/v1", h.hub.HandleWebSocket)
-	h.mux.HandleFunc("/ws/v1/agent", h.agentHub.HandleAgentWebSocket)
-	h.mux.HandleFunc("/ws/agent", h.agentHub.HandleAgentWebSocket)
+	// v1.19.0 (Option B): agent WS transport removed. EAs ingest via
+	// POST /ingest/agent (device JWT) — see ingest_http.go.
+	h.RegisterIngestRoute()
 	h.mux.HandleFunc("/api/v1/signals", h.handleSignals)
 	h.mux.HandleFunc("/api/v1/trades", h.handleTrades)
 	h.mux.HandleFunc("/api/v1/market/state", h.handleMarketState)
@@ -275,8 +279,18 @@ func (h *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"service":       "realtime-engine",
 		"version":       version.Version,
 		"ws_clients":    h.hub.ClientCount(),
-		"agents":        h.agentHub.AgentCount(),
 	})
+}
+
+// agentProviderAsIngest adapts the provider to the ingest dispatch interface.
+// *marketdata.AgentProvider satisfies IngestProvider (HandleAgentMessage +
+// IsDataNode); anything else returns nil and the ingest endpoint reports
+// "ingest not available".
+func agentProviderAsIngest(p interface{}) IngestProvider {
+	if ip, ok := p.(IngestProvider); ok {
+		return ip
+	}
+	return nil
 }
 
 // timeModeLabel returns the engine's active time-alignment mode for API clients.
@@ -1009,28 +1023,16 @@ func toF(d decimal.Decimal) float64 {
 func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	// Always use LIVE data for agent connection status.
-	// Agent connection state is real-time — a stale Valkey cache entry
-	// (written by another process or from before a reconnect) must NOT
-	// override the authoritative in-memory agentHub count.
-	// Valkey cache is still written by the broadcast loop for other
-	// consumers (e.g. NestJS health aggregation), but the Go engine's
-	// own endpoint must reflect the truth it holds in memory.
-	agentCount := h.agentHub.AgentCount()
+	// v1.19.0 (Option B): liveness = fresh edge_device_state activity (EAs
+	// poll/ingest over HTTP; no persistent connections exist).
 	agentsOnline := false
 	snapshotCount := uint64(0)
 	if h.agentProvider != nil {
 		agentsOnline = h.agentProvider.HasConnectedAgents()
 		snapshotCount = h.agentProvider.GetSnapshotCount()
 	}
-	// If the live agentHub reports a connection but the provider has not
-	// yet registered it (race during initial handshake), trust the hub —
-	// a connected WebSocket agent IS a connected agent.
-	if agentCount > 0 && !agentsOnline {
-		agentsOnline = true
-	}
-	dataAgentCount := 0
-	if h.DataAgentHub != nil {
-		dataAgentCount = h.DataAgentHub.AgentCount()
+	if !agentsOnline {
+		agentsOnline = h.edgeDevicesOnline()
 	}
 	lastMarketDataAt := time.Time{}
 	lastSnapshotAt := time.Time{}
@@ -1069,9 +1071,9 @@ func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"agents_connected":      agentCount,
 		"agents_online":         agentsOnline,
-		"data_agents_connected": dataAgentCount,
+		"edge_devices_online":   h.edgeDevicesOnline(),
+		"data_agents_connected": 0,
 		"snapshot_count":        snapshotCount,
 		"last_market_data_at":   lastMarketDataAt.UTC().Format(time.RFC3339),
 		"last_snapshot_at":      lastSnapshotAt.UTC().Format(time.RFC3339),
@@ -1079,8 +1081,8 @@ func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) 
 		"data_health":           dataHealth,
 		"market_closed":         marketClosed,
 		"next_market_open_utc":  nextMarketOpenUTC(time.Now().UTC()).Format(time.RFC3339),
-		"mt4_connected":         h.agentHub.MT4ConnectedCount(),
-		"mt5_connected":         h.agentHub.MT5ConnectedCount(),
+		"mt4_connected":         0,
+		"mt5_connected":         0,
 		"timestamp":             time.Now().UTC().Format(time.RFC3339),
 		"server_time":           time.Now().UTC().Format(time.RFC3339),
 	})
@@ -1351,16 +1353,12 @@ func (h *HTTPServer) handleSystemHealth(w http.ResponseWriter, r *http.Request) 
 		"connected": valkeyConnected,
 	}
 
-	// Market source
+	// Market source (v1.19.0: connection liveness = fresh edge_device_state
+	// polls; the WS agent hub is gone).
+	edgeOnline := h.edgeDevicesOnline()
 	health["market_source"] = map[string]interface{}{
-		"agents_connected": h.agentHub.AgentCount(),
-		"agents_online": func() bool {
-			mc := h.agentProvider.HasConnectedAgents()
-			if !mc && h.agentHub.AgentCount() > 0 {
-				mc = true
-			}
-			return mc
-		}(),
+		"edge_devices_online": edgeOnline,
+		"agents_online":       edgeOnline,
 	}
 
 	// Overall ready
@@ -1422,10 +1420,6 @@ func (h *HTTPServer) handleEmergencyStop(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if h.agentHub == nil {
-		http.Error(w, "agent hub not available", http.StatusServiceUnavailable)
-		return
-	}
 	reason := r.URL.Query().Get("reason")
 	if reason == "" {
 		reason = "admin_manual"
@@ -1433,12 +1427,11 @@ func (h *HTTPServer) handleEmergencyStop(w http.ResponseWriter, r *http.Request)
 	if h.EmergencyHalt != nil {
 		h.EmergencyHalt.Activate("EMERGENCY_STOP", reason)
 	}
-	// Broadcast EMERGENCY_STOP to all agents
-	h.agentHub.BroadcastToAllAgents("EMERGENCY_STOP", map[string]interface{}{
-		"reason":    reason,
-		"timestamp": time.Now().UTC(),
-	})
-	observability.Log.Warn().Str("reason", reason).Msg("EMERGENCY_STOP: broadcast to all agents + SERVER-SIDE trading halt ACTIVE — no further EXECUTABLE signals")
+	// v1.19.0 (Option B): queue the command for EA-direct devices (no WS hub).
+	if err := h.queueCommand("EMERGENCY_STOP", map[string]interface{}{"reason": reason}); err != nil {
+		observability.Log.Warn().Err(err).Msg("EMERGENCY_STOP edge queue failed (server halt still active)")
+	}
+	observability.Log.Warn().Str("reason", reason).Msg("EMERGENCY_STOP: queued to EA-direct devices + SERVER-SIDE trading halt ACTIVE — no further EXECUTABLE signals")
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"EMERGENCY_STOP_SENT","server_halt_active":true,"reason":"` + reason + `"}`))
 }
@@ -1450,10 +1443,6 @@ func (h *HTTPServer) handleKillSwitch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if h.agentHub == nil {
-		http.Error(w, "agent hub not available", http.StatusServiceUnavailable)
-		return
-	}
 	reason := r.URL.Query().Get("reason")
 	if reason == "" {
 		reason = "admin_manual"
@@ -1461,12 +1450,11 @@ func (h *HTTPServer) handleKillSwitch(w http.ResponseWriter, r *http.Request) {
 	if h.EmergencyHalt != nil {
 		h.EmergencyHalt.Activate("KILL_SWITCH", reason)
 	}
-	// Broadcast KILL_SWITCH to all agents
-	h.agentHub.BroadcastToAllAgents("KILL_SWITCH", map[string]interface{}{
-		"reason":    reason,
-		"timestamp": time.Now().UTC(),
-	})
-	observability.Log.Warn().Str("reason", reason).Msg("KILL_SWITCH: broadcast to all agents + SERVER-SIDE trading halt ACTIVE — no further EXECUTABLE signals")
+	// v1.19.0 (Option B): queue the command for EA-direct devices (no WS hub).
+	if err := h.queueCommand("KILL_SWITCH", map[string]interface{}{"reason": reason}); err != nil {
+		observability.Log.Warn().Err(err).Msg("KILL_SWITCH edge queue failed (server halt still active)")
+	}
+	observability.Log.Warn().Str("reason", reason).Msg("KILL_SWITCH: queued to EA-direct devices + SERVER-SIDE trading halt ACTIVE — no further EXECUTABLE signals")
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"KILL_SWITCH_SENT","server_halt_active":true,"reason":"` + reason + `"}`))
 }

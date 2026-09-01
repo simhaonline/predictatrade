@@ -91,7 +91,6 @@ func (h *HTTPServer) handleFeeds(w http.ResponseWriter, r *http.Request) {
 		},
 		"tick_rate": map[string]interface{}{
 			"snapshots_total":     snapshotCount,
-			"agents_connected":    h.agentHub != nil && h.agentHub.AgentCount() > 0,
 			"sampling_window_min": 1,
 		},
 		"candle_health": candleHealth,
