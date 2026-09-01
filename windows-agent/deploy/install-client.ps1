@@ -11,7 +11,7 @@
 $BaseUrl = "https://downloads.predictatrade.com/windows-agent"
 $tmp = Join-Path $env:TEMP "pat_install_client_$(Get-Random).ps1"
 try {
-    Invoke-WebRequest -Uri "$BaseUrl/install.ps1" -OutFile $tmp -UseBasicParsing -TimeoutSec 30
+    Invoke-WebRequest -Uri "$BaseUrl/install.ps1" -OutFile $tmp -UseBasicParsing -TimeoutSec 30 -Headers @{ "Cache-Control" = "no-cache" }
 } catch {
     Write-Host "[install-client] ERROR: failed to download installer: $_"
     exit 1
