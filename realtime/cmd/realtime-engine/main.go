@@ -150,6 +150,53 @@ var (
 	agentStrategies   = make(map[string][]string) // agentID → ["STANDARD_SCALPING", ...]
 )
 
+// canonicalPlanStrategies defines the AUTHORITATIVE maximum strategy set per
+// subscription plan. A subscriber can NEVER receive strategies outside their
+// plan's set — this is enforced fail-closed at signal delivery. The tiers are
+// strictly nested EXCEPT by design PRO is a MIX (no TREND_SWING, no experimental
+// strategies) and only ELITE receives the full set including TREND_SWING,
+// MARNIE_FIB, ATEN and ARCANIST.
+var canonicalPlanStrategies = map[string][]string{
+	"free":     {"STANDARD_SCALPING"},
+	"standard": {"STANDARD_SCALPING", "STANDARD_SWING", "ARCANIST"},
+	"basic":    {"STANDARD_SCALPING", "STANDARD_SWING", "ARCANIST"},
+	"pro":      {"STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING"},
+	"elite":    {"STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB", "ATEN", "ARCANIST"},
+}
+
+func normalizedPlanCode(p string) string { return strings.ToLower(strings.TrimSpace(p)) }
+
+// canonicalStrategiesForPlan returns the authoritative strategy set for a plan.
+// Unknown plans fall back to the full ELITE set so existing/custom plans keep
+// working; the per-agent intersection still can't exceed the plan's own
+// DB-derived list.
+func canonicalStrategiesForPlan(plan string) []string {
+	if s, ok := canonicalPlanStrategies[normalizedPlanCode(plan)]; ok {
+		return s
+	}
+	return canonicalPlanStrategies["elite"]
+}
+
+// intersectStrategies returns only the strategies in have that are also in the
+// authorized allowed set (case-insensitive, de-duplicated). This caps a
+// subscriber at their plan's maximum — e.g. PRO can never receive TREND_SWING.
+func intersectStrategies(have, allowed []string) []string {
+	allowedSet := make(map[string]bool, len(allowed))
+	for _, a := range allowed {
+		allowedSet[strings.ToUpper(strings.TrimSpace(a))] = true
+	}
+	seen := make(map[string]bool)
+	out := make([]string, 0, len(have))
+	for _, h := range have {
+		k := strings.ToUpper(strings.TrimSpace(h))
+		if allowedSet[k] && !seen[k] {
+			seen[k] = true
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
 // agentDevice maps the engine's in-memory agentID (WebSocket connection id) to the
 // control-plane device id (licensing.devices.id) reported by the Windows Agent.
 // Populated at license validation so the engine can publish authoritative live
@@ -256,9 +303,10 @@ func getAgentStrategies(agentID string) []string {
 func isStrategyAllowedForAgent(agentID string, strategyID string) bool {
 	allowed := getAgentStrategies(agentID)
 	if len(allowed) == 0 {
-		// No strategies loaded for this agent — allow all (backward compat)
-		// This should not happen in production after license validation
-		return true
+		// No strategies loaded for this agent (e.g. a market-data feed node, or
+		// entitlement not yet resolved). Fail closed — do NOT deliver trading
+		// signals to an agent whose plan we cannot verify.
+		return false
 	}
 	for _, s := range allowed {
 		if s == strategyID {
@@ -2569,9 +2617,22 @@ func main() {
 			applyPlanCaps(dailyLossGateRef, profitTargetGateRef, riskOversizeGateRef,
 				dailyLossCap, weeklyLossCap, monthlyLossCap, perTradeRisk)
 		}
-		// CRITICAL: Set the agent's allowed strategies for signal filtering.
-		// This is what SendFilteredSignalToAgents uses to enforce plan entitlements.
-		setAgentStrategies(agentID, result.Strategies)
+		// CRITICAL: Enforce the AUTHORITATIVE per-plan strategy whitelist
+		// (fail-closed). A subscriber can never receive strategies outside their
+		// plan's canonical set — PRO is a mix, ELITE gets all. Intersect the
+		// DB/license-derived list with the canonical plan set so a misconfigured
+		// plan row can never over-grant (e.g. PRO can never receive TREND_SWING).
+		canonical := canonicalStrategiesForPlan(result.Plan)
+		effective := intersectStrategies(result.Strategies, canonical)
+		if len(effective) == 0 {
+			// Freshly created license/plan with no strategies yet → assign the
+			// plan's canonical set so it still receives its entitled signals.
+			effective = canonical
+		}
+		result.Strategies = effective
+		// Set the agent's allowed strategies for signal filtering. This is what
+		// SendFilteredSignalToAgents uses to enforce plan entitlements.
+		setAgentStrategies(agentID, effective)
 		if status == "ACTIVE" {
 			result.Valid = true
 			// Bind agent WS id -> owning user so trade_results (account_id =
