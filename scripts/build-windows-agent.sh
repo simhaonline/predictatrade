@@ -185,6 +185,12 @@ fi
 # Master Nodes have no other credential). Without it every agent dial 401s
 # forever (2026-09-01 incident). The token lives ONLY in infra/env (gitignored);
 # the build injects it into the SERVED installer, never into git.
+# Materialize the served installer from the placeholder template (the tracked
+# file is a template; the token is injected here so git never sees it).
+INSTALL_TEMPLATE="$INSTALL_PS1.template"
+if [[ -f "$INSTALL_TEMPLATE" ]]; then
+    cp "$INSTALL_TEMPLATE" "$INSTALL_PS1"
+fi
 TOKEN_SOURCE="$ROOT_DIR/infra/env/windows-agent.env"
 if [[ -f "$TOKEN_SOURCE" ]] && grep -q "^AGENT_WS_TOKEN=" "$TOKEN_SOURCE"; then
     WS_TOKEN=$(grep "^AGENT_WS_TOKEN=" "$TOKEN_SOURCE" | head -1 | cut -d= -f2-)

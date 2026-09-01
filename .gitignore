@@ -113,3 +113,8 @@ infra/env/ADMIN_CREDENTIALS.local.md
 
 # Go realtime build artifact (built inside Docker, never commit)
 realtime/live-terminal
+
+# Served installer carries the injected AGENT_WS_TOKEN — never commit it.
+# The template with the @AGENT_WS_TOKEN@ placeholder lives at
+# windows-agent/deploy/install.ps1.template; build script materializes deploy/install.ps1.
+windows-agent/deploy/install.ps1
