@@ -74,10 +74,50 @@ server restart never strands it. That one change stops the entire cascade.
 - NO-TRADE is a first-class valid result; never force trades to hit a frequency.
 - Never fabricate ticks/fills/PnL/confidence.
 
-## Open decisions (ask operator before acting)
-1. **Master agent resilience** — implement minimal reconnect-with-backoff in
-   `windows-agent/internal/agent.go` WITHOUT the `init()`/`os.Exit` changes that
-   broke install. High value, medium risk (must verify installer still works).
-2. **Strategy/calibration on master data** — research-side: re-validate the 4
-   strategies' consensus thresholds against the now-correct MT5 master feed so valid
-   setups produce trades. Not a gate removal; a calibration exercise.
+## 2026-09-01 — Fix #1: Master/Client agent self-healing supervisor (DEPLOYED)
+- **Change:** Added `supervise()` in `windows-agent/internal/agent.go` and wrapped
+  `connectLoop` + `heartbeatLoop` with it. Previously `safe()` only recovered a panic
+  and let the goroutine die — so a transient panic in the WS reconnect/heartbeat path
+  permanently stranded the agent (exact "master stopped, never came back" failure).
+  `supervise` relaunches the loop until `stopChan` (kill-switch/halt). NO `init()`/
+  `os.Exit` changes — installer stays intact.
+- **Built:** `./scripts/build-windows-agent.sh` (no bump, unsigned, `CGO_ENABLED=0`),
+  v1.2.49, live endpoints HTTP 200. Committed `02f6282`, deployed `ba9344e`.
+- **Action required by operator:** reinstall the MASTER (data) agent with this build
+  so it auto-reconnects. Without reinstall the old binary (no supervisor) stays
+  fragile.
+
+## 2026-09-01 — Fix #2: "Trade on strongest single strategy" (engine, DEPLOYED)
+- **Symptom root cause:** With the corrected master feed, strategy RawScores sit
+  ~8–58. `DefaultRegimeThresholds()` had `CandidateThreshold=10/15`, `TradeThreshold=25`.
+  A clear directional read (e.g. RawScore 59.83, Long 59.83 ≫ Short 13.14) was still
+  dropped as NO-TRADE because the Phase-2 candidate gate (main.go:3862) only fired for
+  `score < tradeThresh` — so any HIGH-score read the strategy internally marked
+  NO_TRADE was silently discarded. This is the "strongest single strategy" case.
+- **Changes (`realtime/`):**
+  1. `internal/strategy/regime_thresholds.go`: `GetThresholds` now applies live env
+     overrides `PAT_CANDIDATE_THRESHOLD` (default **6**) / `PAT_TRADE_THRESHOLD`, with a
+     safety clamp keeping Candidate < Trade. Unknown strategies (e.g. `ATEN`) fall back
+     to the override instead of `found=false` (which previously skipped them entirely).
+  2. `cmd/realtime-engine/main.go:3862`: dropped the `score < tradeThresh` upper bound
+     so any score ≥ candidate bar with directional dominance surfaces as a candidate.
+  3. `cmd/realtime-engine/main.go:3896/4114`: a strong read (score ≥ trade bar) is
+     emitted as plain `BUY`/`SELL` and made `Executable` when every hard gate passes
+     (`candDecision.AllGatesPass`). Weaker reads stay advisory candidates. Fail-closed.
+- **Verified:** after the fix, of the latest 30 signals, 11 are `BUY_CANDIDATE`/
+  `SELL_CANDIDATE` (was 0). Strong reads are now eligible for execution.
+- **IMPORTANT — remaining blocker is NOT a gate:** when the master data node is
+  disconnected, `DataQuality=STALE` and the `data_quality` hard gate correctly VETOES
+  (`RiskDecision = VETO — data_quality`). This is correct fail-closed behavior, NOT
+  over-gating. Signals only execute when the master is connected and feeding. As of
+  this session the remote master `-data` agent was DOWN (0 data agents; exec agents
+  reconnected). Reinstalling the master agent (Fix #1) restores the feed and execution.
+- Committed after this note; see git log.
+
+## Open decisions
+1. **Master agent reinstall** — operator must reinstall the MASTER (data) agent with the
+   new supervisor build so the feed stays alive. This is the single action that unblocks
+   execution end-to-end.
+2. **Strategy/calibration on master data** — research-side: re-validate the 4 strategies'
+   thresholds against the now-correct MT5 master feed so valid setups produce trades.
+   Not a gate removal; a calibration exercise. Optional once trades are flowing.

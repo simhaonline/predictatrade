@@ -16,7 +16,35 @@
 // This is NOT threshold-lowering for frequency — it's fixing an unreachable threshold.
 package strategy
 
-import "github.com/predictatrade/realtime/internal/types"
+import (
+	"os"
+	"strconv"
+
+	"github.com/predictatrade/realtime/internal/types"
+)
+
+// ─── Live-tunable threshold overrides (no recompile needed) ───
+// PAT_CANDIDATE_THRESHOLD: global candidate (advisory) bar applied to every
+//   strategy/regime. Default 6 — lowered from the 10/15 built-ins so a single
+//   strategy's clear directional read (e.g. RawScore 8.71 with dominant long)
+//   surfaces as a tradeable candidate instead of being silently dropped as
+//   NO-TRADE. Set via env to retune without a code change.
+// PAT_TRADE_THRESHOLD: global qualified-execution bar. Default 0 = use the
+//   built-in per-regime trade threshold (keeps AutoExecute gated). Set a value
+//   only after recalibrating on the corrected master feed.
+var (
+	candidateThresholdOverride = readEnvFloat("PAT_CANDIDATE_THRESHOLD", 6)
+	tradeThresholdOverride    = readEnvFloat("PAT_TRADE_THRESHOLD", 0)
+)
+
+func readEnvFloat(key string, def float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			return f
+		}
+	}
+	return def
+}
 
 // RegimeTradeThreshold defines strategy + regime-specific trade thresholds.
 type RegimeTradeThreshold struct {
@@ -84,10 +112,19 @@ func DefaultRegimeThresholds() map[types.StrategyID]map[types.Regime]RegimeTrade
 }
 
 // GetThresholds returns the candidate and trade thresholds for a strategy + regime.
+// Live env overrides (PAT_CANDIDATE_THRESHOLD / PAT_TRADE_THRESHOLD) take precedence
+// so operators can retune without a recompile; a safety clamp keeps Candidate < Trade.
 func GetThresholds(strategyID types.StrategyID, regime types.Regime) (candidate, trade float64, found bool) {
 	regimeMap, ok := DefaultRegimeThresholds()[strategyID]
 	if !ok {
-		return 0, 0, false
+		// Unknown strategy (e.g. newly added like ATEN): still apply the live
+		// candidate override so the single-strategy relaxation covers it instead
+		// of silently dropping every read as NO-TRADE.
+		trade := tradeThresholdOverride
+		if trade <= 0 {
+			trade = 25
+		}
+		return candidateThresholdOverride, trade, true
 	}
 	rt, ok := regimeMap[regime]
 	if !ok {
@@ -96,7 +133,21 @@ func GetThresholds(strategyID types.StrategyID, regime types.Regime) (candidate,
 		if !ok {
 			return 0, 0, false
 		}
-		return ct.CandidateThreshold, ct.TradeThreshold, true
+		rt = RegimeTradeThreshold{CandidateThreshold: ct.CandidateThreshold, TradeThreshold: ct.TradeThreshold}
 	}
-	return rt.CandidateThreshold, rt.TradeThreshold, true
+	candidate, trade = rt.CandidateThreshold, rt.TradeThreshold
+
+	// Apply live overrides (0 = unchanged).
+	if candidateThresholdOverride > 0 {
+		candidate = candidateThresholdOverride
+	}
+	if tradeThresholdOverride > 0 {
+		trade = tradeThresholdOverride
+	}
+	// Invariant: CandidateThreshold < TradeThreshold. If an override would invert
+	// it, pull trade just above candidate so the advisory/candidate logic stays sane.
+	if candidate >= trade {
+		trade = candidate + 1
+	}
+	return candidate, trade, true
 }

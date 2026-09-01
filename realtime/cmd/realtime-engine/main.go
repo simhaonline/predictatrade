@@ -3859,7 +3859,13 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 		candidateThresh, tradeThresh, threshFound := strategy.GetThresholds(strat.ID(), mergedState.Regime.Current)
 		if threshFound {
 			rawScoreF, _ := stratResult.RawScore.Float64()
-			if rawScoreF >= candidateThresh && rawScoreF < tradeThresh {
+			// Trade on the strongest single strategy: surface a candidate whenever the
+			// score clears the candidate bar AND there is directional dominance, even
+			// if the strategy internally returned NO_TRADE. The previous upper bound
+			// (score < tradeThresh) silently dropped strong directional reads (e.g.
+			// RawScore 59.83 with dominant long) as NO-TRADE. Hard risk gates still
+			// run on the advisory candidate path, so execution stays fail-closed.
+			if rawScoreF >= candidateThresh {
 				// Score is above candidate threshold — determine direction from long/short
 				candidateDir := types.DirectionNoTrade
 				if stratResult.LongScore.GreaterThan(stratResult.ShortScore) {
@@ -3894,6 +3900,13 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 
 					// Create candidate signal with microprofit geometry
 					advDir := strategy.CandidateDirection(candidateDir)
+					// Strong single-strategy read (score >= trade bar): emit as a real
+					// BUY/SELL direction so the hard gates can qualify it for execution
+					// rather than only advisory. Weaker reads stay advisory candidates
+					// (honors "trade on the strongest single strategy", fail-closed).
+					if rawScoreF >= tradeThresh {
+						advDir = candidateDir
+					}
 					now := time.Now().UTC()
 
 					// ─── Fail-closed capital protection for advisory candidates ───
@@ -4109,9 +4122,11 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 						}
 						sig.AiVerification = aiVerificationStatus(cfg)
 						sig.RiskDecision = riskDecisionText(candDecision, string(strat.ID()))
-						// Advisory by design: candidates are not auto-executed unless the
-						// operator has explicitly enabled candidate execution downstream.
-						sig.Executable = false
+						// Advisory by design for weak reads; a strong single-strategy read
+						// (score >= trade bar) that passes every hard gate becomes
+						// executable (fail-closed — gates still veto). This is the
+						// "trade on the strongest single strategy" behavior.
+						sig.Executable = rawScoreF >= tradeThresh && candDecision.AllGatesPass
 					}
 
 					broadcastSignalToAll(wsHub, agentHub, sig)
