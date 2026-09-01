@@ -98,10 +98,11 @@ compiled `.ex4`/`.ex5`). They are intentionally NOT duplicated under
 - `mql/mt4/PredictATrade_MasterNode_MT4.mq4` (Master Node, MT4)
 - `mql/mt4/PredictATrade_MT4.mq4` (Execution EA, MT4)
 
-The compiled `.ex4`/`.ex5` are distributed to clients via the download portal
-(`frontend/public/downloads` and `nginx/downloads`). Copy the sources into each
-terminal's `MQL5\Experts\` (or `MQL4\Experts\`) folder and compile in MetaEditor
-(F7) before attaching.
+The compiled `.ex4`/`.ex5` AND sources are also served directly from the downloads
+server at **`https://downloads.predictatrade.com/mql/`** (single canonical location),
+e.g. `https://downloads.predictatrade.com/mql/mt5/PredictATrade_MT5.mq5`. Copy the
+sources into each terminal's `MQL5\Experts\` (or `MQL4\Experts\`) folder and compile
+in MetaEditor (F7) before attaching.
 
 > The EA can be on **any chart timeframe** (M1/M5/M15/H1…). Execution is by
 > symbol + price levels, not chart timeframe, so a client chart on M15 still

@@ -255,6 +255,7 @@ services:
       - ./docs/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - live-dashboard:/var/www/pat-live:ro
       - ./windows-agent/deploy:/var/www/pat-deploy:ro
+      - ./mql:/var/www/mql:ro
       - ./nginx/downloads:/var/www/downloads:ro
       - ssl-certs:/etc/letsencrypt:ro
       - nginx-logs:/var/log/nginx
