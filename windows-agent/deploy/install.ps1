@@ -200,7 +200,7 @@ if (-not $isAdmin) {
 # ─── NOW RUNNING AS ADMIN ───
 Write-Host ""
 Write-Host "=========================================="
-Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.49"
+Write-Host "  Predict-A-Trade XAUUSD — Installer v1.2.50"
 Write-Host "=========================================="
 Write-Host ""
 
@@ -455,6 +455,27 @@ try {
     Write-Host "  WARN: Could not add Defender exclusion (agent may need a manual allow): $_"
 }
 
+# Step 5c: WARM-UP the unsigned binary ONCE, interactively, in THIS (elevated)
+# session. When NSSM later launches it as a non-interactive SERVICE there is no
+# desktop to show a SmartScreen prompt, so an unsigned binary with no local
+# reputation is silently blocked and the service dies with EMPTY logs. Running it
+# here (with a visible window) surfaces any SmartScreen prompt so the admin can
+# click "Run anyway" — that builds local reputation for this exact file hash, and
+# every subsequent service launch then succeeds. We use -version so it exits
+# immediately (no full start). If SmartScreen is in BLOCK (not Warn) mode it will
+# refuse even here — the diagnostic below reports that clearly.
+try {
+    Write-Host "  Warming up $AgentExe (SmartScreen allow prompt may appear)..."
+    $warm = Start-Process -FilePath $agentPath -ArgumentList "-version" -NoNewWindow -Wait -PassThru -ErrorAction Stop
+    Write-Host "  OK: $AgentExe launched (exit $($warm.ExitCode)) — SmartScreen reputation established."
+} catch {
+    Write-Host "  WARN: Could not launch $AgentExe interactively: $($_.Exception.Message.Split("`n")[0])"
+    Write-Host "        Windows SmartScreen is blocking this UNSIGNED binary. Fix (one time):"
+    Write-Host "        - Temporarily turn OFF 'SmartScreen for apps' (Windows Security > App & browser control),"
+    Write-Host "          re-run this installer, then turn it back ON; OR"
+    Write-Host "        - Double-click C:\PredictATrade\Master\$AgentExe once and choose 'Run anyway'."
+}
+
 # Step 6: Acquire NSSM (service manager — wraps the agent console binary as a
 # Windows service). NSSM is architecture-specific: a wrong-arch nssm.exe fails with
 # "not a valid application for this OS platform". So we ALWAYS fetch the nssm that
@@ -613,8 +634,25 @@ for ($round = 1; $round -le 3 -and -not $serviceRunning; $round++) {
     # hidden, repair, and loop (the final failure summary prints after round 3).
     Write-Host "  Attempt $round failed — agent log tail:"
     if ($AgentLog -and (Test-Path $AgentLog)) { Get-Content $AgentLog -Tail 40 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("      {0}" -f $_) } }
+    # The agent may have logged to the DEFAULT location if PAT_LOG_DIR wasn't seen.
+    $defaultLog = Join-Path $env:ProgramData "PredictATrade\logs\master_agent.log"
+    if (Test-Path $defaultLog) { Write-Host "  --- default log ($defaultLog) ---"; Get-Content $defaultLog -Tail 40 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("      {0}" -f $_) } }
     if (Test-Path $stdoutLog) { Write-Host "  --- nssm stdout ($stdoutLog) ---"; Get-Content $stdoutLog -Tail 20 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("      {0}" -f $_) } }
     if (Test-Path $stderrLog) { Write-Host "  --- nssm stderr ($stderrLog) ---"; Get-Content $stderrLog -Tail 20 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("      {0}" -f $_) } }
+    # DIRECT-RUN DIAGNOSTIC: launch the exe in the foreground once and capture its
+    # real output. If it starts (exit 0, prints version) the binary is fine and the
+    # service failure is environmental (permissions/SmartScreen on the service
+    # account). If it produces NO output and exits, SmartScreen/reputation is
+    # blocking it before main() runs — exactly the empty-logs symptom.
+    try {
+        $diagFile = Join-Path $logsDir "diag_direct.log"
+        $d = Start-Process -FilePath $agentPath -ArgumentList "-version" -NoNewWindow -Wait -PassThru -RedirectStandardOutput $diagFile -RedirectStandardError $diagFile -ErrorAction Stop
+        Write-Host "  --- direct run (exit $($d.ExitCode)) ---"
+        Get-Content $diagFile -Tail 30 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("      {0}" -f $_) }
+    } catch {
+        Write-Host "  --- direct run FAILED to launch: $($_.Exception.Message.Split("`n")[0]) ---"
+        Write-Host "      => exe is blocked before main() (SmartScreen/AV reputation). Allow it in Windows Security, then re-run."
+    }
     # Remove a broken service definition so the next round starts clean.
     if ($useNssm) { & $nssmDest remove $ServiceName confirm 2>&1 | Out-Null }
     sc.exe delete $ServiceName 2>&1 | Out-Null
@@ -674,7 +712,7 @@ try {
     $serverVersion = (Invoke-WebRequest -Uri "$RootUrl/version.txt" -UseBasicParsing -TimeoutSec 10).Content.Trim()
     Write-Host "  Server version: v$serverVersion"
 } catch {
-    $serverVersion = "1.2.49"
+    $serverVersion = "1.2.50"
     Write-Host "  WARN: Could not fetch server version — using default v$serverVersion"
 }
 Set-Content -Path (Join-Path $InstallDir "version.txt") -Value $serverVersion -NoNewline

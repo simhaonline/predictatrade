@@ -2,14 +2,15 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"os"
-	"time"
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
 	"syscall"
+	"time"
 
 	"github.com/predictatrade/windows-agent/internal"
 )
@@ -48,7 +49,12 @@ func main() {
 	// Role is fixed by this binary (Client / execution). The --mode flag is no
 	// longer used; it exists only for compatibility and is ignored.
 	_ = flag.String("mode", "", "ignored — role is fixed to client by this binary")
+	versionFlag := flag.Bool("version", false, "print version and exit (used by installer warm-up)")
 	flag.Parse()
+	if *versionFlag {
+		fmt.Println(agent.AgentVersion)
+		os.Exit(0)
+	}
 	a := agent.NewClientAgent(config)
 
 	// Always run in interactive mode. NSSM wraps the process as a Windows
