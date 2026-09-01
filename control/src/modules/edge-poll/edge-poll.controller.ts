@@ -43,8 +43,13 @@ export class EdgePollController {
     const crypto = await import('crypto');
     const bodyHash = crypto.createHash('sha256').update(bodyStr).digest('hex');
 
-    // Path as the client signed it: /api/v1/devices/<action> (global prefix included).
-    const path = `/api/v1/devices/${req.route?.path?.replace(/^\//, '') || req.url?.split('?')[0]?.split('/').pop()}`;
+    // Path as the client signed it: /api/v1/devices/edge-poll.
+    // req.route.path ALREADY includes the global prefix in Nest/Express
+    // (e.g. "/api/v1/devices/edge-poll") — only prepend when it's absent.
+    const routePath: string = req.route?.path || req.url?.split('?')[0] || '';
+    const path = routePath.startsWith('/api/')
+      ? routePath
+      : `/api/v1/devices/${routePath.replace(/^\//, '')}`;
 
     const verdict = await this.deviceAuth.verifyRequestSignature({
       deviceId: String(deviceId),

@@ -69,10 +69,10 @@ export class EdgePollService {
               OR l.status NOT IN ('ACTIVE', 'PENDING')
               OR (l.allowed_strategies IS NOT NULL
                   AND l.allowed_strategies::text NOT IN ('', 'null', '[]')
-                  AND l.allowed_strategies::text NOT LIKE '%' || q.payload->>'StrategyID' || '%')
+                  AND l.allowed_strategies::text NOT LIKE '%' || (q.payload->>'StrategyID') || '%')
               OR (p.allowed_strategies IS NOT NULL
                   AND p.allowed_strategies::text NOT IN ('', 'null', '[]')
-                  AND p.allowed_strategies::text NOT LIKE '%' || q.payload->>'StrategyID' || '%'))`,
+                  AND p.allowed_strategies::text NOT LIKE '%' || (q.payload->>'StrategyID') || '%'))`,
       [deviceId],
     );
 
