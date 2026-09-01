@@ -2,7 +2,7 @@
 
 ## Authority
 
-Canonical implementation contract: the SOW preserved in `playbook.md` and the version contract in `MANIFEST.md` (the original `Predict-A-Trade_FINAL_SCOPE_OF_WORK_v1.0.0.md` file is no longer present in the repository; where this file and any older SOW copy conflict, `AGENTS.md` + current `docs/` win).
+Canonical implementation contract: the SOW is `realtime/SCOPE_OF_WORK.md` and the version contract is `MANIFEST.md` (the original `Predict-A-Trade_FINAL_SCOPE_OF_WORK_v1.0.0.md` and any `playbook.md` are not present in the repository; where any older SOW copy conflicts, `AGENTS.md` + current `docs/` win).
 
 This file operationalizes Codex behavior; it never replaces or weakens the SOW. If anything conflicts, the SOW wins.
 
@@ -18,7 +18,7 @@ Never call the project complete merely because code compiles, UI renders, or a p
 2. **Python — Intelligence/Research Plane**: datasets, research, backtesting, walk-forward/OOS, calibration, ML/NLP/vision research, feature studies, drift and validation. Python must not become a mandatory dependency for every live tick decision.
 3. **NestJS — SaaS/Control Plane**: IAM/MFA/RBAC, tenants, users, subscriptions, billing/webhooks, entitlements, licensing, devices, MT accounts, referrals, commissions, payouts, audit, config and admin operations.
 4. **Next.js — Presentation Plane**: public site, user portal, admin operations console, XAUUSD Live Command Center, charting, licensing/downloads and growth/financial UI. It renders server-authoritative truth and never becomes the authority for risk, strategy, entitlement or finance.
-5. **Windows/MQL Edge**: Go Windows Agent + MQL4/MQL5 remain lightweight execution adapters/guards. No primary predictive intelligence or server/private signing credentials in EAs.
+5. **Windows/MQL Edge**: Go Windows Agent + MQL4/MQL5 remain lightweight execution adapters/guards. The agent runs as two roles — **Master Node** (data feed → `MARKET_SNAPSHOT` to the engine, `PROVIDER_MODE=agent`) and **Client Node** (execution of signals) — installed via `https://downloads.predictatrade.com/windows-agent/{master,client}/install.ps1`, multi-arch (amd64/386/arm64). MQL EAs are served at `https://downloads.predictatrade.com/mql/compiled_executable/`. No primary predictive intelligence or server/private signing credentials in EAs.
 
 ## Non-Regression and Safety Precedence
 
@@ -191,6 +191,8 @@ Final status is `PASS`, `PARTIAL` or `BLOCKED`. `PASS` is forbidden while any ap
 - `AGENTS.md` — Codex-native repository instructions.
 - `AGENT.md` — compatibility pointer only.
 - `SKILLS.md` — human-readable index.
+- `MANIFEST.md` — project scope, structure, service inventory.
+- `realtime/SCOPE_OF_WORK.md` — full statement of work.
 - `.hermes/skills/*/SKILL.md` — actual repo skill library.
 - `.hermes/config.yaml` — Hermes agent/MCP config (the only agent config present; no `.codex/` or `.mcp.json` exists in this repo).
 

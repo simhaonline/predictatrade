@@ -12,7 +12,6 @@
 ├── MANIFEST.md                # This file
 ├── README.md                  # System overview
 ├── Makefile                   # Canonical build/lint/test commands
-├── run.sh                     # Startup orchestration
 ├── docker-compose.yml         # Local Docker infra (Postgres, Valkey, Prometheus, Grafana)
 ├── .gitleaks.toml              # Secret-scanning config with dev-test allowlists
 ├── .gitignore                 # Comprehensive exclusions
@@ -144,25 +143,19 @@
 │   ├── feature_columns.json
 │   └── model_version.txt
 │
-├── data/                      # Historical data (gitignored)
-│   └── xauusd_historical/     # CSV files (9 timeframes)
+├── data/                      # Historical data (gitignored; NOT in repo by default — drop CSVs locally if needed)
 │
-├── asset_kit/                 # Brand assets
-│   ├── app-icons/             # App icons (SVG + PNG)
-│   ├── png/                   # Logos (PNG)
-│   ├── svg/                   # Logos (SVG)
-│   └── previews/              # Preview images
-│
-├── audit/                     # Audit reports (generated)
-│   ├── AUDIT_REPORT.md
-│   └── report_YYYYMMDD.json
+├── live-dashboard/            # PWA live dashboard assets (served via nginx)
+├── live-terminal/             # Live terminal service Dockerfile (pat-live-terminal)
+├── mail-relay/                # Mail relay service (Go — pat-mail-relay)
+├── artifacts/                 # Evidence artifacts (e.g., go_live_evidence/)
 │
 ├── logs/                      # Runtime logs (gitignored)
 │
 ├── docs/                      # Documentation
 │   ├── INDEX.md               # Documentation index
 │   ├── CHANGELOG.md           # Version history
-│   ├── Predict-A-Trade_FINAL_SCOPE_OF_WORK.md
+│   ├── SCOPE_OF_WORK.md       # (authitative SOW is realtime/SCOPE_OF_WORK.md)
 │   ├── IMPLEMENTATION_STATUS.md
 │   ├── FINAL_TRACEABILITY_MATRIX.md
 │   ├── strategy/              # Strategy docs
@@ -190,7 +183,7 @@
 | DB Tables (user schemas) | 156 (per prior audit) |
 | ML Features | 42 |
 | ML Models | 5 (bootstrap placeholders — relabeled; NOT production-trained) |
-| Strategies | 6 (STANDARD_SCALPING, ULTRA_SCALPING, STANDARD_SWING, TREND_SWING, MARNIE_FIB, ATEN) |
+| Strategies | 6 core (STANDARD_SCALPING, ULTRA_SCALPING, STANDARD_SWING, TREND_SWING, MARNIE_FIB/EQFE, ATEN); Arcanist = 7th, ADVISORY-only |
 | Risk Gates | 16 (per-strategy/timeframe isolated, fail-closed) |
 | Audit Checks | 51 (all PASS) |
 | Directional Signals | 50 |
@@ -221,7 +214,7 @@ Systemd units (in `infra/systemd/`) are DISABLED and must not be used.
 
 | Data | Source | Status |
 |------|--------|--------|
-| XAUUSD Price | Twelve Data API | ✅ Live |
+| XAUUSD Price | **Master Node (Windows data agent)** via `PROVIDER_MODE=agent` (authoritative); Twelve Data used only for macro cross-checks | ✅ Live when a Master Node streams `MARKET_SNAPSHOT`; honest `NO_DATA` otherwise (never faked) |
 | COT Data | FMP API | ✅ Available (net_position=141636, percentile=0.22) |
 | DXY Data | Twelve Data API | ✅ Available (value=98.7451) |
 | Candle Cache | Valkey + PostgreSQL | ✅ Active |

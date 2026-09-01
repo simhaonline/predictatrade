@@ -2,7 +2,7 @@
 
 Multi-plane XAUUSD trading signal generation and analytics platform.
 
-**Version:** v1.18.0 | **Date:** 30 August 2026 | **Status:** GO — paper/sandbox/advisory signal operation. **LIVE TRADING ARMING AUTHORIZED BY OPERATOR (2026-08-30):** `LIVE_TRADING_AUTHORIZED=true` in `infra/env/realtime.env` (fail-closed capital-protection gates still require a verified broker equity/order feed; no self-promotion to live execution without it). Weekend-hardened: MT4/MT5 online through closed market, market_closed-aware signal gate, USDT-only payments with anti-scam settlement verification, mail relay live; v1.2.44 agents.
+**Version:** v1.18.0 | **Date:** 1 September 2026 | **Status:** GO — paper/sandbox/advisory signal operation. **LIVE TRADING ARMING AUTHORIZED BY OPERATOR (2026-08-30):** `LIVE_TRADING_AUTHORIZED=true` in `infra/env/realtime.env` (fail-closed capital-protection gates still require a verified broker equity/order feed; no self-promotion to live execution without it). Current **Windows Agent v1.2.53** ships as two roles — **Master Node** (data feed) and **Client Node** (execution) — installed via `client/install.ps1` / `master/install.ps1`; the engine "Market Feed Stale" false-positives and the data-node role-restore-on-restart bug were fixed so the feed shows an honest `LIVE` / `NO_DATA` (never faked).
 
 ## Quick Start
 
@@ -22,25 +22,33 @@ curl http://localhost:13081/health
 ## Architecture
 
 ```
-MT4/MT5 → Windows Agent → WebSocket → Go Realtime Engine :13081
-                                          │
-                    ┌─────────────────────┼──────────────────┐
-                    ▼                     ▼                  ▼
-            Market Ingestion        Feature Registry    Strategy Engines
-            (candles/ticks)        (42 indicators)     (6 engines)
-                    │                     │                  │
-                    └─────────────────────┴────────┬─────────┘
-                                                    ▼
-                                          Signal Engine + 16 Risk Gates
-                                          (deterministic, fail-closed)
-                                                    │
-                                    TimescaleDB + Valkey + WebSocket
-                                                    │
-                          ┌─────────────────────────┴──────────┐
-                          ▼                                    ▼
-                  Next.js Frontend :13082              Windows/MT Delivery
-                  NestJS Control :13080
+MT4/MT5 (Master Node — data)  ──MARKET_SNAPSHOT──▶  Go Realtime Engine :13081
+MT4/MT5 (Client Node — exec)  ◀────signals/commands───┤
+                                                      │
+                    ┌──────────────────────────────────┼───────────────────────┐
+                    ▼                                  ▼                       ▼
+            Market Ingestion                   Feature Registry         Strategy Engines
+            (candles/ticks)                   (42 indicators)          (7 engines)
+                    │                                  │                       │
+                    └──────────────────────────────────┴─────────┬─────────────┘
+                                                                 ▼
+                                                   Signal Engine + 16 Risk Gates
+                                                   (deterministic, fail-closed)
+                                                                 │
+                                         TimescaleDB + Valkey + WebSocket
+                                                                 │
+                           ┌───────────────────────────────────────┴───────────────┐
+                           ▼                                                       ▼
+                   Next.js Frontend :13082                               NestJS Control :13080
+                   (Live Command Center)                                (IAM/billing/licensing)
 ```
+
+> The Windows Agent is split into two roles: the **Master Node** streams XAUUSD
+> `MARKET_SNAPSHOT` to the engine (authoritative live feed, `PROVIDER_MODE=agent`),
+> and the **Client Node** receives executable signals for broker execution. Both are
+> installed from `https://downloads.predictatrade.com/windows-agent/{client,master}/install.ps1`.
+> The engine never fabricates ticks — when the Master Node stops streaming the feed
+> reports `NO_DATA`, not a fake "live".
 
 ## Services
 
@@ -57,6 +65,7 @@ MT4/MT5 → Windows Agent → WebSocket → Go Realtime Engine :13081
 | Prometheus | pat-prometheus | 9090 | Metrics collection |
 | Grafana | pat-grafana | 3001 | Dashboards |
 | ntfy | pat-ntfy | 8091 | Notifications |
+| Backtest Service | pat-backtest | 8088 (127.0.0.1) | Walk-forward / OOS backtesting |
 
 ## Strategy Engines
 
@@ -117,7 +126,40 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 - **Devil Liquidity duplicate-mark fix** — the reversal candle could itself re-qualify as a NEW displacement mark (median body shifts after the first mark), double-charging the same level. Guard: level match normalized by the mark's DETECTION ATR + recency window (`RECLAIM_MAX_BARS` x timeframe duration).
 - **CI rebuilt** — YAML indentation bug (30 consecutive failed runs, 0 jobs) fixed; secret-scan self-exclusion glob fixed; control `.npmrc` legacy-peer-deps documented; psycopg2 importorskip; 6/6 jobs green.
 - **Dashboards runtime-audited (38/38 pages)** — every ADMIN and USER page probed against the live edge with USER + ADMIN tokens; fixed: `POST /subscriptions` 500 (PG17 `$5` type inference), stale e2e specs (cookie seeding, nav counts), 13 pre-existing lint errors.
-- **Windows Agent v1.2.40 verified live** — binaries + manifests served byte-exact; installer env contract (7 vars) fully wired; EA sources (v1.17.2 MasterAppend fix) now downloadable from downloads.predictatrade.com.
+- **Windows Agent v1.2.53 verified live** — Client (execution) + Master (data) roles, multi-arch (amd64/386/arm64); binaries + per-arch manifests served byte-exact; EA sources downloadable from `https://downloads.predictatrade.com/mql/compiled_executable/`.
+
+## Current Development (1 September 2026)
+
+- **Windows Agent v1.2.53 — Client / Master role split.** The single agent is now two
+  roles deployed from one build:
+  - **Master Node** (`pat-master.exe`) — streams XAUUSD `MARKET_SNAPSHOT` to the engine
+    (authoritative live feed). Installed via
+    `irm https://downloads.predictatrade.com/windows-agent/master/install.ps1 | iex`.
+  - **Client Node** (`pat-agent.exe`) — receives executable signals for broker execution.
+    Installed via
+    `irm https://downloads.predictatrade.com/windows-agent/client/install.ps1 | iex`.
+  - Multi-arch (amd64 / 386 / arm64) with per-arch manifests; MQL EAs served at
+    `https://downloads.predictatrade.com/mql/compiled_executable/` (`.ex4` + `.ex5`).
+  - Note: customer distribution still requires a code-signing certificate (SmartScreen);
+    the build pipeline is env-gated for `osslsigncode` once a cert is supplied.
+- **Engine "Market Feed Stale" fixes (honest status, no fake data):**
+  1. `realtime/internal/gateway/feeds.go` — the `/api/v1/feeds` divergence panel flagged
+     `degraded` at a 5s threshold, but the Master Node streams snapshots every ~30–60s by
+     design. Threshold realigned to 90s (`degraded`) / 180s (`stale`) to match the real
+     health windows.
+  2. `realtime/cmd/realtime-engine/main.go` — the candle-quality monitor marked the whole
+     market state `STALE` at 15s against tick-only timestamps (ticks arrive in bursts).
+     Now based on the actual last market-data arrival with a 90s window.
+  3. `realtime/internal/marketdata/agent_provider.go` — the engine only ingests
+     `MARKET_SNAPSHOT` from agents with the `data` role, but that role was set only via
+     `MASTER_INIT`, which the Master Node does **not** re-send on reconnect. After every
+     engine restart the reconnected data node's snapshots were silently dropped →
+     `NO_DATA`/`STALE`. Fixed: the `data` role is re-established on the first
+     `MARKET_SNAPSHOT` (only the data node ever sends them).
+  - Result: connections show `online`, the feed shows `LIVE` while data flows, and flips
+    to `NO_DATA` only when data truly stops (>90s). No fabricated ticks.
+- **Admin / Client dashboards** now reflect real agent connection + API state; the
+  Live Command Center relays engine state over `wss://platform.predictatrade.com/ws/v1/relay`.
 
 ## Plane Boundaries (mandatory)
 
@@ -149,7 +191,7 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 | BE-6 reconciliation monitor (ACK + fill legs) | LIVE |
 | Supply chain (NestJS 12, 0 high/critical prod) | CLOSED |
 | Dashboards wiring (38/38 pages runtime-probed) | PASS |
-| Windows Agent v1.2.40 + installers + EA downloads | VERIFIED |
+| Windows Agent v1.2.53 (client/master) + installers + MQL downloads | VERIFIED |
 | Migration integrity (69 files, numbered to 099, unique prefixes) | PASS |
 | Secrets out of git (env-file injection) | PASS |
 | MT5 clients connected (EA attach + license) | Operator action |
@@ -189,6 +231,13 @@ Located in `realtime/`. Key packages:
 - [Host Deployment Guide](docs/operations/HOST_DEPLOYMENT.md) — Step-by-step bare-metal/VPS (14 steps)
 - [Admin Guide](docs/guides/ADMIN_GUIDE.md) — System administration
 - [User Guide](docs/guides/USER_GUIDE.md) — Dashboard, strategies, MT4/MT5 setup
+
+## Canonical Project Files
+
+- [AGENTS.md](AGENTS.md) — Authoritative agent/Codex operational instructions (read first).
+- [SKILLS.md](SKILLS.md) — Skill library index (`.hermes/skills/*/SKILL.md`).
+- [MANIFEST.md](MANIFEST.md) — Project scope, structure, service inventory.
+- [realtime/SCOPE_OF_WORK.md](realtime/SCOPE_OF_WORK.md) — Full statement of work.
 
 ## Build & Test
 

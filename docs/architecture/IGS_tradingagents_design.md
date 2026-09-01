@@ -1,13 +1,13 @@
 # ADR: Institutional Gold Signal (IGS) + TradingAgents Research Bridge
 
 Status: IMPLEMENTED (shadow) · Version 1.0.0 · 2026-08-30
-Source documents: `check.md` (Institutional Gold Intelligence), `link.md` (TradingAgents)
+Source documents: this ADR is self-contained. The legacy `check.md` (Institutional Gold Intelligence) was consolidated into this document and removed from the repo root; `link.md` (TradingAgents) remains the research-bridge reference.
 
 ## 1. Purpose
 
 Two upgrades, one chassis:
 
-1. **IGS** — the deterministic Institutional Gold Signal from `check.md`, implemented as a
+1. **IGS** — the deterministic Institutional Gold Signal from the consolidated IGS design (this ADR), implemented as a
    composite driver on the existing crossmarket engine pattern.
 2. **TradingAgents** — the open-source multi-agent LLM framework, wired as an
    *optional research-plane job* that produces a daily XAUUSD institutional
@@ -28,7 +28,7 @@ Two upgrades, one chassis:
 
 `realtime/internal/igs/engine.go`
 
-Components (check.md tier hierarchy → weights):
+Components (IGS tier hierarchy → weights):
 
 | Tier | Component | Key | Base weight | Feed status |
 |---|---|---|-----|-----|
@@ -42,7 +42,7 @@ Components (check.md tier hierarchy → weights):
 | B | Physical demand (CN/IN) | `physical_demand` | 4 | ❌ unavailable — no feed |
 
 Output: `Composite` with score (−100..+100), classification bands from
-check.md (EXTREME_INSTITUTIONAL_BULLISH … EXTREME_INSTITUTIONAL_BEARISH,
+this ADR (EXTREME_INSTITUTIONAL_BULLISH … EXTREME_INSTITUTIONAL_BEARISH,
 INSUFFICIENT_DATA when <2 components), agreement/conflict, freshness decay,
 quality. Missing components are surfaced in `missing_components` — they are
 never zero-filled silently.

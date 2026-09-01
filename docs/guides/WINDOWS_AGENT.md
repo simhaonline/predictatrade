@@ -61,10 +61,15 @@ Download from the downloads host and copy into the terminal's
 
 | File | URL |
 |------|-----|
-| Master Node (MT5) | https://downloads.predictatrade.com/windows-agent/PredictATrade_MasterNode_MT5.mq5 |
-| Client (MT5) | https://downloads.predictatrade.com/windows-agent/PredictATrade_MT5.mq5 |
-| Master Node (MT4) | https://downloads.predictatrade.com/windows-agent/PredictATrade_MasterNode_MT4.mq4 |
-| Client (MT4) | https://downloads.predictatrade.com/windows-agent/PredictATrade_MT4.mq4 |
+| Master Node (MT5) | https://downloads.predictatrade.com/mql/compiled_executable/Predict-A-Trade.ex5 |
+| Client (MT5) | https://downloads.predictatrade.com/mql/compiled_executable/Predict-A-Trade.ex5 |
+| Master Node (MT4) | https://downloads.predictatrade.com/mql/compiled_executable/PredictATrade.ex4 |
+| Client (MT4) | https://downloads.predictatrade.com/mql/compiled_executable/PredictATrade.ex4 |
+
+> The **same EA binary serves both roles** — the Master Node collects data (no license
+> required) and the Client places trades (license required); the EA auto-detects the
+> attached Windows Agent role via the common-folder heartbeat. Re-download after an engine
+> upgrade so the EA matches the engine protocol.
 
 > Always re-download after an engine upgrade — the Master Node EA must match the engine's
 > IPC expectations (v1.17.2 changed `MasterAppend()` from truncating writes to appends to
