@@ -467,6 +467,18 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, agentHub *gateway.AgentHu
 			Msg("Signal delivery SUPPRESSED — emergency halt active")
 		return
 	}
+	// STORE-THEN-DELIVER (SOW Section 13 idempotency + replay): persist the
+	// canonical signal record to the database BEFORE any client delivery. This
+	// guarantees the pipeline is never lost even if a downstream delivery or
+	// connection failure occurs — the record exists for reconciliation, replay
+	// and the outbox dispatcher. Previously the signal was broadcast first and
+	// only saved afterwards, so a failed broadcast could drop it silently.
+	if globalPersister != nil {
+		if perr := globalPersister.SaveSignal(context.Background(), signal); perr != nil {
+			observability.Log.Warn().Str("signal_id", signal.ID).Err(perr).
+				Msg("Signal DB persist BEFORE delivery failed (continuing to deliver)")
+		}
+	}
 	// Broadcast to frontend dashboard clients (entitlement-filtered)
 	wsHub.BroadcastSignal(signal)
 

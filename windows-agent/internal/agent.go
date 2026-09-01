@@ -371,8 +371,11 @@ func (a *Agent) Start() error {
 	}
 	serviceName := getEnv("PAT_SERVICE_NAME", defaultSvc)
 	a.updater = NewUpdater(manifestURL, fallbackManifest, AgentVersion, a.config.AgentDataDir, a.config.UpdateChannel, serviceName)
-	go a.safe(a.updateLoop)
-	go a.safe(a.telemetryLoop)
+	// Supervise the background loops so a transient panic can never permanently
+	// kill the agent (the "master stopped, never came back" failure). NSSM restarts
+	// the process if it exits; supervise restarts the loop if it returns/panics.
+	go a.supervise(a.updateLoop)
+	go a.supervise(a.telemetryLoop)
 
 	return nil
 }
