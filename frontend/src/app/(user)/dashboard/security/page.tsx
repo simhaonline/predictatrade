@@ -23,6 +23,7 @@ import {
   type TrustedDevice,
 } from "@/lib/user-security-api";
 import { format } from "date-fns";
+import { QRCodeSVG } from "qrcode.react";
 
 type TabId = "mfa" | "sessions" | "devices" | "history";
 
@@ -112,10 +113,21 @@ function MfaTab({ mfaEnabled, onEnabled }: { mfaEnabled: boolean; onEnabled: () 
         <div className="space-y-3 rounded-lg border border-pat-border bg-pat-bg-surface p-4">
           <div className="text-sm font-medium text-pat-text-primary">Scan or enter the secret</div>
           <div className="text-xs text-pat-text-muted">
-            Add this to your authenticator app (e.g. Google Authenticator). A QR code is encoded in the otpauth URI below.
+            Scan the QR with your authenticator app — or choose “Enter a setup key” and paste the secret manually.
           </div>
-          <div className="rounded-md border border-pat-border bg-pat-bg-surface-secondary px-3 py-2 font-mono text-xs text-pat-text-primary break-all">
-            {secret}
+          <div className="flex justify-center rounded-lg bg-white p-3">
+            <QRCodeSVG value={otpauth ?? secret} size={176} />
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 rounded-md border border-pat-border bg-pat-bg-surface-secondary px-3 py-2 font-mono text-xs text-pat-text-primary break-all">
+              {secret}
+            </div>
+            <button
+              onClick={() => { navigator.clipboard?.writeText(secret).catch(() => {}); }}
+              className="rounded-md border border-pat-border px-3 py-2 text-xs text-pat-text-secondary hover:text-pat-text-primary"
+            >
+              Copy
+            </button>
           </div>
           <div className="rounded-md border border-pat-border bg-pat-bg-surface-secondary px-3 py-2 font-mono text-[10px] text-pat-text-secondary break-all">
             {otpauth}

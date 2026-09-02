@@ -1567,10 +1567,19 @@ bool IsStrategyEnabled(string strategyID)
     // sending signals (primary defense).
     if(!g_strategiesEnforced)
     {
-        if(g_licenseStatus == "ACTIVE")
-            return true;
-        Print("Strategy check: license not validated — blocking ", strategyID);
-        return false;
+        // PENDING = activation round-trip not finished yet. The signal still
+        // came through the HMAC-authenticated per-device edge-poll and was
+        // ALREADY filtered server-side by license + plan allowed_strategies
+        // (fail-closed enqueue). Dropping it here only punished terminal
+        // restarts ("license not validated — blocking STANDARD_SWING").
+        // Block only explicit negative license states.
+        if(g_licenseStatus == "REVOKED" || g_licenseStatus == "SUSPENDED" ||
+           g_licenseStatus == "EXPIRED" || g_licenseStatus == "DENIED")
+        {
+            Print("Strategy check: license ", g_licenseStatus, " — blocking ", strategyID);
+            return false;
+        }
+        return true;
     }
 
     // Server sent an explicit list. An EMPTY list means NO strategies are

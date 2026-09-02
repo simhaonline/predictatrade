@@ -671,7 +671,7 @@ int OnInit()
     g_connection = "OFFLINE";
     g_licenseStatus = "PENDING";
 
-    Print("Predict-A-Trade MT4 EA v1.19 initializing...");
+    Print("Predict-A-Trade MT4 EA v1.23 initializing...");
     Print("Symbol: ", g_symbol);
     Print("Account: ", g_accountID);
     Print("License Key: ", (g_licenseKey == "" ? "NOT SET — SIGNALS WILL BE IGNORED" : g_licenseKey));
@@ -1643,10 +1643,19 @@ bool IsStrategyEnabled(string strategyID)
     // not yet received), allow all — server-side filtering is primary defense.
     if(!g_strategiesEnforced)
     {
-        if(g_licenseStatus == "ACTIVE")
-            return true;
-        Print("Strategy check: license not validated — blocking ", strategyID);
-        return false;
+        // PENDING = activation round-trip not finished yet. The signal still
+        // came through the HMAC-authenticated per-device edge-poll and was
+        // ALREADY filtered server-side by license + plan allowed_strategies
+        // (fail-closed enqueue). Dropping it here only punished terminal
+        // restarts ("license not validated — blocking STANDARD_SWING").
+        // Block only explicit negative license states.
+        if(g_licenseStatus == "REVOKED" || g_licenseStatus == "SUSPENDED" ||
+           g_licenseStatus == "EXPIRED" || g_licenseStatus == "DENIED")
+        {
+            Print("Strategy check: license ", g_licenseStatus, " — blocking ", strategyID);
+            return false;
+        }
+        return true;
     }
 
     // Server sent an explicit list. An EMPTY list means NO strategies allowed
