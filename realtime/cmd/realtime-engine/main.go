@@ -204,17 +204,17 @@ var (
 	agentDevice   = make(map[string]string) // agentID → deviceID
 )
 
-// deviceIDForAgent returns the control-plane device id for an agent, falling back
-// to a deterministic engine-scoped UUID when the agent has not reported one. The
-// fallback must be a valid UUID because licensing.devices.id is a uuid column, so
-// we derive it from the agent id via SHA-1 (stable across restarts). This keeps a
-// dashboard-visible device row even if the agent's control-plane device_id was not
-// transmitted (older agent builds).
+// deviceIDForAgent returns the control-plane device id for an agent. Under
+// Option B (v1.19.0) the agent id IS the device id: the ingest route only
+// accepts agentId values that match the device JWT's subject, and device ids
+// are always UUIDs, so the agent id can be used directly as the
+// licensing.devices row id. The old SHA-1 fallback (uuid5("pat-rt:"+agentID))
+// created phantom 'Windows Agent' device rows that consumed license slots.
 func deviceIDForAgent(agentID, provided string) string {
 	if provided != "" {
 		return provided
 	}
-	return uuid.NewSHA1(uuid.Nil, []byte("pat-rt:"+agentID)).String()
+	return agentID
 }
 
 // publishConnectionState pushes the engine's authoritative live connection state
@@ -2659,7 +2659,7 @@ func main() {
 				if _, err := persister.GetDB().ExecContext(ctx, `
 					INSERT INTO licensing.devices
 						(id, user_id, bound_license_id, device_name, connection_status, last_seen_at, created_at, updated_at)
-					VALUES ($1, $2, $3, 'Windows Agent', 'ONLINE', now(), now(), now())
+					VALUES ($1, $2, $3, 'Client EA (engine-registered)', 'ONLINE', now(), now(), now())
 					ON CONFLICT (id) DO UPDATE
 						SET connection_status = 'ONLINE', last_seen_at = now(), updated_at = now()
 				`, devID, ownerUserID, licenseID); err != nil {
