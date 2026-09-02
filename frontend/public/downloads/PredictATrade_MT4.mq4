@@ -2245,7 +2245,9 @@ void PAT_SHA256K(uint &k[])
 void PAT_SHA256(const uchar &msg[], uchar &digest[])
 {
     ulong bitLen = (ulong)ArraySize(msg) * 8;
-    int paddedLen = (int)(((ArraySize(msg) + 8) / 64) + 1) * 64;
+    // FIPS 180-4 §5.1: 0x80 + 8-byte length fit inside the 64-alignment of
+    // (len + 9); the old ((len+8)/64+1)*64 form mis-pads len=55/119/...
+    int paddedLen = (int)(((ArraySize(msg) + 9 + 63) / 64)) * 64;
     uchar padded[];
     ArrayResize(padded, paddedLen);
     ArrayInitialize(padded, 0);

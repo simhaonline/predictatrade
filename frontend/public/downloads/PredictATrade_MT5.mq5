@@ -2741,9 +2741,11 @@ void PAT_Clear(string filename)
 //+------------------------------------------------------------------+
 void PAT_Sha256(const uchar &msg[], uchar &digest[])
 {
-    // Message padding (FIPS 180-4 §5.1)
+    // Message padding (FIPS 180-4 §5.1): 0x80 + 8-byte length fit inside the
+    // 64-alignment of (len + 9). The ((len+8)/64+1)*64 form mis-pads len=55/119/...
+    // (0x80 overwrites the length field → wrong digest → HMAC rejection).
     ulong bitLen = (ulong)ArraySize(msg) * 8;
-    int paddedLen = (int)(((ArraySize(msg) + 8) / 64) + 1) * 64;
+    int paddedLen = (int)(((ArraySize(msg) + 9 + 63) / 64)) * 64;
     uchar padded[];
     ArrayResize(padded, paddedLen);
     ArrayInitialize(padded, 0);

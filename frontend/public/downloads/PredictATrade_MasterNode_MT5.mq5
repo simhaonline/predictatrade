@@ -637,8 +637,13 @@ void SendMarketSnapshot()
     //--- Ensure we read the equity of the account this EA is bound to, not whatever
     //    account happens to be active in a multi-account terminal (which can cause a
     //    misread of the wrong account's balance/equity).
-    if(g_accountID != "" && (int)AccountInfoInteger(ACCOUNT_LOGIN) != (int)StringToInteger(g_accountID))
-       AccountSwitch(StringToInteger(g_accountID));
+    // NOTE: MQL5 has no AccountSwitch() — in a multi-account terminal the account
+    // shown in the panel is simply the terminal's active account. The ingest
+    // payload carries the login so the server can bind data to the right account.
+    long activeLogin = AccountInfoInteger(ACCOUNT_LOGIN);
+    if(g_accountID != "" && StringToInteger(g_accountID) != activeLogin && DebugMode)
+        Print("[MASTER] WARNING: active account ", activeLogin,
+              " differs from bound account ", g_accountID);
 
     //--- Account info
     if(SendAccountInfo)
@@ -804,8 +809,8 @@ double CalculateSessionVWAP()
         long v = (long)rates[i].tick_volume;
         if(v <= 0) continue;
         double typicalPrice = (rates[i].high + rates[i].low + rates[i].close) / 3.0;
-        sumPV += typicalPrice * v;
-        sumV  += v;
+        sumPV += typicalPrice * (double)v;
+        sumV  += (double)v;
     }
 
     if(sumV <= 0) return 0;
@@ -900,7 +905,7 @@ void SendMasterInit()
 {
     string msg = "MASTER_INIT|{";
     msg += "\"type\":\"MASTER_INIT\"";
-    msg += ",\"ea_version\":\"1.19\";
+    msg += ",\"ea_version\":\"1.19\"";
     msg += ",\"node\":\"MASTER\"";
     msg += ",\"platform\":\"MT5\"";
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
@@ -969,7 +974,11 @@ void MasterSHA256K(uint &k[])
 void MasterSHA256(const uchar &msg[], uchar &digest[])
 {
     ulong bitLen = (ulong)ArraySize(msg) * 8;
-    int paddedLen = (int)(((ArraySize(msg) + 8) / 64) + 1) * 64;
+    // Correct FIPS 180-4 padding: 0x80 + 8-byte length fit inside the
+    // 64-alignment of (len + 9). The original ((len+8)/64+1)*64 mis-padded
+    // len=55/119/... (0x80 overwrote the length field) and the intermediate
+    // +8 variant overpadded 64-boundary lengths — both wrong digests.
+    int paddedLen = (int)(((ArraySize(msg) + 9 + 63) / 64)) * 64;
     uchar padded[];
     ArrayResize(padded, paddedLen);
     ArrayInitialize(padded, 0);
@@ -1062,13 +1071,19 @@ string MasterHmacSha256Hex(string key, string message)
     uchar msgBytes[];
     StringToCharArray(message, msgBytes, 0, WHOLE_ARRAY, CP_UTF8);
     ArrayResize(msgBytes, ArraySize(msgBytes) - 1);
+    // HMAC = SHA256(opad ‖ SHA256(ipad ‖ msg))
+    uchar innerIn[];
+    ArrayResize(innerIn, ArraySize(ipad) + ArraySize(msgBytes));
+    ArrayCopy(innerIn, ipad, 0, 0, ArraySize(ipad));
+    ArrayCopy(innerIn, msgBytes, ArraySize(ipad), 0, ArraySize(msgBytes));
     uchar inner[32];
-    MasterSHA256(ipad, msgBytes, inner);
-    uchar outer[64 + 32];
-    ArrayCopy(outer, opad, 0, 0, 64);
-    ArrayCopy(outer, inner, 64, 0, 32);
+    MasterSHA256(innerIn, inner);
+    uchar outerIn[];
+    ArrayResize(outerIn, ArraySize(opad) + 32);
+    ArrayCopy(outerIn, opad, 0, 0, ArraySize(opad));
+    ArrayCopy(outerIn, inner, ArraySize(opad), 0, 32);
     uchar digest[];
-    MasterSHA256(outer, digest);
+    MasterSHA256(outerIn, digest);
     string hexchars = "0123456789abcdef";
     string outp = "";
     for(int i = 0; i < ArraySize(digest); i++)
@@ -1091,8 +1106,6 @@ datetime g_tokenExpiry   = 0;
 bool     g_masterNetShown = false;
 int      g_ingestOkCount  = 0;
 int      g_ingestErrCount = 0;
-
-#define PAT_MASTER_DEVICE_FILE "PAT_master_device.txt" // device_id|device_secret|refresh_token
 
 //--- MasterHTTPPost: plain JSON POST (no auth) → (status, response)
 int MasterHTTPPost(string url, string body, string &response)
@@ -1246,7 +1259,7 @@ bool MasterEnsureAccessToken()
     string newRt   = MasterJSONString(response, "refresh_token");
     long expiresIn = StringToInteger(MasterJSONString(response, "expires_in"));
     if(StringLen(newRt) > 0) g_refreshToken = newRt;
-    g_tokenExpiry = TimeGMT() + (expiresIn > 0 ? expiresIn - 60 : 82800);
+    g_tokenExpiry = TimeGMT() + (datetime)(expiresIn > 0 ? expiresIn - 60 : 82800);
     if(StringLen(g_accessToken) == 0) return false;
     MasterWriteState(PAT_MASTER_DEVICE_FILE, g_deviceId + "|" + g_deviceSecret + "|" + g_refreshToken + "\n");
     return true;
