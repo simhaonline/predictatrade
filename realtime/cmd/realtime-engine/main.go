@@ -1931,20 +1931,24 @@ func main() {
 		// every broker snapshot via AgentProvider hook.
 		checkPositionSLs(positions, agentID)
 
-		// Cache the snapshot for capital-protection gates + sizing annotations.
-		// Use the PRIMARY (highest-equity) account for the shared broker view so a
-		// small/demo account connected to the same agent cannot poison the funded
-		// trading account's equity, trigger a false daily-loss halt, or distort
-		// position sizing.
-		primary := agentProvider.GetPrimaryAccount(agentID)
-		if primary == nil {
-			primary = account
-		}
-		broker.Update(primary, positions, now)
+		// v1.19.1 (funded-account P&L): this callback NO LONGER writes the
+		// shared broker account view. Multiple Client EAs stream ACCOUNT_INFO
+		// concurrently (e.g. a small Equiti account and the funded Xelans
+		// account); per-message writes made the shared view flap between them
+		// every ~15s, re-triggering the misread-equity guard and pinning the
+		// daily_loss gate to UNKNOWN. The 10s runPnLAnchorLoop is now the ONLY
+		// writer of broker.Update — it selects the FUNDED account (highest
+		// fresh equity) via GetFundedAccount, so caps/sizing follow the real
+		// money. This callback keeps: per-agent recording (AgentProvider),
+		// SL enforcement, exposure/margin/execution-permit gate freshness.
 
-		// Exposure gate: current open positions from broker
+		// Exposure gate: current open positions from broker — report the
+		// FUNDED account's positions (matches the shared broker view), not
+		// whichever client messaged last.
 		openPositions := 0
-		if positions != nil {
+		if n, ok := agentProvider.FundedAccountPositions(); ok {
+			openPositions = int(n)
+		} else if positions != nil {
 			openPositions = int(positions.TotalPositions)
 		}
 		gateRegistry.UpdateState(types.GateExposure, gates.GateState{
@@ -1956,10 +1960,10 @@ func main() {
 			Quality:       types.QualityAuthoritative,
 		})
 
-		// Margin gate: free margin > 0 = PASS
+		// Margin gate: free margin > 0 = PASS (funded account's free margin)
 		freeMargin := 0.0
-		if primary != nil {
-			freeMargin = primary.FreeMargin
+		if funded := agentProvider.GetFundedAccount(); funded != nil {
+			freeMargin = funded.FreeMargin
 		}
 		marginOK := freeMargin > 0
 		gateRegistry.UpdateState(types.GateMargin, gates.GateState{
@@ -1984,11 +1988,9 @@ func main() {
 		})
 
 		observability.Log.Debug().
-			Float64("balance", primary.Balance).
-			Float64("equity", primary.Equity).
 			Float64("free_margin", freeMargin).
 			Int("open_positions", openPositions).
-			Msg("Broker account state hydrated — exposure/margin/execution gates set to PASS")
+			Msg("Broker account gates hydrated from funded account — exposure/margin/execution set to PASS")
 	})
 
 	// Persist authoritative broker identity (name + server) from MARKET_SNAPSHOT
