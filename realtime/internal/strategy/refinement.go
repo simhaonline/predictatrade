@@ -320,20 +320,34 @@ type Profitability struct {
 // and whether it is a loss-making candidate that must be eliminated.
 //
 // EV per unit risk = winRate * netWin - (1-winRate) * netLoss
-//   netWin  = |TP1 - Entry| - cost
-//   netLoss = |Entry - SL|   + cost
+//
+//	netWin  = |TP1 - Entry| - cost
+//	netLoss = |Entry - SL|   + cost
 //
 // A candidate is a loss candidate when EV <= 0 OR its micro profit-taking level
 // does not clear round-trip cost.
+// RoundTripFixedCost holds engine-wide slippage+commission cost (price units)
+// added to the spread to form the true round-trip cost for micro-TP coverage
+// checks. Set once at engine startup via SetExecutionCostModel; zero means the
+// spread-only legacy behaviour (kept for tests).
+var roundTripFixedCost = decimal.Zero
+
+// SetExecutionCostModel wires engine cfg.SlippageCostPoints + cfg.CommissionCostPoints
+// into the refinement profitability math so "micro TP covers cost" reflects the REAL
+// broker round trip (spread + slippage + commission), not the spread alone.
+func SetExecutionCostModel(slippagePts, commissionPts float64) {
+	roundTripFixedCost = decimal.NewFromFloat(slippagePts + commissionPts)
+}
+
 func EvaluateProfitability(state *features.MarketState, dir types.Direction, entry, sl, tp1 decimal.Decimal, spec ExitSpec, score float64) Profitability {
 	p := Profitability{}
 	if entry.IsZero() || sl.IsZero() || tp1.IsZero() {
 		p.LossCandidate = true
 		return p
 	}
-	cost := state.Spread // round-trip cost proxy
-	if cost.IsZero() {
-		cost = decimal.NewFromFloat(0.4)
+	cost := state.Spread.Add(roundTripFixedCost) // spread + slippage + commission
+	if state.Spread.IsZero() {
+		cost = decimal.NewFromFloat(0.4).Add(roundTripFixedCost)
 	}
 	atr := state.Indicators.ATR
 	if atr.IsZero() {
@@ -354,7 +368,7 @@ func EvaluateProfitability(state *features.MarketState, dir types.Direction, ent
 
 	wr := estimateWinRate(score, state.Regime.Current)
 	p.EdgeScore = wr
-	ev := decimal.NewFromFloat(wr).Mul(netWin).Sub(decimal.NewFromFloat(1-wr).Mul(netLoss))
+	ev := decimal.NewFromFloat(wr).Mul(netWin).Sub(decimal.NewFromFloat(1 - wr).Mul(netLoss))
 	evPerRisk := ev.Div(risk)
 	evf, _ := evPerRisk.Float64()
 	p.ExpectedValue = evf

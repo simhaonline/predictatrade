@@ -1219,6 +1219,10 @@ func main() {
 		MinImpact:           news.ImpactLevel(cfg.NewsMinImpact),
 	}, newsProvider)
 	featureReg.SetNewsRiskProvider(&newsRiskAdapter{engine: newsRiskEngine, mode: cfg.NewsMode, provider: cfg.NewsProvider})
+	// Wire the true execution cost model into the strategy refinement math:
+	// micro-TP coverage checks must use spread + slippage + commission, not the
+	// spread alone (matches main.go:4541 gate cost model exactly).
+	strategy.SetExecutionCostModel(cfg.SlippageCostPoints, cfg.CommissionCostPoints)
 	go newsRiskEngine.Start(context.Background())
 
 	// Give AgentProvider access to state manager + merge function
