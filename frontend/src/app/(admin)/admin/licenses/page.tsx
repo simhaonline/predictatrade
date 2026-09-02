@@ -16,6 +16,7 @@ export default function AdminLicensesPage() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<License | null>(null);
   const [history, setHistory] = useState<Activation[] | null>(null);
+  const [createdKey, setCreatedKey] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -25,6 +26,16 @@ export default function AdminLicensesPage() {
       return res.data as { items: License[]; total: number; page: number; limit: number };
     },
   });
+
+  // Plans for the Create-license picker (backend contract: user_id + plan_id UUIDs)
+  const { data: plans } = useQuery({
+    queryKey: ["admin-plans"],
+    queryFn: async () => {
+      const res = await customInstance.get(`/admin/plans`);
+      return res.data as { id: string; code: string; name: string; monthly_price: number; currency: string }[];
+    },
+  });
+  const [planId, setPlanId] = useState("");
 
   // License management endpoints are implemented in the backend (/licensing/licenses/*).
   const mgmtMutation = useMutation({
@@ -85,8 +96,40 @@ export default function AdminLicensesPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <button onClick={() => doAction("Create license", () => createLicense({ plan_code: "STANDARD" }))} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors">Create</button>
+      <div className="flex flex-wrap gap-2 items-center">
+        {/* Backend contract (POST /licensing/licenses): user_id + plan_id are required.
+            The Create action issues a license for the SELECTED row's user, under the
+            picked plan, and displays the returned PAT-… key. */}
+        <select
+          value={planId}
+          onChange={(e) => setPlanId(e.target.value)}
+          className="px-2 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded border border-pat-border"
+        >
+          <option value="">Plan…</option>
+          {(plans ?? []).map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} ({p.currency} {p.monthly_price}/mo)
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={() => {
+            if (!selected) { toast.error("Select a license row first — the new license is issued to that user"); return; }
+            if (!planId) { toast.error("Pick a plan first"); return; }
+            doAction(`Create license for ${selected.user_email}`, async () => {
+              const created = await createLicense({ user_id: selected.user_id, plan_id: planId, max_devices: 2, max_mt_accounts: 2, valid_days: 365 }) as { license_key?: string; key?: string };
+              setCreatedKey(created?.license_key ?? created?.key ?? null);
+            });
+          }}
+          className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors"
+        >
+          Create
+        </button>
+        {createdKey && (
+          <span className="text-xs font-mono text-pat-text-primary bg-pat-bg-surface-secondary px-2 py-1 rounded">
+            New key: {createdKey}
+          </span>
+        )}
         <button onClick={() => selected ? doAction(`Suspend ${selected.user_email}`, () => suspendLicense(selected.id, "admin")) : toast.error("Select a license first")} disabled={!selected} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors disabled:opacity-40">Suspend</button>
         <button onClick={() => selected ? doAction(`Revoke ${selected.user_email}`, () => revokeLicense(selected.id, "admin")) : toast.error("Select a license first")} disabled={!selected} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors disabled:opacity-40">Revoke</button>
         <button onClick={() => selected ? doAction(`Renew ${selected.user_email}`, () => renewLicense(selected.id)) : toast.error("Select a license first")} disabled={!selected} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors disabled:opacity-40">Renew</button>
