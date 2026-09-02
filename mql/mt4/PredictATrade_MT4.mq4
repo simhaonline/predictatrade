@@ -360,7 +360,27 @@ bool PAT_SignalFresh()
 //+------------------------------------------------------------------+
 //| Position counting by PAT magic range                              |
 //+------------------------------------------------------------------+
-//| EA-side risk gate (belt-and-suspenders — all fail-closed)         |
+int PAT_CountPatPositions()
+{
+    int total = OrdersTotal();
+    int count = 0;
+    for(int i = 0; i < total; i++)
+    {
+        if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+        if(OrderSymbol() != g_symbol) continue;
+        if(!PAT_IsPatMagic(OrderMagicNumber())) continue;
+        count++;
+    }
+    return count;
+}
+
+//+------------------------------------------------------------------+
+//| Pre-trade check — EMERGENCY HALT FLAGS ONLY.                     |
+//| v1.20: ALL risk gates (spread, drift, TTL, caps, risk$,          |
+//| martingale, margin) are enforced by the SERVER engine before a   |
+//| signal is marked EXECUTABLE. Client-side duplicates removed —    |
+//| clients execute what the server sends. Server = single source    |
+//| of gating truth; this hook exists only for local kill-switches.  |
 //+------------------------------------------------------------------+
 //| Pre-trade check — EMERGENCY HALT FLAGS ONLY.                     |
 //| v1.20: ALL risk gates (spread, drift, TTL, caps, risk$,          |
@@ -1338,11 +1358,6 @@ void CheckAgentConnection()
 //+------------------------------------------------------------------+
 void SendTickToAgent()
 {
-    if(TickIntervalMs > 0)
-    {
-        uint elapsed = GetTickCount() - g_lastTickSend;
-        if(elapsed < (uint)TickIntervalMs) return;
-    }
     g_lastTickSend = GetTickCount();
 
     double bid = MarketInfo(g_symbol, MODE_BID);
@@ -2433,7 +2448,7 @@ bool PAT_EnsureAccessToken()
     string newRt   = ExtractJSONString(response, "refresh_token");
     long expiresIn = StrToInteger(ExtractJSONString(response, "expires_in"));
     if(StringLen(newRt) > 0) g_refreshToken = newRt;
-    g_tokenExpiry = TimeGMT() + (expiresIn > 0 ? expiresIn - 60 : 82800);
+    g_tokenExpiry = TimeGMT() + (expiresIn > 0 ? (datetime)(expiresIn - 60) : 82800);
     if(StringLen(g_accessToken) == 0) return false;
     PAT_WriteFile(PAT_DEVICE_FILE, g_deviceId + "|" + g_deviceSecret + "|" + g_refreshToken + "\n");
     return true;

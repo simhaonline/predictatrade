@@ -420,7 +420,29 @@ bool PAT_SignalFresh()
 //+------------------------------------------------------------------+
 //| Position counting by PAT magic range                              |
 //+------------------------------------------------------------------+
-//| EA-side risk gate (belt-and-suspenders — all fail-closed)         |
+int PAT_CountPatPositions()
+{
+    int total = PositionsTotal();
+    int count = 0;
+    for(int i = 0; i < total; i++)
+    {
+        ulong ticket = PositionGetTicket(i);
+        if(ticket == 0) continue;
+        if(PositionGetString(POSITION_SYMBOL) != g_symbol) continue;
+        long magic = PositionGetInteger(POSITION_MAGIC);
+        if(!PAT_IsPatMagic(magic)) continue;
+        count++;
+    }
+    return count;
+}
+
+//+------------------------------------------------------------------+
+//| Pre-trade check — EMERGENCY HALT FLAGS ONLY.                     |
+//| v1.19.1: ALL risk gates (spread, drift, TTL, caps, risk$,        |
+//| martingale, margin) are enforced by the SERVER engine before a   |
+//| signal is marked EXECUTABLE. Client-side duplicates removed —    |
+//| clients execute what the server sends. Server = single source    |
+//| of gating truth; this hook exists only for local kill-switches.  |
 //+------------------------------------------------------------------+
 //| Pre-trade check — EMERGENCY HALT FLAGS ONLY.                     |
 //| v1.19.1: ALL risk gates (spread, drift, TTL, caps, risk$,        |
@@ -1165,11 +1187,6 @@ void CheckAgentConnection()
 //+------------------------------------------------------------------+
 void SendTickToAgent()
 {
-    if(TickIntervalMs > 0)
-    {
-        uint elapsed = GetTickCount() - g_lastTickSend;
-        if(elapsed < (uint)TickIntervalMs) return;
-    }
     g_lastTickSend = GetTickCount();
 
     double bid = SymbolInfoDouble(g_symbol, SYMBOL_BID);
