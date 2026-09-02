@@ -56,10 +56,11 @@ if [ $? -eq 0 ] && [ -s "$BACKUP_FILE" ]; then
     echo "Backup OK: $BACKUP_FILE ($(du -h "$BACKUP_FILE" | cut -f1))"
 else
     echo "BACKUP FAILED at $(date)" >&2
-    # Send alert via ntfy
+    # Send alert via ntfy (container-local: pat-ntfy is loopback-bound 8091 on
+    # the host; ntfy.predictatrade.com has no DNS record — do not use it)
     curl -H "Title: PAT Backup Failed" \
          -d "Backup failed at $(date). Check logs." \
-         https://ntfy.predictatrade.com/pat-alerts
+         http://127.0.0.1:8091/pat-alerts
     exit 1
 fi
 
