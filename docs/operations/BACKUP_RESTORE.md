@@ -95,6 +95,29 @@ find "$BACKUP_DIR" -mtime +365 -delete  # 12 months
 
 ### 5. Restore Procedure
 
+> **⚠️ P0 FINDING — 2026-09-02 restore drill (3 attempts):** `pg_dump -Fc`
+> **cannot restore TimescaleDB COMPRESSED chunk data.** 5,874/5,897
+> `market.candles` chunks are compressed; every logical restore of hyper-table
+> rows fails with "chunk not found" (the compressed-chunk COPY targets
+> `_hyper_X_Y_chunk_compressed`, whose catalog does not exist in the fresh
+> database). Business/config data (iam, licensing, trading non-hyper,
+> audit — 38 users, 19 licenses, 1,597 audit events) restores cleanly and
+> verified. For full market-data recovery use the PHYSICAL path
+> (pg_basebackup + WAL PITR, §5.3) — the logical dump remains valid for
+> schema + business tables only. Do not rely on `backup.sh` dumps for
+> candles/ticks recovery.
+
+#### 5.0 Physical Base Backup + PITR (REQUIRED for market data)
+
+```bash
+# One-shot base backup (tar format, compressed) — add to daily cron:
+docker exec pat-postgres pg_basebackup -U pat_admin -D /pgbackups/base -Ft -Xs -z -P
+
+# PITR: restore base tarball into a fresh PGDATA, then create
+# recovery.signal + restore_command pointing at the S3-synced WAL archive,
+# with recovery_target_time = <desired timestamp>.
+```
+
 #### 5.1 Full Database Restore
 
 ```bash
