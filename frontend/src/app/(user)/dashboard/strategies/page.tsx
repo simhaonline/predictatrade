@@ -1,18 +1,19 @@
 "use client";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import { IconBolt, IconLock, IconDeviceFloppy } from "@tabler/icons-react";
-import { DegradedNote } from "@/components/ui/tabs";
+import { toast } from "sonner";
 import { strategyLabel } from "@/lib/strategy-labels";
 
 const STRATEGIES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB", "ATEN", "ARCANIST"];
-interface Entitlements { code: string; selected_strategies?: string[]; allowed_strategies?: string[]; }
+interface Entitlements { code: string; selected_strategies?: string[]; allowed_strategies?: string[]; max_active_strategy_slots?: number; }
 // Free/preview plans: all strategies viewable in the dashboard (selection gated separately),
 // live.predictatrade.com is time-gated 11:00–13:00 broker time (GMT+3) / 08:00–10:00 UTC.
 const VIEWING_ALL_PLANS = new Set(["FREE", "TRIAL"]);
 
 export default function UserStrategiesPage() {
+  const queryClient = useQueryClient();
   const query = useQuery<Entitlements>({
     queryKey: ["subscription-entitlements"],
     queryFn: async () => (await customInstance.get("/subscriptions/entitlements")).data as Entitlements,
@@ -20,6 +21,7 @@ export default function UserStrategiesPage() {
 
   const [local, setLocal] = useState<string[] | null>(null);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   if (query.isLoading) return <div className="text-sm text-pat-text-secondary">Loading strategy preferences…</div>;
   if (query.isError) return <div className="rounded border border-pat-danger/30 p-4 text-sm text-pat-danger">Strategy preferences are unavailable.</div>;
@@ -38,6 +40,38 @@ export default function UserStrategiesPage() {
       const cur = prev ?? initial;
       return cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s];
     });
+  };
+
+  const onSave = async () => {
+    setSaving(true);
+    try {
+      // P1-FE1 fix: use the authenticated axios instance (token lives in
+      // memory+cookie, not localStorage — the raw fetch silently failed).
+      await customInstance.patch("/subscriptions/strategies", {
+        selectedStrategies: selected,
+      });
+      setLocal(null); // snap back to server state
+      setSaved(true);
+      queryClient.invalidateQueries({ queryKey: ["subscription-entitlements"] });
+      toast.success("Strategy preferences saved.");
+    } catch (e) {
+      setSaved(false);
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      const reason = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      if (status === 400 && reason === "STRATEGY_NOT_ENTITLED") {
+        toast.error("One or more selected strategies are not included in your plan.");
+      } else if (status === 400 && reason === "plan_strategy_limit") {
+        toast.error(`Your ${code ?? ""} plan allows at most ${query.data?.max_active_strategy_slots ?? "a limited number of"} active strategies.`);
+      } else if (status === 400 && reason === "AT_LEAST_ONE_STRATEGY_REQUIRED") {
+        toast.error("Select at least one strategy.");
+      } else {
+        toast.error("Could not save strategy preferences.");
+      }
+      queryClient.invalidateQueries({ queryKey: ["subscription-entitlements"] });
+      setLocal(null); // discard un-entitled local edits
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -78,28 +112,13 @@ export default function UserStrategiesPage() {
         })}
       </div>
 
-      <DegradedNote>
-        Strategy preferences are now persisted via <strong>PATCH /subscriptions/strategies</strong>.
-        Selections are validated against your plan&apos;s allowed strategies and saved to the server.
-      </DegradedNote>
-
       <div className="flex items-center gap-3">
         <button
-          onClick={async () => {
-            try {
-              // P1-FE1 fix: use the authenticated axios instance (token lives in
-              // memory+cookie, not localStorage — the raw fetch silently failed).
-              await customInstance.patch("/subscriptions/strategies", {
-                selectedStrategies: selected,
-              });
-              setSaved(true);
-            } catch {
-              setSaved(false);
-            }
-          }}
-          className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground"
+          onClick={onSave}
+          disabled={saving}
+          className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50"
         >
-          <IconDeviceFloppy size={16} /> Save selection
+          <IconDeviceFloppy size={16} /> {saving ? "Saving…" : "Save selection"}
         </button>
         {saved && <span className="text-xs text-pat-success">Saved to server.</span>}
       </div>
