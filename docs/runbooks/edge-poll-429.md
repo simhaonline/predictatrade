@@ -58,4 +58,19 @@ nginx (10 r/s/IP) and any future per-device server limits.
    the endpoint lost its `@SkipThrottle()`.
 4. Per-device poll cadence:
    `SELECT device_id, polls_total FROM licensing.edge_device_state;` —
+
+## Related Fix — Poison-Row Dead-Letter (ea81c38, 2026-09-02)
+
+**Symptom:** 2 × `SERVER_COMMAND` rows stuck `IN_FLIGHT` with 763
+`reclaimed;` cycles on the Xelans device — the old pre-v1.23 EA never acks
+`SERVER_COMMAND`, and these rows carried no `ExpiresAt`, so the
+reclaim→deliver→no-ack loop ran forever (one poll round-trip every ~3 s).
+
+**Fix (`edge-poll.service.ts`):** reclaim now dead-letters first — rows
+with `attempts >= 50` are marked `EXPIRED` (with `dead-lettered (attempt
+cap)` in `last_error`) instead of re-queued. Verified live: the 2 stuck
+rows dead-lettered on the first post-deploy poll; queue has no IN_FLIGHT.
+
+**Lesson:** every payload type the server enqueues must either carry a
+TTL or be guaranteed-understood by the oldest supported EA build.
    a single device climbing >100/min means an old unguarded EA build.
