@@ -8,9 +8,6 @@ import { strategyLabel } from "@/lib/strategy-labels";
 
 const STRATEGIES = ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB", "ATEN", "ARCANIST"];
 interface Entitlements { code: string; selected_strategies?: string[]; allowed_strategies?: string[]; max_active_strategy_slots?: number; }
-// Free/preview plans: all strategies viewable in the dashboard (selection gated separately),
-// live.predictatrade.com is time-gated 11:00–13:00 broker time (GMT+3) / 08:00–10:00 UTC.
-const VIEWING_ALL_PLANS = new Set(["FREE", "TRIAL"]);
 
 export default function UserStrategiesPage() {
   const queryClient = useQueryClient();
@@ -27,10 +24,13 @@ export default function UserStrategiesPage() {
   if (query.isError) return <div className="rounded border border-pat-danger/30 p-4 text-sm text-pat-danger">Strategy preferences are unavailable.</div>;
 
   const code = query.data?.code;
-  const allowed = VIEWING_ALL_PLANS.has(code ?? "") || !query.data?.allowed_strategies
-    ? ["STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB"]  // view-only set
-    : (query.data?.allowed_strategies ?? query.data?.selected_strategies ?? ["STANDARD_SCALPING"]);
-  const initial = query.data?.selected_strategies ?? query.data?.allowed_strategies ?? ["STANDARD_SCALPING"];
+  // Strictly plan-gated: only strategies included in the subscription plan are
+  // toggleable — everything else renders Locked (server re-validates on save).
+  const allowed = query.data?.allowed_strategies
+    ?? query.data?.selected_strategies
+    ?? ["STANDARD_SWING"]; // matches the backend no-subscription fallback
+  const maxSlots = query.data?.max_active_strategy_slots ?? 0;
+  const initial = query.data?.selected_strategies ?? query.data?.allowed_strategies ?? ["STANDARD_SWING"];
   const selected = local ?? initial;
 
   const toggle = (s: string) => {
@@ -38,8 +38,12 @@ export default function UserStrategiesPage() {
     setSaved(false);
     setLocal((prev) => {
       const cur = prev ?? initial;
+      if (!cur.includes(s) && maxSlots > 0 && cur.length >= maxSlots) return cur; // plan slot limit
       return cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s];
     });
+    if (!selected.includes(s) && maxSlots > 0 && selected.length >= maxSlots) {
+      toast.error(`Your ${code ?? ""} plan allows at most ${maxSlots} active strategies. Disable one first or upgrade your plan.`);
+    }
   };
 
   const onSave = async () => {
