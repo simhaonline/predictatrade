@@ -155,6 +155,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mfaRequired?: boolean;
       challengeId?: string;
       method?: string;
+      mfaEnrollmentRequired?: boolean;
     }>('/auth/login', { email, password, trustDevice });
     const data = res.data;
 
@@ -171,6 +172,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     setAccessToken(data.accessToken);
+
+    // AUTH-1: privileged accounts without enabled MFA are gated server-side.
+    // Send them straight to enrollment so the app never shows 403 noise.
+    if (data.mfaEnrollmentRequired) {
+      router.push('/admin/settings?tab=mfa');
+      return;
+    }
 
     // Build user from login response + token role
     const token = getAccessToken();

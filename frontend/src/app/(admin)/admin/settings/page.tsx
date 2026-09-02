@@ -14,7 +14,9 @@ type Tab = "profile" | "password" | "mfa" | "notifications" | "accessibility";
 export default function AdminSettingsPage() {
   const { user, refreshUser } = useAuth();
   const { theme, setTheme } = useTheme();
-  const [tab, setTab] = useState<Tab>("profile");
+  // Deep-link support: ?tab=mfa (used by the login enrollment redirect)
+  const initialTab = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab");
+  const [tab, setTab] = useState<Tab>(initialTab === "mfa" ? "mfa" : "profile");
   const [displayName, setDisplayName] = useState("");
   const [timezone, setTimezone] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);

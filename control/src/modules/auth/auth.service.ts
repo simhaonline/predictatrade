@@ -730,7 +730,22 @@ export class AuthService {
     } catch {
       // Permission lookup failure is non-fatal — role-based checks still apply
     }
-    const accessToken = this.jwtService.sign({ sub: userId, email, role, permissions: perms, purpose: 'access' }, { expiresIn: ACCESS_TOKEN_EXPIRY });
+    // AUTH-1 (hardened): flag privileged accounts whose MFA is not enabled so
+    // the MfaGuard can block privileged endpoints until enrollment completes.
+    let mfaEnrollmentRequired = false;
+    try {
+      const mfaResult = await this.pool.query(
+        `SELECT 1 FROM iam.mfa_methods WHERE user_id = $1 AND method_type = 'TOTP' AND is_enabled = true LIMIT 1`,
+        [userId],
+      );
+      const PRIVILEGED_ROLES = new Set(['ADMIN', 'SUPER_ADMIN', 'OPERATOR', 'RISK_MANAGER', 'TRADING_OPERATOR']);
+      mfaEnrollmentRequired = PRIVILEGED_ROLES.has(role) && mfaResult.rows.length === 0;
+    } catch {
+      // Fail CLOSED for privileged roles: if the MFA check itself errors, treat
+      // enrollment as required (the guard then forces enrollment before access).
+      mfaEnrollmentRequired = role === 'ADMIN' || role === 'SUPER_ADMIN';
+    }
+    const accessToken = this.jwtService.sign({ sub: userId, email, role, permissions: perms, mfaEnrollmentRequired, purpose: 'access' }, { expiresIn: ACCESS_TOKEN_EXPIRY });
     const refreshToken = this.generateRefreshToken();
     return { accessToken, refreshToken };
   }
