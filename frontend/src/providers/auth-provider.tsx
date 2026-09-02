@@ -14,6 +14,8 @@ export interface User {
   name?: string;
   avatar?: string;
   mfaEnabled?: boolean;
+  /** Server flag: privileged role without an enabled TOTP — enrollment required. */
+  mfaEnrollmentRequired?: boolean;
 }
 
 type SessionState = 'LOADING' | 'AUTHENTICATED' | 'UNAUTHENTICATED';
@@ -49,6 +51,7 @@ function normalizeUser(raw: unknown): User | null {
     name: String(r.full_name || r.displayName || r.email),
     avatar: r.avatar ? String(r.avatar) : undefined,
     mfaEnabled: Boolean(r.mfa_enabled || r.mfaEnabled),
+    mfaEnrollmentRequired: Boolean(r.mfa_enrollment_required || r.mfaEnrollmentRequired),
   };
 }
 
@@ -81,6 +84,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (fetchedUser) {
         setUser(fetchedUser);
         setSessionState('AUTHENTICATED');
+        // Session restored mid-enrollment: send privileged operators to the
+        // MFA tab instead of letting their pages 403 (same as login path).
+        if (fetchedUser.mfaEnrollmentRequired && typeof window !== 'undefined'
+            && !window.location.pathname.startsWith('/admin/settings')) {
+          router.push('/admin/settings?tab=mfa');
+        }
       } else {
         setUser(null);
         setSessionState('UNAUTHENTICATED');
@@ -146,7 +155,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await refreshSession();
     }, 45 * 60 * 1000); // 45 minutes
     return () => clearInterval(interval);
-  }, [sessionState]);
+  }, [sessionState, router]);
 
   const login = async (email: string, password: string, trustDevice = false) => {
     const res = await customInstance.post<{

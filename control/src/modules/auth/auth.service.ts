@@ -494,7 +494,16 @@ export class AuthService {
 
   async getProfile(userId: string) {
     const result = await this.pool.query(
-      'SELECT id, email, full_name, status, created_at FROM iam.users WHERE id = $1', [userId],
+      `SELECT u.id, u.email, u.full_name, u.status, u.created_at,
+              NOT EXISTS (
+                SELECT 1 FROM iam.mfa_methods m
+                WHERE m.user_id = u.id AND m.method_type = 'TOTP' AND m.is_enabled = true
+              ) AND EXISTS (
+                SELECT 1 FROM iam.memberships mem
+                JOIN iam.roles r ON r.id = mem.role_id
+                WHERE mem.user_id = u.id AND r.name IN ('ADMIN','SUPER_ADMIN','OPERATOR','RISK_MANAGER','TRADING_OPERATOR')
+              ) AS mfa_enrollment_required
+       FROM iam.users u WHERE u.id = $1`, [userId],
     );
     if (result.rows.length === 0) throw new NotFoundException('User not found');
     return result.rows[0];

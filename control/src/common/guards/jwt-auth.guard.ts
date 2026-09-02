@@ -64,7 +64,17 @@ export class JwtAuthGuard implements CanActivate {
       const PRIVILEGED_ROLES = new Set(['ADMIN', 'SUPER_ADMIN', 'OPERATOR', 'RISK_MANAGER', 'TRADING_OPERATOR']);
       if (payload.mfaEnrollmentRequired === true && PRIVILEGED_ROLES.has(String(payload.role))) {
         const path: string = req.originalUrl || req.url || '';
-        const EXEMPT = [/^\/api\/v1\/auth\/mfa(\/|$)/, /^\/api\/v1\/auth\/logout(\/|$)/, /^\/api\/v1\/auth\/refresh(\/|$)/];
+        // /auth/me is read-only self-inspection AND the channel the frontend
+        // uses to learn mfaEnrollmentRequired — blocking it bricks the whole
+        // session UI (sidebar falls back to "Access Denied" because /me 401s
+        // and the provider clears the user). Enrollment / logout / refresh /
+        // profile stay reachable; everything else 403s until MFA is enabled.
+        const EXEMPT = [
+          /^\/api\/v1\/auth\/mfa(\/|$)/,
+          /^\/api\/v1\/auth\/logout(\/|$)/,
+          /^\/api\/v1\/auth\/refresh(\/|$)/,
+          /^\/api\/v1\/auth\/me(\/|$)/,
+        ];
         if (!EXEMPT.some((re) => re.test(path))) {
           this.logger.warn(`MFA gate: blocked ${payload.email ?? payload.sub} at ${path}`);
           throw new ForbiddenException('MFA enrollment required before accessing privileged resources');
@@ -72,7 +82,11 @@ export class JwtAuthGuard implements CanActivate {
       }
       return true;
     } catch (err) {
-      if (err instanceof UnauthorizedException) throw err;
+      // Preserve the true status: UnauthorizedException stays 401, the MFA
+      // gate's ForbiddenException stays 403 — never fold them into a generic
+      // 401 (that masked enrollment-required as "Invalid token" and made the
+      // frontend treat a healthy session as dead).
+      if (err instanceof UnauthorizedException || err instanceof ForbiddenException) throw err;
       throw new UnauthorizedException('Invalid token');
     }
   }
