@@ -105,7 +105,6 @@ export default function UserMtClientPage() {
     { name: "MT4 Expert Advisor — Source (.mq4)", file: "https://downloads.predictatrade.com/mql/mt4/PredictATrade_MT4.mq4", desc: "Client EA for MetaTrader 4 — compile in MetaEditor (F7), or use the pre-compiled binary below", size: "~110 KB", icon: IconTerminal2, type: "mq4" },
     { name: "MT5 Master Data Node — Source (.mq5)", file: "https://downloads.predictatrade.com/mql/mt5/PredictATrade_MasterNode_MT5.mq5", desc: "Optional data node for MetaTrader 5 — streams live XAUUSD ticks/snapshots to the engine (no trading)", size: "~50 KB", icon: IconTerminal2, type: "mq5" },
     { name: "MT4 Master Data Node — Source (.mq4)", file: "https://downloads.predictatrade.com/mql/mt4/PredictATrade_MasterNode_MT4.mq4", desc: "Optional data node for MetaTrader 4 — streams live XAUUSD ticks/snapshots to the engine (no trading)", size: "~105 KB", icon: IconTerminal2, type: "mq4" },
-    { name: "MT5 XAUUSD Ultra Scalp EA v1.17 — Source (.mq5)", file: "https://downloads.predictatrade.com/mql/mt5/PredictATrade_XAUUSD_UltraScalp_MT5.mq5", desc: "Ultra scalping EA for XAUUSD.e M1 (v1.17 measured rebuild — pullback-only entries, single TP/SL target, all-sessions). Compile in MetaEditor (F7)", size: "~80 KB", icon: IconTerminal2, type: "mq5" },
   ];
 
   const installSteps: { id: InstallStep; label: string }[] = [
