@@ -109,12 +109,17 @@ export default function AdminUsersPage() {
               className="text-xs bg-pat-badge-danger-bg/20 text-pat-badge-danger-text hover:opacity-80 px-2 py-1 rounded transition-colors">
               Suspend
             </button>
-          ) : row.status === "SUSPENDED" ? (
+          ) : row.status === "PENDING" ? (
+            <button onClick={() => setConfirm({ action: "Approve User", userId: row.id, status: "ACTIVE" })}
+              className="text-xs bg-pat-badge-success-bg/20 text-pat-badge-success-text hover:opacity-80 px-2 py-1 rounded transition-colors">
+              Approve
+            </button>
+          ) : (
             <button onClick={() => setConfirm({ action: "Activate User", userId: row.id, status: "ACTIVE" })}
               className="text-xs bg-pat-badge-success-bg/20 text-pat-badge-success-text hover:opacity-80 px-2 py-1 rounded transition-colors">
               Activate
             </button>
-          ) : null}
+          )}
         </div>
       ),
     },
@@ -272,9 +277,11 @@ export default function AdminUsersPage() {
                 <button onClick={() => setConfirm({ action: "Suspend User", userId: selectedUser.id, status: "SUSPENDED" })}
                   className="px-3 py-1.5 text-xs font-medium bg-pat-danger text-white rounded-md hover:opacity-90">Suspend</button>
               )}
-              {selectedUser.status === "SUSPENDED" && (
-                <button onClick={() => setConfirm({ action: "Activate User", userId: selectedUser.id, status: "ACTIVE" })}
-                  className="px-3 py-1.5 text-xs font-medium bg-pat-success text-white rounded-md hover:opacity-90">Activate</button>
+              {selectedUser.status !== "ACTIVE" && (
+                <button onClick={() => setConfirm({ action: selectedUser.status === "PENDING" ? "Approve User" : "Activate User", userId: selectedUser.id, status: "ACTIVE" })}
+                  className="px-3 py-1.5 text-xs font-medium bg-pat-success text-white rounded-md hover:opacity-90">
+                  {selectedUser.status === "PENDING" ? "Approve" : "Activate"}
+                </button>
               )}
               <button onClick={() => setSelectedUser(null)} className="px-3 py-1.5 text-xs font-medium border border-pat-border-strong rounded-md text-pat-text-secondary">Close</button>
             </div>
