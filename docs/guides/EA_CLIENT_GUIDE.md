@@ -28,7 +28,9 @@ Since v1.19.0 the MetaTrader EAs talk to the Predict-A-Trade cloud **directly ov
 2. Download the EA source (`.mq5`/`.mq4`) from `https://downloads.predictatrade.com/mql/`.
 3. Copy it into `MQL5/Experts` (or `MQL4/Experts`), compile in MetaEditor (F7) — 0 errors.
 4. Drag onto an **XAUUSD** chart, paste the license key into the `LicenseKey` input, enable algo trading.
-5. The EA activates its cloud device automatically (`PAT_device.txt` in the common folder stores `device_id|device_secret|refresh_token`) and begins polling.
+5. The EA activates its cloud device automatically (state file in the common folder stores `device_id|device_secret|refresh_token`) and begins polling.
+
+**State files are per-platform** — MT4 and MT5 terminals share one FILE_COMMON (`Common\Files`) folder, so the EAs use distinct names: MT5 `PAT_device.txt` / `PAT_master_device.txt`, MT4 `PAT_device_mt4.txt` / `PAT_master_device_mt4.txt`. Never share these between terminals — each file holds one device's cloud identity.
 
 ### Signal delivery guarantees
 
@@ -47,7 +49,8 @@ Point it at the same license infrastructure (`MasterLicenseKey` input); it activ
 |---------|-----|
 | `WebRequest not allowed` in Experts log | Add `https://api.predictatrade.com` to the WebRequest allowlist (step above), restart terminal. |
 | `Device activation failed: HTTP 4xx` | License key wrong / max devices reached — check the MetaTrader Client page. |
-| `edge-heartbeat failed: HTTP 401` repeatedly | Device secret rotated — delete `PAT_device.txt` (common folder) and re-enter the license key. |
+| `edge-heartbeat failed: HTTP 401` repeatedly | Device secret rotated — delete the EA's state file (MT5 `PAT_device.txt`, MT4 `PAT_device_mt4.txt` in the common folder) and re-enter the license key. |
+| `array out of range in 'Predict-A-Trade.mq4'` / EA removes itself | Fixed in v1.19.x — MT4 Client parsed a FILE_COMMON state file written by the MT5 EA into an unsized array. Update both MT4 EAs from downloads (state files now per-platform `*_mt4.txt`); if a stale shared file remains, delete `PAT_device.txt` / `PAT_master_device.txt` from the common folder so each terminal re-activates under its own identity. |
 | `ingest failed: HTTP 401` repeatedly | Access token missing/stale — the EA refreshes it automatically; if the storm persists, remove + re-attach the EA (re-activation mints a fresh JWT). Server-side: `[INGEST-AUTH]` lines in `docker logs pat-realtime` show the exact rejection reason (never token material). |
 | Dashboard "Market Feed Stale" | The Master EA's snapshots are not reaching the engine. Check: (1) nginx routes `POST /ingest/agent` to the Go engine (a `{"service":"Predict-A-Trade API"...}` banner answer means nginx served the catch-all — run `nginx -s reload` after config changes), (2) `access_token` must be a real JWT (3 dot-separated parts) — opaque strings 401 with `invalid token format`, (3) refreshed Master JWTs must carry `role: data` (`licensing.devices.role`, migration 119). |
 | Device Online but no signals | Engine has no executable signals for your plan's strategies; check the dashboard signal feed and your plan's `allowed_strategies`. |

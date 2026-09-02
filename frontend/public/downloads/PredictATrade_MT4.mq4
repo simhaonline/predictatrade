@@ -98,7 +98,7 @@ input bool    ExecuteCandidates  = false;  // Execute BUY_CANDIDATE/SELL_CANDIDA
 
 // Client MT terminal log — formatted [Predict-A-Trade] lines written here (FILE_COMMON)
 // and echoed to the MT Experts log so the trader can see status/signal activity.
-#define PAT_ERROR_LOG   "error.log"
+#define PAT_ERROR_LOG   "error_mt4.log" // MT4-specific: MT5 client writes error.log in the same FILE_COMMON folder
 
 // Strategy magic bases (mql-fix.md convention; +offset within 100 range)
 #define MAGIC_BASE_SS   40101
@@ -2207,7 +2207,7 @@ int    g_pollOkCount    = 0;
 int    g_pollErrCount   = 0;
 long   g_hmacCounter    = 0;
 
-#define PAT_DEVICE_FILE "PAT_device.txt" // device_id|device_secret|refresh_token (bootstrap persistence)
+#define PAT_DEVICE_FILE "PAT_device_mt4.txt" // device_id|device_secret|refresh_token (MT4-specific: MT4+MT5 share FILE_COMMON)
 
 //--- PAT_SHA256: pure-MQL4 SHA-256 (FIPS 180-4) over UTF-8 bytes
 int PAT_ROTR(int x, int n) { return (int)(((uint)x >> n) | ((uint)x << (32 - n))); }
@@ -2441,7 +2441,7 @@ bool PAT_EnsureDevice()
     string saved = PAT_ReadFile(PAT_DEVICE_FILE);
     if(StringLen(saved) > 0)
     {
-        string parts[];
+        string parts[4];
         int n = 0;
         // MQL4 has no StringSplit — manual split on '|'
         string rest = saved;

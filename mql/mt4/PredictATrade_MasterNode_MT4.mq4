@@ -675,7 +675,7 @@ int      g_ingestOkCount  = 0;
 int      g_ingestErrCount = 0;
 long     g_hmacCounter    = 0;
 
-#define PAT_MASTER_DEVICE_FILE "PAT_master_device.txt" // device_id|device_secret|refresh_token
+#define PAT_MASTER_DEVICE_FILE "PAT_master_device_mt4.txt" // device_id|device_secret|refresh_token (MT4-specific: MT4+MT5 share FILE_COMMON)
 
 //--- MasterSHA256: pure-MQL4 SHA-256 (FIPS 180-4) over UTF-8 bytes
 int MasterROTR(int x, int n) { return (int)(((uint)x >> n) | ((uint)x << (32 - n))); }
