@@ -53,16 +53,16 @@ const SECURITY_CONTROLS = [
   // F6 fix: claims must reflect verifiable reality. Items without evidence
   // are marked "In Progress"/"Planned" — never "Implemented" (SOW: no
   // unsupported compliance/security claims).
-  { name: 'Encryption in Transit', detail: 'TLS 1.2 / 1.3 across all public endpoints', state: 'Implemented' },
-  { name: 'Role-Based Access Control', detail: 'Least-privilege RBAC, tenant isolation', state: 'In Progress' },
+  { name: 'Encryption in Transit', detail: 'TLS 1.2 / 1.3 across all public endpoints; legacy TLS refused', state: 'Implemented' },
+  { name: 'Role-Based Access Control', detail: '8-role least-privilege model; permission guards on finance/admin; privileged tokens re-validated per request', state: 'Implemented' },
   { name: 'Audit Logging', detail: 'Privileged actions recorded in audit schema', state: 'Implemented' },
-  { name: 'Secrets Management', detail: 'Env-injected secrets; rotation workflow', state: 'In Progress' },
-  { name: 'DDoS Protection', detail: 'Edge rate-limiting at reverse proxy', state: 'Implemented' },
-  { name: 'Backups & DR', detail: 'Scheduled logical backups; restore drills', state: 'In Progress' },
-  { name: 'Multi-Factor Authentication', detail: 'TOTP MFA for privileged accounts', state: 'In Progress' },
+  { name: 'Secrets Management', detail: 'Env-injected secrets, restrictive file permissions; vault + rotation workflow in progress', state: 'In Progress' },
+  { name: 'DDoS Protection', detail: 'Edge rate-limiting at reverse proxy; per-route throttling on auth', state: 'Implemented' },
+  { name: 'Backups & DR', detail: '6h logical backups + continuous WAL to off-host S3; restore drills in progress', state: 'In Progress' },
+  { name: 'Multi-Factor Authentication', detail: 'TOTP enforced server-side for privileged roles; privileged endpoints blocked until enrolled', state: 'Implemented' },
   { name: 'Encryption at Rest', detail: 'Database & object storage encrypted (AES-256)', state: 'Planned' },
-  { name: 'Vulnerability Management', detail: 'Dependency & container scanning in CI', state: 'Planned' },
-  { name: 'Penetration Testing', detail: 'Periodic third-party assessment', state: 'Planned' },
+  { name: 'Vulnerability Management', detail: 'Go govulncheck + npm audit on dependencies; findings tracked and patched', state: 'Implemented' },
+  { name: 'Penetration Testing', detail: 'Periodic external surface audits (TLS, rate limits, auth, exposure); third-party assessment planned', state: 'In Progress' },
 ];
 
 const PRIVACY = [

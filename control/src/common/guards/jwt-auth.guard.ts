@@ -1,14 +1,19 @@
-import { Injectable, CanActivate, ExecutionContext, UnauthorizedException, ForbiddenException, Logger } from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, UnauthorizedException, ForbiddenException, Logger, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as jwt from 'jsonwebtoken';
+import { Pool } from 'pg';
+import { DB_POOL } from '../database.module';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   private readonly logger = new Logger(JwtAuthGuard.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    @Optional() @Inject(DB_POOL) private readonly db?: Pool,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest();
     const auth = req.headers.authorization;
 
@@ -42,6 +47,15 @@ export class JwtAuthGuard implements CanActivate {
 
       req.user = payload;
 
+      // R1 (RBAC hardening): privileged-role access tokens are re-validated
+      // against the DB so suspension / demotion takes effect immediately
+      // instead of at token expiry (max 1h). Only applies to ADMIN /
+      // SUPER_ADMIN — a handful of accounts — so the per-request query is
+      // negligible. Any DB error FAILS CLOSED for privileged tokens.
+      if (payload.role === 'ADMIN' || payload.role === 'SUPER_ADMIN') {
+        await this.validatePrivilegedUser(req);
+      }
+
       // AUTH-1 (hardened): privileged roles must have MFA enabled. Login mints
       // `mfaEnrollmentRequired: true` into the access token when a privileged
       // account lacks an enabled TOTP method (auth.service generateTokens).
@@ -60,6 +74,44 @@ export class JwtAuthGuard implements CanActivate {
     } catch (err) {
       if (err instanceof UnauthorizedException) throw err;
       throw new UnauthorizedException('Invalid token');
+    }
+  }
+
+  /**
+   * R1: privileged-role tokens are checked against iam.users.status and the
+   * active role membership. Suspended / deleted / demoted accounts are
+   * rejected on the spot. DB failure fails CLOSED for privileged roles.
+   */
+  private async validatePrivilegedUser(req: { user?: { sub?: string; role?: string; email?: string } }): Promise<void> {
+    const pool = this.db;
+    const user = req.user as { sub?: string; role?: string; email?: string } | undefined;
+    if (!pool || !user?.sub) {
+      throw new UnauthorizedException('Privileged session validation unavailable');
+    }
+    try {
+      const res = await pool.query(
+        `SELECT u.status, r.name AS role_name
+         FROM iam.users u
+         LEFT JOIN iam.memberships m ON m.user_id = u.id
+         LEFT JOIN iam.roles r ON r.id = m.role_id
+         WHERE u.id = $1 AND u.deleted_at IS NULL`,
+        [user.sub],
+      );
+      if (res.rows.length === 0) {
+        throw new UnauthorizedException('Account not found');
+      }
+      const row = res.rows[0];
+      if (row.status !== 'ACTIVE') {
+        throw new UnauthorizedException('Account is not active');
+      }
+      const activeRole = res.rows.map((r) => r.role_name).filter(Boolean);
+      if (!activeRole.includes(String(user.role))) {
+        throw new ForbiddenException('Privileged role no longer held');
+      }
+    } catch (err) {
+      if (err instanceof UnauthorizedException || err instanceof ForbiddenException) throw err;
+      // Fail closed: cannot confirm privileged status right now
+      throw new UnauthorizedException('Privileged session could not be validated');
     }
   }
 }
