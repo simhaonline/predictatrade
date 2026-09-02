@@ -360,40 +360,17 @@ bool PAT_SignalFresh()
 //+------------------------------------------------------------------+
 //| Position counting by PAT magic range                              |
 //+------------------------------------------------------------------+
-int PAT_CountPatPositions()
-{
-    int count = 0;
-    int total = OrdersTotal();
-    for(int i = 0; i < total; i++)
-    {
-        if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
-        if(OrderSymbol() != g_symbol) continue;
-        if(PAT_IsPatMagic(OrderMagicNumber())) count++;
-    }
-    return count;
-}
-
-int PAT_CountPatPositionsDir(bool isBuy)
-{
-    int count = 0;
-    int total = OrdersTotal();
-    for(int i = 0; i < total; i++)
-    {
-        if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
-        if(OrderSymbol() != g_symbol) continue;
-        if(!PAT_IsPatMagic(OrderMagicNumber())) continue;
-        if(isBuy && OrderType() == OP_BUY) count++;
-        if(!isBuy && OrderType() == OP_SELL) count++;
-    }
-    return count;
-}
-
-//+------------------------------------------------------------------+
 //| EA-side risk gate (belt-and-suspenders — all fail-closed)         |
+//+------------------------------------------------------------------+
+//| Pre-trade check — EMERGENCY HALT FLAGS ONLY.                     |
+//| v1.20: ALL risk gates (spread, drift, TTL, caps, risk$,          |
+//| martingale, margin) are enforced by the SERVER engine before a   |
+//| signal is marked EXECUTABLE. Client-side duplicates removed —    |
+//| clients execute what the server sends. Server = single source    |
+//| of gating truth; this hook exists only for local kill-switches.  |
 //+------------------------------------------------------------------+
 bool PAT_PreTradeGate(bool isBuy, double lot, string strategyName)
 {
-    // ALL risk gates handled by SERVER. EA only checks emergency halt flags.
     if(g_equityHalted)
     {
         Print("REJECTED equity_floor_halt: trading halted until manual re-enable");
@@ -404,71 +381,8 @@ bool PAT_PreTradeGate(bool isBuy, double lot, string strategyName)
         Print("REJECTED capital_protection_halt: daily loss limit reached");
         return false;
     }
-
-    // Spread, entry drift, and TTL are checked by the SERVER engine.
-    // EA trusts server decision — no local gates for these.
-
-    // Position caps (same-direction and total, by PAT magic range)
-    if(PAT_CountPatPositionsDir(isBuy) >= MaxSameDirPositions)
-    {
-        Print("REJECTED same_dir_cap: already ", PAT_CountPatPositionsDir(isBuy),
-              " ", (isBuy ? "BUY" : "SELL"), " PAT position(s) (max ", MaxSameDirPositions, ")");
-        return false;
-    }
-    if(PAT_CountPatPositions() >= MaxTotalPositions)
-    {
-        Print("REJECTED total_cap: ", PAT_CountPatPositions(),
-              " PAT positions open (max ", MaxTotalPositions, ")");
-        return false;
-    }
-
-    // 5. Risk-$ gate: risk$ = |entry-sl| * valuePerPriceUnit * lot
-    double tickVal  = PAT_TickValue();
-    double tickSize = PAT_TickSize();
-    double equity   = AccountEquity();
-    double dist     = MathAbs(g_entry - g_sl);
-    if(tickVal <= 0 || tickSize <= 0 || dist <= 0 || equity <= 0)
-    {
-        Print("REJECTED bad_risk_inputs: tickVal=", tickVal, " tickSize=", tickSize,
-              " dist=", dist, " equity=", equity);
-        return false;
-    }
-    double valuePerUnit = tickVal / tickSize; // account currency per 1.0 price move per lot
-    // Risk check REMOVED — server handles risk_oversize
-
-    // 6. Martingale ban: lot may never exceed baseLot * MaxLotRatioVsBase.
-    //    Effective base = max(configured BaseLot, deterministic risk-sized lot
-    //    for THIS signal) — prevents runaway sizing while allowing honest
-    //    risk-based sizing. Ratio 1.0 forbids any escalation beyond it.
-    double effBase = BaseLot;
-    double riskLot = PAT_CalcLotSize(equity, dist);
-    if(riskLot > effBase) effBase = riskLot;
-    if(lot > effBase * MaxLotRatioVsBase + 0.0000001)
-    {
-        Print("REJECTED martingale_ban: lot=", DoubleToString(lot, 2),
-              " > base=", DoubleToString(effBase, 2), " x ", DoubleToString(MaxLotRatioVsBase, 2));
-        return false;
-    }
-
-    // 7. Margin gate
-    double marginRequired = lot * MarketInfo(g_symbol, MODE_MARGINREQUIRED);
-    double freeMargin     = AccountFreeMargin();
-    if(marginRequired > freeMargin * (MaxMarginUsagePct / 100.0))
-    {
-        Print("REJECTED margin_overuse: required=", DoubleToString(marginRequired, 2),
-              " > freeMargin x ", MaxMarginUsagePct, "% = ",
-              DoubleToString(freeMargin * MaxMarginUsagePct / 100.0, 2));
-        return false;
-    }
-    if(AccountFreeMarginCheck(g_symbol, isBuy ? OP_BUY : OP_SELL, lot) <= 0)
-    {
-        Print("REJECTED insufficient_margin: AccountFreeMarginCheck <= 0");
-        return false;
-    }
-
     return true;
 }
-
 //+------------------------------------------------------------------+
 //| Per-trade registry (runtime)                                      |
 //+------------------------------------------------------------------+

@@ -5216,7 +5216,10 @@ func runPnLAnchorLoop(gateRegistry *gates.Registry, valkeyCache *cache.ValkeyCac
 		// equity) — not whichever client sent the last message (last-write-wins
 		// made an $8.96 demo account ping-pong against an $836 funded account).
 		if funded := agentProvider.GetFundedAccount(); funded != nil && funded.Equity > 0 {
-			positions := &marketdata.SnapshotPositions{TotalPositions: 0}
+			// Fail-closed positions: only claim known when the EA actually
+			// reported open_positions (nil → positionsKnown stays false →
+			// position_caps DEGRADED, never a silent zero-count pass).
+			var positions *marketdata.SnapshotPositions
 			if n, ok := agentProvider.FundedAccountPositions(); ok {
 				positions = &marketdata.SnapshotPositions{TotalPositions: n}
 			}
