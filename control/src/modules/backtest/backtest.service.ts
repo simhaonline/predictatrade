@@ -99,7 +99,7 @@ export class BacktestService {
   }
 
   private parseMetric(stdout: string, label: string): string {
-    const regex = new RegExp(`${label}\\s*\\$?([\\d.]+)`);
+    const regex = new RegExp(`${label}\\s*-?\\$?(-?[\\d.]+)`);
     const match = stdout.match(regex);
     return match ? match[1] : '0';
   }

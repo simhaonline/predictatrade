@@ -29,7 +29,7 @@ func main() {
 	store := flag.Bool("store", false, "Store results in database (trading.backtest_runs)")
 	dbURL := flag.String("db-url", "", "PostgreSQL URL (or read from database_url.txt)")
 	higherTFs := flag.String("higher-tfs", "M15,H1,H4,D1", "Higher timeframes for MTF alignment")
-	source := flag.String("source", "MT5_MASTER", "market.candles.source to use (real feed). Empty = all sources.")
+	source := flag.String("source", "", "market.candles.source to restrict to. Empty = all sources (default; avoids 0-bar runs when the named source is absent).")
 	maxPos := flag.Int("max-positions", 3, "Maximum simultaneous open positions (1 = one-at-a-time)")
 	flag.Parse()
 
