@@ -1239,7 +1239,7 @@ void SendInitMessage()
     if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
        Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
 
-    string msg = "INIT|{\"ea_version\":\"1.19\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
+    string msg = "INIT|{\"ea_version\":\"1.10\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                 "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
                 "\",\"license_key\":\"" + g_licenseKey +
                 "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
@@ -1272,7 +1272,7 @@ void SendAccountInfo()
     // bound account id does not match, so telemetry is never silently wrong.
     if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
        Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
-    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.09\",\"account\":\"" + g_accountID +
+    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.10\",\"account\":\"" + g_accountID +
                 "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                 "\",\"symbol\":\"" + g_symbol +
                 "\",\"currency\":\"" + AccountInfoString(ACCOUNT_CURRENCY) +
@@ -2494,13 +2494,17 @@ int PAT_EdgePoll(string &items[], string &queueIds[])
             continue;
         }
         // Extract the balanced JSON object after "signal":{
-        string payload = PAT_ExtractJSONObject(response, sigKey + 10);
+        // v1.21 FIX: sigKey+9 points AT the '{' ("signal":{ is 10 chars, so
+        // sigKey+10 lands one char INSIDE the object — the MT5 extractor's
+        // start=='{' guard rejected every payload, so Client MT5 parsed 0
+        // items, never dispatched and never ACKed (IN_FLIGHT retry loop).
+        string payload = PAT_ExtractJSONObject(response, sigKey + 9);
         int cnt = ArraySize(items);
         ArrayResize(items, cnt + 1);
         ArrayResize(queueIds, cnt + 1);
         items[cnt] = payload;
         queueIds[cnt] = queueId;
-        pos = sigKey + 10 + StringLen(payload);
+        pos = sigKey + 9 + StringLen(payload);
         if(ArraySize(items) >= 20) break;
     }
     return ArraySize(items);

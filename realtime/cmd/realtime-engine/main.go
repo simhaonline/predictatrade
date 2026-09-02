@@ -676,6 +676,7 @@ func enqueueSignalForDevices(signal *types.Signal) {
 		  JOIN licensing.licenses l ON l.id = d.bound_license_id
 		  LEFT JOIN control.plans p ON p.id = l.plan_id
 		 WHERE d.revoked_at IS NULL
+		   AND d.role = 'exec' -- trade signals only to execution devices (data Masters poll commands, not signals)
 		   AND l.status IN ('ACTIVE', 'PENDING')
 		   AND (l.allowed_strategies IS NULL
 		        OR l.allowed_strategies::text IN ('', 'null', '[]')

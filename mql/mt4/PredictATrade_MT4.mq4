@@ -1398,7 +1398,7 @@ void SendInitMessage()
             else if(OrderType() == OP_SELL) { sellCount++; totalLots += OrderLots(); }
         }
     }
-    string msg = "INIT|{\"ea_version\":\"1.20\",\"broker\":\"" + AccountCompany() +
+    string msg = "INIT|{\"ea_version\":\"1.21\",\"broker\":\"" + AccountCompany() +
                  "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
                  "\",\"license_key\":\"" + LicenseKey +
                  "\",\"balance\":" + DoubleToString(AccountBalance(), 2) +
@@ -1421,7 +1421,7 @@ void SendInitMessage()
 //+------------------------------------------------------------------+
 void SendAccountInfo()
 {
-    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.20\",\"account\":\"" + g_accountID +
+    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.21\",\"account\":\"" + g_accountID +
                  "\",\"broker\":\"" + AccountCompany() +
                  "\",\"symbol\":\"" + g_symbol +
                  "\",\"currency\":\"" + AccountCurrency() +
@@ -2588,13 +2588,17 @@ int PAT_EdgePoll(string &items[], string &queueIds[])
             pos = qidEnd;
             continue;
         }
-        string payload = PAT_ExtractJSONObject(response, sigKey + 10);
+        // v1.21 FIX: sigKey+9 points AT the '{' ("signal":{ is 10 chars) —
+        // the old sigKey+10 started inside the object, so MQL4's no-guard
+        // extractor returned a TRUNCATED cut (missing SignalClass/Direction)
+        // -> every signal was display-only + UNKNOWN-acked, never executed.
+        string payload = PAT_ExtractJSONObject(response, sigKey + 9);
         int cnt = ArraySize(items);
         ArrayResize(items, cnt + 1);
         ArrayResize(queueIds, cnt + 1);
         items[cnt] = payload;
         queueIds[cnt] = queueId;
-        pos = sigKey + 10 + StringLen(payload);
+        pos = sigKey + 9 + StringLen(payload);
         if(ArraySize(items) >= 20) break;
     }
     return ArraySize(items);
@@ -2603,6 +2607,7 @@ int PAT_EdgePoll(string &items[], string &queueIds[])
 //--- PAT_ExtractJSONObject: balanced-brace JSON object extractor (MQL4)
 string PAT_ExtractJSONObject(string s, int start)
 {
+    if(start < 0 || StringGetChar(s, start) != '{') return "";  // v1.21: guard (parity with MT5)
     int depth = 0;
     bool inStr = false;
     int len = StringLen(s);
