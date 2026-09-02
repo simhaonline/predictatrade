@@ -1264,7 +1264,7 @@ void SendTickToAgent()
     if(TickIntervalMs > 0)
     {
         uint elapsed = GetTickCount() - g_lastTickSend;
-        if(TickIntervalMs != 0 && elapsed < (uint)TickIntervalMs) return;
+        if(elapsed < (uint)TickIntervalMs) return;
     }
     g_lastTickSend = GetTickCount();
 
@@ -2513,10 +2513,11 @@ bool PAT_EnsureDevice()
 //--- PAT_DeviceFingerprint: stable per-terminal identity
 string PAT_DeviceFingerprint()
 {
-    // Terminal mode + company + account + currency + path of the data folder —
-    // stable across restarts, unique enough per terminal install.
-    string raw = IntegerToString((int)TerminalInfoInteger(TERMINAL_NAME) == 0 ? 0 : 1)
-               + "|" + AccountInfoString(ACCOUNT_COMPANY)
+    // Terminal company + account data-folder path + build — stable across
+    // restarts, unique enough per terminal install. (TERMINAL_NAME is a
+    // TerminalInfoString property; passing it to TerminalInfoInteger does
+    // not compile in MQL5.)
+    string raw = AccountInfoString(ACCOUNT_COMPANY)
                + "|" + TerminalInfoString(TERMINAL_PATH)
                + "|" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD));
     return PAT_Sha256Hex(raw);
