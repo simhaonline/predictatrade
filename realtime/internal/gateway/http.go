@@ -42,6 +42,11 @@ type HTTPServer struct {
 		LastSnapshotAt() time.Time
 	}
 	ingestProvider IngestProvider // EA-direct HTTP ingest dispatch (v1.19.0)
+	// roleRegistrar wires the authenticated device role ("data"/"exec") into
+	// the market-data provider on every ingest request. The WS transport used
+	// to do this at handshake; without it IsDataNode() never becomes true and
+	// Master snapshots are dropped (see ingest_http.go HandleIngest).
+	roleRegistrar     func(agentID, role string)
 	valkeyCache       *cache.ValkeyCache
 	crossMarketEngine *crossmarket.Engine
 	newsEngine        *news.RiskEngine
@@ -122,6 +127,7 @@ func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *f
 		// delivered to customer EAs via licensing.edge_signal_queue (edge-poll).
 		agentProvider:     agentProvider,
 		ingestProvider:    agentProviderAsIngest(agentProvider),
+		roleRegistrar:     agentProviderAsRoleRegistrar(agentProvider),
 		valkeyCache:       valkeyCache,
 		crossMarketEngine: xmEngine,
 		newsEngine:        newsEngine,
@@ -289,6 +295,19 @@ func (h *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 func agentProviderAsIngest(p interface{}) IngestProvider {
 	if ip, ok := p.(IngestProvider); ok {
 		return ip
+	}
+	return nil
+}
+
+// roleRegistrarAdapter adapts anything with a SetAgentRole(agentID, role)
+// method to the roleRegistrar func signature used by the ingest endpoint.
+type roleRegistrarAdapter interface {
+	SetAgentRole(agentID, role string)
+}
+
+func agentProviderAsRoleRegistrar(p interface{}) func(agentID, role string) {
+	if rr, ok := p.(roleRegistrarAdapter); ok {
+		return rr.SetAgentRole
 	}
 	return nil
 }

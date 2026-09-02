@@ -105,10 +105,10 @@ export class DeviceAuthService {
         const hashedComponents = this.hashFingerprintComponents(fingerprint);
         await client.query(
           `INSERT INTO licensing.devices (id, user_id, bound_license_id, installation_id, fingerprint_version,
-             fingerprint_hash, fingerprint_components, device_name, windows_version, connection_status, last_activation_at, last_seen_at, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, 'hwfp-v1', $5, $6, $7, $8, 'ONLINE', now(), now(), now(), now())`,
+             fingerprint_hash, fingerprint_components, device_name, windows_version, role, connection_status, last_activation_at, last_seen_at, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, 'hwfp-v1', $5, $6, $7, $8, $9, 'ONLINE', now(), now(), now(), now())`,
           [deviceId, license.user_id, license.id, installationId, fpHash, JSON.stringify(hashedComponents),
-            terminal?.name || `${client_type} Terminal`, fingerprint.os || 'Windows'],
+            terminal?.name || `${client_type} Terminal`, fingerprint.os || 'Windows', role],
         );
         await client.query(
           `UPDATE licensing.licenses SET status = 'ACTIVE', updated_at = now() WHERE id = $1`,
@@ -127,9 +127,12 @@ export class DeviceAuthService {
         }
         if (matched && bestScore >= MATCH_THRESHOLD) {
           deviceId = matched.id;
+          // Persist the role of THIS activation — a device re-activating with a
+          // different role flips its stored role (Master re-attach on a new
+          // chart must stay 'data', not inherit a stale value).
           await client.query(
-            `UPDATE licensing.devices SET last_seen_at = now(), last_activation_at = now(), updated_at = now() WHERE id = $1`,
-            [deviceId],
+            `UPDATE licensing.devices SET last_seen_at = now(), last_activation_at = now(), role = $2, updated_at = now() WHERE id = $1`,
+            [deviceId, role],
           );
         } else if (existingDevices.rows.length < (Number(license.max_devices) || 1)) {
           await bindNewDevice();
@@ -169,13 +172,19 @@ export class DeviceAuthService {
         [crypto.randomUUID(), deviceId, refreshTokenHash, tokenFamily],
       );
 
-      // Generate short-lived access token
-      const accessToken = crypto.randomBytes(32).toString('base64url');
-      const accessTokenHash = this.hashSecret(accessToken);
-
       // Create session lease
       const sessionId = crypto.randomUUID();
       const leaseExpires = new Date(Date.now() + 45 * 1000); // 45 seconds
+
+      // Short-lived ingest JWT (HS256, sub=device, role=data|exec, 24h).
+      // THE ENGINE REQUIRES A REAL JWT: POST /ingest/agent verifies the
+      // Bearer locally with JWT_SECRET (validateJWTFull — 3 dot-separated
+      // parts, HS256, exp). An opaque random string here makes EVERY EA
+      // ingest 401 ("invalid token format: expected 3 parts") — the root
+      // cause of the 2026-09-02 feed-stale incident. The EAs send
+      // access_token as the ingest Bearer, so this field MUST be the JWT.
+      const accessToken = this.mintWsToken(deviceId, role, sessionId, license.id);
+      const accessTokenHash = this.hashSecret(accessToken);
 
       // Revoke old sessions for this license
       await client.query(
@@ -302,8 +311,18 @@ export class DeviceAuthService {
         [crypto.randomUUID(), token.device_id, newRefreshHash, token.token_family],
       );
 
-      // Issue new access token
-      const newAccessToken = crypto.randomBytes(32).toString('base64url');
+      // Issue new access token — a REAL ingest JWT, not an opaque string.
+      // The EAs send access_token as the POST /ingest/agent Bearer; the engine
+      // verifies it locally (validateJWTFull). Role comes from the device row
+      // (persisted at activation, migration 119) so a refreshed MASTER token
+      // carries role='data' — with the old 'exec' default the engine dropped
+      // every Master MARKET_SNAPSHOT after the first 24h token expired.
+      const roleResult = await client.query(
+        `SELECT role FROM licensing.devices WHERE id = $1`,
+        [token.device_id],
+      );
+      const deviceRole = (roleResult.rows[0]?.role === 'data' ? 'data' : 'exec') as 'data' | 'exec';
+      const newAccessToken = this.mintWsToken(token.device_id, deviceRole);
 
       // Renew session lease
       await client.query(
@@ -314,10 +333,12 @@ export class DeviceAuthService {
       // Keep the device itself ONLINE so dashboards reflect a live, connected agent.
       // (Previously only the session lease was touched, leaving licensing.devices.connection_status
       //  stale as OFFLINE even when the agent was actively heartbeating.)
+      // NOTE: token.device_id — EAs send refresh_token only, the deviceId arg
+      // is undefined, and the old WHERE id = $1 silently no-op'd.
       await client.query(
         `UPDATE licensing.devices SET connection_status = 'ONLINE', last_seen_at = now(), updated_at = now()
          WHERE id = $1 AND deleted_at IS NULL`,
-        [deviceId],
+        [token.device_id],
       );
 
       await client.query('COMMIT');
@@ -326,7 +347,7 @@ export class DeviceAuthService {
         access_token: newAccessToken,
         refresh_token: newRefreshToken,
         access_token_expires_in: 600,
-        ws_token: this.mintWsToken(deviceId, role ?? 'exec'),
+        ws_token: newAccessToken,
       };
     } catch (err) {
       try { await client.query("ROLLBACK"); } catch (e) { console.error("Rollback failed:", e.message); }

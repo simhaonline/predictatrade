@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -58,10 +59,22 @@ func agentAuthJWT(r *http.Request) (string, string, bool) {
 		raw = t
 	}
 	if raw == "" {
+		// No token material at all — log the header SHAPE (lengths only, never
+		// the value) so a client sending an empty/missing Bearer is visible
+		// without exposing secrets (live 401 storm 2026-09-02).
+		ah := r.Header.Get("Authorization")
+		log.Printf("[INGEST-AUTH] no token: authz_len=%d prefix_bearer=%v remote=%s",
+			len(ah), strings.HasPrefix(ah, "Bearer "), r.RemoteAddr)
 		return "", "", false
 	}
 	sub, role, err := validateAgentJWTRole(raw)
 	if err != nil || sub == "" {
+		// Token present but invalid — log the verification error reason plus
+		// the token's SHAPE (length + dot count only, never the value) so a
+		// client carrying the wrong credential type (device secret, refresh
+		// token, truncated JWT) is immediately identifiable (2026-09-02).
+		log.Printf("[INGEST-AUTH] token rejected: %v token_len=%d dots=%d remote=%s",
+			err, len(raw), strings.Count(raw, "."), r.RemoteAddr)
 		return "", "", false
 	}
 	return sub, role, true
@@ -103,6 +116,17 @@ func (h *HTTPServer) HandleIngest(w http.ResponseWriter, r *http.Request) {
 	} else if agentID != sub {
 		http.Error(w, `{"error":"agentId does not match token subject"}`, http.StatusForbidden)
 		return
+	}
+
+	// Register the authenticated role with the market-data provider. The old
+	// WS handshake called SetAgentRole on connect; the HTTP transport must do
+	// the equivalent on every request (idempotent, once-"data"-always-"data").
+	// WITHOUT THIS the role map stays empty, IsDataNode() is always false, and
+	// the Master's MARKET_SNAPSHOT/MASTER_TICK messages are silently dropped
+	// in HandleAgentMessage — engine shows "Data feed outage" while ingest
+	// returns 200 (observed live 2026-09-02).
+	if h.roleRegistrar != nil {
+		h.roleRegistrar(agentID, role)
 	}
 
 	if h.ingestProvider == nil {
