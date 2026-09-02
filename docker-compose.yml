@@ -418,7 +418,7 @@ services:
           # never logs, lock files, or old test dumps. A dump caught mid-write
           # re-uploads once complete (size/mtime change); restores must verify
           # the .sha256 sidecar before trusting any object.
-          aws s3 sync /pgbackups s3://$${S3_BUCKET}/$${DB_S3_PREFIX} --exclude '*' --include 'backup_2*.dump' --include 'backup_2*.sha256' --endpoint-url $${S3_ENDPOINT} --no-progress 2>&1 || echo '[backup-sync] DB dump sync failed, retrying';
+          aws s3 sync /pgbackups s3://$${S3_BUCKET}/$${DB_S3_PREFIX} --exclude '*' --include 'backup_2*.dump' --include 'backup_2*.sha256' --include 'base/*' --include 'base/*.sha256' --endpoint-url $${S3_ENDPOINT} --no-progress 2>&1 || echo '[backup-sync] DB dump sync failed, retrying';
           sleep 60;
         done
 

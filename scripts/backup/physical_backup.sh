@@ -11,8 +11,8 @@
 #
 # WAL archiving is already on (archive_mode=on, wal_level=replica) and
 # /var/lib/docker/volumes/xauusd_pat-pgdata/_data/wal_archive is synced to
-# Hetzner S3 continuously by pat-backup-sync. Base backup tarballs land in
-# the same S3 bucket via the /pgbackups mount (below).
+# Hetzner S3 continuously by pat-backup-sync. Base backups land in
+# /var/backups/predictatrade/base/ which pat-backup-sync ships to S3.
 set -euo pipefail
 
 CONTAINER_NAME="${CONTAINER_NAME:-pat-postgres}"
@@ -27,19 +27,28 @@ mkdir -p "$BACKUP_DIR"
 
 log "=== Physical base backup started: base_${TIMESTAMP} ==="
 
+# 1) Run pg_basebackup INSIDE the postgres container (tar format, gzipped,
+#    WAL streamed). Output dir is internal to the container.
 if docker exec "$CONTAINER_NAME" pg_basebackup \
     -U pat_admin \
     -D "/var/lib/postgresql/backups/base_${TIMESTAMP}" \
-    -Ft -Xs -z -P; then
+    -Ft -Xs -z; then
 
-    # Move the tarball set into the S3-synced /pgbackups mount
-    docker exec "$CONTAINER_NAME" sh -c \
-        "mv /var/lib/postgresql/backups/base_${TIMESTAMP} /pgbackups/base_${TIMESTAMP} 2>/dev/null" \
-        || mv "${BACKUP_DIR}/base_${TIMESTAMP}" "/var/backups/predictatrade/base_${TIMESTAMP}" 2>/dev/null || true
+    log "pg_basebackup complete; streaming to host"
 
-    log "Base backup completed: base_${TIMESTAMP}"
-    docker run --rm -v /var/backups/predictatrade:/v alpine sh -c \
-        "cd /v && sha256sum base_${TIMESTAMP}/*.tar.gz > base_${TIMESTAMP}.sha256" 2>/dev/null || true
+    # 2) Stream the tarball set to the host (root cron can write BACKUP_DIR;
+    #    avoids relying on any rw container mount).
+    mkdir -p "$TARGET"
+    docker exec "$CONTAINER_NAME" tar \
+        -C "/var/lib/postgresql/backups/base_${TIMESTAMP}" -cf - . \
+        | tar -C "$TARGET" -xf -
+
+    # 3) Cleanup inside the container
+    docker exec "$CONTAINER_NAME" rm -rf "/var/lib/postgresql/backups/base_${TIMESTAMP}"
+
+    # 4) Integrity manifest
+    ( cd "$TARGET" && sha256sum *.tar.gz > "${TARGET}.sha256" )
+    log "Base backup completed: ${TARGET} ($(du -sh "$TARGET" | cut -f1))"
 else
     log "ERROR: pg_basebackup failed"
     curl -s -H "Title: PAT Physical Backup Failed" \
@@ -48,7 +57,7 @@ else
     exit 1
 fi
 
-# Retention: keep last N base backups
+# 5) Retention: keep the last N base backups
 ls -1dt "${BACKUP_DIR}"/base_* 2>/dev/null | tail -n +$((RETENTION_BASE + 1)) | xargs -r rm -rf
 log "Retention: kept last ${RETENTION_BASE} base backups"
 log "=== Physical base backup done: base_${TIMESTAMP} ==="
