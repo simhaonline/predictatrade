@@ -821,7 +821,6 @@ void OnTimer()
 {
     CheckAgentConnection();
 
-    uint now = GetTickCount();
     uint tickGap = (TickIntervalMs > 0 ? TickIntervalMs : 1000) * 3;
     if(g_connection == "CONNECTED" && (g_lastTickSend == 0 || GetTickCount() - g_lastTickSend > tickGap))
     {
@@ -1470,7 +1469,7 @@ void SendInitMessage()
             else if(OrderType() == OP_SELL) { sellCount++; totalLots += OrderLots(); }
         }
     }
-    string msg = "INIT|{\"ea_version\":\"1.19\",\"broker\":\"" + AccountCompany() +
+    string msg = "INIT|{\"ea_version\":\"1.20\",\"broker\":\"" + AccountCompany() +
                  "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
                  "\",\"license_key\":\"" + LicenseKey +
                  "\",\"balance\":" + DoubleToString(AccountBalance(), 2) +
@@ -1493,7 +1492,7 @@ void SendInitMessage()
 //+------------------------------------------------------------------+
 void SendAccountInfo()
 {
-    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.19\",\"account\":\"" + g_accountID +
+    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.20\",\"account\":\"" + g_accountID +
                  "\",\"broker\":\"" + AccountCompany() +
                  "\",\"symbol\":\"" + g_symbol +
                  "\",\"currency\":\"" + AccountCurrency() +
@@ -1502,6 +1501,7 @@ void SendAccountInfo()
                  ",\"equity\":" + DoubleToString(AccountEquity(), 2) +
                  ",\"free_margin\":" + DoubleToString(AccountFreeMargin(), 2) +
                  ",\"leverage\":" + IntegerToString(AccountLeverage()) +
+                 ",\"open_positions\":" + IntegerToString(OrdersTotal()) +
                  "}\n";
     PAT_Send(msg);
 }
@@ -1513,10 +1513,10 @@ void RequestLicenseValidation()
                  "\",\"broker\":\"" + AccountCompany() +
                  "\",\"symbol\":\"" + g_symbol +
                  "\",\"license_key\":\"" + g_licenseKey +
-                 "\",\"balance\":" + DoubleToStr(AccountBalance(), 2) +
-                 ",\"equity\":" + DoubleToStr(AccountEquity(), 2) +
-                 ",\"profit\":" + DoubleToStr(AccountProfit(), 2) +
-                 ",\"free_margin\":" + DoubleToStr(AccountFreeMargin(), 2) +
+                 "\",\"balance\":" + DoubleToString(AccountBalance(), 2) +
+                 ",\"equity\":" + DoubleToString(AccountEquity(), 2) +
+                 ",\"profit\":" + DoubleToString(AccountProfit(), 2) +
+                 ",\"free_margin\":" + DoubleToString(AccountFreeMargin(), 2) +
                  ",\"open_positions\":" + IntegerToString(OrdersTotal()) +
                  "}\n";
     PAT_Send(msg);
@@ -1595,7 +1595,8 @@ void HandleClosePosition(string payload)
                     bool isBuy = (OrderType() == OP_BUY);
                     double closePrice = isBuy ? MarketInfo(g_symbol, MODE_BID) : MarketInfo(g_symbol, MODE_ASK);
                     PAT_SetForcedReason(OrderTicket(), "SERVER_CLOSE_POSITION");
-                    OrderClose(OrderTicket(), OrderLots(), closePrice, 10, clrRed);
+                    if(!OrderClose(OrderTicket(), OrderLots(), closePrice, 10, clrRed))
+                        Print("OrderClose failed during SERVER_CLOSE_POSITION: ticket=", OrderTicket(), " err=", GetLastError());
                 }
             }
         }
@@ -1620,7 +1621,8 @@ void HandleEmergencyStop(string payload)
                 bool isBuy = (OrderType() == OP_BUY);
                 double closePrice = isBuy ? MarketInfo(g_symbol, MODE_BID) : MarketInfo(g_symbol, MODE_ASK);
                 PAT_SetForcedReason(OrderTicket(), "SERVER_EMERGENCY_STOP");
-                OrderClose(OrderTicket(), OrderLots(), closePrice, 10, clrRed);
+                if(!OrderClose(OrderTicket(), OrderLots(), closePrice, 10, clrRed))
+                    Print("OrderClose failed during SERVER_EMERGENCY_STOP: ticket=", OrderTicket(), " err=", GetLastError());
             }
         }
     }
@@ -1648,7 +1650,8 @@ void HandleKillSwitch(string payload)
                 bool isBuy = (OrderType() == OP_BUY);
                 double closePrice = isBuy ? MarketInfo(g_symbol, MODE_BID) : MarketInfo(g_symbol, MODE_ASK);
                 PAT_SetForcedReason(OrderTicket(), "SERVER_KILL_SWITCH");
-                OrderClose(OrderTicket(), OrderLots(), closePrice, 10, clrRed);
+                if(!OrderClose(OrderTicket(), OrderLots(), closePrice, 10, clrRed))
+                    Print("OrderClose failed during SERVER_KILL_SWITCH: ticket=", OrderTicket(), " err=", GetLastError());
             }
         }
     }
@@ -2262,6 +2265,7 @@ void PAT_SHA256(const uchar &msg[], uchar &digest[])
     PAT_SHA256K(k);
 
     uint w[64];
+    ArrayInitialize(w, 0); // silence 'possible use of uninitialized variable' (filled per 64-byte block below)
     for(int off = 0; off < paddedLen; off += 64)
     {
         for(int t = 0; t < 16; t++)

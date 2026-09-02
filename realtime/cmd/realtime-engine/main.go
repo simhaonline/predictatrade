@@ -1870,7 +1870,7 @@ func main() {
 	})
 
 	// ─── Session P&L anchors → daily_loss/profit_target gates (R4/PT) ───
-	go runPnLAnchorLoop(gateRegistry, valkeyCache, broker, cfg)
+	go runPnLAnchorLoop(gateRegistry, valkeyCache, broker, cfg, agentProvider)
 	// ─── Rolling forward-test edge stats → edge_validation gate (EV1-EV3) ───
 	// Synchronous initial hydration so capital-protection is active immediately
 	// (fail closed: no restart window where proven-losing strategies can trade).
@@ -2677,8 +2677,8 @@ func main() {
 			// just receives a warning — the agent is disconnected so it cannot
 			// keep receiving EXECUTABLE signals or injecting market data.
 			// v1.19.0 (Option B): no WS to disconnect — the invalid license is
-		// enforced by marking the device OFFLINE (stops enqueue + ingest liveness).
-		markDeviceOffline(agentID)
+			// enforced by marking the device OFFLINE (stops enqueue + ingest liveness).
+			markDeviceOffline(agentID)
 			enqueueNotification(notifications.EventType("AGENT_LICENSE_INVALID"), "critical",
 				"Agent disconnected — invalid license",
 				fmt.Sprintf("Agent %s was disconnected: license status=%s", agentID, status))
@@ -5190,12 +5190,38 @@ func checkPositionSLs(positions *marketdata.SnapshotPositions, agentID string) {
 // In PAPER mode (cfg.PaperEquity > 0) we seed a synthetic known equity anchor so
 // the loss/profit caps evaluate instead of hard-blocking every signal — operator
 // authorized demo behavior. When real broker equity arrives it overrides the seed.
-func runPnLAnchorLoop(gateRegistry *gates.Registry, valkeyCache *cache.ValkeyCache, broker *brokerAccountState, cfg *config.Config) {
+func runPnLAnchorLoop(gateRegistry *gates.Registry, valkeyCache *cache.ValkeyCache, broker *brokerAccountState, cfg *config.Config, agentProvider *marketdata.AgentProvider) {
 	pnlTracker := risk.NewPnLTracker(risk.NewValkeyAnchorStore(valkeyCache))
+	// v1.19.1 SUSTAINED-STATE RE-ANCHOR: a persistent, self-consistent equity level
+	// (deposit/withdrawal/account switch) must be adopted as the new period anchor,
+	// otherwise one legitimate level change looks like a −98% "misread" and pins
+	// daily_loss/profit_target to UNKNOWN forever, vetoing every signal with
+	// pnl_state_unknown. A genuine one-tick misread does NOT persist, so it never
+	// reaches adoption. Adoption requires sustainedTicksNeeded consecutive readings
+	// within sustainedBandPct of each other AND off by more than reanchorDropPct
+	// from the anchor — a band no real intraday loss can cross (the zero-positions
+	// guard above already vetoes impossible losses; this path handles the
+	// legitimate deposit/switch case).
+	const sustainedTicksNeeded = 3 // ~30s of consistent readings at the 10s ticker
+	const reanchorDropPct = 60.0   // deviation from anchor that qualifies as a level change
+	const sustainedBandPct = 5.0   // readings must agree with each other within this band
+	sustainedCount := 0
+	var sustainedRef float64
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for range ticker.C {
 		bs := broker.Get()
+		// v1.19.1: with multiple Client EAs streaming ACCOUNT_INFO concurrently,
+		// the shared broker view must track the FUNDED account (highest fresh
+		// equity) — not whichever client sent the last message (last-write-wins
+		// made an $8.96 demo account ping-pong against an $836 funded account).
+		if funded := agentProvider.GetFundedAccount(); funded != nil && funded.Equity > 0 {
+			positions := &marketdata.SnapshotPositions{TotalPositions: 0}
+			if n, ok := agentProvider.FundedAccountPositions(); ok {
+				positions = &marketdata.SnapshotPositions{TotalPositions: n}
+			}
+			broker.Update(funded, positions, time.Now().UTC())
+		}
 		// LIVE mode always uses the client's REAL broker equity (the connected
 		// Client Agent streams account.Equity). The paper-equity fallback is ONLY
 		// applied when there is no broker snapshot at all (demo/paper), so it can
@@ -5223,6 +5249,8 @@ func runPnLAnchorLoop(gateRegistry *gates.Registry, valkeyCache *cache.ValkeyCac
 				}
 				gateRegistry.UpdateState(types.GateDailyLoss, unknown)
 				gateRegistry.UpdateState(types.GateProfitTarget, unknown)
+				sustainedCount = 0
+				sustainedRef = 0
 				continue
 			}
 		}
@@ -5237,15 +5265,38 @@ func runPnLAnchorLoop(gateRegistry *gates.Registry, valkeyCache *cache.ValkeyCac
 		// feed (e.g. a multi-account terminal returning the wrong account), NOT a
 		// capital event. Reject it so a bad equity feed cannot trigger a false
 		// daily-loss VETO — surface as UNKNOWN and keep the last good anchor.
-		if bs.TotalCount == 0 &&
+		//
+		// v1.19.1: UNLESS the low reading is SUSTAINED and self-consistent — that
+		// is a real account-level change (deposit/withdrawal/account switch),
+		// which we adopt by resetting the period anchors to the new level. This is
+		// the legitimate path that used to dead-end in permanent pnl_state_unknown
+		// (the $842 anchor vs $8.96 live-equity deadlock).
+		severeZeroPos := bs.TotalCount == 0 &&
 			(snap.PeriodPc[risk.PeriodDay] <= -50 ||
 				snap.PeriodPc[risk.PeriodWeek] <= -50 ||
-				snap.PeriodPc[risk.PeriodMonth] <= -50) {
+				snap.PeriodPc[risk.PeriodMonth] <= -50)
+		sustainedMisread := false
+		if severeZeroPos {
+			if sustainedRef > 0 && math.Abs(eq-sustainedRef) <= sustainedRef*sustainedBandPct/100.0 {
+				sustainedCount++
+			} else {
+				sustainedCount = 1
+				sustainedRef = eq
+			}
+			if sustainedCount >= sustainedTicksNeeded {
+				sustainedMisread = true
+			}
+		} else {
+			sustainedCount = 0
+			sustainedRef = 0
+		}
+		if severeZeroPos && !sustainedMisread {
 			observability.Log.Warn().
 				Float64("day_pct", snap.PeriodPc[risk.PeriodDay]).
 				Float64("week_pct", snap.PeriodPc[risk.PeriodWeek]).
 				Float64("month_pct", snap.PeriodPc[risk.PeriodMonth]).
 				Int("open_positions", bs.TotalCount).
+				Int("sustained_ticks", sustainedCount).
 				Msg("[PNL] severe drawdown with zero open positions — rejecting misread equity feed")
 			unknown := gates.GateState{
 				State:         types.GateUnknown,
@@ -5256,6 +5307,28 @@ func runPnLAnchorLoop(gateRegistry *gates.Registry, valkeyCache *cache.ValkeyCac
 			gateRegistry.UpdateState(types.GateDailyLoss, unknown)
 			gateRegistry.UpdateState(types.GateProfitTarget, unknown)
 			continue
+		}
+		if sustainedMisread {
+			observability.Log.Warn().
+				Float64("anchor_equity", snap.Equity).
+				Float64("new_equity", eq).
+				Int("sustained_ticks", sustainedCount).
+				Msg("[PNL] sustained equity level change with zero open positions — re-anchoring period anchors (deposit/withdrawal/account switch)")
+			if err := pnlTracker.ReanchorAll(eq, now); err != nil {
+				observability.Log.Error().Err(err).Msg("[PNL] failed to persist re-anchor; keeping gates closed")
+				unknown := gates.GateState{
+					State:         types.GateUnknown,
+					EvaluatedAt:   now,
+					SourceVersion: "pnl_tracker",
+					Quality:       types.QualityAuthoritative,
+				}
+				gateRegistry.UpdateState(types.GateDailyLoss, unknown)
+				gateRegistry.UpdateState(types.GateProfitTarget, unknown)
+				continue
+			}
+			snap = pnlTracker.Update(eq, now)
+			sustainedCount = 0
+			sustainedRef = 0
 		}
 		gateRegistry.UpdateState(types.GateDailyLoss, gates.GateState{
 			GateID: types.GateDailyLoss, State: types.GatePass, Value: snap,

@@ -142,6 +142,34 @@ func (t *PnLTracker) Update(equity float64, now time.Time) PnLSnapshot {
 	return snap
 }
 
+// ReanchorAll force-resets ALL period anchors (day/week/month) to the given
+// equity level. Used when the engine detects a SUSTAINED equity level change
+// (deposit, withdrawal, or account switch): keeping the stale anchor would
+// produce a permanent −98% reading that the misread guard turns into an
+// endless pnl_state_unknown veto. Re-anchoring makes the new level the
+// baseline (P&L = 0) so the loss/profit caps resume evaluating against it.
+// Set (not SetNX) — the existing stale anchor must be replaced. Storage
+// failure returns an error so callers can keep gates closed (fail-closed).
+func (t *PnLTracker) ReanchorAll(equity float64, now time.Time) error {
+	if t == nil || t.store == nil {
+		return fmt.Errorf("pnl tracker store unavailable")
+	}
+	if equity <= 0 {
+		return fmt.Errorf("reanchor requires positive equity, got %v", equity)
+	}
+	nowUTC := now.UTC()
+	for _, p := range []Period{PeriodDay, PeriodWeek, PeriodMonth} {
+		blob, err := json.Marshal(PeriodAnchor{PeriodID: PeriodID(nowUTC, p), Equity: equity, SetAt: nowUTC.Format(time.RFC3339)})
+		if err != nil {
+			return fmt.Errorf("marshal %s anchor: %w", p, err)
+		}
+		if err := t.store.Set(AnchorKey(p), blob, AnchorTTL); err != nil {
+			return fmt.Errorf("persist %s anchor: %w", p, err)
+		}
+	}
+	return nil
+}
+
 func (t *PnLTracker) periodPct(p Period, equity float64, now time.Time) (float64, bool) {
 	key := AnchorKey(p)
 	id := PeriodID(now, p)

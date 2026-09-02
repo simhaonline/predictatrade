@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"log"
 	"math"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -620,29 +621,94 @@ func (p *AgentProvider) GetPrimaryAccount(agentID string) *SnapshotAccount {
 	return best.account
 }
 
+// GetFundedAccount returns the highest-equity known account across ALL agents
+// (fresh within 90s), i.e. the funded trading account. v1.19.1: multiple Client
+// EAs stream ACCOUNT_INFO concurrently (one per terminal); the shared broker
+// view must track the FUNDED account consistently instead of last-write-wins
+// (a $8.96 demo ping-ponging against an $836 funded account made the P&L
+// anchor flappy and the misread-guard oscillate). Fail-closed: nil when no
+// fresh account state exists.
+func (p *AgentProvider) GetFundedAccount() *SnapshotAccount {
+	p.agentAccMu.Lock()
+	defer p.agentAccMu.Unlock()
+	var best *agentAccountState
+	for _, accts := range p.agentAccounts {
+		for _, st := range accts {
+			if st == nil || !st.known || st.account == nil {
+				continue
+			}
+			if time.Since(st.updatedAt) > 60*time.Second {
+				continue
+			}
+			if best == nil || st.equity > best.equity {
+				best = st
+			}
+		}
+	}
+	if best == nil {
+		return nil
+	}
+	return best.account
+}
+
+// FundedAccountPositions reports the open-position count of the funded account
+// (see GetFundedAccount). ok=false when no fresh funded account is known — the
+// caller must then NOT claim positions are known (fail-closed).
+func (p *AgentProvider) FundedAccountPositions() (int64, bool) {
+	p.agentAccMu.Lock()
+	defer p.agentAccMu.Unlock()
+	var best *agentAccountState
+	for _, accts := range p.agentAccounts {
+		for _, st := range accts {
+			if st == nil || !st.known || st.account == nil {
+				continue
+			}
+			if time.Since(st.updatedAt) > 60*time.Second {
+				continue
+			}
+			if best == nil || st.equity > best.equity {
+				best = st
+			}
+		}
+	}
+	if best == nil {
+		return 0, false
+	}
+	return int64(best.totalPositions), true
+}
+
 // hydrateAccountFromJSON parses a generic agent message (e.g. the signal EA's
 // INIT/LICENSE_CHECK payload, which carries balance/equity at the top level) and
 // records it as a broker account snapshot. It is an additional equity feed beside
 // the Master Node's account_info, so the funded trading account's equity reaches
 // risk gating even when the Master Node EA is attached to a different account.
+// derefInt safely dereferences an optional int pointer for logging ("null" when absent).
+func derefInt(v *int) string {
+	if v == nil {
+		return "null"
+	}
+	return strconv.Itoa(*v)
+}
+
 func (p *AgentProvider) hydrateAccountFromJSON(agentID string, data []byte) {
 	var acct struct {
-		Account    string  `json:"account"`
-		Broker     string  `json:"broker"`
-		Balance    float64 `json:"balance"`
-		Equity     float64 `json:"equity"`
-		Margin     float64 `json:"margin"`
-		FreeMargin float64 `json:"free_margin"`
-		Profit     float64 `json:"profit"`
-		Currency   string  `json:"currency"`
-		Leverage   int64   `json:"leverage"`
-		Server     string  `json:"server"`
+		Account       string  `json:"account"`
+		Broker        string  `json:"broker"`
+		Balance       float64 `json:"balance"`
+		Equity        float64 `json:"equity"`
+		Margin        float64 `json:"margin"`
+		FreeMargin    float64 `json:"free_margin"`
+		Profit        float64 `json:"profit"`
+		Currency      string  `json:"currency"`
+		Leverage      int64   `json:"leverage"`
+		Server        string  `json:"server"`
+		OpenPositions *int    `json:"open_positions"` // nil → EA build predates position telemetry
 	}
 	if err := json.Unmarshal(data, &acct); err != nil {
 		return
 	}
-	log.Printf("[ACCT-INIT] agent=%s balance=%.2f equity=%.2f free_margin=%.2f leverage=%d currency=%s broker=%s",
-		agentID, acct.Balance, acct.Equity, acct.FreeMargin, acct.Leverage, acct.Currency, acct.Broker)
+	log.Printf("[ACCT-INIT] agent=%s balance=%.2f equity=%.2f free_margin=%.2f leverage=%d currency=%s broker=%s open_positions=%s",
+		agentID, acct.Balance, acct.Equity, acct.FreeMargin, acct.Leverage, acct.Currency, acct.Broker, derefInt(acct.OpenPositions))
 	if acct.Balance <= 0 && acct.Equity <= 0 {
 		return
 	}
@@ -657,9 +723,17 @@ func (p *AgentProvider) hydrateAccountFromJSON(agentID string, data []byte) {
 		Leverage:   acct.Leverage,
 		Server:     acct.Server,
 	}
-	p.RecordAgentAccount(agentID, snap, nil)
+	// v1.19.1: the EA now reports its open-position count inside ACCOUNT_INFO so
+	// the misread-equity guard and position caps see real positions instead of
+	// guessing 0 (which previously failed closed with positions_unknown).
+	var positions *SnapshotPositions
+	if acct.OpenPositions != nil && *acct.OpenPositions >= 0 {
+		n := int64(*acct.OpenPositions)
+		positions = &SnapshotPositions{TotalPositions: n}
+	}
+	p.RecordAgentAccount(agentID, snap, positions)
 	if p.brokerAccountHydrateFn != nil {
-		p.brokerAccountHydrateFn(agentID, snap, nil)
+		p.brokerAccountHydrateFn(agentID, snap, positions)
 	}
 	// The Client (exec) node's account payload carries the user's OWN trading
 	// broker (e.g. Xelance) — persist it so dashboards show the user's broker,
