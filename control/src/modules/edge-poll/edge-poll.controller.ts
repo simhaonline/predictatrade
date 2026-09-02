@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Headers, Req, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Post, Headers, Req, UnauthorizedException, HttpCode, HttpStatus } from '@nestjs/common';
 import { EdgePollService } from './edge-poll.service';
 import { DeviceAuthService } from '../device-auth/device-auth.service';
 
@@ -71,6 +71,7 @@ export class EdgePollController {
    * Returns pending EXECUTABLE signals for this device and marks them IN_FLIGHT.
    */
   @Post('edge-poll')
+  @HttpCode(HttpStatus.OK) // EAs check status == 200 — Nest's POST default is 201
   async pollSignals(@Body() body: any, @Headers() headers: any, @Req() req: any) {
     const deviceId = await this.verify(req, headers, body);
     return this.edgePoll.poll(deviceId, body || {});
@@ -81,6 +82,7 @@ export class EdgePollController {
    * Device confirms execution result for a previously delivered queue item.
    */
   @Post('edge-ack')
+  @HttpCode(HttpStatus.OK) // EAs check status == 200 — Nest's POST default is 201
   async edgeAck(@Body() body: any, @Headers() headers: any, @Req() req: any) {
     const deviceId = await this.verify(req, headers, body);
     return this.edgePoll.ack(deviceId, body || {});
@@ -91,6 +93,7 @@ export class EdgePollController {
    * EA liveness + optional terminal/account metadata (admin dashboards).
    */
   @Post('edge-heartbeat')
+  @HttpCode(HttpStatus.OK) // EAs check status == 200 — Nest's POST default is 201
   async edgeHeartbeat(@Body() body: any, @Headers() headers: any, @Req() req: any) {
     const deviceId = await this.verify(req, headers, body);
     const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress;

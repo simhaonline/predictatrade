@@ -232,7 +232,7 @@ export class DeviceAuthService {
    * Refresh access token using rotating refresh token.
    * Implements: token rotation, family-based reuse detection.
    */
-  async refresh(refreshToken: string, deviceId: string, role?: 'data' | 'exec'): Promise<RefreshResponse> {
+  async refresh(refreshToken: string, deviceId: string | undefined, role?: 'data' | 'exec'): Promise<RefreshResponse> {
     const tokenHash = this.hashSecret(refreshToken);
 
     const client = await this.pool.connect();
@@ -278,7 +278,10 @@ export class DeviceAuthService {
       }
 
       // Verify device is still active
-      if (token.device_id !== deviceId) {
+      // deviceId may be undefined — MT4/MT5 EAs send only refresh_token; the
+      // device is derived from the token row itself. When deviceId IS provided
+      // it must match (prevents cross-device token use).
+      if (deviceId !== undefined && token.device_id !== deviceId) {
         await client.query('ROLLBACK');
         throw new UnauthorizedException('Device mismatch');
       }
