@@ -14,6 +14,7 @@ package gates
 // is never presented to subscribers as a probability (SOW Section 16 / AGENTS.md).
 
 import (
+	"github.com/predictatrade/realtime/internal/observability"
 	"time"
 
 	"github.com/predictatrade/realtime/internal/types"
@@ -69,6 +70,17 @@ func (g *ProfitabilityGate) Evaluate(input GateInput, state GateState) GateEvalu
 		if input.IsLossCandidate {
 			eval.Result = types.GateVeto
 			eval.ReasonCodes = append(eval.ReasonCodes, "NEGATIVE_EXPECTANCY")
+			// v1.19.2 DIAGNOSTIC: refinement loss-candidate vetoes spiked 100% —
+			// log the refinement metrics that produced the flag.
+			observability.Log.Warn().
+				Bool("loss_candidate", input.IsLossCandidate).
+				Float64("signal_score", input.SignalScore).
+				Float64("round_trip_cost", input.RoundTripCost).
+				Float64("entry", input.EntryPrice).
+				Float64("sl", input.StopLoss).
+				Float64("tp1", input.TakeProfit1).
+				Str("strategy", string(input.StrategyID)).
+				Msg("[PROFITABILITY] veto — refinement flagged loss candidate")
 			return eval
 		}
 	}
