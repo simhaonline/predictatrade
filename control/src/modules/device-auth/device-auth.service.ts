@@ -512,17 +512,25 @@ export class DeviceAuthService {
   private computeMatchScore(newFp: any, storedFp: any): number {
     let totalWeight = 0;
     let matchedWeight = 0;
+    let storedPresent = 0;
 
+    // Score over the components the STORED device actually has. Legacy/EA
+    // devices may only send a subset (MT4/MT5 EAs send machine_guid only);
+    // requiring score >= 75 over the FULL weight table made them never match,
+    // so every activation retry bound a brand-new device until slots ran out
+    // (409 DEVICE_LIMIT_EXCEEDED on a fresh 2-slot license).
     for (const [component, weight] of Object.entries(FINGERPRINT_WEIGHTS)) {
-      totalWeight += weight;
-      const newVal = newFp[component] ? this.hashComponent(newFp[component]) : null;
       const storedVal = storedFp[component];
-      if (newVal && storedVal && newVal === storedVal) {
+      if (!storedVal) continue; // component not collected for this device
+      storedPresent += weight;
+      const newVal = newFp[component] ? this.hashComponent(newFp[component]) : null;
+      if (newVal && newVal === storedVal) {
         matchedWeight += weight;
       }
     }
 
-    return totalWeight > 0 ? Math.round((matchedWeight / totalWeight) * 100) : 0;
+    if (storedPresent === 0) return 0;
+    return Math.round((matchedWeight / storedPresent) * 100);
   }
 
   /** Hash all fingerprint components with pepper for privacy-aware storage */
