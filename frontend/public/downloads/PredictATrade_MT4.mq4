@@ -1398,7 +1398,7 @@ void SendInitMessage()
             else if(OrderType() == OP_SELL) { sellCount++; totalLots += OrderLots(); }
         }
     }
-    string msg = "INIT|{\"ea_version\":\"1.21\",\"broker\":\"" + AccountCompany() +
+    string msg = "INIT|{\"ea_version\":\"1.22\",\"broker\":\"" + AccountCompany() +
                  "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
                  "\",\"license_key\":\"" + LicenseKey +
                  "\",\"balance\":" + DoubleToString(AccountBalance(), 2) +
@@ -1421,7 +1421,7 @@ void SendInitMessage()
 //+------------------------------------------------------------------+
 void SendAccountInfo()
 {
-    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.21\",\"account\":\"" + g_accountID +
+    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.22\",\"account\":\"" + g_accountID +
                  "\",\"broker\":\"" + AccountCompany() +
                  "\",\"symbol\":\"" + g_symbol +
                  "\",\"currency\":\"" + AccountCurrency() +
@@ -2671,10 +2671,16 @@ void PollFromCloud()
     {
         string payload = items[i];
         string msgType = ExtractJSONString(payload, "type");
+        // v1.21b: the poller extracts the INNER signal object (post off-by-one fix).
+        // Signal payloads carry "ID" (no "type", no "signal_id") — detect them the
+        // same way the MT5 client does, else every real signal fell to UNKNOWN and
+        // was acked-but-never-executed.
         if(StringLen(msgType) == 0)
         {
-            if(StringFind(payload, "\"signal_id\"") >= 0) msgType = "SIGNAL";
-            else msgType = "UNKNOWN";
+            if(StringFind(payload, "\"signal_id\"") >= 0 || ExtractJSONString(payload, "ID") != "")
+                msgType = "SIGNAL";
+            else
+                msgType = "UNKNOWN";
         }
 
         if(msgType == "SIGNAL")
