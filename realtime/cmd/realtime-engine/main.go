@@ -671,7 +671,7 @@ func enqueueSignalForDevices(signal *types.Signal) {
 	}
 	res, err := globalPersister.GetDB().ExecContext(ctx, `
 		INSERT INTO licensing.edge_signal_queue (device_id, signal_id, payload)
-		SELECT d.id, $1, $2::jsonb
+		SELECT d.id, $1::text, $2::jsonb
 		  FROM licensing.devices d
 		  JOIN licensing.licenses l ON l.id = d.bound_license_id
 		  LEFT JOIN control.plans p ON p.id = l.plan_id
@@ -685,7 +685,7 @@ func enqueueSignalForDevices(signal *types.Signal) {
 		        OR p.allowed_strategies::text LIKE '%' || $3 || '%')
 		   AND NOT EXISTS (
 		         SELECT 1 FROM licensing.edge_signal_queue q
-		          WHERE q.device_id = d.id AND q.signal_id = $1)`,
+		          WHERE q.device_id = d.id AND q.signal_id = $1::text)`,
 		signal.ID, string(payload), string(signal.StrategyID))
 	if err != nil {
 		observability.Log.Warn().Err(err).Str("signal_id", signal.ID).
@@ -4201,7 +4201,18 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 						// (score >= trade bar) that passes every hard gate becomes
 						// executable (fail-closed — gates still veto). This is the
 						// "trade on the strongest single strategy" behavior.
+						// v1.19.1 FIX: keep SignalClass in sync with Executable. The
+						// candidate path hardcodes SignalClass "ADVISORY" at
+						// construction, but the Client EA executes on SignalClass ==
+						// "EXECUTABLE" (not the Executable flag) — promoted signals
+						// were enqueued by the server yet skipped by the EA. An
+						// executable-eligible read (score >= trade bar, all gates PASS,
+						// direction BUY/SELL) must be classed EXECUTABLE; everything
+						// else stays ADVISORY.
 						sig.Executable = rawScoreF >= tradeThresh && candDecision.AllGatesPass
+						if sig.Executable && (sig.Direction == types.DirectionBuy || sig.Direction == types.DirectionSell) {
+							sig.SignalClass = "EXECUTABLE"
+						}
 					}
 
 					broadcastSignalToAll(wsHub, sig)
