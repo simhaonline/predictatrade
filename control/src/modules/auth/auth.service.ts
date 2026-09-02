@@ -250,7 +250,10 @@ export class AuthService {
       [user.id],
     );
     const userRole = roleResult.rows.length > 0 ? roleResult.rows[0].role_name : 'USER';
-    const PRIVILEGED_ROLES = new Set(['ADMIN', 'SUPER_ADMIN', 'OPERATOR']);
+    // MUST match JwtAuthGuard's privileged set — RISK_MANAGER /
+    // TRADING_OPERATOR are guarded too, so they need the enrollment flag
+    // minted or they'd be hard-blocked with no route to enrollment.
+    const PRIVILEGED_ROLES = new Set(['ADMIN', 'SUPER_ADMIN', 'OPERATOR', 'RISK_MANAGER', 'TRADING_OPERATOR']);
     const requiresMfaEnrollment = PRIVILEGED_ROLES.has(userRole) && mfaResult.rows.length === 0;
     if (requiresMfaEnrollment) {
       await this.logLoginEvent(user.id, 'LOGIN_MFA_ENROLLMENT_REQUIRED', { role: userRole });
