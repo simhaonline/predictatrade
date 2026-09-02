@@ -15,10 +15,15 @@ interface AgentsStatus {
 
 function useCountdown(target?: string) {
   const [, force] = useState(0);
+  const [mounted, setMounted] = useState(false);
   useEffect(() => {
+    setMounted(true);
     const t = setInterval(() => force((x) => x + 1), 1000);
     return () => clearInterval(t);
   }, []);
+  // SSR renders a stable placeholder; the live countdown (Date.now()-based,
+  // non-deterministic) mounts client-side only — prevents React #418.
+  if (!mounted) return null;
   if (!target) return null;
   const ms = new Date(target).getTime() - Date.now();
   if (ms <= 0) return "opening…";
@@ -32,7 +37,12 @@ function useCountdown(target?: string) {
 
 export function MarketStatusBanner() {
   const [, force] = useState(0);
-  useEffect(() => { const t = setInterval(() => force((x) => x + 1), 1000); return () => clearInterval(t); }, []);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+    const t = setInterval(() => force((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
   const q = useQuery({
     queryKey: ["agents-status-banner"],
     queryFn: async () => (await fetchAgentsStatus()) as AgentsStatus,
@@ -52,7 +62,7 @@ export function MarketStatusBanner() {
         </div>
         {d.next_market_open_utc && (
           <div className="rounded bg-pat-bg-surface px-3 py-1.5 text-xs text-pat-text-secondary">
-            Re-opens in <b className="text-pat-text-primary">{d.next_market_open_utc ? fmt(d.next_market_open_utc) : "…"}</b>{" "}
+            Re-opens in <b className="text-pat-text-primary">{mounted ? (d.next_market_open_utc ? fmt(d.next_market_open_utc) : "…") : "…"}</b>{" "}
             <span className="opacity-70">({new Date(d.next_market_open_utc).toISOString()})</span>
           </div>
         )}

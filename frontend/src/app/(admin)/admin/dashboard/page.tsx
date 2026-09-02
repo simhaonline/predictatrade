@@ -147,6 +147,8 @@ export default function AdminDashboardPage() {
   })();
   const engineAlive = engineEvaluating;
   const agentCount = Number(agentsStatus?.agents_connected ?? 0) || (Array.isArray(agentsStatus?.agents) ? agentsStatus.agents.length : 0);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const hasAgents = agentCount > 0;
   const wsConnected = wsState === 'CONNECTED';
   const agentsOnline = agentsStatus?.agents_online ?? false;
@@ -275,7 +277,7 @@ export default function AdminDashboardPage() {
             <div className="text-sm text-pat-text-muted py-4 text-center">No live market data</div>
           )}
           <div className="text-xs text-pat-text-muted mt-2">
-            {tickTimeStr && <div>Last Tick: {new Date(tickTimeStr).toLocaleTimeString()} UTC ({tickAgeSec !== null ? `${Math.round(tickAgeSec)}s ago` : "—"})</div>}
+            {mounted && tickTimeStr && <div suppressHydrationWarning>Last Tick: {new Date(tickTimeStr).toLocaleTimeString()} UTC ({tickAgeSec !== null ? `${Math.round(tickAgeSec)}s ago` : "—"})</div>}
             {tickSource && <div>Source: {tickSource}</div>}
             {currentSession && <div>Session: {currentSession}</div>}
             {currentRegime && <div>Regime: {currentRegime}</div>}
