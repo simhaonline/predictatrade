@@ -2428,7 +2428,7 @@ string PAT_DeviceFingerprint()
 {
     string raw = "MT4|" + AccountCompany()
                + "|" + TerminalPath()
-               + "|" + IntegerToString(TerminalBuild());
+               + "|" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD));
     return PAT_SHA256Hex(raw);
 }
 
@@ -2709,7 +2709,7 @@ void PAT_EdgeHeartbeat()
 {
     if(!PAT_EnsureDevice()) return;
     string body = "{\"terminal\":\"MT4\",\"account\":\"" + g_accountID + "\","
-                  "\"symbol\":\"" + g_symbol + "\",\"build\":" + IntegerToString(TerminalBuild()) + "}";
+                  "\"symbol\":\"" + g_symbol + "\",\"build\":" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD)) + "}";
     string response = "";
     int status = PAT_SignedPost("/api/v1/devices/edge-heartbeat", body, response);
     if(status != 200 && !g_netDiagnosticsShown)

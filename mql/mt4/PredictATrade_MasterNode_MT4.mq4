@@ -923,7 +923,7 @@ string MasterDeviceFingerprint()
 {
     string raw = "MT4-MASTER|" + AccountCompany()
                + "|" + TerminalPath()
-               + "|" + IntegerToString(TerminalBuild());
+               + "|" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD));
     return MasterSHA256Hex(raw);
 }
 
