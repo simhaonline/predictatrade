@@ -958,10 +958,12 @@ export class AdminService {
         FROM trading.signals WHERE created_at > now() - interval '24 hours'`),
 
       // Gate veto reasons (from reason_codes in BLOCKED signals — grade=BLOCKED, not direction)
+      // 22023 guard: jsonb_array_elements_text throws on JSON scalars/nulls, so
+      // restrict to rows where reason_codes is actually a JSON array.
       this.pool.query(`
         SELECT jsonb_array_elements_text(reason_codes) as reason, count(*) as count
-        FROM trading.signals 
-        WHERE grade = 'BLOCKED' AND reason_codes IS NOT NULL AND reason_codes::text != '[]'
+        FROM trading.signals
+        WHERE grade = 'BLOCKED' AND jsonb_typeof(reason_codes) = 'array' AND reason_codes::text != '[]'
         GROUP BY reason ORDER BY count DESC LIMIT 10`),
     ]);
 
