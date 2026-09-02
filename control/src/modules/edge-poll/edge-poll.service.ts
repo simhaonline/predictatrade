@@ -27,6 +27,19 @@ export class EdgePollService {
     const maxSignals = Math.min(Math.max(parseInt(body?.max_signals, 10) || 10, 1), 20);
 
     // Reclaim stale IN_FLIGHT (EA crashed mid-batch) back to PENDING.
+    // Dead-letter guard: rows whose attempts already exceed the cap (an old
+    // EA build that never acks a payload type it doesn't understand) are
+    // marked EXPIRED instead of being re-queued forever — without this, a
+    // single incompatible row loops reclaim→deliver→no-ack indefinitely
+    // (observed: 763 attempts on SERVER_COMMAND + pre-v1.23 EA).
+    await this.pool.query(
+      `UPDATE licensing.edge_signal_queue
+          SET status = 'EXPIRED', last_error = COALESCE(last_error,'') || ' dead-lettered (attempt cap);'
+        WHERE device_id = $1::uuid AND status = 'IN_FLIGHT'
+          AND in_flight_at < now() - interval '30 seconds'
+          AND attempts >= 50`,
+      [deviceId],
+    );
     await this.pool.query(
       `UPDATE licensing.edge_signal_queue
           SET status = 'PENDING', last_error = COALESCE(last_error,'') || ' reclaimed;'
