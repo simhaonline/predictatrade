@@ -312,3 +312,19 @@ backup chain is added, the practical RPO floor is the 6-hour dump cadence.
 - [Disaster Recovery Plan](DR_PLAN.md)
 - [Incident Response Plan](INCIDENT_RESPONSE_PLAN.md)
 - [Database Architecture](../database/DATABASE_ARCHITECTURE.md)
+
+
+### 6.1 Off-host Encryption Status (verified 2026-09-02)
+
+| Store | Encryption | Status |
+|-------|-----------|--------|
+| Hetzner S3 bucket (backups) | Bucket-default SSE | NOT AVAILABLE — Hetzner rejects `PutBucketEncryption` (AES256 + aws:kms both `InvalidArgument`); per-object `--sse` triggers botocore `NoneType` bug on this aws-cli combo |
+| Hetzner S3 mitigations | TLS in transit; bucket is private; access-key scoped | In place |
+| Docker volume (pat-pgdata) | Host disk ext4, no LUKS | Gap — host-level encryption or Hetzner encrypted volume required |
+| DB internal | `ssl=off` (fine — intra-docker network only; ports now loopback-only) | Risk accepted |
+
+**Residual risk:** backup objects rest unencrypted at the object store.
+Mitigations (choose one): (a) client-side encrypt dumps with `age`/`gpg`
+before `aws s3 cp` (add to backup.sh + physical_backup.sh), or (b) Hetzner
+support ticket to enable SSE on the bucket, or (c) move to a provider with
+SSE (OVH S3, Scaleway, AWS S3). Tracked as open item.
