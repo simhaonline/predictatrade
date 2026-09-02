@@ -1,9 +1,17 @@
 import { Body, Controller, Post, Headers, Req, UnauthorizedException, HttpCode, HttpStatus } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { EdgePollService } from './edge-poll.service';
 import { DeviceAuthService } from '../device-auth/device-auth.service';
 
 /**
  * EdgePollController — EA-direct transport endpoints.
+ *
+ * Throttling: machine-to-machine polling (every tick up to ~1s cadence per
+ * device). The global 300/min/IP ThrottlerModule bucket is shared by ALL
+ * terminals behind one VPS IP, so interactive-traffic limits here caused
+ * HTTP 429 storms across every MT client (2026-09-02 incident). edge-poll
+ * is exempt from the global throttle; abuse is bounded per-device by the
+ * HMAC device identity (verifyRequestSignature) + nginx's 10r/s/IP zone.
  *
  * Auth: Proof-of-Device HMAC (same scheme as the Windows agent).
  *   Headers:
@@ -18,6 +26,7 @@ import { DeviceAuthService } from '../device-auth/device-auth.service';
  * (timestamp window, nonce replay protection, device revocation, license state),
  * then dispatches. Entitlement (strategy-level) enforcement happens at delivery.
  */
+@SkipThrottle()
 @Controller('devices')
 export class EdgePollController {
   constructor(

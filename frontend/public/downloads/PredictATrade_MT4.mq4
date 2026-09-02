@@ -30,7 +30,7 @@
 //| SERVER - no EA recompile required.                               |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.00"
+#property version   "1.23"
 #property strict
 
 // ─── Signal/Execution inputs ───
@@ -38,7 +38,8 @@ input bool    AutoExecute    = false;   // SIGNAL_ONLY=true by default (display 
 input bool    BypassDailyLossBlock = false; // Allow new trades even after the soft daily-loss limit is hit. Hard halt (close-all at MaxDailyLossPct) is NEVER bypassed.
 input string  LicenseKey     = "";
 input string  PATCloudURL    = "https://api.predictatrade.com"; // Cloud API base URL (add to WebRequest allowlist)
-input string  ChartTimeframe = "M1";    // Chart/timeframe this EA instance trades (M1/M5/H1/...)
+input string  ChartTimeframe = "M1";
+input int     PATPollMs      = 3000;    // Edge-poll interval, ms (>=1000; ULTRA TTL is 3m so 3s is safe)    // Chart/timeframe this EA instance trades (M1/M5/H1/...)
 
 // ─── Strategy/Direction filters ───
 // Strategy selection is SERVER-CONTROLLED based on your license plan.
@@ -1398,7 +1399,7 @@ void SendInitMessage()
             else if(OrderType() == OP_SELL) { sellCount++; totalLots += OrderLots(); }
         }
     }
-    string msg = "INIT|{\"ea_version\":\"1.22\",\"broker\":\"" + AccountCompany() +
+    string msg = "INIT|{\"ea_version\":\"1.23\",\"broker\":\"" + AccountCompany() +
                  "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
                  "\",\"license_key\":\"" + LicenseKey +
                  "\",\"balance\":" + DoubleToString(AccountBalance(), 2) +
@@ -1421,7 +1422,7 @@ void SendInitMessage()
 //+------------------------------------------------------------------+
 void SendAccountInfo()
 {
-    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.22\",\"account\":\"" + g_accountID +
+    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.23\",\"account\":\"" + g_accountID +
                  "\",\"broker\":\"" + AccountCompany() +
                  "\",\"symbol\":\"" + g_symbol +
                  "\",\"currency\":\"" + AccountCurrency() +
@@ -2662,6 +2663,15 @@ void PAT_EdgeHeartbeat()
 //+------------------------------------------------------------------+
 void PollFromCloud()
 {
+    // v1.23: cadence guard — polling on every tick hammered the cloud with
+    // 100-290 req/min per terminal and tripped the shared-IP HTTP 429 throttle
+    // for ALL clients behind the same IP. MT5 has had this guard since v1.10;
+    // MT4 was the unguarded regression.
+    static uint lastPoll = 0;
+    uint nowMs = GetTickCount();
+    if(nowMs - lastPoll < (uint)MathMax(PATPollMs, 1000)) return;
+    lastPoll = nowMs;
+
     string items[];
     string queueIds[];
     int n = PAT_EdgePoll(items, queueIds);

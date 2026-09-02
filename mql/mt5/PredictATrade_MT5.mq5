@@ -37,7 +37,7 @@
 //| SERVER - no EA recompile required.                               |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.19"
+#property version   "1.20"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -50,7 +50,7 @@ input string  ChartTimeframe = "M1";    // Chart/timeframe this EA instance trad
 input string  PATCloudURL    = "https://api.predictatrade.com"; // Cloud API base URL (must be in WebRequest allowlist)
 input string  PATDeviceId    = "";      // Device UUID (optional — auto-activation from LicenseKey if empty)
 input string  PATDeviceSecret= "";      // Device secret (optional — auto-activation from LicenseKey if empty)
-input int     PATPollMs      = 1000;    // Signal poll interval, ms (>=500)
+input int     PATPollMs      = 3000;    // Signal poll interval, ms (>=500; 3s default — ULTRA TTL is 3m)
 
 //=== Strategy Selection ===
 // Strategy selection is controlled by the SERVER based on your license plan.
@@ -1239,7 +1239,7 @@ void SendInitMessage()
     if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
        Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
 
-    string msg = "INIT|{\"ea_version\":\"1.10\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
+    string msg = "INIT|{\"ea_version\":\"1.20\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                 "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
                 "\",\"license_key\":\"" + g_licenseKey +
                 "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
@@ -1272,7 +1272,7 @@ void SendAccountInfo()
     // bound account id does not match, so telemetry is never silently wrong.
     if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
        Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
-    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.10\",\"account\":\"" + g_accountID +
+    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.20\",\"account\":\"" + g_accountID +
                 "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                 "\",\"symbol\":\"" + g_symbol +
                 "\",\"currency\":\"" + AccountInfoString(ACCOUNT_CURRENCY) +

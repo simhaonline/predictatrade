@@ -1,8 +1,10 @@
+import { SkipThrottle } from '@nestjs/throttler';
 import { Body, Controller, Post, Get, Headers, Req, UseGuards, BadRequestException, UnauthorizedException, HttpCode, HttpStatus } from '@nestjs/common';
 import { DeviceAuthService } from './device-auth.service';
 import { AdminGuard } from '../../common/guards/admin.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
+@SkipThrottle()
 @Controller('devices')
 export class DeviceAuthController {
   constructor(private deviceAuthService: DeviceAuthService) {}
