@@ -1,4 +1,19 @@
 # MT4/MT5 EA-Client Guide (Option B)
+## v1.23 (MT4) / v1.20 (MT5) — 2 September 2026
+
+- **Edge-poll cadence guard**: new `PATPollMs` input (default 3000 ms, floor
+  1000 ms). Polls are throttled to one per interval instead of one per tick —
+  fixes the 2026-09-02 HTTP 429 storm (ThrottlerException) where tick-rate
+  polling from several terminals behind one VPS IP exhausted the shared
+  300 req/min bucket. **Recompile required** — old builds still work but may
+  hit 429s under load.
+- **Restart race fix**: signals arriving before the first license activation
+  completed (status still PENDING) are no longer dropped client-side. They
+  were already filtered server-side by license + plan. Explicit negative
+  license states (REVOKED / SUSPENDED / EXPIRED / DENIED) still block.
+  Fixes "Strategy check: license not validated — blocking STANDARD_SWING"
+  after terminal restarts.
+
 ## v1.19.0 — 1 September 2026
 
 ### Overview
