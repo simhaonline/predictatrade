@@ -223,6 +223,12 @@ export async function fetchRegimeDiagnostics() {
   return res.data;
 }
 
+// === Capital-Tiered Signal Engine (v1.23) ===
+export async function fetchSignalEngine() {
+  const res = await customInstance.get("/admin/signal-engine");
+  return res.data;
+}
+
 // === PTB Feature Flags (admin) ===
 export async function fetchFeatureFlags() {
   const res = await customInstance.get("/admin/feature-flags");

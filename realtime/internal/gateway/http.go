@@ -29,9 +29,9 @@ import (
 // HTTPServer serves REST API, health checks, and metrics.
 // Binds to 127.0.0.1 — Nginx is the public ingress.
 type HTTPServer struct {
-	hub           *WebSocketHub
-	persister     *marketdata.Persister
-	states        *features.StateManager
+	hub       *WebSocketHub
+	persister *marketdata.Persister
+	states    *features.StateManager
 	// v1.19.0 (Option B): agentHub/DataAgentHub fields REMOVED — the WS hub is gone.
 	agentProvider interface {
 		GetLastSnapshot() interface{}
@@ -192,6 +192,10 @@ func (h *HTTPServer) registerRoutes() {
 
 	// Per-strategy-engine liveness (prompt.md Sections 26, 38, 43-46)
 	h.mux.HandleFunc("/api/v1/engines/status", h.handleEnginesStatus)
+
+	// Capital-tiered signal engine overview (admin JWT required) — per-tier
+	// device/delivery counts, recent signals with EligibleTiers, 24h stats.
+	h.mux.HandleFunc("/api/v1/admin/signal-engine", h.requireAdminAction(h.handleSignalEngine))
 
 	// Cross-Market Confluence Engine API
 	if h.crossMarketEngine != nil {

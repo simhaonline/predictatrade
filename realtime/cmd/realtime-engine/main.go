@@ -4570,6 +4570,40 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 		spreadNow, _ := mergedState.Spread.Float64()
 		roundTripCostF := spreadNow + cfg.SlippageCostPoints + cfg.CommissionCostPoints
 		roundTripCost := decimal.NewFromFloat(roundTripCostF)
+		// v1.23.1: capital-tier eligibility is computed UNCONDITIONALLY from the
+		// seeded strategy geometry (entry/SL are final after seedMarketLevels +
+		// sanitizeStratResult, independent of any account snapshot). Previously
+		// the tier evaluation lived inside the account-known sizing guard, so a
+		// stale/missing ACCOUNT_INFO silently degraded EligibleTiers to empty →
+		// enqueue defaulted to all-tiers → wide-swing signals leaked to tiny
+		// accounts. Tier math needs only SL distance and round-trip cost.
+		var decisionTierEligible []string
+		{
+			entryF0, _ := stratResult.EntryPrice.Float64()
+			slF0, _ := stratResult.StopLoss.Float64()
+			slDistPts := 0.0
+			if entryF0 > 0 && slF0 > 0 {
+				slDistPts = entryF0 - slF0
+				if slDistPts < 0 {
+					slDistPts = -slDistPts
+				}
+			}
+			tierEl0 := capitaltier.Evaluate(slDistPts, roundTripCostF)
+			for _, t := range tierEl0.EligibleTiers {
+				decisionTierEligible = append(decisionTierEligible, string(t))
+			}
+			if len(tierEl0.EligibleTiers) < len(capitaltier.All()) {
+				obs := observability.Log.Info().Str("strategy", string(strat.ID())).Strs("eligible_tiers", decisionTierEligible).Float64("sl_distance", slDistPts)
+				excl := map[string]string{}
+				for t, r := range tierEl0.Exclusions {
+					excl[string(t)] = r
+				}
+				if len(excl) > 0 {
+					obs = obs.Interface("exclusions", excl)
+				}
+				obs.Msg("[CAPITAL-TIER] signal restricted to capital categories by min-lot risk")
+			}
+		}
 		// P1-001: Derive entitlement/license/execution state from the authoritative
 		// gate registry — never hardcoded. Fail closed if any state is unknown/stale.
 		entitlementState := gates.ResolveEntitlementState(gateRegistry)
@@ -4724,23 +4758,11 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 						Bool("veto_oversize", sizing.VetoOversize).
 						Msg("[SIZING] suggested lot floored to 0 — min-lot risk exceeds per-trade risk cap (account too small for this SL); EA falls back to broker min lot")
 				}
-				// v1.23: capital-tier eligibility — which customer capital
-				// categories ($100–500 / $500–5k / $5k+) can actually trade
-				// this geometry? min-lot risk vs each tier's conservative
-				// cap (computed from the same SL distance we just stored).
-				slDistF, _ := decision.Signal.SLDistancePoints.Float64()
-				tierEl := capitaltier.Evaluate(slDistF, roundTripCostF)
-				for _, t := range tierEl.EligibleTiers {
-					decision.Signal.EligibleTiers = append(decision.Signal.EligibleTiers, string(t))
-				}
-				if len(tierEl.EligibleTiers) < len(capitaltier.All()) {
-					observability.Log.Info().
-						Str("strategy", string(strat.ID())).
-						Strs("eligible_tiers", decision.Signal.EligibleTiers).
-						Float64("sl_distance", slDistF).
-						Interface("exclusions", tierEl.Exclusions).
-						Msg("[CAPITAL-TIER] signal restricted to capital categories by min-lot risk")
-				}
+				// v1.23.1: attach the capital-tier eligibility computed
+				// unconditionally before the gates (decisionTierEligible) —
+				// sizing here only adds per-account lot/risk annotations, so
+				// tier classification must not depend on account freshness.
+				decision.Signal.EligibleTiers = append(decision.Signal.EligibleTiers, decisionTierEligible...)
 			} else {
 				// v1.22.1: make the skip visible — SuggestedLot=0 with a silent
 				// skip looked identical to a sizing veto and produced an
@@ -4755,6 +4777,10 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 					Bool("sl_zero", slZ).
 					Time("broker_state_updated_at", bs.UpdatedAt).
 					Msg("[SIZING] annotation skipped — account snapshot unknown/stale or levels unset; signal carries no lot suggestion (EA uses broker min lot)")
+				// v1.23.1: sizing skipped does NOT mean tiers unknown — attach
+				// the precomputed eligibility so wide-SL signals are still
+				// withheld from tiers whose min-lot risk exceeds their cap.
+				decision.Signal.EligibleTiers = append(decision.Signal.EligibleTiers, decisionTierEligible...)
 			}
 			if decision.Signal.SignalReference == "" && persister != nil {
 				dsCtx, dsCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)

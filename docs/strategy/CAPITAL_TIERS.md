@@ -3,7 +3,33 @@
 ## v1.23 — 3 September 2026
 
 Every customer capital category gets tradeable, suitably-sized signals from the
-same engine. Commit `3b56b96`.
+same engine. Commits `3b56b96` (engine), `f86505d` (docs), plus the
+v1.23.1 follow-up (unconditional tier evaluation + admin Signal Engine page).
+
+## Admin visibility
+
+**`/admin/signal-engine` — dedicated Admin Dashboard page** (nav: Trading
+Operations → Signal Engine). Backed by the Go engine's
+`/api/v1/admin/signal-engine` (admin-JWT gated, proxied via nginx
+`location = /api/v1/admin/signal-engine` → realtime:13081). Shows: 24h
+pipeline stats (enqueued/acked/expired/pending + tier-restricted count),
+devices by capital tier with summed equity, delivery outcomes per tier, and
+the last 12h of executable signals with per-signal `EligibleTiers`,
+suggested lot and ack counts. 15s auto-refresh, PAT token design system.
+
+## v1.23.1 fix — unconditional tier evaluation
+
+The v1.23 initial wiring computed `EligibleTiers` inside the account-known
+sizing guard. A stale/missing account snapshot (>60s since last ACCOUNT_INFO)
+therefore silently degraded eligibility to empty → the enqueue default
+(all-tiers) delivered wide-swing signals to tiny accounts. v1.23.1 computes
+tier eligibility **unconditionally** from the seeded strategy geometry
+(entry/SL after `seedMarketLevels` + `sanitizeStratResult`) before the gates,
+and attaches it in both the sizing-run and sizing-skip branches. Tier
+classification now depends only on signal geometry and round-trip cost —
+never on account freshness. (Diagnosed live: signal `71217aff`, 13.9-pt
+STANDARD_SWING stop, enqueued all-tiers despite exceeding the MICRO/STANDARD
+caps because the account snapshot had gone stale at evaluation time.)
 
 ## Requirement (user directive)
 

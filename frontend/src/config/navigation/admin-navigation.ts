@@ -20,6 +20,7 @@ export const adminNavigation: NavItem[] = [
   { label: 'Real-Time Console', href: '/admin/dashboard', icon: IconDashboard, section: 'Trading Operations' },
   { label: 'Signal Monitor', href: '/admin/signals', icon: IconChartLine, section: 'Trading Operations' },
   { label: 'Pipeline Monitor', href: '/admin/pipeline-monitor', icon: IconListCheck, section: 'Trading Operations' },
+  { label: 'Signal Engine', href: '/admin/signal-engine', icon: IconBrain, section: 'Trading Operations' },
   { label: 'Agent Mesh', href: '/admin/agent-mesh', icon: IconBroadcast, section: 'Trading Operations' },
   { label: 'Scoring Board', href: '/admin/scoring-board', icon: IconChartBar, section: 'Trading Operations' },
   { label: 'Strategy Panel', href: '/admin/strategies', icon: IconBolt, section: 'Trading Operations' },
