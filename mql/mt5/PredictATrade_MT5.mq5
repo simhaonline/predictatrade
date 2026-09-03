@@ -37,7 +37,7 @@
 //| SERVER - no EA recompile required.                               |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.20"
+#property version   "1.22"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -1239,7 +1239,7 @@ void SendInitMessage()
     if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
        Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
 
-    string msg = "INIT|{\"ea_version\":\"1.20\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
+    string msg = "INIT|{\"ea_version\":\"1.22\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                 "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
                 "\",\"license_key\":\"" + g_licenseKey +
                 "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
@@ -1272,7 +1272,7 @@ void SendAccountInfo()
     // bound account id does not match, so telemetry is never silently wrong.
     if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
        Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
-    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.20\",\"account\":\"" + g_accountID +
+    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.22\",\"account\":\"" + g_accountID +
                 "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                 "\",\"symbol\":\"" + g_symbol +
                 "\",\"currency\":\"" + AccountInfoString(ACCOUNT_CURRENCY) +
@@ -1350,7 +1350,16 @@ void PollFromCloud()
     {
         string payload = items[i];
         string queueId = queueIds[i];
-        if(StringLen(payload) == 0) continue;
+        if(StringLen(payload) == 0)
+        {
+            // v1.22 FIX: never skip without an ACK. An unparseable/truncated
+            // item left in the queue re-claimed forever (attempt-cap → EXPIRED)
+            // and starved the queue head. Ack it as UNPARSEABLE so it leaves
+            // the queue permanently; the server logs the ack_result.
+            Print("[Predict-A-Trade] Poll item with empty payload — acking UNPARSEABLE");
+            PAT_EdgeAck(queueId, "{\"status\":\"UNPARSEABLE\",\"reason\":\"empty_payload\"}");
+            continue;
+        }
 
         // Dispatch by payload type. The queue carries: real signals
         // (payload = the signal JSON), LICENSE_STATUS verdicts, and
