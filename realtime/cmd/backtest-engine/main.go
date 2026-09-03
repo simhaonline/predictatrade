@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime/pprof"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ func main() {
 	higherTFs := flag.String("higher-tfs", "M15,H1,H4,D1", "Higher timeframes for MTF alignment")
 	source := flag.String("source", "", "market.candles.source to restrict to. Empty = all sources (default; avoids 0-bar runs when the named source is absent).")
 	maxPos := flag.Int("max-positions", 3, "Maximum simultaneous open positions (1 = one-at-a-time)")
+	profile := flag.String("profile", "", "Write a pprof CPU profile to this path while the backtest runs (dev diagnostics)")
 	flag.Parse()
 
 	// Get DB URL. Resolution order: --db-url flag → database_url.txt →
@@ -101,6 +103,15 @@ func main() {
 
 	// Run backtest
 	ctx := context.Background()
+	if *profile != "" {
+		f, perr := os.Create(*profile)
+		if perr == nil {
+			defer f.Close()
+			if err := pprof.StartCPUProfile(f); err == nil {
+				defer pprof.StopCPUProfile()
+			}
+		}
+	}
 	runner := backtest.NewRunner(config)
 	result, err := runner.Run(ctx)
 	if err != nil {
