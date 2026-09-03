@@ -70,7 +70,7 @@ export interface RunBacktestResponse {
   status: string;
   strategy: string;
   timeframe: string;
-  metrics: {
+  metrics?: {
     finalBalance: string;
     totalReturn: string;
     winRate: string;
@@ -81,6 +81,38 @@ export interface RunBacktestResponse {
   };
   rawOutput?: string;
   error?: string;
+  // Async queue (2026-09-03): long-range runs return QUEUED + jobId and are
+  // executed detached from HTTP; poll fetchJob until COMPLETED/FAILED.
+  queued?: boolean;
+  jobId?: string;
+  message?: string;
+}
+
+export interface BacktestJob {
+  jobId: string;
+  status: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
+  runId?: string | null;
+  error?: string | null;
+  strategy: string;
+  timeframe: string;
+  startDate?: string;
+  endDate?: string;
+  initialBalance?: number;
+  createdAt?: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export async function fetchJob(jobId: string): Promise<BacktestJob> {
+  const res = await fetch(`${API_BASE}/backtest/jobs/${jobId}`, fetchOpts());
+  if (!res.ok) throw new Error(await describeApiError(res, "Failed to fetch backtest job"));
+  return res.json();
+}
+
+export async function fetchJobs(limit = 20): Promise<{ jobs: BacktestJob[] }> {
+  const res = await fetch(`${API_BASE}/backtest/jobs?limit=${limit}`, fetchOpts());
+  if (!res.ok) throw new Error(await describeApiError(res, "Failed to fetch backtest jobs"));
+  return res.json();
 }
 
 export async function fetchAvailableData(): Promise<DataSummary[]> {

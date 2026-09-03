@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { Pool } from 'pg';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -13,41 +13,216 @@ const DB_POOL = 'DB_POOL';
 const BACKTEST_BINARY =
   process.env.BACKTEST_BINARY || '/app/backtest-engine';
 
+/** Ranges longer than this (per timeframe) cannot finish inside the
+ * synchronous 300s exec budget and are queued as async jobs instead.
+ * Measured engine cost after the float64 optimization: ~0.3ms/bar
+ * (27.5k M1 bars ≈ 8s → ~10.5 min for the full 6.7-year M1 history). */
+const SYNC_MAX_DAYS: Record<string, number> = {
+  M1: 150, // ~8s per 30d slice → ~40s per 150d; 6.7y ≈ 10.5 min (async)
+  M5: 900, // ~1.6s per 30d
+};
+
 @Injectable()
-export class BacktestService {
+export class BacktestService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BacktestService.name);
+  private jobWorker: ReturnType<typeof setInterval> | null = null;
+  private jobRunning = false;
 
   constructor(@Inject(DB_POOL) private pool: Pool) {}
+
+  /** Async job worker: polls QUEUED backtest jobs and runs them detached
+   * from HTTP. One job at a time (the engine is CPU-bound; parallel runs
+   * would just contend). Failures mark the job FAILED with the engine error. */
+  onModuleInit() {
+    this.jobWorker = setInterval(() => void this.processQueuedJob(), 5000);
+    this.logger.log('Backtest async job worker started (poll 5s)');
+  }
+
+  onModuleDestroy() {
+    if (this.jobWorker) clearInterval(this.jobWorker);
+  }
+
+  private async processQueuedJob(): Promise<void> {
+    if (this.jobRunning) return;
+    this.jobRunning = true;
+    try {
+      const res = await this.pool.query(
+        `UPDATE trading.backtest_jobs SET status = 'RUNNING', started_at = now()
+         WHERE id = (
+           SELECT id FROM trading.backtest_jobs
+           WHERE status = 'QUEUED' ORDER BY created_at LIMIT 1
+           FOR UPDATE SKIP LOCKED
+         )
+         RETURNING id, user_id, strategy_id, timeframe, start_date, end_date, initial_balance`,
+      );
+      if (res.rows.length === 0) return;
+      const job = res.rows[0];
+      this.logger.log(`Async backtest job ${job.id} started (${job.strategy_id} ${job.timeframe} ${job.start_date}→${job.end_date})`);
+      try {
+        const outcome = await this.executeEngine({
+          strategy: job.strategy_id,
+          timeframe: job.timeframe,
+          startDate: job.start_date.toISOString().slice(0, 10),
+          endDate: job.end_date.toISOString().slice(0, 10),
+          initialBalance: Number(job.initial_balance),
+        } as RunBacktestDto, job.user_id, true, job.id);
+        // executeEngine swallows engine failures into a FAILED-shaped result —
+        // treat anything that is not COMPLETED as a job failure so the job
+        // status never lies (seen: exec timeout returned, not threw).
+        if (outcome.status !== 'COMPLETED') {
+          throw new Error(outcome.error || `engine returned status ${outcome.status}`);
+        }
+        await this.pool.query(
+          `UPDATE trading.backtest_jobs SET status = 'COMPLETED', finished_at = now()
+           WHERE id = $1 AND status = 'RUNNING'`,
+          [job.id],
+        );
+        // Backfill run_id from the newest stored run for this user+params.
+        await this.pool.query(
+          `UPDATE trading.backtest_jobs j SET run_id = r.run_id
+           FROM trading.backtest_runs r
+           WHERE j.id = $1 AND r.user_id = $2
+             AND r.strategy_id = j.strategy_id
+             AND r.primary_timeframe = j.timeframe
+             AND r.start_timestamp >= j.start_date
+             AND r.end_timestamp <= j.end_date
+             AND r.started_at >= j.started_at`,
+          [job.id, job.user_id],
+        );
+        this.logger.log(`Async backtest job ${job.id} COMPLETED`);
+      } catch (err) {
+        await this.pool
+          .query(
+            `UPDATE trading.backtest_jobs SET status = 'FAILED', error = $2, finished_at = now()
+             WHERE id = $1`,
+            [job.id, String(err.message || err).slice(0, 2000)],
+          )
+          .catch(() => undefined);
+        this.logger.error(`Async backtest job ${job.id} FAILED: ${err.message}`);
+      }
+    } finally {
+      this.jobRunning = false;
+    }
+  }
 
   async runBacktest(dto: RunBacktestDto, userId: string, isAdmin: boolean) {
     this.logger.log(`Backtest requested by ${userId}: ${dto.strategy} ${dto.timeframe} ${dto.startDate}→${dto.endDate}`);
 
-    // Range guard (2026-09-03): the engine processes ~3.5ms per bar across
-    // all strategies/timeframes (measured: 27.5k M1 bars ≈ 94s, 5.5k M5 bars
-    // ≈ 20s). Runs are synchronous (HTTP + 300s execFile timeout), so reject
-    // upfront any range that cannot complete in time with an actionable
-    // message instead of an opaque "Command failed"/504. Users should split
-    // long M1 ranges into chunks (history is stored per run and the per-plan
-    // cards aggregate whatever runs exist).
+    // Range routing (2026-09-03, updated after 11.5x float64 optimization):
+    // Ranges within the synchronous budget run inline as before. Longer
+    // ranges are QUEUED as async jobs (trading.backtest_jobs) and executed
+    // by the in-process worker detached from HTTP — the caller gets 202
+    // semantics with a job id to poll. No more 504s on long studies.
     const startMs = Date.parse(`${dto.startDate}T00:00:00Z`);
     const endMs = Date.parse(`${dto.endDate}T00:00:00Z`);
-    const maxDaysByTimeframe: Record<string, number> = {
-      M1: 40, // ~45s/day × 40d ≈ 200s — worst case; M1 candles are ~43k/month
-      M5: 300, // ~30s/month × 5y
-    };
     const tfKey = String(dto.timeframe || '').toUpperCase();
-    const cap = maxDaysByTimeframe[tfKey] ?? 0;
-    if (cap > 0 && Number.isFinite(startMs) && Number.isFinite(endMs) && endMs - startMs > cap * 86_400_000) {
-      const days = Math.round((endMs - startMs) / 86_400_000);
-      return {
-        runId: 'rejected',
-        status: 'FAILED',
-        strategy: dto.strategy,
-        timeframe: dto.timeframe,
-        error: `Range too long for ${tfKey}: ${days} days exceeds the ${cap}-day synchronous limit (the engine evaluates ~3.5ms per bar, so this would exceed the 5-minute timeout and fail). Split the backtest into ≤${cap}-day chunks — each run is stored and the plan performance cards aggregate all stored runs.`,
-      };
+    const syncCap = SYNC_MAX_DAYS[tfKey] ?? 0;
+    if (
+      syncCap > 0 &&
+      Number.isFinite(startMs) &&
+      Number.isFinite(endMs) &&
+      endMs - startMs > syncCap * 86_400_000
+    ) {
+      return this.enqueueJob(dto, userId);
     }
 
+    return this.executeEngine(dto, userId, isAdmin);
+  }
+
+  /** Queue an over-budget backtest as an async job (202 semantics). */
+  private async enqueueJob(dto: RunBacktestDto, userId: string) {
+    const res = await this.pool.query(
+      `INSERT INTO trading.backtest_jobs
+         (user_id, strategy_id, timeframe, start_date, end_date, initial_balance)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, created_at`,
+      [
+        userId,
+        dto.strategy,
+        dto.timeframe,
+        dto.startDate,
+        dto.endDate,
+        dto.initialBalance ?? 10000,
+      ],
+    );
+    this.logger.log(`Backtest range over sync budget → queued as job ${res.rows[0].id}`);
+    return {
+      runId: res.rows[0].id,
+      jobId: res.rows[0].id,
+      status: 'QUEUED',
+      queued: true,
+      strategy: dto.strategy,
+      timeframe: dto.timeframe,
+      startDate: dto.startDate,
+      endDate: dto.endDate,
+      message:
+        'Range exceeds the synchronous time budget. The backtest was queued and will run in the background (typically a few minutes). Poll GET /api/v1/backtest/jobs/:id — when COMPLETED, the run appears in history with full metrics, and the run id is attached to the job.',
+    };
+  }
+
+  /** Job status for polling. Users see only their own jobs. */
+  async getJob(jobId: string, userId: string, isAdmin: boolean) {
+    const res = await this.pool.query(
+      `SELECT id, user_id, strategy_id, timeframe, start_date, end_date,
+              initial_balance, status, run_id, error, created_at, started_at, finished_at
+       FROM trading.backtest_jobs WHERE id = $1`,
+      [jobId],
+    );
+    if (res.rows.length === 0) return null;
+    const job = res.rows[0];
+    if (!isAdmin && job.user_id !== userId) return null;
+    return {
+      jobId: job.id,
+      status: job.status,
+      runId: job.run_id,
+      error: job.error,
+      strategy: job.strategy_id,
+      timeframe: job.timeframe,
+      startDate: job.start_date,
+      endDate: job.end_date,
+      initialBalance: Number(job.initial_balance),
+      createdAt: job.created_at,
+      startedAt: job.started_at,
+      finishedAt: job.finished_at,
+    };
+  }
+
+  /** List recent jobs for the caller (admins see all). */
+  async listJobs(limit = 20, userId?: string, isAdmin = false) {
+    const lim = Math.min(Math.max(Number(limit) || 20, 1), 100);
+    const params: unknown[] = [lim];
+    let where = '';
+    if (!isAdmin && userId) {
+      where = 'WHERE user_id = $2';
+      params.push(userId);
+    }
+    const res = await this.pool.query(
+      `SELECT id, user_id, strategy_id, timeframe, start_date, end_date,
+              status, run_id, error, created_at, started_at, finished_at
+       FROM trading.backtest_jobs ${where}
+       ORDER BY created_at DESC LIMIT $1`,
+      params,
+    );
+    return {
+      jobs: res.rows.map((j: Record<string, unknown>) => ({
+        jobId: j.id,
+        strategy: j.strategy_id,
+        timeframe: j.timeframe,
+        startDate: j.start_date,
+        endDate: j.end_date,
+        status: j.status,
+        runId: j.run_id,
+        error: j.error,
+        createdAt: j.created_at,
+        startedAt: j.started_at,
+        finishedAt: j.finished_at,
+      })),
+    };
+  }
+
+  /** Run the compiled engine synchronously and parse its stdout. Shared by
+   * the synchronous HTTP path and the async job worker (jobId marks async). */
+  private async executeEngine(dto: RunBacktestDto, userId: string, isAdmin: boolean, jobId?: string) {
     const args = [
       '--strategy', dto.strategy,
       '--timeframe', dto.timeframe,
@@ -68,7 +243,10 @@ export class BacktestService {
 
     try {
       const { stdout, stderr } = await execFileAsync(BACKTEST_BINARY, args, {
-        timeout: 300000, // 5 min max
+        // Async jobs get 15 min (full-history M1 ≈ 5-8 min engine + ~2-3 min
+        // data load for 2.1M candles + higher TFs); the synchronous HTTP
+        // path stays at 5 min (nginx backtest location allows 330s).
+        timeout: jobId ? 900000 : 300000,
         maxBuffer: 1024 * 1024 * 10,
         env: childEnv,
       });

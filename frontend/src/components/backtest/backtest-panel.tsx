@@ -7,8 +7,8 @@ import {
   IconShieldCheck
 } from "@tabler/icons-react";
 import {
-  fetchAvailableData, fetchRuns, runBacktest, downloadCSV, fetchRunDetails,
-  type DataSummary, type BacktestRun, type RunBacktestResponse
+  fetchAvailableData, fetchRuns, runBacktest, downloadCSV, fetchRunDetails, fetchJob, fetchJobs,
+  type DataSummary, type BacktestRun, type RunBacktestResponse, type BacktestJob
 } from "@/lib/backtest-api";
 
 const STRATEGIES = [
@@ -31,6 +31,9 @@ export default function BacktestPanel({ isAdmin }: { isAdmin?: boolean }) {
   const [balance, setBalance] = useState(10000);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<RunBacktestResponse | null>(null);
+  // Async job progress (long-range runs run server-side; this shows QUEUED/
+  // RUNNING status in place of the result panel while polling).
+  const [jobStatus, setJobStatus] = useState<{ status: string; runId?: string; error?: string } | null>(null);
   const [runs, setRuns] = useState<BacktestRun[]>([]);
   const [dataInfo, setDataInfo] = useState<DataSummary[]>([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -93,10 +96,46 @@ export default function BacktestPanel({ isAdmin }: { isAdmin?: boolean }) {
     setRunning(true); setError(""); setResult(null);
     try {
       const res = await runBacktest({ strategy, timeframe, startDate, endDate, initialBalance: balance });
-      setResult(res);
+      if (res.queued && res.jobId) {
+        // Long-range run accepted as an async job (202 semantics): show the
+        // queued state and poll until the background worker finishes.
+        setJobStatus({ status: "QUEUED" });
+        const deadline = Date.now() + 45 * 60_000; // hard stop after 45 min
+        let job = null;
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 10000));
+          const j = await fetchJob(res.jobId);
+          setJobStatus({ status: j.status, runId: j.runId ?? undefined, error: j.error ?? undefined });
+          if (j.status === "COMPLETED" || j.status === "FAILED") { job = j; break; }
+        }
+        if (!job) throw new Error("Backtest job did not finish within 45 minutes — check backtest history later; the job keeps running server-side.");
+        if (job.status === "FAILED") throw new Error(job.error || "Queued backtest job failed");
+        if (job.runId) {
+          const det = await fetchRunDetails(job.runId);
+          setResult({
+            runId: job.runId,
+            status: "COMPLETED",
+            strategy: det.run.strategy_id,
+            timeframe: det.run.strategy_mode,
+            metrics: {
+              finalBalance: det.run.final_balance ?? "",
+              totalReturn: det.run.total_return_pct ?? "",
+              winRate: det.run.win_rate ?? "",
+              profitFactor: det.run.profit_factor ?? "",
+              sharpe: det.run.sharpe ?? "",
+              maxDD: det.run.max_drawdown ?? "",
+              totalTrades: String(det.run.trades_count ?? ""),
+            },
+          });
+        } else {
+          setResult({ runId: job.jobId, status: "COMPLETED", strategy: job.strategy, timeframe: job.timeframe });
+        }
+      } else {
+        setResult(res);
+      }
       const history = await fetchRuns(); setRuns(history);
     } catch (e) { setError(e instanceof Error ? e.message : "Backtest failed"); }
-    finally { setRunning(false); }
+    finally { setRunning(false); setJobStatus(null); }
   };
 
   const handleDownload = async (runId: string) => {
@@ -202,6 +241,21 @@ export default function BacktestPanel({ isAdmin }: { isAdmin?: boolean }) {
         {error && <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-md text-sm text-red-500">{error}</div>}
       </div>
 
+      {/* Async job progress banner (long-range queued runs) */}
+      {jobStatus && (
+        <div className="flex items-center gap-3 bg-pat-bg-surface border border-pat-border rounded-lg p-4 text-pat-text-primary">
+          <IconLoader size={20} className="animate-spin text-pat-accent" />
+          <div>
+            <div className="font-semibold">
+              {jobStatus.status === "QUEUED" && "Backtest queued — waiting for a free engine slot…"}
+              {jobStatus.status === "RUNNING" && "Backtest running in the background (full history takes several minutes)…"}
+              {jobStatus.status === "COMPLETED" && "Backtest job finished — loading results…"}
+            </div>
+            {jobStatus.runId && <div className="text-xs text-pat-text-secondary">Run {jobStatus.runId}</div>}
+          </div>
+        </div>
+      )}
+
       {result && (
         <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-5">
           <button onClick={() => setShowResults(!showResults)} className="w-full flex items-center justify-between mb-4">
@@ -263,6 +317,10 @@ export default function BacktestPanel({ isAdmin }: { isAdmin?: boolean }) {
       )}
 
       {showHistory && (
+        <JobsHistorySection />
+      )}
+
+      {showHistory && (
         <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-5">
           <h2 className="text-sm font-semibold text-pat-text-primary mb-4">Backtest History</h2>
           <div className="overflow-x-auto">
@@ -297,6 +355,49 @@ export default function BacktestPanel({ isAdmin }: { isAdmin?: boolean }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Queued / running async backtest jobs (2026-09-03). Shown above the runs
+ * history so a long-range study survives page reloads — the job keeps
+ * running server-side and its run lands in history when done. */
+function JobsHistorySection() {
+  const [jobs, setJobs] = useState<BacktestJob[] | null>(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetchJobs(10);
+        if (alive) { setJobs(res.jobs); setErr(""); }
+      } catch (e) {
+        if (alive) setErr(e instanceof Error ? e.message : "Failed to load jobs");
+      }
+    };
+    void load();
+    const t = setInterval(load, 10000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+
+  const active = (jobs || []).filter((j) => j.status === "QUEUED" || j.status === "RUNNING");
+  if (err) return null;
+  if (!jobs || active.length === 0) return null;
+  return (
+    <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-5">
+      <h2 className="text-sm font-semibold text-pat-text-primary mb-4">Running Backtest Jobs</h2>
+      <div className="space-y-2">
+        {active.map((j) => (
+          <div key={j.jobId} className="flex items-center gap-3 text-sm">
+            <IconLoader size={16} className="animate-spin text-pat-accent" />
+            <span className="text-pat-text-primary font-medium">{j.strategy}</span>
+            <span className="text-pat-text-secondary">{j.timeframe}</span>
+            <span className="text-pat-text-secondary">{String(j.startDate || "").slice(0, 10)} → {String(j.endDate || "").slice(0, 10)}</span>
+            <span className={j.status === "RUNNING" ? "text-pat-accent" : "text-pat-text-secondary"}>{j.status}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -46,6 +46,34 @@ export class BacktestController {
     return this.backtestService.getPerformanceByPlan();
   }
 
+  /** Async job status (poll after a 202-queued long-range backtest). */
+  @UseGuards(JwtAuthGuard)
+  @Get('jobs/:jobId')
+  async getJob(
+    @Param('jobId') jobId: string,
+    @CurrentUser('sub') userId?: string,
+    @CurrentUser('role') role?: string,
+  ) {
+    const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN';
+    const job = await this.backtestService.getJob(jobId, userId, isAdmin);
+    if (!job) {
+      return { error: 'Job not found' };
+    }
+    return job;
+  }
+
+  /** Recent async jobs (users see their own; admins see all). */
+  @UseGuards(JwtAuthGuard)
+  @Get('jobs')
+  async listJobs(
+    @Query('limit') limit?: string,
+    @CurrentUser('sub') userId?: string,
+    @CurrentUser('role') role?: string,
+  ) {
+    const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN';
+    return this.backtestService.listJobs(limit ? parseInt(limit) : 20, userId, isAdmin);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('runs/:runId')
   async getRunDetails(
