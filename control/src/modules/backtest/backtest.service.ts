@@ -72,6 +72,21 @@ export class BacktestService {
         }
       }
 
+      // Verification trail (R9-verify): persist the engine's verbatim stdout
+      // so the admin UI can render it next to the parsed metrics — the
+      // dashboard numbers must always be traceable to real engine output.
+      // The engine prints its config (strategy, period, source), signal
+      // decisions, NO-TRADE reasons, metrics, first 10 trades and the
+      // storage confirmation, so this captures the full story of the run.
+      if (runId !== 'unknown' && stdout) {
+        await this.pool
+          .query(
+            `UPDATE trading.backtest_runs SET raw_output = $2 WHERE run_id = $1`,
+            [runId, stdout.slice(-10240)],
+          )
+          .catch(() => undefined);
+      }
+
       // Parse key metrics from stdout
       const finalBalance = this.parseMetric(stdout, 'Final balance:');
       const totalReturn = this.parseMetric(stdout, 'Total return:');
@@ -359,6 +374,11 @@ export class BacktestService {
     // H3: non-admins may only access their own runs.
     if (!isAdmin && userId && run.user_id && run.user_id !== userId) {
       return null;
+    }
+
+    // Verification trail: only admins see the raw engine output.
+    if (!isAdmin) {
+      delete run.raw_output;
     }
 
     const tradesResult = await this.pool.query(`

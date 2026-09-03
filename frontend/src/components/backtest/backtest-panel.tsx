@@ -3,10 +3,11 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   IconPlayerPlay, IconDownload, IconHistory, IconChevronDown,
-  IconChartBar, IconCoin, IconTrendingUp, IconTrendingDown, IconLoader
+  IconChartBar, IconCoin, IconTrendingUp, IconTrendingDown, IconLoader,
+  IconShieldCheck
 } from "@tabler/icons-react";
 import {
-  fetchAvailableData, fetchRuns, runBacktest, downloadCSV,
+  fetchAvailableData, fetchRuns, runBacktest, downloadCSV, fetchRunDetails,
   type DataSummary, type BacktestRun, type RunBacktestResponse
 } from "@/lib/backtest-api";
 
@@ -36,6 +37,34 @@ export default function BacktestPanel({ isAdmin }: { isAdmin?: boolean }) {
   const [error, setError] = useState("");
   const [showResults, setShowResults] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
+  // Verification trail (R9-verify): raw engine stdout for a run, fetched on
+  // demand from GET /backtest/runs/:id (admin-only field) and rendered next
+  // to the parsed dashboard metrics so numbers are always traceable.
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [verifyRaw, setVerifyRaw] = useState<string | null>(null);
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [verifyError, setVerifyError] = useState("");
+  const [verifyRunId, setVerifyRunId] = useState<string>("");
+
+  const loadVerify = useCallback(async (runId: string) => {
+    setVerifyRunId(runId);
+    setVerifyOpen(true);
+    setVerifyLoading(true);
+    setVerifyError("");
+    setVerifyRaw(null);
+    try {
+      const details = await fetchRunDetails(runId);
+      const raw = (details as { run?: { raw_output?: string | null } })?.run?.raw_output;
+      setVerifyRaw(raw && raw.length > 0 ? raw : null);
+      if (!raw) {
+        setVerifyError("No engine output stored for this run (runs executed before output capture shipped have none). Run a fresh backtest to see verifiable engine output.");
+      }
+    } catch (e: unknown) {
+      setVerifyError(e instanceof Error ? e.message : "Failed to fetch engine output");
+    } finally {
+      setVerifyLoading(false);
+    }
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
@@ -159,6 +188,12 @@ export default function BacktestPanel({ isAdmin }: { isAdmin?: boolean }) {
               <IconDownload size={16} /> Download CSV
             </button>
           )}
+          {result?.status === "COMPLETED" && (
+            <button onClick={() => void loadVerify(result.runId)}
+              className="flex items-center gap-2 px-4 py-2 bg-pat-bg-surface-secondary border border-pat-border text-pat-text-primary rounded-md text-sm hover:border-pat-primary hover:text-pat-primary">
+              <IconShieldCheck size={16} /> Verify engine output
+            </button>
+          )}
           <button onClick={() => setShowHistory(!showHistory)}
             className="flex items-center gap-2 px-4 py-2 bg-pat-bg-surface-secondary border border-pat-border text-pat-text-primary rounded-md text-sm hover:border-pat-primary hover:text-pat-primary">
             <IconHistory size={16} /> History ({runs.length})
@@ -198,6 +233,35 @@ export default function BacktestPanel({ isAdmin }: { isAdmin?: boolean }) {
         </div>
       )}
 
+      {/* Verification trail: verbatim engine stdout vs parsed dashboard metrics */}
+      {verifyOpen && (
+        <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <IconShieldCheck size={16} className="text-pat-primary" />
+            <h3 className="text-sm font-semibold text-pat-text-primary">
+              Engine output{verifyRunId ? ` — run ${verifyRunId.slice(0, 8)}` : ""}
+            </h3>
+            <span className="text-xs text-pat-text-muted ml-auto">verbatim backtest-engine stdout (last 10 KB)</span>
+            <button onClick={() => setVerifyOpen(false)} className="text-xs text-pat-text-muted hover:text-pat-text-primary">Close</button>
+          </div>
+          {verifyLoading && (
+            <div className="text-xs text-pat-text-muted flex items-center gap-1">
+              <IconLoader size={12} className="animate-spin" /> Fetching engine output...
+            </div>
+          )}
+          {!verifyLoading && verifyError && (
+            <div className="p-3 bg-pat-badge-warning-bg border border-pat-border rounded-md text-xs text-pat-badge-warning-text">
+              {verifyError}
+            </div>
+          )}
+          {!verifyLoading && verifyRaw && (
+            <pre className="max-h-96 overflow-auto bg-pat-bg-surface-secondary border border-pat-border rounded-md p-3 text-xs font-mono whitespace-pre text-pat-text-secondary">
+              {verifyRaw}
+            </pre>
+          )}
+        </div>
+      )}
+
       {showHistory && (
         <div className="bg-pat-bg-surface border border-pat-border rounded-lg p-5">
           <h2 className="text-sm font-semibold text-pat-text-primary mb-4">Backtest History</h2>
@@ -222,7 +286,10 @@ export default function BacktestPanel({ isAdmin }: { isAdmin?: boolean }) {
                     <td className="py-2 px-2 text-right text-pat-text-secondary">{fmt(r.sharpe)}</td>
                     <td className="py-2 px-2 text-right text-pat-danger">{fmt(r.max_drawdown)}%</td>
                     <td className="py-2 px-2 text-right text-pat-text-secondary">{r.trades_count}</td>
-                    <td className="py-2 px-2 text-center"><button onClick={() => handleDownload(r.run_id)} className="text-pat-primary hover:text-pat-primary-hover"><IconDownload size={14} /></button></td>
+                    <td className="py-2 px-2 text-center">
+                      <button onClick={() => void loadVerify(r.run_id)} title="Verify engine output for this run" className="text-pat-text-muted hover:text-pat-primary mr-1 align-middle"><IconShieldCheck size={14} /></button>
+                      <button onClick={() => handleDownload(r.run_id)} className="text-pat-primary hover:text-pat-primary-hover align-middle"><IconDownload size={14} /></button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
