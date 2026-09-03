@@ -500,8 +500,8 @@ double PAT_ATD_NetPnL(double rawProfit, double swap, double lot, double commissi
    int t = PAT_ATD_GetType();
    if(t == PAT_ATD_ECN || t == PAT_ATD_MICRO_CENT)
       pnl -= PAT_ATD_CommissionRoundTrip(lot, commissionPerLot);
-   else if(PAT_ATD_histComm > 0)
-      pnl -= PAT_ATD_histComm; // broker-charged, already in deal P&L — no double count
+   else if(g_patATD_histComm > 0)
+      pnl -= g_patATD_histComm; // broker-charged, already in deal P&L — no double count
    return pnl;
 }
 
