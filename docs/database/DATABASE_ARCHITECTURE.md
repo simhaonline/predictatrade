@@ -1,5 +1,5 @@
 # Database Architecture
-## v1.17.4 — 30 August 2026
+## v1.27.0 — 04 September 2026
 
 ### Stack
 - PostgreSQL 17 + TimescaleDB (hypertables) — `timescale/timescaledb-ha:pg17`
@@ -57,6 +57,22 @@ Entity relationships for the core domains: **[DB_ERD.md](DB_ERD.md)** (mermaid `
   permissions) — @RequirePermissions guards rely on this.
 
 ### Recent schema changes
+
+**v1.27.0 — account-type detection (migs 133/134, applied 2026-09-04):**
+- `licensing.account_types` — per-login detected classification
+  (`account_login BIGINT`, `detected_type`, `detection_timestamp`,
+  `confirmation_count`, `is_verified`, `strategy_override`); 12 baseline
+  `licensing.strategy_parameters` rows (cent lot ÷100, ECN commission ×2
+  round-trip, STP +2pt slippage, Islamic swap-zero, demo tag).
+- `licensing.edge_device_state.account_type` + `.account_type_verified`,
+  `licensing.devices.account_type` — heartbeat-persisted EA detection
+  (edge-poll v1.27 fail-open update).
+- Detection truth chain: EA `CAccountTypeDetector` (lazy per-login cache,
+  Islamic 3× rollover confirm, fail-safe Standard) → INIT/ACCOUNT_INFO/
+  EXECUTION_ACK/heartbeat payloads → engine `SnapshotAccount.AccountType` →
+  `edge_device_state` → dashboards/fan-out. Spec corrections documented in
+  the .mqh header (no SYMBOL_COMMISSION_TICK/_LOT in MQL5 — deal-history
+  scan; ACCOUNT_CURRENCY_DIGITS not standard — min-lot + balance heuristic).
 
 **v1.17.3 — runtime-probe fixes:**
 - `billing.subscriptions` INSERT explicit `$5::text` cast — PG17 strict parameter-type inference

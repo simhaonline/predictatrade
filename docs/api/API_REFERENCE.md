@@ -1,5 +1,5 @@
 # REST & WebSocket API Reference
-## v1.17.4 — 30 August 2026
+## v1.27.0 — 04 September 2026
 
 Two backends share the API surface:
 
@@ -235,6 +235,18 @@ Guest-preview suite (`/guest`): `session`, `status`, `register`, `otp/resend`, `
 `TP1/2/3`, `GrossRRTP1/2/3`, `Regime`, `Session`, `QualityGrade` (A+|A|B|REJECTED),
 `ExpectancyR`, `ExpectancyScore`, `SuggestedLot`, `RiskDollars`, `RiskPctOfEquity`,
 `SLDistancePoints`, `Evidence{}`, `ReasonCodes[]`, `Executable: bool`, `CreatedAt` (UTC).
+
+**Account-type fields (v1.27, additive everywhere — absent = legacy EA):**
+- EA → engine (`INIT`, `ACCOUNT_INFO`, `LICENSE_CHECK`, `EXECUTION_ACK` JSON payloads;
+  `edge-heartbeat` body): `account_type` ∈ `Demo|Contest|Islamic|MicroCent|ECN|STP|Standard`
+  (+ `account_type_verified`, `account_type_confirms` on heartbeat; `demo:true` extra tag
+  on Demo payloads).
+- Engine ingest: `SnapshotAccount.AccountType` (Go, `account_type,omitempty`) —
+  populated from MasterNode `account_info.account_type` and fleet ACCOUNT_INFO.
+- Control `POST /api/v1/devices/edge-heartbeat`: persists `account_type` +
+  `account_type_verified` to `licensing.edge_device_state` and `licensing.devices`
+  (fail-open; unknown keys tolerated). Reference tables: `licensing.account_types`,
+  `licensing.strategy_parameters` (mig 133).
 
 ---
 

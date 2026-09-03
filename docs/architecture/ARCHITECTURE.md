@@ -1,5 +1,5 @@
 # Predict-A-Trade Architecture
-## v1.17.4 — 30 August 2026
+## v1.27.0 — 04 September 2026
 
 > Visual flows: tick→signal sequence, execution reconciliation, auth, licensing, payments,
 > update/rollback, backup/DR are in **[FLOW_DIAGRAMS.md](FLOW_DIAGRAMS.md)** (Mermaid).
@@ -88,6 +88,20 @@ Signal↔execution lifecycle is now fully observed end-to-end:
 alerts (ACK TTL 2m, fill TTL 10m) and prunes reconciled records. Fail-observing only.
 
 ### Recent Architectural Changes (v1.17.x)
+
+**Account-Type Detection & Adaptation (v1.27, mig 133/134):** Every EA now
+classifies its own account — `Demo > Contest > Islamic > MicroCent > ECN >
+STP > Standard` priority — via `CAccountTypeDetector` (shared `.mqh` on the
+fleet EAs/MasterNodes; inlined self-contained in the pat-scalping UltraScalper
+per its no-include rule). Detection is lazy-cached per login, fail-safe to
+`Standard`, and Islamic detection is confirmed by 3 hourly rollover checks
+(auto-reclassify if swap is ever observed). Execution adapts per type: cent
+accounts size lots ÷100; ECN accounts open naked and attach SL/TP post-fill
+(3 attempts, watchdog fail-closed backstop); STP adds a +2pt slippage buffer
+to the cost yardstick; Islamic zeroes swap in P&L math. The classification
+travels on every INIT/ACCOUNT_INFO/LICENSE_CHECK/EXECUTION_ACK/heartbeat and
+persists through `SnapshotAccount.AccountType` → `edge_device_state.account_type`
+(see DATABASE_ARCHITECTURE + API_REFERENCE).
 
 **Per-Client Risk Isolation at Delivery:** Signal delivery now applies a
 per-receiving-client risk check (`AgentHub.SetRiskCheck` →
