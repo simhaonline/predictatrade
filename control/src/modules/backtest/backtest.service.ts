@@ -216,6 +216,105 @@ export class BacktestService {
     };
   }
 
+  /** Per-plan BACKTEST PERFORMANCE (P/L) report (admin): for each plan, the
+   * aggregated backtest results of every strategy that plan allows — run
+   * count, total P/L (sum of final-initial across runs), average return %,
+   * win rate, profit factor and trades. Runs are grouped by strategy_id and
+   * mapped to plans via control.plans.allowed_strategies, so historical
+   * (unstamped) runs are attributed by strategy; runs stamped with a
+   * subscription plan count toward that plan too. */
+  async getPerformanceByPlan(): Promise<{
+    plans: Array<{
+      planCode: string;
+      planName: string;
+      monthlyPrice: number;
+      strategies: Array<{
+        strategyId: string;
+        runs: number;
+        totalPnl: number;
+        avgReturnPct: number;
+        bestReturnPct: number;
+        worstReturnPct: number;
+        avgWinRate: number;
+        avgProfitFactor: number;
+        profitableRuns: number;
+      }>;
+      totals: { runs: number; totalPnl: number; avgWinRate: number };
+    }>;
+  }> {
+    // Aggregate all COMPLETED runs by strategy once…
+    const stratRes = await this.pool.query(
+      `SELECT strategy_id,
+              count(*) AS runs,
+              COALESCE(sum(final_balance - initial_balance), 0) AS total_pnl,
+              COALESCE(avg(total_return_pct), 0) AS avg_ret,
+              COALESCE(max(total_return_pct), 0) AS best_ret,
+              COALESCE(min(total_return_pct), 0) AS worst_ret,
+              COALESCE(avg(win_rate_pct), 0) AS avg_win_rate,
+              COALESCE(avg(profit_factor), 0) AS avg_profit_factor,
+              count(*) FILTER (WHERE total_return_pct > 0) AS profitable_runs
+       FROM trading.backtest_runs
+       WHERE status = 'COMPLETED' AND strategy_id IS NOT NULL
+       GROUP BY strategy_id`,
+    );
+    const byStrategy = new Map<string, {
+      runs: number; totalPnl: number; avgRet: number; bestRet: number;
+      worstRet: number; avgWinRate: number; avgProfitFactor: number; profitableRuns: number;
+    }>();
+    for (const r of stratRes.rows) {
+      byStrategy.set(r.strategy_id, {
+        runs: parseInt(r.runs, 10),
+        totalPnl: parseFloat(r.total_pnl),
+        avgRet: parseFloat(r.avg_ret),
+        bestRet: parseFloat(r.best_ret),
+        worstRet: parseFloat(r.worst_ret),
+        avgWinRate: parseFloat(r.avg_win_rate),
+        avgProfitFactor: parseFloat(r.avg_profit_factor),
+        profitableRuns: parseInt(r.profitable_runs, 10),
+      });
+    }
+
+    // …then fan each plan's allowed strategies out into its own card data.
+    const planRes = await this.pool.query(
+      `SELECT p.code, p.name, p.monthly_price, p.allowed_strategies
+       FROM control.plans p
+       WHERE p.status = 'ACTIVE'
+       ORDER BY p.monthly_price`,
+    );
+    const plans = planRes.rows.map((p) => {
+      const allowed: string[] = Array.isArray(p.allowed_strategies) ? p.allowed_strategies : [];
+      const strategies = allowed
+        .filter((s) => byStrategy.has(s))
+        .map((s) => {
+          const a = byStrategy.get(s)!;
+          return {
+            strategyId: s,
+            runs: a.runs,
+            totalPnl: a.totalPnl,
+            avgReturnPct: a.avgRet,
+            bestReturnPct: a.bestRet,
+            worstReturnPct: a.worstRet,
+            avgWinRate: a.avgWinRate,
+            avgProfitFactor: a.avgProfitFactor,
+            profitableRuns: a.profitableRuns,
+          };
+        });
+      const runs = strategies.reduce((acc, s) => acc + s.runs, 0);
+      const totalPnl = strategies.reduce((acc, s) => acc + s.totalPnl, 0);
+      const avgWinRate = runs > 0
+        ? strategies.reduce((acc, s) => acc + s.avgWinRate * s.runs, 0) / runs
+        : 0;
+      return {
+        planCode: p.code,
+        planName: p.name,
+        monthlyPrice: parseFloat(p.monthly_price),
+        strategies,
+        totals: { runs, totalPnl, avgWinRate },
+      };
+    });
+    return { plans };
+  }
+
   private parseMetric(text: string, label: string): string | null {
     const regex = new RegExp(`${label}\\s*\\$?(-?[\\d.]+)`);
     const match = text.match(regex);

@@ -8,6 +8,7 @@ import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { IconSettings, IconDownload, IconAlertTriangle } from "@tabler/icons-react";
+import RevenueByPlanCard from "@/components/backtest/revenue-by-plan-card";
 
 interface Plan {
   id?: string;
@@ -158,6 +159,8 @@ export default function AdminPlansEntitlementsPage() {
           <IconDownload size={14} /> Export CSV
         </button>
       </div>
+
+      <RevenueByPlanCard />
 
       <div className="flex gap-2">
         {(["plans", "entitlements"] as const).map((t) => (

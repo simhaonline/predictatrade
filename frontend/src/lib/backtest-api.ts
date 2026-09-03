@@ -125,6 +125,38 @@ export async function fetchRevenueByPlan(): Promise<RevenueByPlanResponse> {
   return res.json();
 }
 
+export interface PlanStrategyPerformance {
+  strategyId: string;
+  runs: number;
+  totalPnl: number;
+  avgReturnPct: number;
+  bestReturnPct: number;
+  worstReturnPct: number;
+  avgWinRate: number;
+  avgProfitFactor: number;
+  profitableRuns: number;
+}
+
+export interface PlanPerformance {
+  planCode: string;
+  planName: string;
+  monthlyPrice: number;
+  strategies: PlanStrategyPerformance[];
+  totals: { runs: number; totalPnl: number; avgWinRate: number };
+}
+
+export interface PerformanceByPlanResponse {
+  plans: PlanPerformance[];
+}
+
+// Admin only (backend enforces AdminGuard). Per-plan aggregated backtest
+// P/L for every strategy the plan allows.
+export async function fetchPerformanceByPlan(): Promise<PerformanceByPlanResponse> {
+  const res = await fetch(`${API_BASE}/backtest/performance-by-plan`, fetchOpts());
+  if (!res.ok) throw new Error(await describeApiError(res, "Failed to fetch plan performance"));
+  return res.json();
+}
+
 export async function runBacktest(req: RunBacktestRequest): Promise<RunBacktestResponse> {
   const res = await fetch(`${API_BASE}/backtest/run`, fetchOpts({
     method: "POST",

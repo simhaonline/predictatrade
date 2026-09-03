@@ -39,6 +39,13 @@ export class BacktestController {
     return this.backtestService.getRevenueByPlan();
   }
 
+  /** Admin: per-plan backtest P/L performance cards (R9). */
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Get('performance-by-plan')
+  async getPerformanceByPlan() {
+    return this.backtestService.getPerformanceByPlan();
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('runs/:runId')
   async getRunDetails(
