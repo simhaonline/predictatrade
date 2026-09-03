@@ -4674,6 +4674,36 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 						Float64("capped_lot", mc.CappedLot).
 						Msg("[MARGIN_AWARE] candidate lot exceeds margin budget — annotation attached")
 				}
+				// v1.22.1: surface WHY the suggested lot is zero so the client EA
+				// log explains 'Lot: —' instead of leaving it a mystery. The
+				// dominant cause on small accounts: min-lot risk exceeds the
+				// per-trade risk cap (e.g. $792 equity × 1.5% = $11.89 cap vs
+				// ~$24 risk for 0.01 lot at a 24-point swing SL).
+				if sizing.SuggestedLot <= 0 {
+					observability.Log.Warn().
+						Str("strategy", string(strat.ID())).
+						Float64("equity", bs.Equity).
+						Float64("risk_cap_pct", cfg.MaxRiskPerTradePct).
+						Float64("sl_distance", sizing.SLDistancePoints).
+						Float64("requested_lot", sizing.RequestedLot).
+						Float64("risk_dollars_at_requested", sizing.RiskDollars).
+						Bool("veto_oversize", sizing.VetoOversize).
+						Msg("[SIZING] suggested lot floored to 0 — min-lot risk exceeds per-trade risk cap (account too small for this SL); EA falls back to broker min lot")
+				}
+			} else {
+				// v1.22.1: make the skip visible — SuggestedLot=0 with a silent
+				// skip looked identical to a sizing veto and produced an
+				// unexplained 'Lot: —' in the client EA log.
+				entryZ := decision.Signal.EntryPrice.IsZero()
+				slZ := decision.Signal.StopLoss.IsZero()
+				observability.Log.Warn().
+					Str("strategy", string(strat.ID())).
+					Bool("broker_state_known", bs.Known).
+					Float64("equity", bs.Equity).
+					Bool("entry_zero", entryZ).
+					Bool("sl_zero", slZ).
+					Time("broker_state_updated_at", bs.UpdatedAt).
+					Msg("[SIZING] annotation skipped — account snapshot unknown/stale or levels unset; signal carries no lot suggestion (EA uses broker min lot)")
 			}
 			if decision.Signal.SignalReference == "" && persister != nil {
 				dsCtx, dsCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
