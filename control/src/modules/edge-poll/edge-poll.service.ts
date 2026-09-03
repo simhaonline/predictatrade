@@ -209,6 +209,27 @@ export class EdgePollService {
       ).catch(() => {});
     }
 
+    // v1.27 account-type: persist the EA-detected account classification
+    // (Demo/Contest/Islamic/MicroCent/ECN/STP/Standard) into
+    // edge_device_state.account_type + licensing.devices.account_type so
+    // dashboards and signal fan-out can adapt per account type. Fail-open.
+    const accountType = typeof body?.account_type === 'string' ? body.account_type.trim() : '';
+    if (accountType.length > 0 && accountType.length <= 50) {
+      await this.pool.query(
+        `UPDATE licensing.edge_device_state
+            SET account_type = $2, account_type_verified = COALESCE($3, account_type_verified),
+                updated_at = now()
+          WHERE device_id = $1::uuid`,
+        [deviceId, accountType, body?.account_type_verified === true ? true : null],
+      ).catch(() => {});
+      await this.pool.query(
+        `UPDATE licensing.devices
+            SET account_type = $2, updated_at = now()
+          WHERE id = $1::uuid AND (account_type IS NULL OR account_type <> $2)`,
+        [deviceId, accountType],
+      ).catch(() => {});
+    }
+
     return { ok: true, server_time: new Date().toISOString() };
   }
 

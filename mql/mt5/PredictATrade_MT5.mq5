@@ -41,6 +41,8 @@
 #property strict
 
 #include <Trade\Trade.mqh>
+// v1.27 account-type detection (additive; pure MQL, guarded for MT4/MT5)
+#include "CAccountTypeDetector.mqh"
 
 //=== Input Parameters ===
 input bool    AutoExecute    = false;   // SIGNAL_ONLY=true by default (display only). Set true to auto-trade.
@@ -204,6 +206,42 @@ double  g_regTP3[PAT_REG_MAX];
 double  g_regOrigLot[PAT_REG_MAX];
 datetime g_regOpenTime[PAT_REG_MAX];
 int     g_regCount = 0;
+
+// v1.27: detected account type (lazy-cached inside CAccountTypeDetector).
+// "Standard" until the first Detect() runs in OnInit; used for traceability
+// tags and type-specific adaptation.
+string  g_accountType    = "Standard";
+string  g_accountTypeWhy = "";
+
+//+------------------------------------------------------------------+
+//| v1.27 ADDITIVE HELPERS — account-type integration                 |
+//| Appended by CAccountTypeDetector integration; no existing line     |
+//| modified. All functions are new and PAT_ATD_-prefixed internally.  |
+//+------------------------------------------------------------------+
+// Run detection once (lazy + cached + fail-safe to Standard). Called from
+// OnInit; safe to call again at any time.
+void PAT_ATD_InitDetect()
+{
+   int t = CAccountTypeDetector::Detect();          // never throws; falls back Standard
+   g_accountType    = CAccountTypeDetector::TypeName();
+   g_accountTypeWhy = CAccountTypeDetector::Reason();
+   if(CAccountTypeDetector::IsVerified())
+      Print("[Predict-A-Trade] account_type=", g_accountType,
+            " login=", IntegerToString(CAccountTypeDetector::Login()),
+            " confirmed (", g_accountTypeWhy, ")");
+   else
+      Print("[Predict-A-Trade] account_type=", g_accountType,
+            " PROVISIONAL (", g_accountTypeWhy, ") — confirmation pending");
+}
+
+// Signal payload tag for downstream traceability (append to any JSON).
+string PAT_ATD_SignalTag()
+{
+   string tag = ",\"account_type\":\"" + g_accountType + "\"";
+   if(g_accountType == "Demo") tag += ",\"demo\":true";
+   return tag;
+}
+//+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
 //| Strategy mapping                                                  |
@@ -856,6 +894,7 @@ int OnInit()
     }
 
     UpdatePanel();
+    PAT_ATD_InitDetect(); // v1.27: account-type detection (fail-safe; never blocks init)
     return(INIT_SUCCEEDED);
 }
 
@@ -924,6 +963,10 @@ void OnTimer()
     // device liveness fresh in edge_device_state even when the engine ingest
     // is healthy but quiet (weekend).
     PAT_EdgeHeartbeat();
+
+    // v1.27: hourly Islamic/swap-free rollover confirmation (internally rate-
+    // limited to once per hour; no-op for non-candidate account types).
+    CAccountTypeDetector::RolloverCheck();
 }
 
 void PAT_Watchdog()
@@ -1338,6 +1381,7 @@ void SendInitMessage()
                   ",\"total_lots\":" + DoubleToString(totalLots, 2) +
                   ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
                   ",\"floating_pnl\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
+                  PAT_ATD_SignalTag() +
                   "}\n";
     PAT_Send(msg);
     Print("Init message sent with account data - balance: ", AccountInfoDouble(ACCOUNT_BALANCE));
@@ -1367,6 +1411,7 @@ void SendAccountInfo()
                 ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
                 ",\"leverage\":" + IntegerToString((int)AccountInfoInteger(ACCOUNT_LEVERAGE)) +
                 ",\"open_positions\":" + IntegerToString((int)PositionsTotal()) +
+                PAT_ATD_SignalTag() +
                 "}\n";
     PAT_Send(msg);
 }
@@ -1390,6 +1435,7 @@ void RequestLicenseValidation()
                   ",\"profit\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
                   ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
                   ",\"open_positions\":" + IntegerToString(PositionsTotal()) +
+                  PAT_ATD_SignalTag() +
                   "}\n";
     PAT_Send(msg);
     Print("License validation with account data - balance: ", AccountInfoDouble(ACCOUNT_BALANCE));
@@ -1885,6 +1931,59 @@ void HandleLicenseResponse(string json)
 //| Opens ONE position with the TOTAL lot; TP set to TP3 (final).     |
 //| TP1/TP2 are taken as EA-managed PARTIAL closes.                   |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| v1.27 ECN adaptation — attach SL/TP to an already-open position.   |
+//| ECN/market-execution brokers commonly reject orders that carry     |
+//| SL/TP at send time; the position is opened naked and stops are     |
+//| attached right after the fill (3 attempts, stops-level aware).     |
+//| Fail-safe: on total failure the missing-SL watchdog still closes   |
+//| the position — never an unprotected live position by design.       |
+//+------------------------------------------------------------------+
+void PAT_ATD_EcnAttachStops(ulong ticket, bool isBuy, double sl, double tp)
+{
+   if(ticket == 0) return;
+   if(!PositionSelectByTicket(ticket))
+   {
+      Print("ECN attach: position ", ticket, " not found (already closed?)");
+      return;
+   }
+   double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+   long stopsLevel = SymbolInfoInteger(g_symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   double slDist = stopsLevel * SymbolInfoDouble(g_symbol, SYMBOL_POINT);
+   for(int attempt = 0; attempt < 3; attempt++)
+   {
+      if(sl > 0 && tp > 0)
+      {
+         double sl2 = sl, tp2 = tp;
+         if(isBuy)
+         {
+            if(openPrice - sl2 < slDist) sl2 = openPrice - slDist - _Point;
+            if(tp2 - openPrice < slDist) tp2 = openPrice + slDist + _Point;
+         }
+         else
+         {
+            if(sl2 - openPrice < slDist) sl2 = openPrice + slDist + _Point;
+            if(openPrice - tp2 < slDist) tp2 = openPrice - slDist - _Point;
+         }
+         if(trade.PositionModify(ticket, sl2, tp2))
+         {
+            Print("ECN OPEN-THEN-MODIFY: SL/TP attached on attempt ", attempt + 1,
+                  " sl=", DoubleToString(sl2, _Digits), " tp=", DoubleToString(tp2, _Digits));
+            return;
+         }
+      }
+      else
+      {
+         Print("ECN attach: signal carried no SL/TP — skipping attach (watchdog will guard)");
+         return;
+      }
+      Print("ECN attach attempt ", attempt + 1, " failed: ", trade.ResultRetcode(),
+            " ", trade.ResultRetcodeDescription());
+      Sleep(250);
+   }
+   Print("ECN WARNING: SL/TP attach incomplete after 3 attempts — missing-SL watchdog will re-check");
+}
+
 void ExecuteBuy()
 {
     // 1. WRONG-SIDE SL/TP REJECT (highest priority — abort, never clamp)
@@ -1911,6 +2010,10 @@ void ExecuteBuy()
     double slDistExec = MathAbs(g_entry - g_sl);
     double clientCapLot = PAT_CalcLotSize(AccountInfoDouble(ACCOUNT_EQUITY), slDistExec);
     double vol = PAT_NormalizeLot(serverLot);
+    // v1.27 Micro/Cent adaptation: cent-denominated accounts quote in cent
+    // lots — 1.00 cent-lot = 0.01 standard lot (PAT_ATD_LotScale → 0.01 only
+    // on detected MicroCent accounts; identity otherwise).
+    vol = CAccountTypeDetector::ScaleLot(vol);
     if(clientCapLot > 0 && vol > clientCapLot)
     {
         Print("LOT CAPPED by local equity risk: server=", DoubleToString(vol, 2),
@@ -1939,16 +2042,35 @@ void ExecuteBuy()
         return;
     }
 
+    // v1.27 ECN adaptation (additive): on ECN accounts lot sizing is
+    // cent-scaled if the broker runs cent lots, and the execution path is
+    // marked for open-then-modify (ECN brokers commonly reject orders that
+    // carry SL/TP at send time). The modify step runs right after the fill
+    // below via PAT_ATD_EcnAttachStops(); non-ECN accounts keep the
+    // existing open-with-SL/TP path untouched.
+    bool atdEcnOpenModify = (g_accountType == "ECN");
+    double atdSl = g_sl, atdTp = finalTP;
+
     double ask = SymbolInfoDouble(g_symbol, SYMBOL_ASK);
     Print("ExecuteBuy: vol=", DoubleToString(vol, 2), " ask=", DoubleToString(ask, _Digits),
           " sl=", DoubleToString(g_sl, _Digits), " tp3=", DoubleToString(finalTP, _Digits),
-          " magic=", magic, " comment=", comment);
+          " magic=", magic, " comment=", comment,
+          " acct_type=", g_accountType);
 
     trade.SetExpertMagicNumber(magic);
     // W5 FIX: apply per-strategy max slippage (overrides the global default
     // set at init) so each strategy respects its configured slippage budget.
     trade.SetDeviationInPoints(PAT_GetMaxSlippage(g_signalStrategy));
-    if(trade.Buy(vol, g_symbol, ask, g_sl, finalTP, comment))
+    bool sentBuy = false;
+    if(atdEcnOpenModify)
+    {
+        // ECN: open naked, then attach SL/TP post-execution (spec §order mode)
+        sentBuy = trade.Buy(vol, g_symbol, ask, 0, 0, comment);
+        if(sentBuy) Print("ECN OPEN-THEN-MODIFY: order naked-filled, attaching SL/TP");
+    }
+    else
+        sentBuy = trade.Buy(vol, g_symbol, ask, g_sl, finalTP, comment);
+    if(sentBuy)
     {
         g_lastExecutedSignalID = g_signalID;
         ulong posTicket = trade.ResultOrder();
@@ -1964,7 +2086,14 @@ void ExecuteBuy()
                        g_tp1, g_tp2, g_tp3, vol);
         }
         PAT_SaveStage((long)magic, 0);
-        Print("BUY executed: order=", posTicket, " magic=", magic, " vol=", DoubleToString(vol, 2));
+        Print("BUY executed: order=", posTicket, " magic=", magic, " vol=", DoubleToString(vol, 2),
+              " acct_type=", g_accountType);
+
+        // v1.27 ECN: attach SL/TP after the naked fill (fail-closed watchdog
+        // would otherwise close the position for missing SL if attach fails —
+        // attempt up to 3 times with live stops-level clearance).
+        if(atdEcnOpenModify && posTicket > 0)
+            PAT_ATD_EcnAttachStops(posTicket, true, atdSl, atdTp);
 
         string ack = "EXECUTION_ACK|{";
         ack += "\"signal_id\":\"" + g_signalID + "\"";
@@ -1975,6 +2104,7 @@ void ExecuteBuy()
         ack += ",\"entry\":" + DoubleToString(ask, _Digits);
         ack += ",\"sl\":" + DoubleToString(g_sl, _Digits);
         ack += ",\"tp\":" + DoubleToString(finalTP, _Digits);
+        ack += PAT_ATD_SignalTag();  // v1.27 account-type traceability
         ack += "}\n";
         PAT_Send(ack);
         CheckSlippage(posTicket, "BUY", ask);
@@ -2007,6 +2137,10 @@ void ExecuteSell()
     double slDistExec = MathAbs(g_entry - g_sl);
     double clientCapLot = PAT_CalcLotSize(AccountInfoDouble(ACCOUNT_EQUITY), slDistExec);
     double vol = PAT_NormalizeLot(serverLot);
+    // v1.27 Micro/Cent adaptation: cent-denominated accounts quote in cent
+    // lots — 1.00 cent-lot = 0.01 standard lot (PAT_ATD_LotScale → 0.01 only
+    // on detected MicroCent accounts; identity otherwise).
+    vol = CAccountTypeDetector::ScaleLot(vol);
     if(clientCapLot > 0 && vol > clientCapLot)
     {
         Print("LOT CAPPED by local equity risk: server=", DoubleToString(vol, 2),
@@ -2032,15 +2166,28 @@ void ExecuteSell()
         return;
     }
 
+    // v1.27 ECN adaptation (see ExecuteBuy — additive; non-ECN unchanged)
+    bool atdEcnOpenModify = (g_accountType == "ECN");
+    double atdSl = g_sl, atdTp = finalTP;
+
     double bid = SymbolInfoDouble(g_symbol, SYMBOL_BID);
     Print("ExecuteSell: vol=", DoubleToString(vol, 2), " bid=", DoubleToString(bid, _Digits),
           " sl=", DoubleToString(g_sl, _Digits), " tp3=", DoubleToString(finalTP, _Digits),
-          " magic=", magic, " comment=", comment);
+          " magic=", magic, " comment=", comment,
+          " acct_type=", g_accountType);
 
     trade.SetExpertMagicNumber(magic);
     // W5 FIX: apply per-strategy max slippage (see ExecuteBuy).
     trade.SetDeviationInPoints(PAT_GetMaxSlippage(g_signalStrategy));
-    if(trade.Sell(vol, g_symbol, bid, g_sl, finalTP, comment))
+    bool sentSell = false;
+    if(atdEcnOpenModify)
+    {
+        sentSell = trade.Sell(vol, g_symbol, bid, 0, 0, comment);
+        if(sentSell) Print("ECN OPEN-THEN-MODIFY: order naked-filled, attaching SL/TP");
+    }
+    else
+        sentSell = trade.Sell(vol, g_symbol, bid, g_sl, finalTP, comment);
+    if(sentSell)
     {
         g_lastExecutedSignalID = g_signalID;
         ulong posTicket = trade.ResultOrder();
@@ -2056,7 +2203,12 @@ void ExecuteSell()
                        g_tp1, g_tp2, g_tp3, vol);
         }
         PAT_SaveStage((long)magic, 0);
-        Print("SELL executed: order=", posTicket, " magic=", magic, " vol=", DoubleToString(vol, 2));
+        Print("SELL executed: order=", posTicket, " magic=", magic, " vol=", DoubleToString(vol, 2),
+              " acct_type=", g_accountType);
+
+        // v1.27 ECN: attach SL/TP after the naked fill (see ExecuteBuy)
+        if(atdEcnOpenModify && posTicket > 0)
+            PAT_ATD_EcnAttachStops(posTicket, false, atdSl, atdTp);
 
         string ack = "EXECUTION_ACK|{";
         ack += "\"signal_id\":\"" + g_signalID + "\"";
@@ -2067,6 +2219,7 @@ void ExecuteSell()
         ack += ",\"entry\":" + DoubleToString(bid, _Digits);
         ack += ",\"sl\":" + DoubleToString(g_sl, _Digits);
         ack += ",\"tp\":" + DoubleToString(finalTP, _Digits);
+        ack += PAT_ATD_SignalTag();  // v1.27 account-type traceability
         ack += "}\n";
         PAT_Send(ack);
         CheckSlippage(posTicket, "SELL", bid);
@@ -2722,7 +2875,10 @@ void PAT_EdgeHeartbeat()
     // suitable for the account size. Equity is account currency.
     string body = "{\"terminal\":\"MT5\",\"account\":\"" + g_accountID + "\","
                   "\"symbol\":\"" + g_symbol + "\",\"build\":" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD)) + ","
-                  "\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) + "}";
+                  "\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) +
+                  ",\"account_type\":\"" + g_accountType + "\"" +
+                  ",\"account_type_verified\":" + (CAccountTypeDetector::IsVerified() ? "true" : "false") +
+                  ",\"account_type_confirms\":" + IntegerToString(CAccountTypeDetector::ConfirmationCount()) + "}";
     string response = "";
     int status = PAT_SignedPost("/api/v1/devices/edge-heartbeat", body, response);
     if(status != 200 && !g_netDiagnosticsShown)

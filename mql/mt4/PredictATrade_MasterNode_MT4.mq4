@@ -20,6 +20,9 @@
 #property copyright "Predict-A-Trade"
 #property version   "1.00"
 #property strict
+
+// v1.27 account-type detection (additive; data-only node — tags snapshots)
+#include "CAccountTypeDetector.mqh"
 #property description "Master Node: Live data collection for system & dashboard"
 #property description "NO License Key · NO Trading · Data Collection Only"
 
@@ -92,6 +95,22 @@ string FormatISO8601UTC(datetime t)
 
 
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| v1.27 ADDITIVE HELPERS — account-type integration (MasterNode)    |
+//+------------------------------------------------------------------+
+void PAT_ATD_InitDetect()
+{
+   int t = CAccountTypeDetector::Detect();          // never throws; falls back Standard
+   if(CAccountTypeDetector::IsVerified())
+      Print("[MASTER] account_type=", CAccountTypeDetector::TypeName(),
+            " login=", IntegerToString(AccountNumber()),
+            " confirmed (", CAccountTypeDetector::Reason(), ")");
+   else
+      Print("[MASTER] account_type=", CAccountTypeDetector::TypeName(),
+            " PROVISIONAL (", CAccountTypeDetector::Reason(), ")");
+}
+
+//+------------------------------------------------------------------+
 int OnInit()
 {
     Print("Predict-A-Trade Master Node v1.19 initializing (MT4)...");
@@ -127,6 +146,9 @@ int OnInit()
     // engine goes silently blind. A 1-second OnTimer keeps emitting
     // MARKET_SNAPSHOT regardless of tick flow (terminal must be connected).
     EventSetTimer(1000);
+
+    // v1.27: account-type detection (read-only; tags every snapshot)
+    PAT_ATD_InitDetect();
 
     return(INIT_SUCCEEDED);
 }
@@ -394,6 +416,7 @@ void SendMarketSnapshot()
         msg += ",\"currency\":\"" + AccountCurrency() + "\"";
         msg += ",\"leverage\":" + IntegerToString((long)AccountLeverage());
         msg += ",\"server\":\"" + EscapeJSON(AccountServer()) + "\"";
+        msg += ",\"account_type\":\"" + PAT_ATD_GetTypeName() + "\"";
         msg += "}";
     }
 

@@ -33,6 +33,9 @@
 #property version   "1.27"
 #property strict
 
+// v1.27 account-type detection (additive; MT4 build of CAccountTypeDetector)
+#include "CAccountTypeDetector.mqh"
+
 // ─── Signal/Execution inputs ───
 input bool    AutoExecute    = false;   // SIGNAL_ONLY=true by default (display only). Set true to auto-trade.
 input bool    BypassDailyLossBlock = false; // Allow new trades even after the soft daily-loss limit is hit. Hard halt (close-all at MaxDailyLossPct) is NEVER bypassed.
@@ -180,6 +183,37 @@ double  g_regTP2[PAT_REG_MAX];
 double  g_regTP3[PAT_REG_MAX];
 double  g_regOrigLot[PAT_REG_MAX];
 int     g_regCount = 0;
+
+// v1.27: detected account type (lazy-cached inside CAccountTypeDetector).
+// "Standard" until the first Detect() runs in OnInit; used for traceability
+// tags and type-specific adaptation.
+string  g_accountType    = "Standard";
+string  g_accountTypeWhy = "";
+
+//+------------------------------------------------------------------+
+//| v1.27 ADDITIVE HELPERS — account-type integration (MT4)           |
+//+------------------------------------------------------------------+
+void PAT_ATD_InitDetect()
+{
+   int t = CAccountTypeDetector::Detect();          // never throws; falls back Standard
+   g_accountType    = CAccountTypeDetector::TypeName();
+   g_accountTypeWhy = CAccountTypeDetector::Reason();
+   if(CAccountTypeDetector::IsVerified())
+      Print("[Predict-A-Trade] account_type=", g_accountType,
+            " login=", IntegerToString(CAccountTypeDetector::Login()),
+            " confirmed (", g_accountTypeWhy, ")");
+   else
+      Print("[Predict-A-Trade] account_type=", g_accountType,
+            " PROVISIONAL (", g_accountTypeWhy, ") — confirmation pending");
+}
+
+string PAT_ATD_SignalTag()
+{
+   string tag = ",\"account_type\":\"" + g_accountType + "\"";
+   if(g_accountType == "Demo") tag += ",\"demo\":true";
+   return tag;
+}
+//+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
 //| Strategy mapping                                                  |
@@ -756,6 +790,7 @@ int OnInit()
     }
 
     UpdatePanel();
+    PAT_ATD_InitDetect(); // v1.27: account-type detection (fail-safe; never blocks init)
     return(INIT_SUCCEEDED);
 }
 
@@ -814,6 +849,10 @@ void OnTimer()
     PAT_Watchdog();
     PAT_HistoryPoll();
     SendAccountInfo();
+
+    // v1.27: hourly Islamic/swap-free rollover confirmation (rate-limited
+    // internally; no-op for non-candidate account types).
+    CAccountTypeDetector::RolloverCheck();
 
     // Control-plane heartbeat (HMAC) — every watchdog cycle (15s) keeps the
     // device liveness fresh in edge_device_state even when the engine ingest
@@ -1461,6 +1500,7 @@ void SendInitMessage()
                  ",\"total_lots\":" + DoubleToString(totalLots, 2) +
                  ",\"free_margin\":" + DoubleToString(AccountFreeMargin(), 2) +
                  ",\"floating_pnl\":" + DoubleToString(AccountProfit(), 2) +
+                 PAT_ATD_SignalTag() +
                  "}\n";
     PAT_Send(msg);
 }
@@ -1480,6 +1520,7 @@ void SendAccountInfo()
                  ",\"free_margin\":" + DoubleToString(AccountFreeMargin(), 2) +
                  ",\"leverage\":" + IntegerToString(AccountLeverage()) +
                  ",\"open_positions\":" + IntegerToString(OrdersTotal()) +
+                 PAT_ATD_SignalTag() +
                  "}\n";
     PAT_Send(msg);
 }
@@ -1496,6 +1537,7 @@ void RequestLicenseValidation()
                  ",\"profit\":" + DoubleToString(AccountProfit(), 2) +
                  ",\"free_margin\":" + DoubleToString(AccountFreeMargin(), 2) +
                  ",\"open_positions\":" + IntegerToString(OrdersTotal()) +
+                 PAT_ATD_SignalTag() +
                  "}\n";
     PAT_Send(msg);
     Print("License validation requested - balance: ", AccountBalance());
@@ -1908,6 +1950,55 @@ void HandleLicenseResponse(string json)
 //| Opens ONE position with the TOTAL lot; TP set to TP3 (final).     |
 //| TP1/TP2 are taken as EA-managed PARTIAL closes.                   |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| v1.27 ECN adaptation — MT4 open-then-modify. ECN brokers commonly  |
+//| reject orders that carry SL/TP at send time (error 130). Open      |
+//| naked, then OrderModify SL/TP right after the fill (3 attempts,    |
+//| respecting stops level). Non-ECN accounts keep the classic path.   |
+//+------------------------------------------------------------------+
+void PAT_ATD_EcnAttachStopsMT4(int ticket, bool isBuy, double sl, double tp)
+{
+   if(ticket <= 0) return;
+   if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+   {
+      Print("ECN attach: ticket ", ticket, " not found (already closed?)");
+      return;
+   }
+   double openPrice = OrderOpenPrice();
+   double slLvl = MarketInfo(g_symbol, MODE_STOPLEVEL) * Point;
+   for(int attempt = 0; attempt < 3; attempt++)
+   {
+      if(sl > 0 && tp > 0)
+      {
+         double sl2 = sl, tp2 = tp;
+         if(isBuy)
+         {
+            if(openPrice - sl2 < slLvl) sl2 = openPrice - slLvl - Point;
+            if(tp2 - openPrice < slLvl) tp2 = openPrice + slLvl + Point;
+         }
+         else
+         {
+            if(sl2 - openPrice < slLvl) sl2 = openPrice + slLvl + Point;
+            if(openPrice - tp2 < slLvl) tp2 = openPrice - slLvl - Point;
+         }
+         if(OrderModify(ticket, openPrice, sl2, tp2, 0, clrNONE))
+         {
+            Print("ECN OPEN-THEN-MODIFY: SL/TP attached on attempt ", attempt + 1);
+            return;
+         }
+      }
+      else
+      {
+         Print("ECN attach: signal carried no SL/TP — skipping attach");
+         return;
+      }
+      Print("ECN attach attempt ", attempt + 1, " failed: error=", GetLastError());
+      Sleep(250);
+      RefreshRates();
+   }
+   Print("ECN WARNING: SL/TP attach incomplete after 3 attempts — watchdog will re-check");
+}
+
 void ExecuteBuy()
 {
     // 1. WRONG-SIDE SL/TP REJECT (highest priority — abort, never clamp)
@@ -1930,6 +2021,10 @@ void ExecuteBuy()
     if(UseAutoLotSizing)
         vol = PAT_CalcLotSize(AccountEquity(), MathAbs(g_entry - g_sl));
     if(vol <= 0) vol = PAT_NormalizeLot(BaseLot);
+    // v1.27 Micro/Cent adaptation: cent-denominated accounts quote in cent
+    // lots — 1.00 cent-lot = 0.01 standard lot. Scale all sizing by /100
+    // (PAT_ATD_LotScale returns 0.01 only on detected MicroCent accounts).
+    vol = CAccountTypeDetector::ScaleLot(vol);
     if(vol <= 0)
     {
         Print("REJECTED lot_below_min: computed lot below broker minimum — refusing to force size");
@@ -1954,7 +2049,18 @@ void ExecuteBuy()
           " magic=", magic, " comment=", comment);
 
     RefreshRates();
-    int ticket = OrderSend(g_symbol, OP_BUY, vol, Ask, PAT_GetMaxSlippage(g_signalStrategy),
+    // v1.27 ECN: open naked, then OrderModify SL/TP post-fill (see helper)
+    bool atdEcnOpenModify = (g_accountType == "ECN");
+    double atdSl = g_sl, atdTp = finalTP;
+    int ticket = 0;
+    if(atdEcnOpenModify)
+    {
+        ticket = OrderSend(g_symbol, OP_BUY, vol, Ask, PAT_GetMaxSlippage(g_signalStrategy),
+                           0, 0, comment, magic, 0, clrGreen);
+        if(ticket > 0) Print("ECN OPEN-THEN-MODIFY: naked-filled #", ticket);
+    }
+    else
+        ticket = OrderSend(g_symbol, OP_BUY, vol, Ask, PAT_GetMaxSlippage(g_signalStrategy),
                            g_sl, finalTP, comment, magic, 0, clrGreen);
     if(ticket > 0)
     {
@@ -1963,7 +2069,9 @@ void ExecuteBuy()
         PAT_SaveStage(magic, 0);
         GlobalVariableSet(PAT_GVName(magic, "OL"), vol);
         Print("BUY executed: ticket=", ticket, " magic=", magic, " vol=", DoubleToString(vol, 2),
-              " SL=", DoubleToString(g_sl, _Digits), " TP3=", DoubleToString(finalTP, _Digits));
+              " SL=", DoubleToString(g_sl, _Digits), " TP3=", DoubleToString(finalTP, _Digits),
+              " acct_type=", g_accountType);
+        if(atdEcnOpenModify) PAT_ATD_EcnAttachStopsMT4(ticket, true, atdSl, atdTp);  // v1.27 ECN
         string ack = "EXECUTION_ACK|{";
         ack += "\"signal_id\":\"" + g_signalID + "\"";
         ack += ",\"status\":\"FILLED\"";
@@ -1973,6 +2081,7 @@ void ExecuteBuy()
         ack += ",\"entry\":" + DoubleToString(Ask, _Digits);
         ack += ",\"sl\":" + DoubleToString(g_sl, _Digits);
         ack += ",\"tp\":" + DoubleToString(finalTP, _Digits);
+        ack += PAT_ATD_SignalTag();  // v1.27 account-type traceability
         ack += "}\n";
         PAT_Send(ack);
         CheckSlippage(ticket, "BUY", Ask);
@@ -2001,6 +2110,10 @@ void ExecuteSell()
     if(UseAutoLotSizing)
         vol = PAT_CalcLotSize(AccountEquity(), MathAbs(g_entry - g_sl));
     if(vol <= 0) vol = PAT_NormalizeLot(BaseLot);
+    // v1.27 Micro/Cent adaptation: cent-denominated accounts quote in cent
+    // lots — 1.00 cent-lot = 0.01 standard lot. Scale all sizing by /100
+    // (PAT_ATD_LotScale returns 0.01 only on detected MicroCent accounts).
+    vol = CAccountTypeDetector::ScaleLot(vol);
     if(vol <= 0)
     {
         Print("REJECTED lot_below_min: computed lot below broker minimum — refusing to force size");
@@ -2022,7 +2135,18 @@ void ExecuteSell()
           " magic=", magic, " comment=", comment);
 
     RefreshRates();
-    int ticket = OrderSend(g_symbol, OP_SELL, vol, Bid, PAT_GetMaxSlippage(g_signalStrategy),
+    // v1.27 ECN: open naked, then OrderModify SL/TP post-fill (see helper)
+    bool atdEcnOpenModify = (g_accountType == "ECN");
+    double atdSl = g_sl, atdTp = finalTP;
+    int ticket = 0;
+    if(atdEcnOpenModify)
+    {
+        ticket = OrderSend(g_symbol, OP_SELL, vol, Bid, PAT_GetMaxSlippage(g_signalStrategy),
+                           0, 0, comment, magic, 0, clrRed);
+        if(ticket > 0) Print("ECN OPEN-THEN-MODIFY: naked-filled #", ticket);
+    }
+    else
+        ticket = OrderSend(g_symbol, OP_SELL, vol, Bid, PAT_GetMaxSlippage(g_signalStrategy),
                            g_sl, finalTP, comment, magic, 0, clrRed);
     if(ticket > 0)
     {
@@ -2031,7 +2155,9 @@ void ExecuteSell()
         PAT_SaveStage(magic, 0);
         GlobalVariableSet(PAT_GVName(magic, "OL"), vol);
         Print("SELL executed: ticket=", ticket, " magic=", magic, " vol=", DoubleToString(vol, 2),
-              " SL=", DoubleToString(g_sl, _Digits), " TP3=", DoubleToString(finalTP, _Digits));
+              " SL=", DoubleToString(g_sl, _Digits), " TP3=", DoubleToString(finalTP, _Digits),
+              " acct_type=", g_accountType);
+        if(atdEcnOpenModify) PAT_ATD_EcnAttachStopsMT4(ticket, false, atdSl, atdTp);  // v1.27 ECN
         string ack = "EXECUTION_ACK|{";
         ack += "\"signal_id\":\"" + g_signalID + "\"";
         ack += ",\"status\":\"FILLED\"";
@@ -2041,6 +2167,7 @@ void ExecuteSell()
         ack += ",\"entry\":" + DoubleToString(Bid, _Digits);
         ack += ",\"sl\":" + DoubleToString(g_sl, _Digits);
         ack += ",\"tp\":" + DoubleToString(finalTP, _Digits);
+        ack += PAT_ATD_SignalTag();  // v1.27 account-type traceability
         ack += "}\n";
         PAT_Send(ack);
         CheckSlippage(ticket, "SELL", Bid);
@@ -2814,7 +2941,10 @@ void PAT_EdgeHeartbeat()
     // suitable for the account size. Equity is account currency.
     string body = "{\"terminal\":\"MT4\",\"account\":\"" + g_accountID + "\","
                   "\"symbol\":\"" + g_symbol + "\",\"build\":" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD)) + ","
-                  "\"equity\":" + DoubleToString(AccountEquity(), 2) + "}";
+                  "\"equity\":" + DoubleToString(AccountEquity(), 2) +
+                  ",\"account_type\":\"" + g_accountType + "\"" +
+                  ",\"account_type_verified\":" + (CAccountTypeDetector::IsVerified() ? "true" : "false") +
+                  ",\"account_type_confirms\":" + IntegerToString(CAccountTypeDetector::ConfirmationCount()) + "}";
     string response = "";
     int status = PAT_SignedPost("/api/v1/devices/edge-heartbeat", body, response);
     if(status != 200 && !g_netDiagnosticsShown)

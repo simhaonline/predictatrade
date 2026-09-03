@@ -170,15 +170,16 @@ type SnapshotVWAP struct {
 }
 
 type SnapshotAccount struct {
-	Account    string  `json:"account"`
-	Balance    float64 `json:"balance"`
-	Equity     float64 `json:"equity"`
-	Margin     float64 `json:"margin"`
-	FreeMargin float64 `json:"free_margin"`
-	Profit     float64 `json:"profit"`
-	Currency   string  `json:"currency"`
-	Leverage   int64   `json:"leverage"`
-	Server     string  `json:"server"`
+	Account     string  `json:"account"`
+	Balance     float64 `json:"balance"`
+	Equity      float64 `json:"equity"`
+	Margin      float64 `json:"margin"`
+	FreeMargin  float64 `json:"free_margin"`
+	Profit      float64 `json:"profit"`
+	Currency    string  `json:"currency"`
+	Leverage    int64   `json:"leverage"`
+	Server      string  `json:"server"`
+	AccountType string  `json:"account_type,omitempty"` // v1.27: Demo/Contest/Islamic/MicroCent/ECN/STP/Standard
 }
 
 type SnapshotSymbol struct {
