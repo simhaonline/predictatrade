@@ -4,6 +4,36 @@
 > "edge-poll failed: HTTP 502" incident, the HA fix, and the connectivity
 > watchdog. Read this before touching nginx, pat-control, or the watchdog.
 
+## Combined tier-geometry model v1.25 (2026-09-03, 9fbff05 — user-approved a+b+c)
+
+Answer to "combine a+b+c and make best maths to win". The three legs:
+
+- **(a) Scalp character for small tiers** — micro-TP must clear round-trip
+  cost (spread + slippage 0.10 + commission 0.06) or the profitability gate
+  vetoes as loss candidate. Already global; unchanged. MICRO therefore
+  still trades only when geometry is genuinely cost-covering.
+- **(b) Tier caps** (`capitaltier.PerTradeRiskCapPct`): MICRO 2→4% ($4 on
+  the $100 floor), STANDARD 2→5% ($25 on the $500 floor), PRO 2% unchanged.
+  Effective per-trade cap stays min(plan cap, tier cap); execution sizing
+  is separately capped by capital protection at 1% equity (lot shrinks, SL
+  distance is what the tier gate admits).
+- **(c) Tightened swing geometry** (migration 128, APPLIED to
+  `trading.exit_profiles`; 5-min engine cache TTL → live without restart):
+  STANDARD_SWING 0.25/0.25/0.50/1.00 → 0.18/0.40/0.70/1.20;
+  TREND_SWING 0.40/0.40/1.20/1.60 → 0.30/0.65/1.10/1.50.
+
+Why this is the best-maths combination (from 2026-09-03 production data):
+the old swing TP1 == SL (1:1) was EV-negative at wr ≤ 0.5 — the root of
+the profitability veto wall — and the 0.25% SL made wide-ATR swings
+PRO-only so the only executable swing matched 0 devices. Tightening SL
+while widening TP1 raises netRR 0.91→2.03 (clears the MinRR 2.0 gate and
+the EV test at modelled wr 0.63: +2.41→+7.84 per 1R) AND shrinks min-lot
+risk 11.2→8.1pts so STANDARD ($25 cap) admits it; TREND 17.9→13.5pts.
+MICRO stays gross-risk gated (no net-risk admission — a $100 account must
+not carry gap-through risk beyond 4%). Tests updated
+(TestEvaluate_TightenedSwingReachesStandard); capitaltier/gates/signal
+suites green; build clean. Deploy: cron 7aedaad30039 @ 21:05 UTC.
+
 ## "Why no trade" production truth (2026-09-03, d08bc27)
 
 Answer to "signals not executing on MetaTrader" after the type fix:
