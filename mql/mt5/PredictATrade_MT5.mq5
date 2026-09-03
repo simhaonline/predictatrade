@@ -37,7 +37,7 @@
 //| SERVER - no EA recompile required.                               |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.25"
+#property version   "1.26"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -803,7 +803,7 @@ string FormatISO8601UTC(datetime t)
 
 int OnInit()
 {
-    Print("Predict-A-Trade MT5 EA v1.25 initializing...");
+    Print("Predict-A-Trade MT5 EA v1.26 initializing...");
 
     g_symbol = BrokerSymbol;
     if(g_symbol == "") g_symbol = _Symbol;
@@ -1324,7 +1324,7 @@ void SendInitMessage()
     if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
        Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
 
-    string msg = "INIT|{\"ea_version\":\"1.25\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
+    string msg = "INIT|{\"ea_version\":\"1.26\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                 "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
                 "\",\"license_key\":\"" + g_licenseKey +
                 "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
@@ -1357,7 +1357,7 @@ void SendAccountInfo()
     // bound account id does not match, so telemetry is never silently wrong.
     if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
        Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
-    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.25\",\"account\":\"" + g_accountID +
+    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.26\",\"account\":\"" + g_accountID +
                 "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                 "\",\"symbol\":\"" + g_symbol +
                 "\",\"currency\":\"" + AccountInfoString(ACCOUNT_CURRENCY) +
@@ -2805,6 +2805,26 @@ bool PAT_EnsureAccessToken()
         // Legacy persisted state without a refresh token — re-activate.
         g_deviceId = ""; g_deviceSecret = ""; PAT_Clear(g_deviceFile);
         return PAT_EnsureDevice();
+    }
+    // v1.26 multi-instance self-heal: two EA instances on the SAME terminal
+    // (two charts) share one per-terminal state file. Whichever instance
+    // refreshed LAST wrote the newest token to the file; an instance holding
+    // an older in-memory token would otherwise present it and trip the
+    // server's reuse detector (family revoked → re-activation churn = the
+    // 401 loop). Re-read the file before every refresh and adopt the newest
+    // persisted token when it differs from memory — all instances converge
+    // on the server's rotation chain instead of fighting over it.
+    string state = PAT_Read(g_deviceFile);
+    if(StringLen(state) > 0)
+    {
+        string sparts[];
+        int sn = StringSplit(state, '|', sparts);
+        if(sn >= 3 && sparts[0] == g_deviceId && StringLen(sparts[2]) > 0 &&
+           sparts[2] != g_refreshToken)
+        {
+            Print("[Predict-A-Trade] Adopting newer refresh token from device state file (another instance rotated).");
+            g_refreshToken = sparts[2];
+        }
     }
     string body = "{\"refresh_token\":\"" + g_refreshToken + "\",\"device_id\":\"" + g_deviceId + "\",\"role\":\"exec\"}";
     string response = "";

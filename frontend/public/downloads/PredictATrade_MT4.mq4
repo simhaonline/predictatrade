@@ -2551,6 +2551,25 @@ bool PAT_EnsureAccessToken()
     if(!PAT_EnsureDevice()) return false;
     if(StringLen(g_refreshToken) == 0) return false;
 
+    // v1.27 multi-instance self-heal: two EA instances on the SAME terminal
+    // (two charts) share one per-terminal state file. An instance holding an
+    // older in-memory refresh token would present it and trip the server's
+    // reuse detector (family revoked → re-activation churn). Re-read the
+    // file before every refresh and adopt the newest persisted token when
+    // it differs from memory — instances converge on one rotation chain.
+    string state = PAT_ReadFile(g_deviceFile);
+    if(StringLen(state) > 0)
+    {
+        string sparts[];
+        int sn = StringSplit(state, '|', sparts);
+        if(sn >= 3 && sparts[0] == g_deviceId && StringLen(sparts[2]) > 0 &&
+           sparts[2] != g_refreshToken)
+        {
+            Print("[Predict-A-Trade] Adopting newer refresh token from device state file (another instance rotated).");
+            g_refreshToken = sparts[2];
+        }
+    }
+
     string body = "{\"refresh_token\":\"" + g_refreshToken + "\"}";
     string response = "";
     int status = PAT_HTTPPost(PATCloudURL + "/api/v1/devices/refresh", body, response);
