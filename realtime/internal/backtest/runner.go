@@ -93,6 +93,25 @@ func (r *Runner) Run(ctx context.Context) (*BacktestResult, error) {
 	// 3. Main event loop — process each primary candle through the real engine
 	var lastTick *types.Tick
 
+	// Production-parity synthetic tick (v1.26): the live engine always has a
+	// real tick (Bid≈Close−spread/2, Ask≈Close+spread/2, Spread≈$0.30). With
+	// lastTick nil, features.Registry falls back to Bid=candle.Low /
+	// Ask=candle.High / Spread=high−low — the FULL BAR RANGE — which makes
+	// BUY entries print at the candle HIGH and vetoes geometry on any wide
+	// bar (TP1 computed from Close can sit below the Ask entry). That
+	// artifact (e.g. MARNIE_FIB "BUY_GEOMETRY_INVALID: TP1 <= Entry" walls)
+	// does not exist live. Model a realistic tick instead: mid=Close,
+	// spread=config.Spread (typical XAUUSD $0.30).
+	syntheticSpread := r.config.Spread
+	if syntheticSpread.IsZero() {
+		syntheticSpread = decimal.NewFromFloat(0.30)
+	}
+	halfSynthSpread := syntheticSpread.Div(decimal.NewFromInt(2))
+	lastTick = &types.Tick{
+		Symbol:  r.config.Symbol,
+		Quality: types.QualityAuthoritative,
+	}
+
 	// Find the bar index where our actual backtest period starts
 	backtestStartIdx := 0
 	for i, c := range primaryCandles {
@@ -114,6 +133,14 @@ func (r *Runner) Run(ctx context.Context) (*BacktestResult, error) {
 
 		// Build allCandles map for MTF (most recent closed higher TF candles)
 		allCandles := buildAllCandlesMap(candle, r.config.PrimaryTimeframe, higherLookups, candle.Time)
+
+		// Refresh the synthetic tick for THIS bar (mid = close, realistic spread).
+		lastTick.Mid = candle.Close
+		lastTick.Bid = candle.Close.Sub(halfSynthSpread)
+		lastTick.Ask = candle.Close.Add(halfSynthSpread)
+		lastTick.Spread = syntheticSpread
+		lastTick.SourceTimestamp = candle.Time
+		lastTick.GatewayTimestamp = candle.Time
 
 		// Feed through the REAL production feature engine
 		state := r.registry.Evaluate(candle, allCandles, lastTick)

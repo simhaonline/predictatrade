@@ -79,6 +79,35 @@ Real-world validation should continue with live-forward tracking (the
 delivery canary + ack chain already capture what clients actually
 receive), not more synthetic backtests.
 
+## Synthetic-tick parity fix (2026-09-03 — the "MARNIE_FIB geometry bug" root cause)
+
+The MARNIE_FIB `BUY_GEOMETRY_INVALID: TP1 <= Entry` wall was NOT a
+strategy bug. Root cause: with `lastTick == nil` (backtests), the feature
+registry fell back to `Bid=candle.Low / Ask=candle.High /
+Spread=high−low` — the FULL BAR RANGE as spread. BUY entries printed at
+the candle HIGH while TP1 was computed from Close, so any wide bar vetoed
+geometry (`TP1(Close+2×ATR) < Entry(High)`). Live always has a real tick
+(spread ≈ $0.30), so this artifact never exists in production.
+
+Fix (runner.go, v1.26): the runner now constructs a per-bar synthetic
+tick — mid=Close, spread=`config.Spread` (default $0.30), timestamps =
+bar time — mirroring live tick semantics. Re-run results (90-day Kaggle
+Q4-2025, production-parity gates ON):
+
+| Strategy | Wide-spread artifact | Realistic tick | Note |
+|---|---|---|---|
+| TREND_SWING | +17.6%, PF 1.86 | **+23.6%, PF 1.45, DD 13.8%, 70 tr** | workhorse confirmed |
+| MARNIE_FIB | 0 trades (veto wall) | **+18.1%, PF 4.49, DD 3.1%, 7 tr** | strategy was never broken |
+| STANDARD_SWING | −10.0%, PF 0.82 | **+3.0%, PF 1.01, 239 tr** | breakeven-positive in chop |
+| STANDARD_SCALPING | 1 trade | −46.0%, PF 0.81, 337 tr | live negative edge now honestly visible; live fail-closed downgrades are correct |
+| ULTRA_SCALPING | 0 trades (spread) | −18.8%, 55 tr | Kaggle M5 cannot represent micro-TP tick dynamics; live-only edge |
+
+Fleet verdict after the fix: TREND_SWING + MARNIE_FIB are the proven
+earners; STANDARD_SWING is marginal-positive (selectivity does the
+work); STANDARD_SCALPING is negative in both live and backtest (gates
+rightly suppress it); ULTRA remains live-tracked only. ATEN stays
+dormant (not armed, no exit profile).
+
 ## v1.25 DEPLOYED LIVE (2026-09-03 17:38 UTC, user-authorized early deploy)
 
 "i need to get signals on clients" — done, verified end-to-end:
