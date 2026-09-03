@@ -85,19 +85,19 @@ export interface RunBacktestResponse {
 
 export async function fetchAvailableData(): Promise<DataSummary[]> {
   const res = await fetch(`${API_BASE}/backtest/data`, fetchOpts());
-  if (!res.ok) throw new Error("Failed to fetch data");
+  if (!res.ok) throw new Error(await describeApiError(res, "Failed to fetch data"));
   return res.json();
 }
 
 export async function fetchRuns(): Promise<BacktestRun[]> {
   const res = await fetch(`${API_BASE}/backtest/runs`, fetchOpts());
-  if (!res.ok) throw new Error("Failed to fetch runs");
+  if (!res.ok) throw new Error(await describeApiError(res, "Failed to fetch runs"));
   return res.json();
 }
 
 export async function fetchRunDetails(runId: string): Promise<{ run: BacktestRun; trades: BacktestTrade[] }> {
   const res = await fetch(`${API_BASE}/backtest/runs/${runId}`, fetchOpts());
-  if (!res.ok) throw new Error("Failed to fetch run details");
+  if (!res.ok) throw new Error(await describeApiError(res, "Failed to fetch run details"));
   return res.json();
 }
 
@@ -107,8 +107,24 @@ export async function runBacktest(req: RunBacktestRequest): Promise<RunBacktestR
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
   }));
-  if (!res.ok) throw new Error("Failed to run backtest");
+  if (!res.ok) throw new Error(await describeApiError(res, "Failed to run backtest"));
   return res.json();
+}
+
+// Distinguish auth failures from server errors so the backtest page can tell
+// the operator exactly what to do instead of a bare "Failed to fetch runs":
+// 401 → session expired (re-login), 403 → MFA enrollment gate, 5xx → backend.
+async function describeApiError(res: Response, fallback: string): Promise<string> {
+  if (res.status === 401) {
+    return `${fallback}: your session has expired. Sign in again (https://platform.predictatrade.com/login), then reopen this page.`;
+  }
+  if (res.status === 403) {
+    return `${fallback}: access denied. If your account has admin privileges, complete MFA enrollment / verify the TOTP code at sign-in, then reload. (HTTP 403)`;
+  }
+  if (res.status >= 500) {
+    return `${fallback}: the backtest service is temporarily unavailable (HTTP ${res.status}). Retry in a minute — run history is stored in the database and is not lost.`;
+  }
+  return `${fallback} (HTTP ${res.status})`;
 }
 
 export function downloadCSVUrl(runId: string): string {
