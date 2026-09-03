@@ -4,6 +4,38 @@
 > "edge-poll failed: HTTP 502" incident, the HA fix, and the connectivity
 > watchdog. Read this before touching nginx, pat-control, or the watchdog.
 
+## v1.25 DEPLOYED LIVE (2026-09-03 17:38 UTC, user-authorized early deploy)
+
+"i need to get signals on clients" — done, verified end-to-end:
+
+- **EXECUTABLE delivery proven live at 17:18** (pre-deploy, v1.24.1):
+  STANDARD_SWING SELL, raw score 61.0 vs TRENDING_BEARISH trade bar 25
+  (NOT 70 — the 70 was the RANGE bar; regime thresholds differ per regime,
+  see `strategy/regime_thresholds.go`: swing trending=10/25, range=15/40),
+  all gates pass, class EXECUTABLE → enqueued → **Xelans ACKed type:SIGNAL
+  in 2s**. The EA auto-trade gate passes on class=EXECUTABLE.
+- **Post-deploy (17:38)**: engine loaded tightened profiles at boot
+  (`[EXIT_PROFILE] STANDARD_SWING SL=0.1800% TP1=0.4000%`; TREND 0.3000%).
+  `[CANDIDATE-GATE]` observability is producing named gate vetoes (157 in
+  10 min): data_quality FEED_QUALITY_FAILURE (ATEN, feed-quality
+  transition), profitability NEGATIVE_EXPECTANCY (ultra in quiet ATR),
+  martingale_ban, and — transient at boot — risk_oversize from
+  equity-not-hydrated fail-closed (stops once ACCT-INIT lands, 17:39:49).
+- **Fleet tier map (live equity)**: Xelans $792.60=STANDARD (gets swing +
+  scalps; tightened SL 4.99–8.1pts fits its $10–39.6 cap band); Equiti
+  $8.96=MICRO (cap $0.36 — cannot trade any XAUUSD min lot; honest
+  fail-closed, needs top-up); ADS MT4 polls+ACKs (14 items/2h) but no
+  recent ACCT-INIT — equity unknown until next ACCOUNT_INFO.
+- All 3 clients ACKed canary/command/SIGNAL traffic at 17:42; delivery
+  pipe green on all three.
+
+Remaining watch item: swing reads must exceed the CURRENT regime's trade
+bar (trending=25, range=40, high_vol=25) to promote; score 50 reads at
+17:45 were marked INSUFFICIENT_SCORE because the decision score (post-
+calibration/dominance) landed below the active regime bar — the raw
+candidate score is not the deciding number. No action: this is the
+scoring design working; flow resumes when reads strengthen.
+
 ## Combined tier-geometry model v1.25 (2026-09-03, 9fbff05 — user-approved a+b+c)
 
 Answer to "combine a+b+c and make best maths to win". The three legs:
