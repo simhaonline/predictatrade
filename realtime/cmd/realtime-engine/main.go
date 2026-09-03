@@ -22,6 +22,7 @@ import (
 	"github.com/predictatrade/realtime/internal/audit"
 	"github.com/predictatrade/realtime/internal/cache"
 	"github.com/predictatrade/realtime/internal/calibration"
+	"github.com/predictatrade/realtime/internal/capitaltier"
 	"github.com/predictatrade/realtime/internal/config"
 	"github.com/predictatrade/realtime/internal/crossmarket"
 	"github.com/predictatrade/realtime/internal/devilliquidity"
@@ -665,6 +666,18 @@ func enqueueSignalForDevices(signal *types.Signal) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	// v1.23: default the tier list before marshaling. A nil slice marshals to
+	// JSON null (not a missing key), which would make the delivery SQL's
+	// EligibleTiers match exclude every known-tier device. Signals that never
+	// reached the sizing annotation path (account snapshot unknown) carry no
+	// restriction — they are tradeable at broker min lot on any tier, so
+	// defaulting to all tiers keeps delivery fail-open, matching the rules
+	// documented in the SQL below.
+	if len(signal.EligibleTiers) == 0 {
+		signal.EligibleTiers = []string{
+			string(capitaltier.Micro), string(capitaltier.Standard), string(capitaltier.Pro),
+		}
+	}
 	payload, err := json.Marshal(signal)
 	if err != nil {
 		return
@@ -675,6 +688,7 @@ func enqueueSignalForDevices(signal *types.Signal) {
 		  FROM licensing.devices d
 		  JOIN licensing.licenses l ON l.id = d.bound_license_id
 		  LEFT JOIN control.plans p ON p.id = l.plan_id
+		  LEFT JOIN licensing.edge_device_state eds ON eds.device_id = d.id
 		 WHERE d.revoked_at IS NULL
 		   AND d.role = 'exec' -- trade signals only to execution devices (data Masters poll commands, not signals)
 		   AND l.status IN ('ACTIVE', 'PENDING')
@@ -686,7 +700,19 @@ func enqueueSignalForDevices(signal *types.Signal) {
 		        OR p.allowed_strategies::text LIKE '%' || $3 || '%')
 		   AND NOT EXISTS (
 		         SELECT 1 FROM licensing.edge_signal_queue q
-		          WHERE q.device_id = d.id AND q.signal_id = $1::text)`,
+		          WHERE q.device_id = d.id AND q.signal_id = $1::text)
+		   -- v1.23 capital-tier delivery: serve each customer capital category
+		   -- ($100–500 / $500–5k / $5k+) with tradeable geometry only. The
+		   -- payload's EligibleTiers lists the tiers this signal suits (min-lot
+		   -- risk vs per-tier caps). Fail-open rules:
+		   --   • payload without EligibleTiers (legacy/unknown) → deliver
+		   --   • device tier unknown/'' (no ACCOUNT_INFO yet) → deliver
+		   AND (
+		         NOT (eds.capital_tier IS NOT NULL AND eds.capital_tier <> '')
+		         OR NOT COALESCE(jsonb_typeof($2::jsonb->'EligibleTiers') = 'array', false)
+		         OR eds.capital_tier::text IN (
+		              SELECT jsonb_array_elements_text(COALESCE($2::jsonb->'EligibleTiers', '[]'::jsonb)))
+		       )`,
 		signal.ID, string(payload), string(signal.StrategyID))
 	if err != nil {
 		observability.Log.Warn().Err(err).Str("signal_id", signal.ID).
@@ -4658,7 +4684,15 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				econ := risk.SymbolEconomics{TickValue: bs.TickValue, TickSize: bs.TickSize, LotStep: bs.LotStep}
 				baseLot := cfg.BaseLots[string(strat.ID())]
 				leverage := bs.Leverage // client broker leverage; 0 → margin cap fails closed
-				sizing := risk.ComputeSizing(bs.Equity, cfg.MaxRiskPerTradePct, entryF, slF, baseLot, econ)
+				// v1.23: effective per-trade cap = min(plan/config cap,
+				// capital-tier cap for the SIZING account's own equity).
+				// Tier cap can only tighten (never loosen) the plan cap;
+				// unknown tier → no tier component, plan cap governs.
+				riskCapPct := cfg.MaxRiskPerTradePct
+				if tierCap := capitaltier.PerTradeRiskCapPct(capitaltier.Classify(bs.Equity)); tierCap > 0 && riskCapPct > tierCap {
+					riskCapPct = tierCap
+				}
+				sizing := risk.ComputeSizing(bs.Equity, riskCapPct, entryF, slF, baseLot, econ)
 				decision.Signal.SuggestedLot = decimal.NewFromFloat(sizing.SuggestedLot)
 				decision.Signal.RiskDollars = decimal.NewFromFloat(sizing.RiskDollars)
 				decision.Signal.RiskPctOfEquity = decimal.NewFromFloat(sizing.RiskPctOfEquity)
@@ -4689,6 +4723,23 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 						Float64("risk_dollars_at_requested", sizing.RiskDollars).
 						Bool("veto_oversize", sizing.VetoOversize).
 						Msg("[SIZING] suggested lot floored to 0 — min-lot risk exceeds per-trade risk cap (account too small for this SL); EA falls back to broker min lot")
+				}
+				// v1.23: capital-tier eligibility — which customer capital
+				// categories ($100–500 / $500–5k / $5k+) can actually trade
+				// this geometry? min-lot risk vs each tier's conservative
+				// cap (computed from the same SL distance we just stored).
+				slDistF, _ := decision.Signal.SLDistancePoints.Float64()
+				tierEl := capitaltier.Evaluate(slDistF, roundTripCostF)
+				for _, t := range tierEl.EligibleTiers {
+					decision.Signal.EligibleTiers = append(decision.Signal.EligibleTiers, string(t))
+				}
+				if len(tierEl.EligibleTiers) < len(capitaltier.All()) {
+					observability.Log.Info().
+						Str("strategy", string(strat.ID())).
+						Strs("eligible_tiers", decision.Signal.EligibleTiers).
+						Float64("sl_distance", slDistF).
+						Interface("exclusions", tierEl.Exclusions).
+						Msg("[CAPITAL-TIER] signal restricted to capital categories by min-lot risk")
 				}
 			} else {
 				// v1.22.1: make the skip visible — SuggestedLot=0 with a silent
@@ -6062,6 +6113,11 @@ func applyPlanCaps(daily *gates.DailyLossGate, profit *gates.ProfitTargetGate, r
 	if risk != nil && perTrade.Valid && perTrade.Float64 != 0 {
 		risk.MaxRiskPerTradePct = math.Abs(perTrade.Float64)
 	}
+	// v1.23 note: tier-cap composition (min of plan cap, capital-tier cap)
+	// happens per-account at the sizing call site, keyed to the funded
+	// account's own equity tier — NOT here. applyPlanCaps is global to the
+	// engine while tiers are per-device; a global tier would misclassify
+	// every account that isn't the currently-funded one.
 	observability.Log.Info().
 		Float64("daily_loss_pct", daily.MaxDailyLossPct).
 		Float64("weekly_loss_pct", daily.MaxWeeklyLossPct).

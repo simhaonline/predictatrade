@@ -2656,8 +2656,12 @@ void PAT_EdgeAck(string queueId, string resultJSON)
 void PAT_EdgeHeartbeat()
 {
     if(!PAT_EnsureDevice()) return;
+    // v1.24: stream equity with every heartbeat so the platform can classify
+    // the device's capital tier (MICRO/STANDARD/PRO) and deliver signals
+    // suitable for the account size. Equity is account currency.
     string body = "{\"terminal\":\"MT4\",\"account\":\"" + g_accountID + "\","
-                  "\"symbol\":\"" + g_symbol + "\",\"build\":" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD)) + "}";
+                  "\"symbol\":\"" + g_symbol + "\",\"build\":" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD)) + ","
+                  "\"equity\":" + DoubleToString(AccountEquity(), 2) + "}";
     string response = "";
     int status = PAT_SignedPost("/api/v1/devices/edge-heartbeat", body, response);
     if(status != 200 && !g_netDiagnosticsShown)

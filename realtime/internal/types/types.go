@@ -530,6 +530,14 @@ type Signal struct {
 	RiskPctOfEquity  decimal.Decimal // requested-lot risk as % of equity
 	SLDistancePoints decimal.Decimal // |entry - SL| in price points
 
+	// v1.23 Capital-tier delivery (Option A: one engine, tier-aware fan-out).
+	// EligibleTiers lists the customer capital categories this signal is
+	// tradeable for (MICRO/STANDARD/PRO), computed from real geometry:
+	// min-lot risk vs each tier's conservative per-trade cap. The enqueue
+	// fan-out delivers only to devices whose classified tier is listed.
+	// Empty ⇒ treated as all-tiers (legacy/unknown payloads stay deliverable).
+	EligibleTiers []string
+
 	// Dominance (prompt.md Section 23)
 	Dominance float64
 

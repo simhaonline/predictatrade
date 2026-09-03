@@ -183,6 +183,32 @@ export class EdgePollService {
       ).catch(() => {});
     }
 
+    // v1.23 capital-tier tracking: the EA streams equity in the heartbeat
+    // (same telemetry the realtime engine ingests via ACCOUNT_INFO). Persist
+    // it + the classified tier so signal fan-out can serve each customer's
+    // capital category ($100–500 / $500–5k / $5k+). Fail-open: bad equity is
+    // ignored; the engine also classifies independently at enqueue time.
+    const equity = Number(body?.equity);
+    if (Number.isFinite(equity) && equity > 0) {
+      await this.pool.query(
+        `UPDATE licensing.edge_device_state
+            SET last_equity = $2::numeric,
+                capital_tier = CASE
+                    WHEN $2::numeric < 500  THEN 'MICRO'
+                    WHEN $2::numeric < 5000 THEN 'STANDARD'
+                    ELSE 'PRO' END,
+                tier_changed_at = CASE
+                    WHEN capital_tier IS DISTINCT FROM (CASE
+                        WHEN $2::numeric < 500  THEN 'MICRO'
+                        WHEN $2::numeric < 5000 THEN 'STANDARD'
+                        ELSE 'PRO' END)
+                    THEN now() ELSE tier_changed_at END,
+                updated_at = now()
+          WHERE device_id = $1::uuid`,
+        [deviceId, equity],
+      ).catch(() => {});
+    }
+
     return { ok: true, server_time: new Date().toISOString() };
   }
 

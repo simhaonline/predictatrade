@@ -34,4 +34,12 @@ DROP TABLE IF EXISTS audit.agent_connections CASCADE;
 DROP INDEX IF EXISTS trading.idx_agent_user_bindings_agent;
 
 -- 3) Defense-in-depth comment trail so future audits see the intent.
-COMMENT ON TABLE audit.agent_connections IS 'REMOVED in migration 118 (v1.19.0 Option B) — replaced by licensing.edge_device_state';
+--    The table no longer exists after step 1; keep a marker row instead of a
+--    COMMENT ON TABLE (which would fail under ON_ERROR_STOP once dropped).
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables
+               WHERE table_schema='audit' AND table_name='agent_connections') THEN
+        EXECUTE 'COMMENT ON TABLE audit.agent_connections IS ''REMOVED in migration 118 (v1.19.0 Option B) — replaced by licensing.edge_device_state''';
+    END IF;
+END$$;

@@ -1792,8 +1792,23 @@ void ExecuteBuy()
     string comment = PAT_StrategyPrefix(g_signalStrategy) + PAT_ShortSignalID(g_signalID);
 
     // 3. Lot sizing (risk-based; reject instead of forcing min lot)
-    // Use server-calculated lot size if provided, otherwise minimum lot
-    double vol = PAT_NormalizeLot(g_suggestedLot > 0 ? g_suggestedLot : SymbolInfoDouble(g_symbol, SYMBOL_VOLUME_MIN));
+    // Use server-calculated lot size if provided, otherwise minimum lot.
+    // v1.23 tier backstop: the server lot is a single suggestion sized from
+    // the funded account snapshot; cap it by THIS terminal's own equity risk
+    // (equity × RiskPerTradePct ÷ SL distance) so a lot sized for a larger
+    // account can never be executed on a smaller one. min(server, client).
+    double serverLot = (g_suggestedLot > 0) ? g_suggestedLot : SymbolInfoDouble(g_symbol, SYMBOL_VOLUME_MIN);
+    double slDistExec = MathAbs(g_entry - g_sl);
+    double clientCapLot = PAT_CalcLotSize(AccountInfoDouble(ACCOUNT_EQUITY), slDistExec);
+    double vol = PAT_NormalizeLot(serverLot);
+    if(clientCapLot > 0 && vol > clientCapLot)
+    {
+        Print("LOT CAPPED by local equity risk: server=", DoubleToString(vol, 2),
+              " client_cap=", DoubleToString(clientCapLot, 2),
+              " (equity=", DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2),
+              " RiskPerTradePct=", RiskPerTradePct, ")");
+        vol = clientCapLot;
+    }
     if(vol <= 0)
     {
         Print("REJECTED lot_below_min: computed lot below broker minimum — refusing to force size");
@@ -1874,8 +1889,22 @@ void ExecuteSell()
     ulong magic = PAT_NextMagic(magicBase);
     string comment = PAT_StrategyPrefix(g_signalStrategy) + PAT_ShortSignalID(g_signalID);
 
-    // Use server-calculated lot size if provided, otherwise minimum lot
-    double vol = PAT_NormalizeLot(g_suggestedLot > 0 ? g_suggestedLot : SymbolInfoDouble(g_symbol, SYMBOL_VOLUME_MIN));
+    // Use server-calculated lot size if provided, otherwise minimum lot.
+    // v1.23 tier backstop (same as ExecuteBuy): cap the server lot by THIS
+    // terminal's own equity risk so a larger account's lot can never be
+    // executed on a smaller one. min(server, client).
+    double serverLot = (g_suggestedLot > 0) ? g_suggestedLot : SymbolInfoDouble(g_symbol, SYMBOL_VOLUME_MIN);
+    double slDistExec = MathAbs(g_entry - g_sl);
+    double clientCapLot = PAT_CalcLotSize(AccountInfoDouble(ACCOUNT_EQUITY), slDistExec);
+    double vol = PAT_NormalizeLot(serverLot);
+    if(clientCapLot > 0 && vol > clientCapLot)
+    {
+        Print("LOT CAPPED by local equity risk: server=", DoubleToString(vol, 2),
+              " client_cap=", DoubleToString(clientCapLot, 2),
+              " (equity=", DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2),
+              " RiskPerTradePct=", RiskPerTradePct, ")");
+        vol = clientCapLot;
+    }
     if(vol <= 0)
     {
         Print("REJECTED lot_below_min: computed lot below broker minimum — refusing to force size");
@@ -2547,8 +2576,12 @@ void PAT_EdgeAck(string queueId, string resultJSON)
 void PAT_EdgeHeartbeat()
 {
     if(!PAT_EnsureDevice()) return;
+    // v1.23: stream equity with every heartbeat so the platform can classify
+    // the device's capital tier (MICRO/STANDARD/PRO) and deliver signals
+    // suitable for the account size. Equity is account currency.
     string body = "{\"terminal\":\"MT5\",\"account\":\"" + g_accountID + "\","
-                  "\"symbol\":\"" + g_symbol + "\",\"build\":" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD)) + "}";
+                  "\"symbol\":\"" + g_symbol + "\",\"build\":" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD)) + ","
+                  "\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) + "}";
     string response = "";
     int status = PAT_SignedPost("/api/v1/devices/edge-heartbeat", body, response);
     if(status != 200 && !g_netDiagnosticsShown)
