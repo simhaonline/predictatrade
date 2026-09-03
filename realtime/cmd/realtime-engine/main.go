@@ -5434,8 +5434,20 @@ func runPnLAnchorLoop(gateRegistry *gates.Registry, valkeyCache *cache.ValkeyCac
 		// which we adopt by resetting the period anchors to the new level. This is
 		// the legitimate path that used to dead-end in permanent pnl_state_unknown
 		// (the $842 anchor vs $8.96 live-equity deadlock).
+		// v1.24 (2026-09-03): the misread guard now triggers on |P&L| ≥ 50% in
+		// EITHER direction. The original negative-only check left an asymmetric
+		// hole: a positive level change (demo anchor $8.96, funded account
+		// $792.60 arrives) produced (792.60−8.96)/8.96 = +8748% "daily profit",
+		// which ProfitTargetGate turned into a PERMANENT profit_target_hit VETO
+		// — zero trade signals delivered to clients from 10:42 until this fix.
+		// A real +8700% day with no open positions is as impossible as a −50%
+		// one; a sustained reading (3 ticks within the 5% band) is an account
+		// switch / anchor-leftover and must be re-anchored, not traded on.
 		severeZeroPos := bs.TotalCount == 0 &&
-			(snap.PeriodPc[risk.PeriodDay] <= -50 ||
+			(snap.PeriodPc[risk.PeriodDay] >= 50 ||
+				snap.PeriodPc[risk.PeriodWeek] >= 50 ||
+				snap.PeriodPc[risk.PeriodMonth] >= 50 ||
+				snap.PeriodPc[risk.PeriodDay] <= -50 ||
 				snap.PeriodPc[risk.PeriodWeek] <= -50 ||
 				snap.PeriodPc[risk.PeriodMonth] <= -50)
 		sustainedMisread := false
@@ -5460,7 +5472,7 @@ func runPnLAnchorLoop(gateRegistry *gates.Registry, valkeyCache *cache.ValkeyCac
 				Float64("month_pct", snap.PeriodPc[risk.PeriodMonth]).
 				Int("open_positions", bs.TotalCount).
 				Int("sustained_ticks", sustainedCount).
-				Msg("[PNL] severe drawdown with zero open positions — rejecting misread equity feed")
+				Msg("[PNL] severe equity jump with zero open positions — rejecting misread equity feed")
 			unknown := gates.GateState{
 				State:         types.GateUnknown,
 				EvaluatedAt:   now,
