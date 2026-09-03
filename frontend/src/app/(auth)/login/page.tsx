@@ -30,6 +30,10 @@ export default function LoginPage() {
         ...(rememberMe ? { trustDevice: true } : {}),
       });
       if (res.data?.mfaRequired) {
+        // Carry "remember this device" through the TOTP step so the
+        // verify-otp call can register the trusted-device cookie.
+        if (rememberMe) sessionStorage.setItem("pat:trustDevice", "1");
+        else sessionStorage.removeItem("pat:trustDevice");
         router.push(`/verify-otp?challengeId=${res.data.challengeId}&method=${res.data.method}`);
       } else {
         const { accessToken, user } = res.data;

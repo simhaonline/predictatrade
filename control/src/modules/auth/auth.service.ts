@@ -19,12 +19,19 @@ const MAX_OTP_ATTEMPTS = 5;
 const OTP_CHALLENGE_EXPIRY_MIN = 10;
 const MAX_LOGIN_FAILURES = 5;
 const LOCKOUT_MIN = 15;
-const ACCESS_TOKEN_EXPIRY = '1h';
+const ACCESS_TOKEN_EXPIRY = '12h';
 const REFRESH_TOKEN_BYTES = 48; // 384-bit random opaque token
 const REFRESH_TOKEN_EXPIRY_DAYS = 7;
 const RESET_TOKEN_EXPIRY_MIN = 30;
 const REFRESH_COOKIE_NAME = 'pat_refresh_token';
 const REFRESH_COOKIE_PATH = '/api/v1/auth';
+// Trusted-device ("remember this device") MFA bypass: a random 32-byte
+// token delivered in an HttpOnly cookie, stored hashed in
+// iam.trusted_devices. A valid cookie at /auth/login skips the TOTP
+// challenge — the password is still required. Rotated on every use.
+const TRUSTED_DEVICE_COOKIE_NAME = 'pat_trusted_device';
+const TRUSTED_DEVICE_TOKEN_BYTES = 32;
+const TRUSTED_DEVICE_DAYS = 30;
 
 /* ─── Types ─── */
 
@@ -199,7 +206,10 @@ export class AuthService {
 
   /* ─── Login ─── */
 
-  async login(dto: LoginDto): Promise<(AuthResponse & { _refreshToken: string }) | { mfaRequired: true; challengeId: string; method: string }> {
+  async login(
+    dto: LoginDto,
+    trustedDeviceToken?: string,
+  ): Promise<(AuthResponse & { _refreshToken: string; _trustedDeviceToken?: string }) | { mfaRequired: true; challengeId: string; method: string }> {
     const result = await this.pool.query(
       'SELECT id, email, password_hash, full_name, status, failed_login_count, locked_until FROM iam.users WHERE email = $1',
       [dto.email],
@@ -260,6 +270,24 @@ export class AuthService {
     }
 
     if (mfaResult.rows.length > 0 && !dto.mfaCode) {
+      // Trusted-device bypass: a valid remembered-device cookie satisfies the
+      // second factor for THIS browser (password still mandatory). The cookie
+      // is single-use — rotate it on every successful login and return the
+      // new token so the controller can reset the cookie.
+      if (trustedDeviceToken) {
+        const rotated = await this.consumeTrustedDevice(user.id, trustedDeviceToken);
+        if (rotated) {
+          const session = await this.createSession(user.id, user.email);
+          await this.logLoginEvent(user.id, 'LOGIN_SUCCESS', { role: userRole, mfa: 'trusted_device' });
+          return {
+            accessToken: session.accessToken,
+            mfaEnrollmentRequired: requiresMfaEnrollment,
+            user: { id: user.id, email: user.email, displayName: user.full_name },
+            _refreshToken: session.refreshToken,
+            _trustedDeviceToken: rotated,
+          };
+        }
+      }
       const challengeId = crypto.randomUUID();
       await this.pool.query(
         `INSERT INTO iam.login_events (user_id, event_type, metadata)
@@ -295,7 +323,7 @@ export class AuthService {
 
   /* ─── OTP verification ─── */
 
-  async verifyOtp(dto: VerifyOtpDto): Promise<AuthResponse & { licenseValid: boolean; deviceRegistered: boolean; _refreshToken: string }> {
+  async verifyOtp(dto: VerifyOtpDto): Promise<AuthResponse & { licenseValid: boolean; deviceRegistered: boolean; _refreshToken: string; _trustedDeviceToken?: string }> {
     const challengeResult = await this.pool.query(
       `SELECT id, user_id, metadata, created_at FROM iam.login_events
        WHERE event_type = 'MFA_CHALLENGE' AND metadata->>'challengeId' = $1
@@ -362,6 +390,9 @@ export class AuthService {
       licenseValid: licenseResult.rows.length > 0,
       deviceRegistered: Boolean(dto.trustDevice),
       _refreshToken: session.refreshToken,
+      // "Remember this device": raw token goes to the controller's cookie
+      // setter only, never returned in the client-visible JSON shape.
+      _trustedDeviceToken: dto.trustDevice ? await this.registerTrustedDevice(challenge.user_id) : undefined,
     };
   }
 
@@ -791,6 +822,63 @@ export class AuthService {
     const accessToken = this.jwtService.sign({ sub: userId, email, role, permissions: perms, mfaEnrollmentRequired, purpose: 'access' }, { expiresIn: ACCESS_TOKEN_EXPIRY });
     const refreshToken = this.generateRefreshToken();
     return { accessToken, refreshToken };
+  }
+
+  /** Create a session record with hashed refresh token. Returns raw tokens for cookie setting. */
+  /* ─── Trusted device ("remember this device") ───
+   * A random opaque token in an HttpOnly cookie identifies a remembered
+   * browser. Stored hashed (sha256) in iam.trusted_devices. Consuming a
+   * valid token at login skips the TOTP challenge for that browser only —
+   * the password remains mandatory — and the token rotates on every use
+   * (reuse revokes the row). 30-day sliding expiry. */
+
+  getTrustedCookieOptions(token: string): CookieOptions {
+    const isProduction = this.config.get<string>('NODE_ENV') === 'production';
+    return {
+      name: TRUSTED_DEVICE_COOKIE_NAME,
+      value: token,
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: '/api/v1/auth',
+      maxAge: TRUSTED_DEVICE_DAYS * 24 * 60 * 60,
+    };
+  }
+
+  getClearTrustedCookieOptions(): { name: string; path: string; httpOnly: boolean } {
+    return { name: TRUSTED_DEVICE_COOKIE_NAME, path: '/api/v1/auth', httpOnly: true };
+  }
+
+  /** Issue a fresh trusted-device token for a user (called on MFA success
+   * when the user ticked "remember this device"). Returns the raw token. */
+  async registerTrustedDevice(userId: string): Promise<string> {
+    const raw = crypto.randomBytes(TRUSTED_DEVICE_TOKEN_BYTES).toString('hex');
+    const hash = crypto.createHash('sha256').update(raw).digest('hex');
+    await this.pool.query(
+      `INSERT INTO iam.trusted_devices (id, user_id, token_hash, expires_at, created_at)
+       VALUES ($1, $2, $3, now() + interval '${TRUSTED_DEVICE_DAYS} days', now())`,
+      [crypto.randomUUID(), userId, hash],
+    );
+    return raw;
+  }
+
+  /** Validate a trusted-device cookie for a user; on success consume it and
+   * mint a replacement (rotation). Returns the new raw token, or null. */
+  private async consumeTrustedDevice(userId: string, raw: string): Promise<string | null> {
+    if (!raw || raw.length < 32) return null;
+    const hash = crypto.createHash('sha256').update(raw).digest('hex');
+    const res = await this.pool.query(
+      `SELECT id FROM iam.trusted_devices
+       WHERE user_id = $1 AND token_hash = $2 AND revoked_at IS NULL AND expires_at > now()`,
+      [userId, hash],
+    );
+    if (res.rows.length === 0) return null;
+    // Single-use: revoke the presented row, then issue a replacement.
+    await this.pool.query(
+      `UPDATE iam.trusted_devices SET revoked_at = now() WHERE id = $1`,
+      [res.rows[0].id],
+    );
+    return this.registerTrustedDevice(userId);
   }
 
   /** Create a session record with hashed refresh token. Returns raw tokens for cookie setting. */

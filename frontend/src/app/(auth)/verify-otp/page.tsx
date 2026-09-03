@@ -20,8 +20,15 @@ export default function VerifyOtpPage() {
           || new URLSearchParams(window.location.search).get("challengeId")
           || ""
         : "";
-      const res = await customInstance.post("/auth/verify-otp", { challengeId, code });
+      const res = await customInstance.post("/auth/verify-otp", {
+        challengeId,
+        code,
+        // "Remember this device" was ticked on the login form: register the
+        // trusted-device cookie so future logins skip the TOTP challenge.
+        ...(sessionStorage.getItem("pat:trustDevice") === "1" ? { trustDevice: true } : {}),
+      });
       if (res.data?.accessToken) {
+        sessionStorage.removeItem("pat:trustDevice");
         setAccessToken(res.data.accessToken);
         // Role-aware redirect via FULL page load: the auth provider's session
         // bootstrap effect only runs once per mount, and on this page the

@@ -128,17 +128,31 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } }) // 10 login attempts per minute per IP
   @Post('login')
   @ComplianceLog('AUTH_LOGIN')
-  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
+  async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     this.setNoStoreHeaders(res);
-    const result = await this.authService.login(dto);
+    // Trusted-device cookie (remembered browser): satisfies the MFA second
+    // factor for this device at the service layer (password still required).
+    const trustedDeviceToken = req.cookies?.[this.authService.getTrustedCookieOptions('').name];
+    const result = await this.authService.login(dto, trustedDeviceToken);
     // If MFA required, don't set cookie yet
     if ('mfaRequired' in result) {
       return result;
     }
     this.setRefreshCookie(res, result._refreshToken);
     this.setAccessTokenCookie(res, result.accessToken);
-    const { _refreshToken: _rt, ...publicResult } = result;
+    if (result._trustedDeviceToken) {
+      const t = this.authService.getTrustedCookieOptions(result._trustedDeviceToken);
+      res.cookie(t.name, t.value, {
+        httpOnly: t.httpOnly,
+        secure: t.secure,
+        sameSite: t.sameSite,
+        path: t.path,
+        maxAge: t.maxAge,
+      });
+    }
+    const { _refreshToken: _rt, _trustedDeviceToken: _tdt, ...publicResult } = result;
     void _rt;
+    void _tdt;
     return publicResult;
   }
 
@@ -149,9 +163,22 @@ export class AuthController {
     const result = await this.authService.verifyOtp(dto);
     this.setRefreshCookie(res, result._refreshToken);
     this.setAccessTokenCookie(res, result.accessToken);
+    // "Remember this device": set the trusted-device cookie so future logins
+    // on this browser skip the TOTP challenge (30 days, rotated per use).
+    if (result._trustedDeviceToken) {
+      const t = this.authService.getTrustedCookieOptions(result._trustedDeviceToken);
+      res.cookie(t.name, t.value, {
+        httpOnly: t.httpOnly,
+        secure: t.secure,
+        sameSite: t.sameSite,
+        path: t.path,
+        maxAge: t.maxAge,
+      });
+    }
     // Strip internal _refreshToken from the JSON response
-    const { _refreshToken: _rt, ...publicResult } = result;
+    const { _refreshToken: _rt, _trustedDeviceToken: _tdt, ...publicResult } = result;
     void _rt;
+    void _tdt;
     return publicResult;
   }
 
