@@ -84,12 +84,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (fetchedUser) {
         setUser(fetchedUser);
         setSessionState('AUTHENTICATED');
-        // Session restored mid-enrollment: send privileged operators to the
-        // MFA tab instead of letting their pages 403 (same as login path).
-        if (fetchedUser.mfaEnrollmentRequired && typeof window !== 'undefined'
-            && !window.location.pathname.startsWith('/admin/settings')) {
-          router.push('/admin/settings?tab=mfa');
-        }
+        // mfaEnrollmentRequired is advisory now (guard no longer 403-blocks);
+        // keep operators on their intended page instead of yanking them to
+        // the MFA tab. The settings page still surfaces the MFA tab.
       } else {
         setUser(null);
         setSessionState('UNAUTHENTICATED');
@@ -182,12 +179,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setAccessToken(data.accessToken);
 
-    // AUTH-1: privileged accounts without enabled MFA are gated server-side.
-    // Send them straight to enrollment so the app never shows 403 noise.
-    if (data.mfaEnrollmentRequired) {
-      router.push('/admin/settings?tab=mfa');
-      return;
-    }
+    // AUTH-1 is advisory now (forced-MFA guard removed in b9197b8): admins
+    // land on their normal destination (dashboard / requested page). The
+    // MFA tab remains available at /admin/settings?tab=mfa for voluntary
+    // enrollment, and /auth/me still exposes mfaEnrollmentRequired for a
+    // non-blocking banner.
 
     // Build user from login response + token role
     const token = getAccessToken();
