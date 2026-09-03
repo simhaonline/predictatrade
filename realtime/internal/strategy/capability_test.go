@@ -72,11 +72,11 @@ func makeBullishTrendingState() *features.MarketState {
 			States: map[types.Timeframe]int{types.TFH1: 1, types.TFH4: 1, types.TFM15: 1},
 		},
 		Candle: features.CandleIntelligence{
-			IsBullish:        true,
-			IsDisplacement:   true,
-			IsBreakout:       true,
-			ConsecutiveBull:  3,
-			BodyRangeRatio:   decimal.NewFromFloat(0.75),
+			IsBullish:       true,
+			IsDisplacement:  true,
+			IsBreakout:      true,
+			ConsecutiveBull: 3,
+			BodyRangeRatio:  decimal.NewFromFloat(0.75),
 		},
 		Quality: types.QualityAuthoritative,
 	}
@@ -117,11 +117,11 @@ func makeBearishTrendingState() *features.MarketState {
 	s.MTF.Score = -60.0
 	s.MTF.States = map[types.Timeframe]int{types.TFH1: -1, types.TFH4: -1, types.TFM15: -1}
 	s.Candle = features.CandleIntelligence{
-		IsBearish:      true,
-		IsDisplacement: true,
-		IsBreakout:     true,
+		IsBearish:       true,
+		IsDisplacement:  true,
+		IsBreakout:      true,
 		ConsecutiveBear: 3,
-		BodyRangeRatio: decimal.NewFromFloat(0.75),
+		BodyRangeRatio:  decimal.NewFromFloat(0.75),
 	}
 	return s
 }
@@ -138,7 +138,7 @@ func makeMeanReversionState() *features.MarketState {
 	s.Structure.LastBOS = nil
 	s.Structure.LastCHoCH = nil
 	s.Candle = features.CandleIntelligence{
-		IsDoji:       true,
+		IsDoji:         true,
 		BodyRangeRatio: decimal.NewFromFloat(0.1),
 	}
 	s.MTF.Score = 5.0

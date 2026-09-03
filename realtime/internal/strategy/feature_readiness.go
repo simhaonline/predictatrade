@@ -13,26 +13,26 @@ import (
 
 // FeatureReadiness tracks which features are ready for evidence computation.
 type FeatureReadiness struct {
-	EMA9       bool
-	EMA21      bool
-	EMA50      bool
-	EMA100     bool
-	EMA200     bool
-	SMA200     bool
-	RSI        bool
-	ADX        bool
-	ATR        bool
-	MACD       bool
-	Stoch      bool
-	CCI        bool
-	Bollinger  bool
-	VWAP       bool
-	OBV        bool
-	Structure  bool
-	MTF        bool
-	Liquidity  bool
-	FVG        bool
-	Candle     bool
+	EMA9      bool
+	EMA21     bool
+	EMA50     bool
+	EMA100    bool
+	EMA200    bool
+	SMA200    bool
+	RSI       bool
+	ADX       bool
+	ATR       bool
+	MACD      bool
+	Stoch     bool
+	CCI       bool
+	Bollinger bool
+	VWAP      bool
+	OBV       bool
+	Structure bool
+	MTF       bool
+	Liquidity bool
+	FVG       bool
+	Candle    bool
 }
 
 // CheckFeatureReadiness evaluates which features have valid (non-zero) values.
@@ -81,59 +81,139 @@ func CheckFeatureReadiness(state *features.MarketState) FeatureReadiness {
 func (r FeatureReadiness) ReadinessPercent() float64 {
 	total := 20
 	ready := 0
-	if r.EMA9 { ready++ }
-	if r.EMA21 { ready++ }
-	if r.EMA50 { ready++ }
-	if r.EMA100 { ready++ }
-	if r.EMA200 { ready++ }
-	if r.SMA200 { ready++ }
-	if r.RSI { ready++ }
-	if r.ADX { ready++ }
-	if r.ATR { ready++ }
-	if r.MACD { ready++ }
-	if r.Stoch { ready++ }
-	if r.CCI { ready++ }
-	if r.Bollinger { ready++ }
-	if r.VWAP { ready++ }
-	if r.OBV { ready++ }
-	if r.Structure { ready++ }
-	if r.MTF { ready++ }
-	if r.Liquidity { ready++ }
-	if r.FVG { ready++ }
-	if r.Candle { ready++ }
+	if r.EMA9 {
+		ready++
+	}
+	if r.EMA21 {
+		ready++
+	}
+	if r.EMA50 {
+		ready++
+	}
+	if r.EMA100 {
+		ready++
+	}
+	if r.EMA200 {
+		ready++
+	}
+	if r.SMA200 {
+		ready++
+	}
+	if r.RSI {
+		ready++
+	}
+	if r.ADX {
+		ready++
+	}
+	if r.ATR {
+		ready++
+	}
+	if r.MACD {
+		ready++
+	}
+	if r.Stoch {
+		ready++
+	}
+	if r.CCI {
+		ready++
+	}
+	if r.Bollinger {
+		ready++
+	}
+	if r.VWAP {
+		ready++
+	}
+	if r.OBV {
+		ready++
+	}
+	if r.Structure {
+		ready++
+	}
+	if r.MTF {
+		ready++
+	}
+	if r.Liquidity {
+		ready++
+	}
+	if r.FVG {
+		ready++
+	}
+	if r.Candle {
+		ready++
+	}
 	return float64(ready) / float64(total) * 100.0
 }
 
 // MissingFeatures returns a list of feature names that are not ready.
 func (r FeatureReadiness) MissingFeatures() []string {
 	var missing []string
-	if !r.EMA9 { missing = append(missing, "EMA9") }
-	if !r.EMA21 { missing = append(missing, "EMA21") }
-	if !r.EMA50 { missing = append(missing, "EMA50") }
-	if !r.EMA100 { missing = append(missing, "EMA100") }
-	if !r.EMA200 { missing = append(missing, "EMA200") }
-	if !r.SMA200 { missing = append(missing, "SMA200") }
-	if !r.RSI { missing = append(missing, "RSI") }
-	if !r.ADX { missing = append(missing, "ADX") }
-	if !r.ATR { missing = append(missing, "ATR") }
-	if !r.MACD { missing = append(missing, "MACD") }
-	if !r.Stoch { missing = append(missing, "Stochastic") }
-	if !r.CCI { missing = append(missing, "CCI") }
-	if !r.Bollinger { missing = append(missing, "Bollinger") }
-	if !r.VWAP { missing = append(missing, "VWAP") }
-	if !r.OBV { missing = append(missing, "OBV") }
-	if !r.Structure { missing = append(missing, "Structure") }
-	if !r.MTF { missing = append(missing, "MTF") }
-	if !r.Liquidity { missing = append(missing, "Liquidity") }
-	if !r.FVG { missing = append(missing, "FVG") }
-	if !r.Candle { missing = append(missing, "Candle") }
+	if !r.EMA9 {
+		missing = append(missing, "EMA9")
+	}
+	if !r.EMA21 {
+		missing = append(missing, "EMA21")
+	}
+	if !r.EMA50 {
+		missing = append(missing, "EMA50")
+	}
+	if !r.EMA100 {
+		missing = append(missing, "EMA100")
+	}
+	if !r.EMA200 {
+		missing = append(missing, "EMA200")
+	}
+	if !r.SMA200 {
+		missing = append(missing, "SMA200")
+	}
+	if !r.RSI {
+		missing = append(missing, "RSI")
+	}
+	if !r.ADX {
+		missing = append(missing, "ADX")
+	}
+	if !r.ATR {
+		missing = append(missing, "ATR")
+	}
+	if !r.MACD {
+		missing = append(missing, "MACD")
+	}
+	if !r.Stoch {
+		missing = append(missing, "Stochastic")
+	}
+	if !r.CCI {
+		missing = append(missing, "CCI")
+	}
+	if !r.Bollinger {
+		missing = append(missing, "Bollinger")
+	}
+	if !r.VWAP {
+		missing = append(missing, "VWAP")
+	}
+	if !r.OBV {
+		missing = append(missing, "OBV")
+	}
+	if !r.Structure {
+		missing = append(missing, "Structure")
+	}
+	if !r.MTF {
+		missing = append(missing, "MTF")
+	}
+	if !r.Liquidity {
+		missing = append(missing, "Liquidity")
+	}
+	if !r.FVG {
+		missing = append(missing, "FVG")
+	}
+	if !r.Candle {
+		missing = append(missing, "Candle")
+	}
 	return missing
 }
 
 // ScoreContributionTrace records how each feature contributed to the final score.
 // This is used for diagnostics to explain why a score is zero.
 type ScoreContributionTrace struct {
-	StrategyID       types.StrategyID
+	StrategyID         types.StrategyID
 	LongContributions  map[string]float64
 	ShortContributions map[string]float64
 	ConflictPenalty    float64

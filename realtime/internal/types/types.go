@@ -158,10 +158,10 @@ const (
 	AlignmentBrokerUTCPlus3 AlignmentProfile = "BROKER_ALIGNED_UTC_PLUS_3"
 	// AlignmentBroker marks candles bucket-aligned to the live broker session
 	// timezone (offset collected from the Master Node), not UTC.
-	AlignmentBroker        AlignmentProfile = "BROKER_ALIGNED"
-	AlignmentUTC           AlignmentProfile = "UTC_ALIGNED"
-	AlignmentVenue         AlignmentProfile = "VENUE_ALIGNED"
-	AlignmentSourceNative  AlignmentProfile = "SOURCE_NATIVE"
+	AlignmentBroker       AlignmentProfile = "BROKER_ALIGNED"
+	AlignmentUTC          AlignmentProfile = "UTC_ALIGNED"
+	AlignmentVenue        AlignmentProfile = "VENUE_ALIGNED"
+	AlignmentSourceNative AlignmentProfile = "SOURCE_NATIVE"
 )
 
 // Regime represents the current market regime (SOW Section 11).
@@ -275,12 +275,13 @@ const (
 	NTInsufficientScore     NoTradeReason = "INSUFFICIENT_SCORE"
 	NTConflictingTimeframes NoTradeReason = "CONFLICTING_TIMEFRAMES"
 	NTHighNewsRisk          NoTradeReason = "HIGH_NEWS_RISK"
-	NTNewsDataUnavailable    NoTradeReason = "NEWS_DATA_UNAVAILABLE"
+	NTNewsDataUnavailable   NoTradeReason = "NEWS_DATA_UNAVAILABLE"
 	NTExtremeVolatility     NoTradeReason = "EXTREME_VOLATILITY"
 	NTLowLiquidity          NoTradeReason = "LOW_LIQUIDITY"
 	NTHighSpread            NoTradeReason = "HIGH_SPREAD"
 	NTPoorRR                NoTradeReason = "POOR_RR"
 	NTUnclearStructure      NoTradeReason = "UNCLEAR_STRUCTURE"
+	NTOverextended          NoTradeReason = "OVEREXTENDED"
 	NTDXYConflict           NoTradeReason = "DXY_CONFLICT"
 	NTYieldConflict         NoTradeReason = "YIELD_CONFLICT"
 	NTStaleData             NoTradeReason = "STALE_DATA"
@@ -398,8 +399,8 @@ type Signal struct {
 	// MarketClosed / NextMarketOpen: set only on the market-closed short-circuit
 	// NO-TRADE so clients can show a re-open countdown.
 	NextMarketOpen *time.Time
-	Evidence              []EvidenceContribution
-	GateResults           []GateEvaluation
+	Evidence       []EvidenceContribution
+	GateResults    []GateEvaluation
 	// AiVerification records the AI/LLM verification outcome for the signal.
 	// Empty/"DISABLED" when Ollama is off (the default). Never fabricated.
 	AiVerification string
@@ -601,15 +602,15 @@ const (
 type DataSourceType string
 
 const (
-	DataSourceLiveAgent DataSourceType = "LIVE_AGENT"
-	DataSourceTest           DataSourceType = "TEST"
-	DataSourceMock           DataSourceType = "MOCK"
-	DataSourceDemo           DataSourceType = "DEMO"
-	DataSourceFixture        DataSourceType = "FIXTURE"
-	DataSourceSynthetic      DataSourceType = "SYNTHETIC"
-	DataSourcePlaceholder    DataSourceType = "PLACEHOLDER"
-	DataSourceUnknown        DataSourceType = "UNKNOWN"
-	DataSourceReplay         DataSourceType = "REPLAY"
+	DataSourceLiveAgent   DataSourceType = "LIVE_AGENT"
+	DataSourceTest        DataSourceType = "TEST"
+	DataSourceMock        DataSourceType = "MOCK"
+	DataSourceDemo        DataSourceType = "DEMO"
+	DataSourceFixture     DataSourceType = "FIXTURE"
+	DataSourceSynthetic   DataSourceType = "SYNTHETIC"
+	DataSourcePlaceholder DataSourceType = "PLACEHOLDER"
+	DataSourceUnknown     DataSourceType = "UNKNOWN"
+	DataSourceReplay      DataSourceType = "REPLAY"
 )
 
 // IsLiveDataSource returns true only if the data source is production-live.

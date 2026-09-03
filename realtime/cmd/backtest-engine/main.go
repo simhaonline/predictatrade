@@ -37,6 +37,7 @@ func main() {
 	source := flag.String("source", "", "market.candles.source to restrict to. Empty = all sources (default; avoids 0-bar runs when the named source is absent).")
 	maxPos := flag.Int("max-positions", 3, "Maximum simultaneous open positions (1 = one-at-a-time)")
 	raw := flag.Bool("raw", false, "Disable production-parity gates (study the raw direction engine — NOT what live clients receive)")
+	dumpTrades := flag.String("dump-trades", "", "Write every closed trade as CSV to this path (offline forensics)")
 	profile := flag.String("profile", "", "Write a pprof CPU profile to this path while the backtest runs (dev diagnostics)")
 	flag.Parse()
 
@@ -212,6 +213,27 @@ func main() {
 				t.StopLoss.InexactFloat64(), t.ExitReason,
 				t.RealizedPnL.InexactFloat64(), t.RealizedR.InexactFloat64(),
 				t.EntryTime.Format("2006-01-02 15:04"))
+		}
+	}
+
+	// Full trade dump for offline forensics (--dump-trades /path.csv).
+	if *dumpTrades != "" && len(result.Trades) > 0 {
+		f, err := os.Create(*dumpTrades)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ERROR: cannot write %s: %v\n", *dumpTrades, err)
+		} else {
+			defer f.Close()
+			fmt.Fprintln(f, "entry_time,exit_time,direction,regime,session,raw_score,entry,exit,sl,exit_reason,holding_bars,pnl,realized_r,spread_cost,commission,slippage")
+			for _, t := range result.Trades {
+				fmt.Fprintf(f, "%s,%s,%s,%s,%s,%.1f,%.2f,%.2f,%.2f,%s,%d,%.2f,%.3f,%.2f,%.2f,%.2f\n",
+					t.EntryTime.Format("2006-01-02T15:04"), t.ExitTime.Format("2006-01-02T15:04"),
+					t.Direction, t.Regime, t.Session, t.RawScore.InexactFloat64(),
+					t.EntryPrice.InexactFloat64(), t.ExitPrice.InexactFloat64(), t.StopLoss.InexactFloat64(),
+					t.ExitReason, t.HoldingBars,
+					t.RealizedPnL.InexactFloat64(), t.RealizedR.InexactFloat64(),
+					t.SpreadCost.InexactFloat64(), t.CommissionCost.InexactFloat64(), t.SlippageCost.InexactFloat64())
+			}
+			fmt.Printf("\nTrade dump written: %s (%d trades)\n", *dumpTrades, len(result.Trades))
 		}
 	}
 

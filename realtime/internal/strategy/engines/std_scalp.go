@@ -16,7 +16,7 @@ type StdScalpEngine struct {
 	cfg EngineConfig
 }
 
-func (e *StdScalpEngine) Type() EngineType    { return StdScalp }
+func (e *StdScalpEngine) Type() EngineType     { return StdScalp }
 func (e *StdScalpEngine) Config() EngineConfig { return e.cfg }
 
 func (e *StdScalpEngine) Evaluate(legacyResult strategy.StrategyResult, state *features.MarketState) EngineResult {

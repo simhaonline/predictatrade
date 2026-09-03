@@ -44,71 +44,71 @@ func makeState(price float64, ind features.IndicatorFeatures, regime types.Regim
 
 func makeTrendBullIndicators(price float64) features.IndicatorFeatures {
 	return features.IndicatorFeatures{
-		ATR:    decimal.NewFromFloat(3.0),
-		RSI:    decimal.NewFromFloat(58),
-		ADX:    decimal.NewFromFloat(35),
-		EMA9:   decimal.NewFromFloat(price + 15),
-		EMA21:  decimal.NewFromFloat(price + 8),
-		EMA50:  decimal.NewFromFloat(price + 2),
-		EMA100: decimal.NewFromFloat(price),
-		EMA200: decimal.NewFromFloat(price - 5),
-		SMA200: decimal.NewFromFloat(price),
-		ADXPlusDI:  decimal.NewFromFloat(25),
-		ADXMinusDI: decimal.NewFromFloat(12),
-		MACDMain:   decimal.NewFromFloat(5),
-		MACDSignal: decimal.NewFromFloat(3),
-		OsMA:       decimal.NewFromFloat(2),
-		CCI:        decimal.NewFromFloat(85),
-		StochMain:  decimal.NewFromFloat(65),
+		ATR:         decimal.NewFromFloat(3.0),
+		RSI:         decimal.NewFromFloat(58),
+		ADX:         decimal.NewFromFloat(35),
+		EMA9:        decimal.NewFromFloat(price + 15),
+		EMA21:       decimal.NewFromFloat(price + 8),
+		EMA50:       decimal.NewFromFloat(price + 2),
+		EMA100:      decimal.NewFromFloat(price),
+		EMA200:      decimal.NewFromFloat(price - 5),
+		SMA200:      decimal.NewFromFloat(price),
+		ADXPlusDI:   decimal.NewFromFloat(25),
+		ADXMinusDI:  decimal.NewFromFloat(12),
+		MACDMain:    decimal.NewFromFloat(5),
+		MACDSignal:  decimal.NewFromFloat(3),
+		OsMA:        decimal.NewFromFloat(2),
+		CCI:         decimal.NewFromFloat(85),
+		StochMain:   decimal.NewFromFloat(65),
 		StochSignal: decimal.NewFromFloat(55),
 	}
 }
 
 func makeTrendBearIndicators(price float64) features.IndicatorFeatures {
 	return features.IndicatorFeatures{
-		ATR:    decimal.NewFromFloat(3.0),
-		RSI:    decimal.NewFromFloat(38),
-		ADX:    decimal.NewFromFloat(35),
-		EMA9:   decimal.NewFromFloat(price - 15),
-		EMA21:  decimal.NewFromFloat(price - 8),
-		EMA50:  decimal.NewFromFloat(price - 2),
-		EMA100: decimal.NewFromFloat(price),
-		EMA200: decimal.NewFromFloat(price + 5),
-		SMA200: decimal.NewFromFloat(price),
-		ADXPlusDI:  decimal.NewFromFloat(12),
-		ADXMinusDI: decimal.NewFromFloat(25),
-		MACDMain:   decimal.NewFromFloat(-5),
-		MACDSignal: decimal.NewFromFloat(-3),
-		OsMA:       decimal.NewFromFloat(-2),
-		CCI:        decimal.NewFromFloat(-85),
-		StochMain:  decimal.NewFromFloat(35),
+		ATR:         decimal.NewFromFloat(3.0),
+		RSI:         decimal.NewFromFloat(38),
+		ADX:         decimal.NewFromFloat(35),
+		EMA9:        decimal.NewFromFloat(price - 15),
+		EMA21:       decimal.NewFromFloat(price - 8),
+		EMA50:       decimal.NewFromFloat(price - 2),
+		EMA100:      decimal.NewFromFloat(price),
+		EMA200:      decimal.NewFromFloat(price + 5),
+		SMA200:      decimal.NewFromFloat(price),
+		ADXPlusDI:   decimal.NewFromFloat(12),
+		ADXMinusDI:  decimal.NewFromFloat(25),
+		MACDMain:    decimal.NewFromFloat(-5),
+		MACDSignal:  decimal.NewFromFloat(-3),
+		OsMA:        decimal.NewFromFloat(-2),
+		CCI:         decimal.NewFromFloat(-85),
+		StochMain:   decimal.NewFromFloat(35),
 		StochSignal: decimal.NewFromFloat(45),
 	}
 }
 
 func makeRangeIndicators(price float64) features.IndicatorFeatures {
 	return features.IndicatorFeatures{
-		ATR:    decimal.NewFromFloat(2.0),
-		RSI:    decimal.NewFromFloat(48),
-		ADX:    decimal.NewFromFloat(14),
-		EMA9:   decimal.NewFromFloat(price),
-		EMA21:  decimal.NewFromFloat(price),
-		EMA50:  decimal.NewFromFloat(price),
-		EMA100: decimal.NewFromFloat(price),
-		EMA200: decimal.NewFromFloat(price),
-		SMA200: decimal.NewFromFloat(price),
-		ADXPlusDI:  decimal.NewFromFloat(15),
-		ADXMinusDI: decimal.NewFromFloat(14),
-		MACDMain:   decimal.NewFromFloat(0.2),
-		MACDSignal: decimal.NewFromFloat(0.1),
-		OsMA:       decimal.NewFromFloat(0.1),
-		CCI:        decimal.NewFromFloat(10),
-		StochMain:  decimal.NewFromFloat(50),
+		ATR:         decimal.NewFromFloat(2.0),
+		RSI:         decimal.NewFromFloat(48),
+		ADX:         decimal.NewFromFloat(14),
+		EMA9:        decimal.NewFromFloat(price),
+		EMA21:       decimal.NewFromFloat(price),
+		EMA50:       decimal.NewFromFloat(price),
+		EMA100:      decimal.NewFromFloat(price),
+		EMA200:      decimal.NewFromFloat(price),
+		SMA200:      decimal.NewFromFloat(price),
+		ADXPlusDI:   decimal.NewFromFloat(15),
+		ADXMinusDI:  decimal.NewFromFloat(14),
+		MACDMain:    decimal.NewFromFloat(0.2),
+		MACDSignal:  decimal.NewFromFloat(0.1),
+		OsMA:        decimal.NewFromFloat(0.1),
+		CCI:         decimal.NewFromFloat(10),
+		StochMain:   decimal.NewFromFloat(50),
 		StochSignal: decimal.NewFromFloat(48),
-		BollUpper:  decimal.NewFromFloat(price + 10),
-		BollLower:  decimal.NewFromFloat(price - 10),
-		BollMiddle: decimal.NewFromFloat(price),
-		BollWidth:  decimal.NewFromFloat(20.0 / price),
+		BollUpper:   decimal.NewFromFloat(price + 10),
+		BollLower:   decimal.NewFromFloat(price - 10),
+		BollMiddle:  decimal.NewFromFloat(price),
+		BollWidth:   decimal.NewFromFloat(20.0 / price),
 	}
 }
 
@@ -134,8 +134,8 @@ func TestRange_Center_NoTrade(t *testing.T) {
 func TestRange_LowerRejection_ProducesBuyCandidate(t *testing.T) {
 	scalping := NewStandardScalping()
 	ind := makeRangeIndicators(2400)
-	ind.RSI = decimal.NewFromFloat(28)    // Oversold
-	ind.CCI = decimal.NewFromFloat(-130)  // CCI extreme
+	ind.RSI = decimal.NewFromFloat(28)   // Oversold
+	ind.CCI = decimal.NewFromFloat(-130) // CCI extreme
 	ind.BollLower = decimal.NewFromFloat(2392)
 	ind.BollUpper = decimal.NewFromFloat(2408)
 	state := makeState(2392, ind, types.RegimeRange) // Price at lower BB
@@ -160,8 +160,8 @@ func TestRange_LowerRejection_ProducesBuyCandidate(t *testing.T) {
 func TestRange_UpperRejection_ProducesSellCandidate(t *testing.T) {
 	scalping := NewStandardScalping()
 	ind := makeRangeIndicators(2400)
-	ind.RSI = decimal.NewFromFloat(72)   // Overbought
-	ind.CCI = decimal.NewFromFloat(130)   // CCI extreme
+	ind.RSI = decimal.NewFromFloat(72)  // Overbought
+	ind.CCI = decimal.NewFromFloat(130) // CCI extreme
 	ind.BollLower = decimal.NewFromFloat(2392)
 	ind.BollUpper = decimal.NewFromFloat(2408)
 	state := makeState(2408, ind, types.RegimeRange) // Price at upper BB
@@ -233,7 +233,7 @@ func TestRange_WideSpread_NoTrade(t *testing.T) {
 	scalping := NewStandardScalping()
 	ind := makeRangeIndicators(2400)
 	state := makeState(2400, ind, types.RegimeRange)
-	state.Spread = decimal.NewFromFloat(5.0) // Very wide spread
+	state.Spread = decimal.NewFromFloat(5.0)         // Very wide spread
 	state.Indicators.ATR = decimal.NewFromFloat(2.0) // Spread > ATR
 
 	result := scalping.Evaluate(state)

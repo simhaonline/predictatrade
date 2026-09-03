@@ -148,8 +148,8 @@ func TestCheckDirectionDominance_Insufficient(t *testing.T) {
 
 func TestUltraRangeEvidence_NonZero(t *testing.T) {
 	state := makeGeoState(2390, 3.0)
-	state.Indicators.RSI = decimal.NewFromFloat(25)     // Oversold
-	state.Indicators.CCI = decimal.NewFromFloat(-130)    // CCI extreme
+	state.Indicators.RSI = decimal.NewFromFloat(25)   // Oversold
+	state.Indicators.CCI = decimal.NewFromFloat(-130) // CCI extreme
 	state.Indicators.BollLower = decimal.NewFromFloat(2392)
 	state.Indicators.BollUpper = decimal.NewFromFloat(2408)
 	state.Indicators.OsMA = decimal.NewFromFloat(-0.5)
@@ -213,7 +213,7 @@ func TestTrendTransition_NonZeroEvidence(t *testing.T) {
 }
 
 func TestTrendTransition_FlatMarket_NoEvidence(t *testing.T) {
-	state := makeGeoState(2400, 1.0) // Low ATR — no expansion
+	state := makeGeoState(2400, 1.0)                // Low ATR — no expansion
 	state.Indicators.ADX = decimal.NewFromFloat(12) // Low — no expansion
 	state.Indicators.EMA9 = decimal.NewFromFloat(2400)
 	state.Indicators.EMA21 = decimal.NewFromFloat(2400)

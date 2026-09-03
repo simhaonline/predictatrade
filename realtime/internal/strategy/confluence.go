@@ -29,16 +29,16 @@ type ConfluenceInput struct {
 
 // ConfluenceResult is the output of the confluence engine.
 type ConfluenceResult struct {
-	LongScore        decimal.Decimal
-	ShortScore       decimal.Decimal
-	ScoreSeparation  decimal.Decimal
-	TotalScore       decimal.Decimal
-	PassThreshold    bool
-	PassSeparation   bool
-	PassMinCount     bool
-	MandatoryMet     bool
-	Evidence         []types.EvidenceContribution
-	ReasonCodes      []types.NoTradeReason
+	LongScore       decimal.Decimal
+	ShortScore      decimal.Decimal
+	ScoreSeparation decimal.Decimal
+	TotalScore      decimal.Decimal
+	PassThreshold   bool
+	PassSeparation  bool
+	PassMinCount    bool
+	MandatoryMet    bool
+	Evidence        []types.EvidenceContribution
+	ReasonCodes     []types.NoTradeReason
 }
 
 // Evaluate runs the deterministic confluence scoring.
@@ -161,17 +161,17 @@ func SeedProfiles() map[types.StrategyID]ConfluenceProfile {
 	return map[types.StrategyID]ConfluenceProfile{
 		// STANDARD_SCALPING: threshold 75, separation 20
 		types.StrategyStandardScalping: {
-			StrategyID: types.StrategyStandardScalping,
-			Version:    "1.0.0",
+			StrategyID:       types.StrategyStandardScalping,
+			Version:          "1.0.0",
 			MandatoryPillars: []string{"liquidity", "structure"},
 			OptionalPillars:  []string{"fvg_ob", "flow_volume", "regime_volatility", "macro_news"},
 			Weights: map[string]decimal.Decimal{
-				"liquidity":          decimal.NewFromInt(25),
-				"structure":          decimal.NewFromInt(20),
-				"fvg_ob":             decimal.NewFromInt(15),
-				"flow_volume":        decimal.NewFromInt(20),
-				"regime_volatility":  decimal.NewFromInt(10),
-				"macro_news":         decimal.NewFromInt(10),
+				"liquidity":         decimal.NewFromInt(25),
+				"structure":         decimal.NewFromInt(20),
+				"fvg_ob":            decimal.NewFromInt(15),
+				"flow_volume":       decimal.NewFromInt(20),
+				"regime_volatility": decimal.NewFromInt(10),
+				"macro_news":        decimal.NewFromInt(10),
 			},
 			MinimumScore:               decimal.NewFromInt(75),
 			MinimumLongShortSeparation: decimal.NewFromInt(20),
@@ -181,17 +181,17 @@ func SeedProfiles() map[types.StrategyID]ConfluenceProfile {
 		},
 		// ULTRA_SCALPING: threshold 85, separation 25
 		types.StrategyUltraScalping: {
-			StrategyID: types.StrategyUltraScalping,
-			Version:    "1.0.0",
+			StrategyID:       types.StrategyUltraScalping,
+			Version:          "1.0.0",
 			MandatoryPillars: []string{"flow_microstructure", "liquidity_event", "execution_cost_quality"},
 			OptionalPillars:  []string{"structure_mtf", "imbalance_fvg_vwap", "macro_news"},
 			Weights: map[string]decimal.Decimal{
-				"flow_microstructure":      decimal.NewFromInt(30),
-				"liquidity_event":          decimal.NewFromInt(25),
-				"structure_mtf":            decimal.NewFromInt(15),
-				"imbalance_fvg_vwap":       decimal.NewFromInt(15),
-				"execution_cost_quality":   decimal.NewFromInt(10),
-				"macro_news":               decimal.NewFromInt(5),
+				"flow_microstructure":    decimal.NewFromInt(30),
+				"liquidity_event":        decimal.NewFromInt(25),
+				"structure_mtf":          decimal.NewFromInt(15),
+				"imbalance_fvg_vwap":     decimal.NewFromInt(15),
+				"execution_cost_quality": decimal.NewFromInt(10),
+				"macro_news":             decimal.NewFromInt(5),
 			},
 			MinimumScore:               decimal.NewFromInt(85),
 			MinimumLongShortSeparation: decimal.NewFromInt(25),
@@ -201,18 +201,18 @@ func SeedProfiles() map[types.StrategyID]ConfluenceProfile {
 		},
 		// STANDARD_SWING: threshold 70, separation 15
 		types.StrategyStandardSwing: {
-			StrategyID: types.StrategyStandardSwing,
-			Version:    "1.0.0",
+			StrategyID:       types.StrategyStandardSwing,
+			Version:          "1.0.0",
 			MandatoryPillars: []string{"d1_h4_structure"},
 			OptionalPillars:  []string{"macro_dxy_yield", "htf_liquidity", "mtf_alignment", "volume_profile_flow", "regime_volatility", "rr_carry_cost"},
 			Weights: map[string]decimal.Decimal{
-				"d1_h4_structure":    decimal.NewFromInt(20),
-				"htf_liquidity":      decimal.NewFromInt(15),
-				"macro_dxy_yield":    decimal.NewFromInt(20),
-				"mtf_alignment":      decimal.NewFromInt(15),
+				"d1_h4_structure":     decimal.NewFromInt(20),
+				"htf_liquidity":       decimal.NewFromInt(15),
+				"macro_dxy_yield":     decimal.NewFromInt(20),
+				"mtf_alignment":       decimal.NewFromInt(15),
 				"volume_profile_flow": decimal.NewFromInt(10),
-				"regime_volatility":  decimal.NewFromInt(10),
-				"rr_carry_cost":      decimal.NewFromInt(10),
+				"regime_volatility":   decimal.NewFromInt(10),
+				"rr_carry_cost":       decimal.NewFromInt(10),
 			},
 			MinimumScore:               decimal.NewFromInt(70),
 			MinimumLongShortSeparation: decimal.NewFromInt(15),
@@ -222,18 +222,18 @@ func SeedProfiles() map[types.StrategyID]ConfluenceProfile {
 		},
 		// TREND_SWING: threshold 75, separation 15
 		types.StrategyTrendSwing: {
-			StrategyID: types.StrategyTrendSwing,
-			Version:    "1.0.0",
+			StrategyID:       types.StrategyTrendSwing,
+			Version:          "1.0.0",
 			MandatoryPillars: []string{"w1_d1_h4_trend_structure"},
 			OptionalPillars:  []string{"macro_real_yield_dxy", "cot_etf_flow", "mtf_alignment", "major_liquidity_htf_profile", "trend_persistence_volatility", "carry_execution_cost"},
 			Weights: map[string]decimal.Decimal{
-				"w1_d1_h4_trend_structure":  decimal.NewFromInt(25),
-				"macro_real_yield_dxy":      decimal.NewFromInt(20),
-				"cot_etf_flow":              decimal.NewFromInt(15),
-				"mtf_alignment":             decimal.NewFromInt(15),
-				"major_liquidity_htf_profile": decimal.NewFromInt(10),
+				"w1_d1_h4_trend_structure":     decimal.NewFromInt(25),
+				"macro_real_yield_dxy":         decimal.NewFromInt(20),
+				"cot_etf_flow":                 decimal.NewFromInt(15),
+				"mtf_alignment":                decimal.NewFromInt(15),
+				"major_liquidity_htf_profile":  decimal.NewFromInt(10),
 				"trend_persistence_volatility": decimal.NewFromInt(10),
-				"carry_execution_cost":      decimal.NewFromInt(5),
+				"carry_execution_cost":         decimal.NewFromInt(5),
 			},
 			MinimumScore:               decimal.NewFromInt(75),
 			MinimumLongShortSeparation: decimal.NewFromInt(15),
@@ -249,43 +249,43 @@ func SeedProfiles() map[types.StrategyID]ConfluenceProfile {
 func SeedRiskProfiles() map[types.StrategyID]RiskProfile {
 	return map[types.StrategyID]RiskProfile{
 		types.StrategyStandardScalping: {
-			MinGrossRR:          decimal.NewFromFloat(1.20),
-			MaxSpreadAbsolute:   decimal.NewFromFloat(0.35),
-			MaxSpreadToATR:      decimal.NewFromFloat(0.50),
-			MaxNewTradesPerDay:  3,
-			LossCooldownMinutes: 30,
+			MinGrossRR:           decimal.NewFromFloat(1.20),
+			MaxSpreadAbsolute:    decimal.NewFromFloat(0.35),
+			MaxSpreadToATR:       decimal.NewFromFloat(0.50),
+			MaxNewTradesPerDay:   3,
+			LossCooldownMinutes:  30,
 			MaxTotalCostToTarget: decimal.NewFromFloat(0.25),
 		},
 		types.StrategyUltraScalping: {
-			MinGrossRR:          decimal.NewFromFloat(1.00),
-			MaxSpreadAbsolute:   decimal.NewFromFloat(0.25),
-			MaxSpreadToATR:      decimal.NewFromFloat(0.40),
-			MaxNewTradesPerDay:  5,
-			LossCooldownMinutes: 30,
+			MinGrossRR:           decimal.NewFromFloat(1.00),
+			MaxSpreadAbsolute:    decimal.NewFromFloat(0.25),
+			MaxSpreadToATR:       decimal.NewFromFloat(0.40),
+			MaxNewTradesPerDay:   5,
+			LossCooldownMinutes:  30,
 			MaxTotalCostToTarget: decimal.NewFromFloat(0.20),
 		},
 		types.StrategyStandardSwing: {
-			MinGrossRR:          decimal.NewFromFloat(1.80),
-			MaxSpreadAbsolute:   decimal.NewFromFloat(0.45),
-			MaxSpreadToATR:      decimal.NewFromFloat(0.60),
-			MaxNewTradesPerDay:  2,
-			LossCooldownMinutes: 120,
+			MinGrossRR:           decimal.NewFromFloat(1.80),
+			MaxSpreadAbsolute:    decimal.NewFromFloat(0.45),
+			MaxSpreadToATR:       decimal.NewFromFloat(0.60),
+			MaxNewTradesPerDay:   2,
+			LossCooldownMinutes:  120,
 			MaxTotalCostToTarget: decimal.NewFromFloat(0.25),
 		},
 		types.StrategyTrendSwing: {
-			MinGrossRR:          decimal.NewFromFloat(2.50),
-			MaxSpreadAbsolute:   decimal.NewFromFloat(0.50),
-			MaxSpreadToATR:      decimal.NewFromFloat(0.70),
-			MaxNewTradesPerDay:  1,
-			LossCooldownMinutes: 240,
+			MinGrossRR:           decimal.NewFromFloat(2.50),
+			MaxSpreadAbsolute:    decimal.NewFromFloat(0.50),
+			MaxSpreadToATR:       decimal.NewFromFloat(0.70),
+			MaxNewTradesPerDay:   1,
+			LossCooldownMinutes:  240,
 			MaxTotalCostToTarget: decimal.NewFromFloat(0.25),
 		},
 		types.StrategyMarnieFib: {
-			MinGrossRR:          decimal.NewFromFloat(2.00),
-			MaxSpreadAbsolute:   decimal.NewFromFloat(0.45),
-			MaxSpreadToATR:      decimal.NewFromFloat(0.55),
-			MaxNewTradesPerDay:  2,
-			LossCooldownMinutes: 180,
+			MinGrossRR:           decimal.NewFromFloat(2.00),
+			MaxSpreadAbsolute:    decimal.NewFromFloat(0.45),
+			MaxSpreadToATR:       decimal.NewFromFloat(0.55),
+			MaxNewTradesPerDay:   2,
+			LossCooldownMinutes:  180,
 			MaxTotalCostToTarget: decimal.NewFromFloat(0.25),
 		},
 	}

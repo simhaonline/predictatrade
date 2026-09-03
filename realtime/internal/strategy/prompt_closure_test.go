@@ -22,7 +22,7 @@ import (
 func makeTrendSwingRangeNoTransitionState() *features.MarketState {
 	state := makeBaseState()
 	state.Regime.Current = types.RegimeRange
-	state.Indicators.ADX = decimal.NewFromFloat(12.0)   // Low ADX
+	state.Indicators.ADX = decimal.NewFromFloat(12.0) // Low ADX
 	state.Indicators.ADXPlusDI = decimal.NewFromFloat(15.0)
 	state.Indicators.ADXMinusDI = decimal.NewFromFloat(15.0) // Equal DI — no direction
 	state.Indicators.EMA9 = decimal.NewFromFloat(4400.0)
@@ -35,7 +35,7 @@ func makeTrendSwingRangeNoTransitionState() *features.MarketState {
 	state.Indicators.MACDMain = decimal.NewFromFloat(0.0)
 	state.Indicators.MACDSignal = decimal.NewFromFloat(0.0)
 	state.Indicators.ATR = decimal.NewFromFloat(1.0) // Low ATR
-	state.MTF.Score = 0 // No MTF direction
+	state.MTF.Score = 0                              // No MTF direction
 	state.Structure.LastBOS = nil
 	state.Structure.LastCHoCH = nil
 	state.Structure.CurrentTrend = ""
@@ -46,7 +46,7 @@ func makeTrendSwingRangeNoTransitionState() *features.MarketState {
 func makeTrendSwingBullishTransitionState() *features.MarketState {
 	state := makeBaseState()
 	state.Regime.Current = types.RegimeRange
-	state.Indicators.ADX = decimal.NewFromFloat(22.0) // ADX expansion
+	state.Indicators.ADX = decimal.NewFromFloat(22.0)       // ADX expansion
 	state.Indicators.ADXPlusDI = decimal.NewFromFloat(28.0) // +DI > -DI
 	state.Indicators.ADXMinusDI = decimal.NewFromFloat(14.0)
 	state.Indicators.EMA9 = decimal.NewFromFloat(4405.0) // EMA slope bullish
@@ -61,7 +61,7 @@ func makeTrendSwingBullishTransitionState() *features.MarketState {
 	state.Indicators.MACDMain = decimal.NewFromFloat(0.5) // MACD bullish
 	state.Indicators.MACDSignal = decimal.NewFromFloat(0.1)
 	state.Indicators.ATR = decimal.NewFromFloat(3.5) // ATR expansion
-	state.MTF.Score = 50 // MTF bullish alignment
+	state.MTF.Score = 50                             // MTF bullish alignment
 	state.Structure.LastBOS = &features.StructureEvent{
 		Direction: "bullish", Time: time.Now().UTC(),
 	}
@@ -78,7 +78,7 @@ func makeTrendSwingBearishTransitionState() *features.MarketState {
 	state.Indicators.ADX = decimal.NewFromFloat(22.0)
 	state.Indicators.ADXPlusDI = decimal.NewFromFloat(14.0)
 	state.Indicators.ADXMinusDI = decimal.NewFromFloat(28.0) // -DI > +DI
-	state.Indicators.EMA9 = decimal.NewFromFloat(4395.0) // EMA slope bearish
+	state.Indicators.EMA9 = decimal.NewFromFloat(4395.0)     // EMA slope bearish
 	state.Indicators.EMA21 = decimal.NewFromFloat(4402.0)
 	state.Indicators.EMA50 = decimal.NewFromFloat(4405.0)
 	state.Indicators.EMA100 = decimal.NewFromFloat(4410.0)
@@ -179,24 +179,24 @@ func makeStandardSwingBlockedSellState() *features.MarketState {
 
 func makeBaseState() *features.MarketState {
 	return &features.MarketState{
-		Symbol:        "XAUUSD",
-		CurrentPrice:  decimal.NewFromFloat(4400.0),
-		Bid:           decimal.NewFromFloat(4399.8),
-		Ask:           decimal.NewFromFloat(4400.2),
-		Mid:           decimal.NewFromFloat(4400.0),
-		Spread:        decimal.NewFromFloat(0.4),
-		Quality:       types.QualityAuthoritative,
-		Timestamp:     time.Now().UTC(),
-		LastTick:      &types.Tick{Source: "LIVE_AGENT", Sequence: 1, SourceTimestamp: time.Now().UTC()},
-		Session:       features.SessionFeatures{CurrentSession: "LONDON", IsOverlap: false, IsWeekend: false, NewsRisk: "NONE"},
-		Indicators:    features.IndicatorFeatures{ATR: decimal.NewFromFloat(3.0), RSI: decimal.NewFromFloat(50.0)},
-		VWAP:          features.VWAPFeatures{SessionVWAP: decimal.NewFromFloat(4400.0)},
-		Candle:        features.CandleIntelligence{},
-		Structure:     features.StructureFeatures{},
-		Liquidity:     features.LiquidityFeatures{},
-		FVG:           features.FVGFeatures{},
-		MTF:           features.MTFFeatures{Score: 0},
-		Candles:       make(map[types.Timeframe]*types.Candle),
+		Symbol:       "XAUUSD",
+		CurrentPrice: decimal.NewFromFloat(4400.0),
+		Bid:          decimal.NewFromFloat(4399.8),
+		Ask:          decimal.NewFromFloat(4400.2),
+		Mid:          decimal.NewFromFloat(4400.0),
+		Spread:       decimal.NewFromFloat(0.4),
+		Quality:      types.QualityAuthoritative,
+		Timestamp:    time.Now().UTC(),
+		LastTick:     &types.Tick{Source: "LIVE_AGENT", Sequence: 1, SourceTimestamp: time.Now().UTC()},
+		Session:      features.SessionFeatures{CurrentSession: "LONDON", IsOverlap: false, IsWeekend: false, NewsRisk: "NONE"},
+		Indicators:   features.IndicatorFeatures{ATR: decimal.NewFromFloat(3.0), RSI: decimal.NewFromFloat(50.0)},
+		VWAP:         features.VWAPFeatures{SessionVWAP: decimal.NewFromFloat(4400.0)},
+		Candle:       features.CandleIntelligence{},
+		Structure:    features.StructureFeatures{},
+		Liquidity:    features.LiquidityFeatures{},
+		FVG:          features.FVGFeatures{},
+		MTF:          features.MTFFeatures{Score: 0},
+		Candles:      make(map[types.Timeframe]*types.Candle),
 	}
 }
 
@@ -576,7 +576,7 @@ func TestDirectionalDominance_PreventsConflictingDirection(t *testing.T) {
 	state.Indicators.ADX = decimal.NewFromFloat(20.0)
 	state.Indicators.ADXPlusDI = decimal.NewFromFloat(20.0)
 	state.Indicators.ADXMinusDI = decimal.NewFromFloat(20.0) // Equal DI
-	state.Indicators.MACDMain = decimal.NewFromFloat(0.01) // Nearly zero
+	state.Indicators.MACDMain = decimal.NewFromFloat(0.01)   // Nearly zero
 	state.Indicators.MACDSignal = decimal.NewFromFloat(0.0)
 	state.Indicators.OsMA = decimal.NewFromFloat(0.0)
 	state.Indicators.RSI = decimal.NewFromFloat(50.0) // Neutral

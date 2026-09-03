@@ -211,7 +211,10 @@ func TestStandardScalping_TokyoNotRejected(t *testing.T) {
 	s := NewStandardScalping()
 	state := makeTokyoSessionState()
 	result := s.Evaluate(state)
-	// Tokyo should NOT be rejected solely because session is TOKYO
+	// v1.26: sessions remain open for STANDARD_SCALPING — forensics showed the
+	// negative edge was EV/geometry-driven, not session-driven (restricting to
+	// LONDON/NY vetoed 5,688 of ~8k directional reads on the 90d window).
+	// Tokyo must NOT cause a SESSION_UNSUITABLE rejection.
 	for _, reason := range result.ReasonCodes {
 		if reason == types.NTSessionUnsuitable {
 			t.Errorf("Tokyo should not cause SESSION_UNSUITABLE rejection")

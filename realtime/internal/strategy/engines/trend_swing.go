@@ -17,7 +17,7 @@ type TrendSwingEngine struct {
 	cfg EngineConfig
 }
 
-func (e *TrendSwingEngine) Type() EngineType    { return TrendSwng }
+func (e *TrendSwingEngine) Type() EngineType     { return TrendSwng }
 func (e *TrendSwingEngine) Config() EngineConfig { return e.cfg }
 
 func (e *TrendSwingEngine) Evaluate(legacyResult strategy.StrategyResult, state *features.MarketState) EngineResult {

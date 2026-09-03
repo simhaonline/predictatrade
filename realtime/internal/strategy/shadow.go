@@ -21,23 +21,23 @@ import (
 // It contains the hypothetical computation that would have occurred
 // if the regime gate had not rejected.
 type ShadowResult struct {
-	StrategyID         types.StrategyID
-	Timestamp          time.Time
-	Regime             types.Regime
-	HypotheticalDirection types.Direction
-	HypotheticalScore  decimal.Decimal
-	HypotheticalLong   decimal.Decimal
-	HypotheticalShort  decimal.Decimal
-	HypotheticalEntry   decimal.Decimal
-	HypotheticalSL      decimal.Decimal
-	HypotheticalTP1     decimal.Decimal
-	HypotheticalTP2     decimal.Decimal
-	HypotheticalTP3     decimal.Decimal
-	HypotheticalRR      decimal.Decimal
-	Evidence            []types.EvidenceContribution
+	StrategyID             types.StrategyID
+	Timestamp              time.Time
+	Regime                 types.Regime
+	HypotheticalDirection  types.Direction
+	HypotheticalScore      decimal.Decimal
+	HypotheticalLong       decimal.Decimal
+	HypotheticalShort      decimal.Decimal
+	HypotheticalEntry      decimal.Decimal
+	HypotheticalSL         decimal.Decimal
+	HypotheticalTP1        decimal.Decimal
+	HypotheticalTP2        decimal.Decimal
+	HypotheticalTP3        decimal.Decimal
+	HypotheticalRR         decimal.Decimal
+	Evidence               []types.EvidenceContribution
 	FailedProductionReason string
-	ShadowOnly          bool
-	Executable          bool
+	ShadowOnly             bool
+	Executable             bool
 }
 
 // EvaluateShadow runs the strategy evaluation bypassing the regime gate.
@@ -74,11 +74,11 @@ func EvaluateShadow(s Strategy, state *features.MarketState) *ShadowResult {
 	// Temporarily bypass regime by creating a modified state copy
 	// We evaluate the strategy's evidence computation without the regime gate
 	shadowResult := &ShadowResult{
-		StrategyID:            s.ID(),
-		Timestamp:             state.Timestamp,
-		Regime:                state.Regime.Current,
-		ShadowOnly:            true,
-		Executable:            false,
+		StrategyID:             s.ID(),
+		Timestamp:              state.Timestamp,
+		Regime:                 state.Regime.Current,
+		ShadowOnly:             true,
+		Executable:             false,
 		FailedProductionReason: "REGIME_MISMATCH: regime=" + string(state.Regime.Current) + " not in accepted=" + regimesToString(cfg.AcceptedRegimes),
 	}
 

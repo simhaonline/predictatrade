@@ -250,6 +250,13 @@ func (r *Runner) parityGate(res strategy.StrategyResult, candle *types.Candle, s
 	}
 
 	if !res.EntryGatePassed {
+		// Sub-reason observability: tally the gate's own rejection codes so
+		// entry-gate walls are diagnosable from the run summary alone.
+		for _, rc := range res.ReasonCodes {
+			if len(rc) > 0 {
+				return string(rc), false
+			}
+		}
 		return "PARITY_ENTRY_GATE", false
 	}
 

@@ -18,7 +18,7 @@ type UltraScalpEngine struct {
 	cfg EngineConfig
 }
 
-func (e *UltraScalpEngine) Type() EngineType    { return UltraScalp }
+func (e *UltraScalpEngine) Type() EngineType     { return UltraScalp }
 func (e *UltraScalpEngine) Config() EngineConfig { return e.cfg }
 
 func (e *UltraScalpEngine) Evaluate(legacyResult strategy.StrategyResult, state *features.MarketState) EngineResult {

@@ -54,38 +54,38 @@ func ShouldEvaluateOn(s Strategy, tf types.Timeframe) bool {
 
 // StrategyResult is the output of a strategy evaluation.
 type StrategyResult struct {
-	StrategyID    types.StrategyID
-	Direction     types.Direction
-	RawScore      decimal.Decimal
-	LongScore     decimal.Decimal
-	ShortScore    decimal.Decimal
-	Evidence      []types.EvidenceContribution
-	EntryPrice    decimal.Decimal
-	StopLoss      decimal.Decimal
-	TP1           decimal.Decimal
-	TP2           decimal.Decimal
-	TP3           decimal.Decimal
-	ReasonCodes   []types.NoTradeReason
-	HumanReason   string
+	StrategyID      types.StrategyID
+	Direction       types.Direction
+	RawScore        decimal.Decimal
+	LongScore       decimal.Decimal
+	ShortScore      decimal.Decimal
+	Evidence        []types.EvidenceContribution
+	EntryPrice      decimal.Decimal
+	StopLoss        decimal.Decimal
+	TP1             decimal.Decimal
+	TP2             decimal.Decimal
+	TP3             decimal.Decimal
+	ReasonCodes     []types.NoTradeReason
+	HumanReason     string
 	ConflictPenalty decimal.Decimal
-	ExpiryMinutes  int
+	ExpiryMinutes   int
 	CooldownMinutes int
 
 	// Transition analysis (prompt.md Sections 6, 54)
-	TransitionLongScore   decimal.Decimal
-	TransitionShortScore  decimal.Decimal
-	TransitionConflict     decimal.Decimal
-	TransitionFinalScore  decimal.Decimal
+	TransitionLongScore          decimal.Decimal
+	TransitionShortScore         decimal.Decimal
+	TransitionConflict           decimal.Decimal
+	TransitionFinalScore         decimal.Decimal
 	TransitionCandidateThreshold float64
-	IsTransitionCandidate  bool
+	IsTransitionCandidate        bool
 
 	// Dominance (prompt.md Section 23)
-	Dominance   float64
+	Dominance float64
 
 	// ML & Sentiment contributions (v1.7.0) — default 0, does not affect existing tests
-	MLContribution       float64 `json:"ml_contribution,omitempty"`
+	MLContribution        float64 `json:"ml_contribution,omitempty"`
 	SentimentContribution float64 `json:"sentiment_contribution,omitempty"`
-	Confidence           float64 `json:"confidence,omitempty"`
+	Confidence            float64 `json:"confidence,omitempty"`
 
 	// P2-004: Trade group ID for multi-position signal tracking
 	TradeGroupID string `json:"trade_group_id,omitempty"`
@@ -110,32 +110,32 @@ type StrategyResult struct {
 // StrategyConfig defines strategy-specific configuration.
 // SOW: Configuration should be externalized, not scattered magic constants.
 type StrategyConfig struct {
-	StrategyID        types.StrategyID
-	MinConfluence     float64
-	MinMTFAlignment   float64
-	ATRMultiplierSL   float64
-	ATRMultiplierTP1  float64
-	ATRMultiplierTP2  float64
-	ATRMultiplierTP3  float64
+	StrategyID       types.StrategyID
+	MinConfluence    float64
+	MinMTFAlignment  float64
+	ATRMultiplierSL  float64
+	ATRMultiplierTP1 float64
+	ATRMultiplierTP2 float64
+	ATRMultiplierTP3 float64
 	// MinSLATRFloor enforces a hard floor on the SL distance as a multiple of
 	// ATR, independent of ATRMultiplierSL. Guards against noise-tight stops when
 	// the volatility estimate (ATR) is understated vs the real execution market
 	// (e.g. compressed market-data feed). Must be >= 0; 0 disables the floor.
-	MinSLATRFloor    float64
+	MinSLATRFloor float64
 	// VolatilityScale compensates for a market-data feed that understates true
 	// volatility (e.g. compressed OHLC high/low). It scales the ATR used for
 	// SL/TP sizing uniformly, so the risk:reward geometry is preserved while the
 	// absolute stop distance tracks the real execution market. Default 1.0 = no
 	// scaling. Must be > 0 when set.
-	VolatilityScale  float64
+	VolatilityScale float64
 	// MinSLSpreadMult guarantees the protective SL buffer dominates transaction
 	// cost: SL distance >= MinSLSpreadMult * full spread. Without this, when the
 	// broker spread/slippage on the traded symbol (e.g. XAUUSD.sd) is comparable
 	// to or larger than the ATR-based stop, every trade is stopped out by cost
 	// alone — the dominant real-world cause of client stop-outs. 0 disables.
-	MinSLSpreadMult  float64
+	MinSLSpreadMult   float64
 	MaxSpreadPips     float64
-	MaxSlippagePoints int   // per-strategy max slippage in points (prompt.md Section 4.2)
+	MaxSlippagePoints int // per-strategy max slippage in points (prompt.md Section 4.2)
 	MinADX            float64
 	MinRR             float64
 	ExpiryMinutes     int
@@ -167,10 +167,10 @@ func addEvidence(evidence *[]types.EvidenceContribution, pillar, feature string,
 	weight, contrib float64, quality types.QualityState, reason string) {
 	*evidence = append(*evidence, types.EvidenceContribution{
 		Pillar: pillar, Feature: feature, Direction: dir,
-		Weight: decimal.NewFromFloat(weight),
-		Contribution: decimal.NewFromFloat(contrib),
+		Weight:          decimal.NewFromFloat(weight),
+		Contribution:    decimal.NewFromFloat(contrib),
 		NormalizedValue: decimal.NewFromFloat(contrib), // CRITICAL: confluence engine uses this field
-		Quality: quality, Source: pillar + "_engine", Version: "1.0",
+		Quality:         quality, Source: pillar + "_engine", Version: "1.0",
 		ReasonCode: reason,
 	})
 }
@@ -179,19 +179,19 @@ func addEvidence(evidence *[]types.EvidenceContribution, pillar, feature string,
 // double-counting of correlated indicators.
 func applyFamilyCaps(evidence []types.EvidenceContribution) []types.EvidenceContribution {
 	familyMax := map[string]float64{
-		"TREND":      0.35,  // raised from 0.25 — allow strong trends to dominate
-		"MOMENTUM":   0.30,  // raised from 0.20 — allow strong momentum setups
-		"VOLATILITY": 0.15,  // raised from 0.10
-		"VWAP":       0.15,  // raised from 0.10
-		"STRUCTURE":  0.25,  // raised from 0.20
-		"LIQUIDITY":  0.20,  // raised from 0.15
-		"SMC":        0.20,  // raised from 0.15
-		"MTF":        0.20,  // raised from 0.15
-		"CANDLE":     0.20,  // raised from 0.15
-		"REGIME":     0.15,  // raised from 0.10
-		"ML":         0.25,
-		"SENTIMENT":    0.25,
-		"SESSION_ORB":  0.15, // P2-001: opening range breakout evidence
+		"TREND":       0.35, // raised from 0.25 — allow strong trends to dominate
+		"MOMENTUM":    0.30, // raised from 0.20 — allow strong momentum setups
+		"VOLATILITY":  0.15, // raised from 0.10
+		"VWAP":        0.15, // raised from 0.10
+		"STRUCTURE":   0.25, // raised from 0.20
+		"LIQUIDITY":   0.20, // raised from 0.15
+		"SMC":         0.20, // raised from 0.15
+		"MTF":         0.20, // raised from 0.15
+		"CANDLE":      0.20, // raised from 0.15
+		"REGIME":      0.15, // raised from 0.10
+		"ML":          0.25,
+		"SENTIMENT":   0.25,
+		"SESSION_ORB": 0.15, // P2-001: opening range breakout evidence
 	}
 	familySums := map[string]float64{}
 	for _, e := range evidence {
@@ -322,7 +322,6 @@ func enforceSLDirection(direction types.Direction, entry, sl, atr decimal.Decima
 	return sl
 }
 
-
 // htfTrendFilter checks if the signal direction aligns with the H1 trend.
 // HARD filter: blocks BUY when price below H1 close, blocks SELL when above.
 func htfTrendFilter(state *features.MarketState, direction types.Direction) bool {
@@ -389,7 +388,7 @@ func computeStructuralSLTP(state *features.MarketState, direction types.Directio
 	// ─── FALLBACK: ATR/structural calculation below ───
 	spread := state.Spread
 	halfSpread := spread.Div(decimal.NewFromInt(2))
-	
+
 	if direction == types.DirectionBuy {
 		// SL = structural low - lambda*ATR - 0.5*spread
 		// CRITICAL FIX: Ensure minimum SL distance = ATRMultiplierSL * ATR
@@ -822,20 +821,20 @@ type StandardScalping struct{ cfg StrategyConfig }
 
 func NewStandardScalping() *StandardScalping {
 	return &StandardScalping{cfg: StrategyConfig{
-		StrategyID: types.StrategyStandardScalping,
-		MinConfluence: 65, MinMTFAlignment: 40,
-		ATRMultiplierSL: 1.5, ATRMultiplierTP1: 2.5, ATRMultiplierTP2: 4.0, ATRMultiplierTP3: 6.0,
+		StrategyID:    types.StrategyStandardScalping,
+		MinConfluence: 65, MinMTFAlignment: 40, // v1.26 selectivity: v7 (70/50) selected worse reads (wr 41%); 65/40 validated
+		ATRMultiplierSL: 0.8, ATRMultiplierTP1: 1.2, ATRMultiplierTP2: 2.0, ATRMultiplierTP3: 3.5, // v1.26 cost-aware rebuild (matches StrategyExitSpec): SL 0.8×ATR + TP1 1.2×ATR → breakeven wr ≈44% at M5 ATR
 		MinSLATRFloor: 0.0, VolatilityScale: 2.0, MinSLSpreadMult: 3.0, // provisional: widen stops for understated feed + dominate spread; calibrate from client real ATR/spread
-		MaxSpreadPips: 2.5, MaxSlippagePoints: 10, MinADX: 20, MinRR: 2.0,
+		MaxSpreadPips: 2.5, MaxSlippagePoints: 10, MinADX: 20, MinRR: 1.0, // v1.26: TP1 1.2×ATR vs SL 0.8×ATR; profitability from wr+partials
 		ExpiryMinutes: 10, CooldownMinutes: 15,
-		DecisionTFs: []types.Timeframe{types.TFM1, types.TFM5},
-		ContextTFs: []types.Timeframe{types.TFM15, types.TFM30},
-		AcceptedRegimes: []types.Regime{types.RegimeTrendingBullish, types.RegimeTrendingBearish, types.RegimeBreakout, types.RegimeMeanReversion, types.RegimeRange, types.RegimeHighVolatility},
-		AcceptedSessions: []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"},
-		MinQualityState: types.QualityAuthoritative,
+		DecisionTFs:      []types.Timeframe{types.TFM1, types.TFM5},
+		ContextTFs:       []types.Timeframe{types.TFM15, types.TFM30},
+		AcceptedRegimes:  []types.Regime{types.RegimeTrendingBullish, types.RegimeTrendingBearish, types.RegimeBreakout, types.RegimeMeanReversion, types.RegimeRange, types.RegimeHighVolatility},
+		AcceptedSessions: []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"}, // v1.26: sessions stay open — forensics showed the bleed is EV/geometry-driven, not session-driven; profitability + entry gates handle quality
+		MinQualityState:  types.QualityAuthoritative,
 	}}
 }
-func (s *StandardScalping) ID() types.StrategyID { return types.StrategyStandardScalping }
+func (s *StandardScalping) ID() types.StrategyID                  { return types.StrategyStandardScalping }
 func (s *StandardScalping) DecisionTimeframes() []types.Timeframe { return s.cfg.DecisionTFs }
 
 func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult {
@@ -1028,20 +1027,20 @@ type UltraScalping struct{ cfg StrategyConfig }
 
 func NewUltraScalping() *UltraScalping {
 	return &UltraScalping{cfg: StrategyConfig{
-		StrategyID: types.StrategyUltraScalping,
+		StrategyID:    types.StrategyUltraScalping,
 		MinConfluence: 65, MinMTFAlignment: 50,
 		ATRMultiplierSL: 1.0, ATRMultiplierTP1: 1.5, ATRMultiplierTP2: 2.5, ATRMultiplierTP3: 4.0,
 		MinSLATRFloor: 0.0, VolatilityScale: 2.0, MinSLSpreadMult: 3.0, // provisional: widen stops for understated feed + dominate spread; calibrate from client real ATR/spread
 		MaxSpreadPips: 1.5, MaxSlippagePoints: 5, MinADX: 25, MinRR: 2.0,
 		ExpiryMinutes: 3, CooldownMinutes: 5,
-		DecisionTFs: []types.Timeframe{types.TFM1},
-		ContextTFs: []types.Timeframe{types.TFM5, types.TFM15},
-		AcceptedRegimes: []types.Regime{types.RegimeTrendingBullish, types.RegimeTrendingBearish, types.RegimeBreakout, types.RegimeMeanReversion, types.RegimeRange, types.RegimeHighVolatility},
+		DecisionTFs:      []types.Timeframe{types.TFM1},
+		ContextTFs:       []types.Timeframe{types.TFM5, types.TFM15},
+		AcceptedRegimes:  []types.Regime{types.RegimeTrendingBullish, types.RegimeTrendingBearish, types.RegimeBreakout, types.RegimeMeanReversion, types.RegimeRange, types.RegimeHighVolatility},
 		AcceptedSessions: []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"},
-		MinQualityState: types.QualityAuthoritative,
+		MinQualityState:  types.QualityAuthoritative,
 	}}
 }
-func (s *UltraScalping) ID() types.StrategyID { return types.StrategyUltraScalping }
+func (s *UltraScalping) ID() types.StrategyID                  { return types.StrategyUltraScalping }
 func (s *UltraScalping) DecisionTimeframes() []types.Timeframe { return s.cfg.DecisionTFs }
 
 func (s *UltraScalping) Evaluate(state *features.MarketState) StrategyResult {
@@ -1242,20 +1241,20 @@ type StandardSwing struct{ cfg StrategyConfig }
 
 func NewStandardSwing() *StandardSwing {
 	return &StandardSwing{cfg: StrategyConfig{
-		StrategyID: types.StrategyStandardSwing,
+		StrategyID:    types.StrategyStandardSwing,
 		MinConfluence: 55, MinMTFAlignment: 30,
 		ATRMultiplierSL: 2.0, ATRMultiplierTP1: 3.0, ATRMultiplierTP2: 5.0, ATRMultiplierTP3: 8.0,
 		MinSLATRFloor: 0.0, VolatilityScale: 2.0, MinSLSpreadMult: 3.0, // provisional: widen stops for understated feed + dominate spread; calibrate from client real ATR/spread
 		MaxSpreadPips: 4.0, MaxSlippagePoints: 20, MinADX: 20, MinRR: 2.0,
 		ExpiryMinutes: 60, CooldownMinutes: 120,
-		DecisionTFs: []types.Timeframe{types.TFM15, types.TFM30, types.TFH1},
-		ContextTFs: []types.Timeframe{types.TFH4, types.TFD1},
-		AcceptedRegimes: []types.Regime{types.RegimeTrendingBullish, types.RegimeTrendingBearish, types.RegimeBreakout, types.RegimeMeanReversion, types.RegimeRange, types.RegimeHighVolatility},
+		DecisionTFs:      []types.Timeframe{types.TFM15, types.TFM30, types.TFH1},
+		ContextTFs:       []types.Timeframe{types.TFH4, types.TFD1},
+		AcceptedRegimes:  []types.Regime{types.RegimeTrendingBullish, types.RegimeTrendingBearish, types.RegimeBreakout, types.RegimeMeanReversion, types.RegimeRange, types.RegimeHighVolatility},
 		AcceptedSessions: []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"},
-		MinQualityState: types.QualityAuthoritative,
+		MinQualityState:  types.QualityAuthoritative,
 	}}
 }
-func (s *StandardSwing) ID() types.StrategyID { return types.StrategyStandardSwing }
+func (s *StandardSwing) ID() types.StrategyID                  { return types.StrategyStandardSwing }
 func (s *StandardSwing) DecisionTimeframes() []types.Timeframe { return s.cfg.DecisionTFs }
 
 func (s *StandardSwing) Evaluate(state *features.MarketState) StrategyResult {
@@ -1484,20 +1483,20 @@ type TrendSwing struct{ cfg StrategyConfig }
 
 func NewTrendSwing() *TrendSwing {
 	return &TrendSwing{cfg: StrategyConfig{
-		StrategyID: types.StrategyTrendSwing,
+		StrategyID:    types.StrategyTrendSwing,
 		MinConfluence: 50, MinMTFAlignment: 25,
 		ATRMultiplierSL: 2.5, ATRMultiplierTP1: 4.0, ATRMultiplierTP2: 6.5, ATRMultiplierTP3: 10.0,
 		MinSLATRFloor: 0.0, VolatilityScale: 2.0, MinSLSpreadMult: 3.0, // provisional: widen stops for understated feed + dominate spread; calibrate from client real ATR/spread
 		MaxSpreadPips: 5.0, MaxSlippagePoints: 30, MinADX: 20, MinRR: 2.0,
 		ExpiryMinutes: 240, CooldownMinutes: 360,
-		DecisionTFs: []types.Timeframe{types.TFH1, types.TFH4},
-		ContextTFs: []types.Timeframe{types.TFD1, types.TFW1},
-		AcceptedRegimes: []types.Regime{types.RegimeTrendingBullish, types.RegimeTrendingBearish, types.RegimeBreakout, types.RegimeHighVolatility},
+		DecisionTFs:      []types.Timeframe{types.TFH1, types.TFH4},
+		ContextTFs:       []types.Timeframe{types.TFD1, types.TFW1},
+		AcceptedRegimes:  []types.Regime{types.RegimeTrendingBullish, types.RegimeTrendingBearish, types.RegimeBreakout, types.RegimeHighVolatility},
 		AcceptedSessions: []string{"LONDON", "NEW_YORK", "OVERLAP", "TOKYO", "SYDNEY"},
-		MinQualityState: types.QualityAuthoritative,
+		MinQualityState:  types.QualityAuthoritative,
 	}}
 }
-func (s *TrendSwing) ID() types.StrategyID { return types.StrategyTrendSwing }
+func (s *TrendSwing) ID() types.StrategyID                  { return types.StrategyTrendSwing }
 func (s *TrendSwing) DecisionTimeframes() []types.Timeframe { return s.cfg.DecisionTFs }
 
 func (s *TrendSwing) Evaluate(state *features.MarketState) StrategyResult {
@@ -1807,5 +1806,3 @@ func AllStrategies() []Strategy {
 
 // Unused import guard
 var _ = time.Now
-
-

@@ -14,11 +14,12 @@ import (
 // based on its score, R:R profile, regime alignment, and structural confirmation.
 //
 // Grade semantics (prompt.md Section 12):
-//   A+  — Exceptional setup: strong structural confirmation, excellent
-//         strategy/regime alignment, strong probability, favorable expectancy
-//   A   — Normal production-quality signal
-//   B   — Below delivery threshold, store for shadow/calibration
-//   REJECTED — Failed a hard rule or unacceptable risk/expectancy
+//
+//	A+  — Exceptional setup: strong structural confirmation, excellent
+//	      strategy/regime alignment, strong probability, favorable expectancy
+//	A   — Normal production-quality signal
+//	B   — Below delivery threshold, store for shadow/calibration
+//	REJECTED — Failed a hard rule or unacceptable risk/expectancy
 func ComputeQualityGrade(
 	score float64,
 	rrTP1, rrTP2, rrTP3 float64,
@@ -71,11 +72,12 @@ const GradeRejected = types.GradeNoTrade
 // EV_R = (P_win × AvgWinR) − (P_loss × AvgLossR) − CostR
 //
 // Where:
-//   P_win = calibrated win probability (0-1)
-//   P_loss = 1 - P_win
-//   AvgWinR = average of TP1/TP2/TP3 in R units (weighted toward TP1)
-//   AvgLossR = 1.0 (full SL loss in R units)
-//   CostR = round-trip spread cost in R units
+//
+//	P_win = calibrated win probability (0-1)
+//	P_loss = 1 - P_win
+//	AvgWinR = average of TP1/TP2/TP3 in R units (weighted toward TP1)
+//	AvgLossR = 1.0 (full SL loss in R units)
+//	CostR = round-trip spread cost in R units
 //
 // Falls back to score-based estimate when calibration unavailable.
 func ComputeExpectancyR(
@@ -208,14 +210,14 @@ func ClassifyRejectionReason(
 
 // RejectionReasonSummary aggregates rejection statistics for monitoring.
 type RejectionReasonSummary struct {
-	StrategyID        string
-	TotalCandidates   int
-	TotalRejected     int
-	TotalQualified    int
-	RejectionCounts   map[string]int // reason → count
-	RejectionPercent  float64
-	SignalsPerHour    float64
-	SignalsPerDay     float64
+	StrategyID       string
+	TotalCandidates  int
+	TotalRejected    int
+	TotalQualified   int
+	RejectionCounts  map[string]int // reason → count
+	RejectionPercent float64
+	SignalsPerHour   float64
+	SignalsPerDay    float64
 }
 
 func contains(slice []string, item string) bool {

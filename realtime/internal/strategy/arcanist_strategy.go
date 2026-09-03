@@ -29,20 +29,20 @@ type ArcanistStrategy struct {
 
 // ArcanistConfig holds tunables (aligned with new/alchemist_xauusd.json).
 type ArcanistConfig struct {
-	StrategyID            types.StrategyID
-	MinScore              float64
+	StrategyID           types.StrategyID
+	MinScore             float64
 	RiskPerTradePct      float64
-	SLPipsMin             float64
-	SLPipsMax             float64
-	SLATRMultiplier       float64
-	MinRRToERL            float64
-	MaxSpreadPoints       float64
-	HardStopUTC           int
-	DecisionTFs           []types.Timeframe
-	AcceptedSessions      map[string]bool
-	BiasTimeframes        []types.Timeframe
-	RefinementTimeframes  []types.Timeframe
-	ExecTimeframes         []types.Timeframe
+	SLPipsMin            float64
+	SLPipsMax            float64
+	SLATRMultiplier      float64
+	MinRRToERL           float64
+	MaxSpreadPoints      float64
+	HardStopUTC          int
+	DecisionTFs          []types.Timeframe
+	AcceptedSessions     map[string]bool
+	BiasTimeframes       []types.Timeframe
+	RefinementTimeframes []types.Timeframe
+	ExecTimeframes       []types.Timeframe
 }
 
 // arcanistCandleProvider is injected at engine start so the strategy can pull
@@ -77,7 +77,7 @@ func NewArcanistStrategy() *ArcanistStrategy {
 	}
 }
 
-func (s *ArcanistStrategy) ID() types.StrategyID { return s.cfg.StrategyID }
+func (s *ArcanistStrategy) ID() types.StrategyID                  { return s.cfg.StrategyID }
 func (s *ArcanistStrategy) DecisionTimeframes() []types.Timeframe { return s.cfg.DecisionTFs }
 
 // Evaluate runs the Arcanist decision pipeline. Panic-safe: any failure returns
@@ -90,18 +90,18 @@ func (s *ArcanistStrategy) Evaluate(state *features.MarketState) (res StrategyRe
 	}()
 
 	res = StrategyResult{
-		StrategyID:       s.ID(),
-		Direction:        types.DirectionNoTrade,
-		RawScore:         decimal.Zero,
-		LongScore:        decimal.Zero,
-		ShortScore:       decimal.Zero,
-		EntryPrice:       decimal.Zero,
-		StopLoss:         decimal.Zero,
-		TP1:              decimal.Zero,
-		TP2:              decimal.Zero,
-		TP3:              decimal.Zero,
-		ExpiryMinutes:    180,
-		CooldownMinutes:  240,
+		StrategyID:      s.ID(),
+		Direction:       types.DirectionNoTrade,
+		RawScore:        decimal.Zero,
+		LongScore:       decimal.Zero,
+		ShortScore:      decimal.Zero,
+		EntryPrice:      decimal.Zero,
+		StopLoss:        decimal.Zero,
+		TP1:             decimal.Zero,
+		TP2:             decimal.Zero,
+		TP3:             decimal.Zero,
+		ExpiryMinutes:   180,
+		CooldownMinutes: 240,
 	}
 
 	if state == nil || !state.CurrentPrice.IsPositive() {

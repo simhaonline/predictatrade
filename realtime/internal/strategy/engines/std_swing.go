@@ -16,7 +16,7 @@ type StdSwingEngine struct {
 	cfg EngineConfig
 }
 
-func (e *StdSwingEngine) Type() EngineType    { return StdSwing }
+func (e *StdSwingEngine) Type() EngineType     { return StdSwing }
 func (e *StdSwingEngine) Config() EngineConfig { return e.cfg }
 
 func (e *StdSwingEngine) Evaluate(legacyResult strategy.StrategyResult, state *features.MarketState) EngineResult {

@@ -66,8 +66,12 @@ func TestMarnieFibDecisionTFs(t *testing.T) {
 				}
 				hasM15, hasH1 := false, false
 				for _, tf := range tfs {
-					if tf == types.TFM15 { hasM15 = true }
-					if tf == types.TFH1 { hasH1 = true }
+					if tf == types.TFM15 {
+						hasM15 = true
+					}
+					if tf == types.TFH1 {
+						hasH1 = true
+					}
 				}
 				if !hasM15 || !hasH1 {
 					t.Errorf("MARNIE_FIB decision TFs should include M15 and H1")

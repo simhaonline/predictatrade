@@ -32,14 +32,14 @@ type MarnieFibStrategy struct {
 func NewMarnieFibStrategy() *MarnieFibStrategy {
 	return &MarnieFibStrategy{
 		cfg: StrategyConfig{
-			StrategyID:        types.StrategyMarnieFib,
-			MinConfluence:     45,
-			MinMTFAlignment:   20,
-			ATRMultiplierSL:   1.5,
-			ATRMultiplierTP1:  2.0,
-			ATRMultiplierTP2:  3.5,
-			ATRMultiplierTP3:  5.5,
-			MinSLATRFloor:     0.0, VolatilityScale: 2.0, MinSLSpreadMult: 3.0, // provisional: widen stops + dominate spread; calibrate from client real ATR/spread
+			StrategyID:       types.StrategyMarnieFib,
+			MinConfluence:    45,
+			MinMTFAlignment:  20,
+			ATRMultiplierSL:  1.5,
+			ATRMultiplierTP1: 2.0,
+			ATRMultiplierTP2: 3.5,
+			ATRMultiplierTP3: 5.5,
+			MinSLATRFloor:    0.0, VolatilityScale: 2.0, MinSLSpreadMult: 3.0, // provisional: widen stops + dominate spread; calibrate from client real ATR/spread
 			MaxSpreadPips:     4.0,
 			MaxSlippagePoints: 20,
 			MinADX:            15, // Fib works in ranging markets too (lower ADX)
@@ -63,7 +63,7 @@ func NewMarnieFibStrategy() *MarnieFibStrategy {
 	}
 }
 
-func (s *MarnieFibStrategy) ID() types.StrategyID { return types.StrategyMarnieFib }
+func (s *MarnieFibStrategy) ID() types.StrategyID                  { return types.StrategyMarnieFib }
 func (s *MarnieFibStrategy) DecisionTimeframes() []types.Timeframe { return s.cfg.DecisionTFs }
 
 func (s *MarnieFibStrategy) Evaluate(state *features.MarketState) StrategyResult {
@@ -152,10 +152,10 @@ func (s *MarnieFibStrategy) Evaluate(state *features.MarketState) StrategyResult
 			// Far from golden zone but some confluence
 			if fibFeat.Direction == "bullish" {
 				addEvidence(&evidence, "FIBONACCI", "DISTANT_GOLDEN_BULL", types.DirectionBuy, 6, 0.04, q,
-				fmt.Sprintf("Distant from golden zone (%.0f%%)", confluenceScore))
+					fmt.Sprintf("Distant from golden zone (%.0f%%)", confluenceScore))
 			} else {
 				addEvidence(&evidence, "FIBONACCI", "DISTANT_GOLDEN_BEAR", types.DirectionSell, 6, 0.04, q,
-				fmt.Sprintf("Distant from golden zone (%.0f%%)", confluenceScore))
+					fmt.Sprintf("Distant from golden zone (%.0f%%)", confluenceScore))
 			}
 		}
 	}
@@ -170,10 +170,10 @@ func (s *MarnieFibStrategy) Evaluate(state *features.MarketState) StrategyResult
 		if distF < 0.01 { // Within 1% of range
 			if fibFeat.Direction == "bullish" {
 				addEvidence(&evidence, "FIBONACCI", "AT_FIB_LEVEL_BULL", types.DirectionBuy, 10, 0.06, q,
-				fmt.Sprintf("At Fib %s level", fibFeat.NearestLevel))
+					fmt.Sprintf("At Fib %s level", fibFeat.NearestLevel))
 			} else {
 				addEvidence(&evidence, "FIBONACCI", "AT_FIB_LEVEL_BEAR", types.DirectionSell, 10, 0.06, q,
-				fmt.Sprintf("At Fib %s level", fibFeat.NearestLevel))
+					fmt.Sprintf("At Fib %s level", fibFeat.NearestLevel))
 			}
 		}
 	}

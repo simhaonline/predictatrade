@@ -18,10 +18,10 @@ import (
 // CandidateThreshold < TradeThreshold (MinConfluence).
 // CandidateThreshold has ZERO authority over AutoExecute.
 type CandidateThresholdConfig struct {
-	StrategyID        types.StrategyID
+	StrategyID         types.StrategyID
 	CandidateThreshold float64
-	TradeThreshold    float64
-	Version           string
+	TradeThreshold     float64
+	Version            string
 }
 
 // DefaultCandidateThresholds returns candidate thresholds for all four strategies.
@@ -33,34 +33,34 @@ type CandidateThresholdConfig struct {
 func DefaultCandidateThresholds() map[types.StrategyID]CandidateThresholdConfig {
 	return map[types.StrategyID]CandidateThresholdConfig{
 		types.StrategyStandardScalping: {
-			StrategyID:        types.StrategyStandardScalping,
+			StrategyID:         types.StrategyStandardScalping,
 			CandidateThreshold: 10,
-			TradeThreshold:    25,
-			Version:           "1.2.0",
+			TradeThreshold:     25,
+			Version:            "1.2.0",
 		},
 		types.StrategyUltraScalping: {
-			StrategyID:        types.StrategyUltraScalping,
+			StrategyID:         types.StrategyUltraScalping,
 			CandidateThreshold: 10,
-			TradeThreshold:    25,
-			Version:           "1.2.0",
+			TradeThreshold:     25,
+			Version:            "1.2.0",
 		},
 		types.StrategyStandardSwing: {
-			StrategyID:        types.StrategyStandardSwing,
+			StrategyID:         types.StrategyStandardSwing,
 			CandidateThreshold: 10,
-			TradeThreshold:    25,
-			Version:           "1.2.0",
+			TradeThreshold:     25,
+			Version:            "1.2.0",
 		},
 		types.StrategyTrendSwing: {
-			StrategyID:        types.StrategyTrendSwing,
+			StrategyID:         types.StrategyTrendSwing,
 			CandidateThreshold: 10,
-			TradeThreshold:    25,
-			Version:           "1.2.0",
+			TradeThreshold:     25,
+			Version:            "1.2.0",
 		},
 		types.StrategyMarnieFib: {
-			StrategyID:        types.StrategyMarnieFib,
+			StrategyID:         types.StrategyMarnieFib,
 			CandidateThreshold: 10,
-			TradeThreshold:    25,
-			Version:           "1.2.0",
+			TradeThreshold:     25,
+			Version:            "1.2.0",
 		},
 	}
 }

@@ -6,10 +6,11 @@
 // but they still represent a directional edge that can be monetized.
 //
 // The microprofit approach uses tighter stops and closer targets:
-//   SL  = 1.0 × ATR  (tighter than 1.5-2.5×ATR for qualified signals)
-//   TP1 = 1.0 × ATR  (R:R = 1.0 — smaller profit, higher win probability)
-//   TP2 = 2.0 × ATR  (R:R = 2.0 — captures larger move if it develops)
-//   TP3 = 3.0 × ATR  (R:R = 3.0 — trailing target for remaining position)
+//
+//	SL  = 1.0 × ATR  (tighter than 1.5-2.5×ATR for qualified signals)
+//	TP1 = 1.0 × ATR  (R:R = 1.0 — smaller profit, higher win probability)
+//	TP2 = 2.0 × ATR  (R:R = 2.0 — captures larger move if it develops)
+//	TP3 = 3.0 × ATR  (R:R = 3.0 — trailing target for remaining position)
 //
 // This is NOT lowering standards — it's recognizing that candidate signals
 // have a real but weaker directional edge that warrants smaller position sizing

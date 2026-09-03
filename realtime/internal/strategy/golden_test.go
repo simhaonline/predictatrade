@@ -419,4 +419,3 @@ type strategyResultSummary struct {
 // === Helpers ===
 
 func dec(f float64) decimal.Decimal { return decimal.NewFromFloat(f) }
-

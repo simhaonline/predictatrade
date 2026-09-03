@@ -129,7 +129,7 @@ func TestGolden_BLOCKED_HardGateVeto(t *testing.T) {
 		RawScore:   decimal.NewFromFloat(85), LongScore: decimal.NewFromFloat(85), ShortScore: decimal.NewFromFloat(5),
 		Tick: tick, Regime: types.RegimeTrendingBullish,
 		Session: "LONDON", SessionAllowed: true,
-		NewsRisk: "NONE",
+		NewsRisk:   "NONE",
 		EntryPrice: decimal.NewFromFloat(4400), StopLoss: decimal.NewFromFloat(4390),
 		TP1: decimal.NewFromFloat(4412), TP2: decimal.NewFromFloat(4418), TP3: decimal.NewFromFloat(4424),
 		RoundTripCost: decimal.NewFromFloat(0.30), CurrentExposure: 0, MaxExposure: 5,
@@ -192,11 +192,11 @@ func makeBullishStateExt() *features.MarketState {
 		VWAP: features.VWAPFeatures{SessionVWAP: decimal.NewFromFloat(4395.0)},
 		Structure: features.StructureFeatures{
 			CurrentTrend: "bullish",
-			LastBOS: &features.StructureEvent{Type: "BOS", Direction: "bullish", Price: decimal.NewFromFloat(4398.0)},
+			LastBOS:      &features.StructureEvent{Type: "BOS", Direction: "bullish", Price: decimal.NewFromFloat(4398.0)},
 		},
 		Liquidity: features.LiquidityFeatures{},
 		FVG: features.FVGFeatures{
-			FVGs: []features.FVGZone{{Type: "BULLISH", Upper: decimal.NewFromFloat(4401.0), Lower: decimal.NewFromFloat(4399.0)}},
+			FVGs:        []features.FVGZone{{Type: "BULLISH", Upper: decimal.NewFromFloat(4401.0), Lower: decimal.NewFromFloat(4399.0)}},
 			OrderBlocks: []features.OrderBlock{{Type: "BULLISH", Upper: decimal.NewFromFloat(4397.0), Lower: decimal.NewFromFloat(4395.0)}},
 		},
 		Regime: features.RegimeFeatures{Current: types.RegimeTrendingBullish},
@@ -207,6 +207,6 @@ func makeBullishStateExt() *features.MarketState {
 			},
 		},
 		Session: features.SessionFeatures{CurrentSession: "LONDON", NewsRisk: "NONE"},
-		Candle: features.CandleIntelligence{IsBullish: true, IsDisplacement: true},
+		Candle:  features.CandleIntelligence{IsBullish: true, IsDisplacement: true},
 	}
 }

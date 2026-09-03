@@ -49,11 +49,11 @@ func makeRangeCandidateState(price float64) *features.MarketState {
 		Mid:          decimal.NewFromFloat(price),
 		Indicators:   ind,
 		Regime: features.RegimeFeatures{
-			Current:   types.RegimeRange,
+			Current:    types.RegimeRange,
 			Confidence: 0.8,
 		},
 		Session: features.SessionFeatures{CurrentSession: "LONDON", NewsRisk: "LOW"},
-		Quality:  types.QualityAuthoritative,
+		Quality: types.QualityAuthoritative,
 		MTF: features.MTFFeatures{
 			Score:  10,
 			States: map[types.Timeframe]int{types.TFM1: -1, types.TFM5: -1},
@@ -82,7 +82,7 @@ func makeRangeSellCandidateState(price float64) *features.MarketState {
 	state := makeRangeCandidateState(price)
 	// Flip to overbought/sell-side
 	state.Indicators.RSI = decimal.NewFromFloat(72) // overbought
-	state.Indicators.CCI = decimal.NewFromInt(120)   // extreme overbought
+	state.Indicators.CCI = decimal.NewFromInt(120)  // extreme overbought
 	state.Indicators.StochRSI = decimal.NewFromFloat(0.85)
 	state.Indicators.StochMain = decimal.NewFromFloat(85)
 	state.Indicators.StochSignal = decimal.NewFromFloat(80)
@@ -547,7 +547,7 @@ func TestMissingOptionalFeature_NoFalseZero(t *testing.T) {
 	s := NewStandardScalping()
 	state := makeRangeCandidateState(3341.0)
 	// Remove some optional features
-	state.VWAP = features.VWAPFeatures{} // no VWAP
+	state.VWAP = features.VWAPFeatures{}           // no VWAP
 	state.Liquidity = features.LiquidityFeatures{} // no liquidity
 	result := s.Evaluate(state)
 	// Score should still be non-zero if other evidence exists
@@ -621,8 +621,8 @@ func TestEvaluationTimestampsRetainedSeparately(t *testing.T) {
 	// The Signal type has separate DetectedAt and MarketTime fields
 	// They can differ because evaluation processing time > market time
 	sig := types.Signal{
-		MarketTime:  time.Date(2026, 8, 19, 16, 1, 0, 0, time.UTC),
-		DetectedAt:  time.Date(2026, 8, 19, 16, 1, 0, 184, time.UTC),
+		MarketTime: time.Date(2026, 8, 19, 16, 1, 0, 0, time.UTC),
+		DetectedAt: time.Date(2026, 8, 19, 16, 1, 0, 184, time.UTC),
 	}
 	if !sig.MarketTime.Before(sig.DetectedAt) {
 		t.Errorf("DetectedAt should be >= MarketTime (processing takes time)")

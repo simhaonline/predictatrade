@@ -18,24 +18,24 @@ func TestATRPropagationToGates(t *testing.T) {
 		Timestamp:    time.Now(),
 		CurrentPrice: decimal.NewFromFloat(2400),
 		Indicators: features.IndicatorFeatures{
-			ATR:    decimal.NewFromFloat(3.5), // Real ATR
-			RSI:    decimal.NewFromFloat(55),
-			ADX:    decimal.NewFromFloat(32),
-			EMA9:   decimal.NewFromFloat(2415),
-			EMA21:  decimal.NewFromFloat(2405),
-			EMA50:  decimal.NewFromFloat(2395),
-			EMA100: decimal.NewFromFloat(2400),
-			EMA200: decimal.NewFromFloat(2395),
-			SMA200: decimal.NewFromFloat(2400),
+			ATR:        decimal.NewFromFloat(3.5), // Real ATR
+			RSI:        decimal.NewFromFloat(55),
+			ADX:        decimal.NewFromFloat(32),
+			EMA9:       decimal.NewFromFloat(2415),
+			EMA21:      decimal.NewFromFloat(2405),
+			EMA50:      decimal.NewFromFloat(2395),
+			EMA100:     decimal.NewFromFloat(2400),
+			EMA200:     decimal.NewFromFloat(2395),
+			SMA200:     decimal.NewFromFloat(2400),
 			MACDMain:   decimal.NewFromFloat(5),
 			MACDSignal: decimal.NewFromFloat(3),
 			OsMA:       decimal.NewFromFloat(2),
 			CCI:        decimal.NewFromFloat(80),
 		},
-		Regime: features.RegimeFeatures{Current: types.RegimeTrendingBullish, Confidence: 0.8},
-		Session: features.SessionFeatures{CurrentSession: "LONDON", NewsRisk: "LOW"},
-		Quality: types.QualityAuthoritative,
-		MTF: features.MTFFeatures{Score: 60, States: map[types.Timeframe]int{types.TFM1: 1, types.TFM5: 1}},
+		Regime:    features.RegimeFeatures{Current: types.RegimeTrendingBullish, Confidence: 0.8},
+		Session:   features.SessionFeatures{CurrentSession: "LONDON", NewsRisk: "LOW"},
+		Quality:   types.QualityAuthoritative,
+		MTF:       features.MTFFeatures{Score: 60, States: map[types.Timeframe]int{types.TFM1: 1, types.TFM5: 1}},
 		Structure: features.StructureFeatures{CurrentTrend: "bullish"},
 	}
 
@@ -61,27 +61,27 @@ func TestRangeRegimeStandardScalpingProducesEvidence(t *testing.T) {
 		Timestamp:    time.Now(),
 		CurrentPrice: decimal.NewFromFloat(2395), // Below BB lower
 		Indicators: features.IndicatorFeatures{
-			ATR:       decimal.NewFromFloat(3.0),
-			RSI:       decimal.NewFromFloat(28), // Oversold in range
-			ADX:       decimal.NewFromFloat(14), // Range
-			EMA9:      decimal.NewFromFloat(2400),
-			EMA21:     decimal.NewFromFloat(2400),
-			EMA50:     decimal.NewFromFloat(2400),
-			BollUpper: decimal.NewFromFloat(2410),
-			BollLower: decimal.NewFromFloat(2390),
-			BollMiddle: decimal.NewFromFloat(2400),
-			StochMain:  decimal.NewFromFloat(15),
+			ATR:         decimal.NewFromFloat(3.0),
+			RSI:         decimal.NewFromFloat(28), // Oversold in range
+			ADX:         decimal.NewFromFloat(14), // Range
+			EMA9:        decimal.NewFromFloat(2400),
+			EMA21:       decimal.NewFromFloat(2400),
+			EMA50:       decimal.NewFromFloat(2400),
+			BollUpper:   decimal.NewFromFloat(2410),
+			BollLower:   decimal.NewFromFloat(2390),
+			BollMiddle:  decimal.NewFromFloat(2400),
+			StochMain:   decimal.NewFromFloat(15),
 			StochSignal: decimal.NewFromFloat(20),
-			CCI:        decimal.NewFromFloat(-120),
-			MACDMain:   decimal.NewFromFloat(-1),
-			MACDSignal: decimal.NewFromFloat(-0.5),
-			OsMA:       decimal.NewFromFloat(-0.5),
+			CCI:         decimal.NewFromFloat(-120),
+			MACDMain:    decimal.NewFromFloat(-1),
+			MACDSignal:  decimal.NewFromFloat(-0.5),
+			OsMA:        decimal.NewFromFloat(-0.5),
 		},
-		Regime: features.RegimeFeatures{Current: types.RegimeRange, Confidence: 0.6},
+		Regime:  features.RegimeFeatures{Current: types.RegimeRange, Confidence: 0.6},
 		Session: features.SessionFeatures{CurrentSession: "LONDON", NewsRisk: "LOW"},
 		Quality: types.QualityAuthoritative,
-		MTF: features.MTFFeatures{Score: 10, States: map[types.Timeframe]int{types.TFM1: 1, types.TFM5: 0}},
-		VWAP: features.VWAPFeatures{SessionVWAP: decimal.NewFromFloat(2400)},
+		MTF:     features.MTFFeatures{Score: 10, States: map[types.Timeframe]int{types.TFM1: 1, types.TFM5: 0}},
+		VWAP:    features.VWAPFeatures{SessionVWAP: decimal.NewFromFloat(2400)},
 		Candle: features.CandleIntelligence{
 			IsRejection: true,
 			IsBullish:   true,
@@ -123,23 +123,23 @@ func TestUltraScalpingAcceptsMeanReversion(t *testing.T) {
 		Timestamp:    time.Now(),
 		CurrentPrice: decimal.NewFromFloat(2395),
 		Indicators: features.IndicatorFeatures{
-			ATR:        decimal.NewFromFloat(2.0),
-			RSI:        decimal.NewFromFloat(25),
-			ADX:        decimal.NewFromFloat(12),
-			EMA9:       decimal.NewFromFloat(2400),
-			EMA21:      decimal.NewFromFloat(2400),
-			EMA50:      decimal.NewFromFloat(2400),
-			BollUpper:  decimal.NewFromFloat(2410),
-			BollLower:  decimal.NewFromFloat(2390),
-			StochMain:  decimal.NewFromFloat(10),
+			ATR:         decimal.NewFromFloat(2.0),
+			RSI:         decimal.NewFromFloat(25),
+			ADX:         decimal.NewFromFloat(12),
+			EMA9:        decimal.NewFromFloat(2400),
+			EMA21:       decimal.NewFromFloat(2400),
+			EMA50:       decimal.NewFromFloat(2400),
+			BollUpper:   decimal.NewFromFloat(2410),
+			BollLower:   decimal.NewFromFloat(2390),
+			StochMain:   decimal.NewFromFloat(10),
 			StochSignal: decimal.NewFromFloat(15),
-			OsMA:       decimal.NewFromFloat(-0.3),
+			OsMA:        decimal.NewFromFloat(-0.3),
 		},
-		Regime: features.RegimeFeatures{Current: types.RegimeMeanReversion, Confidence: 0.7},
+		Regime:  features.RegimeFeatures{Current: types.RegimeMeanReversion, Confidence: 0.7},
 		Session: features.SessionFeatures{CurrentSession: "LONDON", NewsRisk: "LOW"},
 		Quality: types.QualityAuthoritative,
-		MTF: features.MTFFeatures{Score: 5, States: map[types.Timeframe]int{types.TFM1: 1, types.TFM5: 0}},
-		Candle: features.CandleIntelligence{Range: decimal.NewFromFloat(2)},
+		MTF:     features.MTFFeatures{Score: 5, States: map[types.Timeframe]int{types.TFM1: 1, types.TFM5: 0}},
+		Candle:  features.CandleIntelligence{Range: decimal.NewFromFloat(2)},
 	}
 
 	result := ultra.Evaluate(state)
@@ -165,14 +165,14 @@ func TestTrendSwingRejectsRangeRegime(t *testing.T) {
 		Timestamp:    time.Now(),
 		CurrentPrice: decimal.NewFromFloat(2400),
 		Indicators: features.IndicatorFeatures{
-			ATR:    decimal.NewFromFloat(2.0),
-			RSI:    decimal.NewFromFloat(50),
-			ADX:    decimal.NewFromFloat(14),
-			EMA9:   decimal.NewFromFloat(2400),
-			EMA21:  decimal.NewFromFloat(2400),
-			EMA50:  decimal.NewFromFloat(2400),
+			ATR:   decimal.NewFromFloat(2.0),
+			RSI:   decimal.NewFromFloat(50),
+			ADX:   decimal.NewFromFloat(14),
+			EMA9:  decimal.NewFromFloat(2400),
+			EMA21: decimal.NewFromFloat(2400),
+			EMA50: decimal.NewFromFloat(2400),
 		},
-		Regime: features.RegimeFeatures{Current: types.RegimeRange},
+		Regime:  features.RegimeFeatures{Current: types.RegimeRange},
 		Session: features.SessionFeatures{CurrentSession: "LONDON", NewsRisk: "LOW"},
 		Quality: types.QualityAuthoritative,
 	}
@@ -201,12 +201,12 @@ func TestTrendSwingRejectsRangeRegime(t *testing.T) {
 func TestFeatureReadinessDetection(t *testing.T) {
 	state := &features.MarketState{
 		Indicators: features.IndicatorFeatures{
-			ATR:    decimal.NewFromFloat(2.0),
-			RSI:    decimal.NewFromFloat(50),
-			ADX:    decimal.Zero, // Not ready
-			EMA9:   decimal.NewFromFloat(2400),
-			EMA21:  decimal.NewFromFloat(2400),
-			EMA50:  decimal.Zero, // Not ready
+			ATR:   decimal.NewFromFloat(2.0),
+			RSI:   decimal.NewFromFloat(50),
+			ADX:   decimal.Zero, // Not ready
+			EMA9:  decimal.NewFromFloat(2400),
+			EMA21: decimal.NewFromFloat(2400),
+			EMA50: decimal.Zero, // Not ready
 		},
 	}
 
@@ -275,12 +275,12 @@ func TestContributionTrace(t *testing.T) {
 		Symbol:       types.SymbolXAUUSD,
 		CurrentPrice: decimal.NewFromFloat(2400),
 		Indicators: features.IndicatorFeatures{
-			ATR:    decimal.NewFromFloat(2),
-			RSI:    decimal.NewFromFloat(55),
-			ADX:    decimal.NewFromFloat(25),
-			EMA9:   decimal.NewFromFloat(2410),
-			EMA21:  decimal.NewFromFloat(2400),
-			EMA50:  decimal.NewFromFloat(2395),
+			ATR:        decimal.NewFromFloat(2),
+			RSI:        decimal.NewFromFloat(55),
+			ADX:        decimal.NewFromFloat(25),
+			EMA9:       decimal.NewFromFloat(2410),
+			EMA21:      decimal.NewFromFloat(2400),
+			EMA50:      decimal.NewFromFloat(2395),
 			MACDMain:   decimal.NewFromFloat(2),
 			MACDSignal: decimal.NewFromFloat(1),
 			OsMA:       decimal.NewFromFloat(1),
@@ -288,8 +288,8 @@ func TestContributionTrace(t *testing.T) {
 		Regime:  features.RegimeFeatures{Current: types.RegimeTrendingBullish},
 		Session: features.SessionFeatures{CurrentSession: "LONDON", NewsRisk: "LOW"},
 		Quality: types.QualityAuthoritative,
-		MTF: features.MTFFeatures{Score: 50, States: map[types.Timeframe]int{types.TFM1: 1, types.TFM5: 1}},
-		Candle: features.CandleIntelligence{Range: decimal.NewFromFloat(2)},
+		MTF:     features.MTFFeatures{Score: 50, States: map[types.Timeframe]int{types.TFM1: 1, types.TFM5: 1}},
+		Candle:  features.CandleIntelligence{Range: decimal.NewFromFloat(2)},
 	}
 
 	result := strat.Evaluate(state)

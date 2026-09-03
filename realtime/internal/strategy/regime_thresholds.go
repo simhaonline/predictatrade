@@ -25,20 +25,23 @@ import (
 
 // ─── Live-tunable threshold overrides (no recompile needed) ───
 // PAT_CANDIDATE_THRESHOLD: global candidate (advisory) bar applied to every
-//   strategy/regime. Default 0 = use the built-in per-strategy/per-regime
-//   thresholds (RANGE 15, TREND 10, …) which keep neutral/noisy markets at
-//   NO-TRADE — NO-TRADE is a first-class result and must never be converted
-//   to a forced signal by a low global bar (strategy acceptance tests
-//   TestRecovery_NeverConvertsNoTradeToBuySell / TestNoForcedSignals_*).
-//   Operators may set e.g. PAT_CANDIDATE_THRESHOLD=6 to surface a single
-//   strategy's clear directional read as a candidate; do so only after
-//   recalibrating on a corrected master feed.
+//
+//	strategy/regime. Default 0 = use the built-in per-strategy/per-regime
+//	thresholds (RANGE 15, TREND 10, …) which keep neutral/noisy markets at
+//	NO-TRADE — NO-TRADE is a first-class result and must never be converted
+//	to a forced signal by a low global bar (strategy acceptance tests
+//	TestRecovery_NeverConvertsNoTradeToBuySell / TestNoForcedSignals_*).
+//	Operators may set e.g. PAT_CANDIDATE_THRESHOLD=6 to surface a single
+//	strategy's clear directional read as a candidate; do so only after
+//	recalibrating on a corrected master feed.
+//
 // PAT_TRADE_THRESHOLD: global qualified-execution bar. Default 0 = use the
-//   built-in per-regime trade threshold (keeps AutoExecute gated). Set a value
-//   only after recalibrating on the corrected master feed.
+//
+//	built-in per-regime trade threshold (keeps AutoExecute gated). Set a value
+//	only after recalibrating on the corrected master feed.
 var (
 	candidateThresholdOverride = readEnvFloat("PAT_CANDIDATE_THRESHOLD", 0)
-	tradeThresholdOverride    = readEnvFloat("PAT_TRADE_THRESHOLD", 0)
+	tradeThresholdOverride     = readEnvFloat("PAT_TRADE_THRESHOLD", 0)
 )
 
 func readEnvFloat(key string, def float64) float64 {
@@ -52,11 +55,11 @@ func readEnvFloat(key string, def float64) float64 {
 
 // RegimeTradeThreshold defines strategy + regime-specific trade thresholds.
 type RegimeTradeThreshold struct {
-	StrategyID        types.StrategyID
-	Regime            types.Regime
+	StrategyID         types.StrategyID
+	Regime             types.Regime
 	CandidateThreshold float64
-	TradeThreshold    float64
-	Reason            string
+	TradeThreshold     float64
+	Reason             string
 }
 
 // DefaultRegimeThresholds returns regime-specific thresholds for all strategies.
@@ -76,41 +79,41 @@ func DefaultRegimeThresholds() map[types.StrategyID]map[types.Regime]RegimeTrade
 			types.RegimeBreakout: {types.StrategyStandardScalping, types.RegimeBreakout, 10, 25, "BREAKOUT: max~75, candidate 10 / trade 25"},
 			// RANGE: evidence split + family caps → max ~47. Candidate 15 / trade 45
 			// (45 is reachable; below 45 RANGE must stay advisory, not auto-execute).
-			types.RegimeRange: {types.StrategyStandardScalping, types.RegimeRange, 15, 45, "RANGE: max~47, candidate 15 / trade 45"},
-			types.RegimeMeanReversion: {types.StrategyStandardScalping, types.RegimeMeanReversion, 15, 45, "MEAN_REVERSION: max~47, candidate 15 / trade 45"},
+			types.RegimeRange:          {types.StrategyStandardScalping, types.RegimeRange, 15, 45, "RANGE: max~47, candidate 15 / trade 45"},
+			types.RegimeMeanReversion:  {types.StrategyStandardScalping, types.RegimeMeanReversion, 15, 45, "MEAN_REVERSION: max~47, candidate 15 / trade 45"},
 			types.RegimeHighVolatility: {types.StrategyStandardScalping, types.RegimeHighVolatility, 10, 25, "HIGH_VOL: reduced evidence quality, candidate 10 / trade 25"},
 		},
 		types.StrategyUltraScalping: {
 			types.RegimeTrendingBullish: {types.StrategyUltraScalping, types.RegimeTrendingBullish, 10, 25, "TREND: max~78, candidate 10 / trade 25"},
 			types.RegimeTrendingBearish: {types.StrategyUltraScalping, types.RegimeTrendingBearish, 10, 25, "TREND: max~78, candidate 10 / trade 25"},
-			types.RegimeBreakout: {types.StrategyUltraScalping, types.RegimeBreakout, 10, 25, "BREAKOUT: max~72, candidate 10 / trade 25"},
-			types.RegimeMeanReversion: {types.StrategyUltraScalping, types.RegimeMeanReversion, 10, 25, "MEAN_REVERSION: max~52, candidate 10 / trade 25"},
-			types.RegimeRange: {types.StrategyUltraScalping, types.RegimeRange, 10, 25, "RANGE: max~52, candidate 10 / trade 25"},
-			types.RegimeHighVolatility: {types.StrategyUltraScalping, types.RegimeHighVolatility, 10, 25, "HIGH_VOL: candidate 10 / trade 25"},
+			types.RegimeBreakout:        {types.StrategyUltraScalping, types.RegimeBreakout, 10, 25, "BREAKOUT: max~72, candidate 10 / trade 25"},
+			types.RegimeMeanReversion:   {types.StrategyUltraScalping, types.RegimeMeanReversion, 10, 25, "MEAN_REVERSION: max~52, candidate 10 / trade 25"},
+			types.RegimeRange:           {types.StrategyUltraScalping, types.RegimeRange, 10, 25, "RANGE: max~52, candidate 10 / trade 25"},
+			types.RegimeHighVolatility:  {types.StrategyUltraScalping, types.RegimeHighVolatility, 10, 25, "HIGH_VOL: candidate 10 / trade 25"},
 		},
 		types.StrategyStandardSwing: {
 			types.RegimeTrendingBullish: {types.StrategyStandardSwing, types.RegimeTrendingBullish, 10, 25, "TREND: max~92, candidate 10 / trade 25"},
 			types.RegimeTrendingBearish: {types.StrategyStandardSwing, types.RegimeTrendingBearish, 10, 25, "TREND: max~92, candidate 10 / trade 25"},
-			types.RegimeBreakout: {types.StrategyStandardSwing, types.RegimeBreakout, 10, 25, "BREAKOUT: max~85, candidate 10 / trade 25"},
+			types.RegimeBreakout:        {types.StrategyStandardSwing, types.RegimeBreakout, 10, 25, "BREAKOUT: max~85, candidate 10 / trade 25"},
 			// RANGE: max ~60 → candidate 15 / trade 40 (reachable, advisory below)
-			types.RegimeRange: {types.StrategyStandardSwing, types.RegimeRange, 15, 40, "RANGE: max~60, candidate 15 / trade 40"},
-			types.RegimeMeanReversion: {types.StrategyStandardSwing, types.RegimeMeanReversion, 15, 40, "MEAN_REVERSION: max~60, candidate 15 / trade 40"},
+			types.RegimeRange:          {types.StrategyStandardSwing, types.RegimeRange, 15, 40, "RANGE: max~60, candidate 15 / trade 40"},
+			types.RegimeMeanReversion:  {types.StrategyStandardSwing, types.RegimeMeanReversion, 15, 40, "MEAN_REVERSION: max~60, candidate 15 / trade 40"},
 			types.RegimeHighVolatility: {types.StrategyStandardSwing, types.RegimeHighVolatility, 10, 25, "HIGH_VOL: candidate 10 / trade 25"},
 		},
 		types.StrategyTrendSwing: {
 			// TrendSwing only accepts trending/breakout — no RANGE threshold needed
 			types.RegimeTrendingBullish: {types.StrategyTrendSwing, types.RegimeTrendingBullish, 10, 25, "TREND: max~75, candidate 10 / trade 25"},
 			types.RegimeTrendingBearish: {types.StrategyTrendSwing, types.RegimeTrendingBearish, 10, 25, "TREND: max~75, candidate 10 / trade 25"},
-			types.RegimeBreakout: {types.StrategyTrendSwing, types.RegimeBreakout, 10, 25, "BREAKOUT: max~70, candidate 10 / trade 25"},
+			types.RegimeBreakout:        {types.StrategyTrendSwing, types.RegimeBreakout, 10, 25, "BREAKOUT: max~70, candidate 10 / trade 25"},
 		},
 		types.StrategyMarnieFib: {
 			// Marnie Fib works best in RANGE/MEAN_REVERSION (retracement reversals)
-			types.RegimeRange: {types.StrategyMarnieFib, types.RegimeRange, 15, 35, "RANGE: Fib retracement reversals, max~55, candidate 15 / trade 35"},
-			types.RegimeMeanReversion: {types.StrategyMarnieFib, types.RegimeMeanReversion, 15, 35, "MEAN_REVERSION: Fib reversals, max~55, candidate 15 / trade 35"},
+			types.RegimeRange:           {types.StrategyMarnieFib, types.RegimeRange, 15, 35, "RANGE: Fib retracement reversals, max~55, candidate 15 / trade 35"},
+			types.RegimeMeanReversion:   {types.StrategyMarnieFib, types.RegimeMeanReversion, 15, 35, "MEAN_REVERSION: Fib reversals, max~55, candidate 15 / trade 35"},
 			types.RegimeTrendingBullish: {types.StrategyMarnieFib, types.RegimeTrendingBullish, 15, 40, "TREND: Fib pullback entries, max~65, candidate 15 / trade 40"},
 			types.RegimeTrendingBearish: {types.StrategyMarnieFib, types.RegimeTrendingBearish, 15, 40, "TREND: Fib pullback entries, max~65, candidate 15 / trade 40"},
-			types.RegimeBreakout: {types.StrategyMarnieFib, types.RegimeBreakout, 15, 40, "BREAKOUT: Fib extension targets, max~60, candidate 15 / trade 40"},
-			types.RegimeHighVolatility: {types.StrategyMarnieFib, types.RegimeHighVolatility, 15, 25, "HIGH_VOL: wider Fib zones, candidate 15 / trade 25"},
+			types.RegimeBreakout:        {types.StrategyMarnieFib, types.RegimeBreakout, 15, 40, "BREAKOUT: Fib extension targets, max~60, candidate 15 / trade 40"},
+			types.RegimeHighVolatility:  {types.StrategyMarnieFib, types.RegimeHighVolatility, 15, 25, "HIGH_VOL: wider Fib zones, candidate 15 / trade 25"},
 		},
 	}
 }

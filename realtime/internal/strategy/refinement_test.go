@@ -44,6 +44,14 @@ func TestStrategyExitSpec_Distinct(t *testing.T) {
 func TestRefinementEnrichment_BullishFixture(t *testing.T) {
 	for _, strat := range []Strategy{NewUltraScalping(), NewStandardScalping(), NewStandardSwing(), NewTrendSwing()} {
 		state := makeBullishState()
+		// v1.26: makeBullishState scores ~79 on STANDARD_SCALPING — the
+		// rebuilt scalping gate deliberately rejects overextended entries
+		// (score >= 62 = price already ran; 90d forensics showed wr 28-46%
+		// on 62+ reads). The enrichment assertions below only hold for
+		// gate-passing strategies; scalping's gate rejection IS correct
+		// behavior now, so assert the enrichment fields on a mid-band
+		// fixture instead.
+		isScalp := strat.ID() == types.StrategyStandardScalping
 		res := strat.Evaluate(state)
 		if res.Direction != types.DirectionBuy {
 			// WAIT/SELL/NO_TRADE are not the asserted tradeable path here; the
@@ -57,6 +65,16 @@ func TestRefinementEnrichment_BullishFixture(t *testing.T) {
 		if res.PartialClosePct <= 0 {
 			t.Errorf("%s: PartialClosePct must be > 0", strat.ID())
 		}
+		if isScalp {
+			// Overextended (79) must be gated with the right reason code.
+			if res.EntryGatePassed {
+				t.Errorf("%s: score 79 must NOT pass the rebuilt scalping gate", strat.ID())
+			}
+			if !containsReason(res.ReasonCodes, "OVEREXTENDED") {
+				t.Errorf("%s: expected OVEREXTENDED reason, got %v", strat.ID(), res.ReasonCodes)
+			}
+			continue
+		}
 		if !res.EntryGatePassed {
 			t.Errorf("%s: unique entry gate should PASS on strong bullish fixture (reasons=%v)", strat.ID(), res.ReasonCodes)
 		}
@@ -64,6 +82,15 @@ func TestRefinementEnrichment_BullishFixture(t *testing.T) {
 			t.Errorf("%s: strong bullish fixture must not be a loss candidate (EV=%.3f)", strat.ID(), res.ExpectedValue)
 		}
 	}
+}
+
+func containsReason(codes []types.NoTradeReason, want string) bool {
+	for _, c := range codes {
+		if string(c) == want {
+			return true
+		}
+	}
+	return false
 }
 
 // TestEvaluateProfitability_NegativeWhenCostHigh verifies the loss-candidate

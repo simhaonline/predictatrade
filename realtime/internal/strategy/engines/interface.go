@@ -19,21 +19,21 @@ type EngineType string
 
 const (
 	UltraScalp EngineType = "ULTRA_SCALP"
-	StdScalp  EngineType = "STD_SCALP"
-	StdSwing  EngineType = "STD_SWING"
-	TrendSwng EngineType = "TREND_SWING"
+	StdScalp   EngineType = "STD_SCALP"
+	StdSwing   EngineType = "STD_SWING"
+	TrendSwng  EngineType = "TREND_SWING"
 )
 
 // EngineConfig holds per-engine overrides from the Phase 6 configuration matrix.
 type EngineConfig struct {
 	Type            EngineType
-	MinAbsATR       float64 // Min absolute ATR value to avoid cost erosion
-	IgnoreStructure bool    // If true, SL is pure ATR (bypass structural low)
-	AllowedRegimes  []string // e.g., ["TREND", "BREAKOUT"]; empty = ALL
-	MinGrade        string  // e.g., "A" to filter lower quality signals
-	OverrideSL      float64 // Custom SL ATR multiplier (0 = use legacy)
+	MinAbsATR       float64    // Min absolute ATR value to avoid cost erosion
+	IgnoreStructure bool       // If true, SL is pure ATR (bypass structural low)
+	AllowedRegimes  []string   // e.g., ["TREND", "BREAKOUT"]; empty = ALL
+	MinGrade        string     // e.g., "A" to filter lower quality signals
+	OverrideSL      float64    // Custom SL ATR multiplier (0 = use legacy)
 	OverrideTPs     [3]float64 // Custom TP ATR multipliers (0 = use legacy)
-	OverrideExpiry  int  // Expiry in minutes (0 = use legacy)
+	OverrideExpiry  int        // Expiry in minutes (0 = use legacy)
 }
 
 // EngineResult is the output of a SignalEngine evaluation.

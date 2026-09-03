@@ -2,9 +2,9 @@ package strategy
 
 import (
 	"database/sql"
-	"log"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -15,23 +15,23 @@ import (
 // ─── Percentage-based SL/TP configuration (database-driven) ───
 
 type ExitProfileConfig struct {
-	StrategyID       string
-	CalculationMode  string  // "PERCENTAGE" or "ATR"
-	StopPct          float64 // SL as fraction of entry price (0.0015 = 0.15%)
-	TP1Pct           float64
-	TP2Pct           float64
-	TP3Pct           float64
-	MinStopATRMult   float64 // SL must be >= this × ATR
-	MaxStopATRMult   float64 // SL must be <= this × ATR
-	MinTP1ATRMult    float64
-	MaxTP1ATRMult    float64
+	StrategyID      string
+	CalculationMode string  // "PERCENTAGE" or "ATR"
+	StopPct         float64 // SL as fraction of entry price (0.0015 = 0.15%)
+	TP1Pct          float64
+	TP2Pct          float64
+	TP3Pct          float64
+	MinStopATRMult  float64 // SL must be >= this × ATR
+	MaxStopATRMult  float64 // SL must be <= this × ATR
+	MinTP1ATRMult   float64
+	MaxTP1ATRMult   float64
 	LoadedAt        time.Time
 }
 
 var (
 	profileCache   map[string]*ExitProfileConfig
 	profileCacheMu sync.RWMutex
-	dbPool          *sql.DB
+	dbPool         *sql.DB
 )
 
 // ClearProfileCache clears all cached exit profiles (call after DB updates).
