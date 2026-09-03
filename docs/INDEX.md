@@ -15,6 +15,9 @@
 - [REST & WebSocket Reference](api/API_REFERENCE.md) — Full surface: both backends, all 16 control modules + realtime, signal schema, events, rate limits (64-path OpenAPI mirror)
 - [OpenAPI 3.0 Spec](api/openapi.json) — machine-readable contract mirrored from `control/openapi.json`
 
+### Operations
+- [MT Client Connectivity & 502 Prevention](runbooks/mt-connectivity-502.md) — edge-poll 502 root cause, dual-control HA + nginx failover, connectivity watchdog, triage flow (2026-09-03)
+
 ### Database
 - [Database Architecture](database/DATABASE_ARCHITECTURE.md) — 16 schemas, 210+ tables live, 65 migrations (unique prefixes), hypertables + retention, money/time invariants
 - [ERD (mermaid)](database/DB_ERD.md) — entity relationships for IAM, licensing, commercial, finance, trading, market, audit + invariants

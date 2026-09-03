@@ -1,0 +1,126 @@
+# Runbook: MT Client Connectivity & 502 Prevention
+
+> Added 2026-09-03 (commits 8d02a2c, ac005cd). Covers the MT-client
+> "edge-poll failed: HTTP 502" incident, the HA fix, and the connectivity
+> watchdog. Read this before touching nginx, pat-control, or the watchdog.
+
+## Incident summary (2026-09-03)
+
+MT clients (MT4/MT5 EAs) intermittently logged:
+
+```
+[Predict-A-Trade] edge-poll failed: HTTP 502 — <html>...502 Bad Gateway...nginx
+```
+
+Root cause chain:
+
+1. **Single pat-control instance.** Every control restart (deploy, rebuild)
+   left nginx with no reachable upstream for a few seconds → 502 to any EA
+   polling in that window. The 502 clusters in nginx logs mapped 1:1 to
+   deploy restarts.
+2. **nginx cached container IPs at startup.** After a backend container was
+   *recreated* (new IP), nginx kept proxying to the dead IP until it was
+   restarted itself, producing 502s outside deploy windows too.
+
+## HA fix (shipped)
+
+### docker-compose.yml
+
+- `pat-control-b`: second full replica of the control service. Both serve
+  edge-poll; Docker DNS `control` resolves to both.
+- Static host port bindings removed from control replicas (nginx reaches
+  them over the docker network, so no port collision).
+
+> The async backtest worker is replica-safe: `backtest_jobs` claims use
+> `FOR UPDATE SKIP LOCKED`, so each replica claims distinct jobs.
+
+### nginx (`nginx/sites-available/api.predictatrade.com.conf`)
+
+- `resolver 127.0.0.11 valid=10s ipv6=off;` — Docker embedded DNS
+  re-resolution every 10s (fixes stale container IPs after rebuilds).
+- `proxy_next_upstream error timeout http_502 http_503 http_504;` in
+  `nginx/snippets/proxy-common.conf` — retry inside the resolved IP set.
+- `error_page 502 503 504 = @control_b;` on `/api/v1/`,
+  `/api/v1/backtest/`, and `/api/v1/health` — the intercept fallback
+  re-dispatches the ORIGINAL request to the control-b peer (named location
+  `@control_b`, 330s read timeout so a backtest failover can complete).
+
+**nginx conf is BIND-MOUNTED from the repo into xauusd-nginx-1** — edit the
+repo file, then `docker exec xauusd-nginx-1 nginx -t && docker exec
+xauusd-nginx-1 nginx -s reload`. The host's /etc/nginx is stale — never edit
+it.
+
+### Verification (do this after any nginx/control change)
+
+Hammer through real HTTPS while restarting the primary:
+
+```bash
+# in background: for i in $(seq 1 150); do curl -sk -o /dev/null \
+#   -w "%{http_code}\n" --max-time 6 \
+#   "https://api.predictatrade.com/api/v1/health"; sleep 0.1; done
+docker restart pat-control   # mid-hammer
+# expect: 100% 200s (proven 150/150 on 2026-09-03)
+```
+
+## Connectivity watchdog
+
+**Guarantee:** if an MT client stops polling or the signal feed stalls, the
+user AND admin are notified — clients never silently lose signals.
+
+- Migration `database/migrations/126_connectivity_alerts.sql`:
+  `system.connectivity_alerts` (dedup-keyed OPEN/RESOLVED, occurrences,
+  notified_at).
+- `control/src/modules/monitoring/connectivity-watchdog.service.ts` — runs
+  **in both control replicas**, 60s cycles:
+  - Realtime engine probe (`http://realtime:13081/health`, 5s timeout) →
+    CRITICAL `ENGINE:realtime-down`.
+  - Tick-feed staleness via **`gateway_receipt_time`** in `market.ticks`
+    (3 min → CRITICAL `ENGINE:tick-feed-stale`). NOT the `time` column:
+    the master terminal's own clock can lag many minutes while transport
+    stays fresh (observed live: 15+ min source lag, 0.2s receipt lag).
+  - Master clock drift: source `time` >5 min behind → WARNING
+    `ENGINE:master-clock-drift` (ask the user to sync the terminal PC clock;
+    signals are unaffected).
+  - Device freshness: device bound to an ACTIVE/TRIALING license with no
+    edge-poll for >3 min → WARNING `DEVICE:<id>`; auto-resolves when
+    polling resumes.
+- Notifications: ntfy POST to topic `pat-connectivity` (priority high for
+  CRITICAL), max one push per alert key per 10 min. Dedup + resolve state
+  in the alerts table. ntfy publish works (200); ntfy GET/read is
+  ACL-restricted (403) — don't "verify" by reading back.
+- `ws_clients == 0` in /health is **NORMAL** in Option B — EAs poll/ingest
+  over HTTP and never connect to the WS hub (dashboard live-stream only).
+  Do not re-add a "no agents connected" alert from that field; it is a
+  false positive.
+- Admin API: `GET /api/v1/monitoring/connectivity` (JwtAuthGuard +
+  AdminGuard) — open alerts, 24h history, per-device seconds-since-poll.
+- UI: `ConnectivityCard` on Admin → Backtesting (live status dot, open
+  alerts, per-device last-poll freshness, 30s auto-refresh).
+
+### Subscribing to alerts
+
+Users/admins subscribe their phone/dashboard to the ntfy topic
+`pat-connectivity` (self-hosted ntfy at pat-ntfy). Critical alerts arrive
+with high priority.
+
+## Quick triage — "why no signals on MT client?"
+
+1. `docker ps` — all four of pat-control, pat-control-b, pat-realtime,
+   xauusd-nginx-1 healthy?
+2. Admin → Backtesting → Connectivity card (or
+   `GET /api/v1/monitoring/connectivity`): open alerts + device freshness.
+3. `SELECT alert_key, severity, status, occurrences FROM
+   system.connectivity_alerts ORDER BY last_seen_at DESC LIMIT 10;`
+4. Tick feed: `SELECT now() - max(gateway_receipt_time) FROM market.ticks;`
+   — should be seconds, not minutes.
+5. nginx error log:
+   `docker exec xauusd-nginx-1 sh -c 'grep "connect() failed"
+   /var/log/nginx/error.log | tail'` — a stream of these during steady
+   state (not deploys) means a replica is actually down.
+6. EA side: edge-poll errors in Experts log; token self-heal should recover
+   401s (see pat-ea-auth-diagnostics skill).
+
+## Related
+
+- `docs/runbooks/edge-poll-429.md` — rate-limit side of edge-poll.
+- EA diagnostics skill: pat-ea-auth-diagnostics (401 loops / License NOT SET).
