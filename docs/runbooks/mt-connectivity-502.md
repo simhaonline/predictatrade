@@ -4,6 +4,40 @@
 > "edge-poll failed: HTTP 502" incident, the HA fix, and the connectivity
 > watchdog. Read this before touching nginx, pat-control, or the watchdog.
 
+## Permanent delivery guardrails (2026-09-04, this repo)
+
+The silent-drop incident exposed the core gap: **nothing verified that an
+ACKed item was actually dispatched**, so a contract break looked like
+success. Three permanent layers now exist (monitoring module, both control
+replicas):
+
+1. **Dispatch contract test** — `control/src/modules/monitoring/delivery-contract.spec.ts`.
+   Pins the contract: every enqueued signal payload MUST carry
+   `"type":"SIGNAL"`; SERVER_COMMAND/LICENSE_STATUS/CANARY keep their own
+   types; HandleSignal fields survive injection. CI fails = delivery to old
+   client builds would silently break — DO NOT deploy.
+2. **Delivery reconciliation watchdog**
+   (`delivery-reconciliation.service.ts`, migration 127) — runs every 60s:
+   - CRITICAL `DELIVERY:empty-acks:<device>` when a device ACKs >3 signal
+     items in 24h with an empty dispatch type (the exact incident
+     signature; verified it flags 35ef87d0=52 / 4e3e8b15=112 for 09-03).
+   - CRITICAL/WARNING `DELIVERY:backlog:<device>` when PENDING items age
+     >5/20 min (device stopped polling).
+   - Snapshot: `GET /api/v1/monitoring/delivery` (admin) — per-device
+     delivered/dropped 24h counts, backlog age, last signal ack type.
+   - State table: `system.delivery_reconciliation` (migration 127).
+3. **Delivery canary** (`delivery-canary.service.ts`) — every 10 min
+   enqueues one non-trade `type:"CANARY"` `test:true` item (no StrategyID
+   → skipped by the entitlement clause) per active device and requires an
+   ACK within the TTL window; CRITICAL `DELIVERY:canary-stale` otherwise.
+   Canary rows self-clean. First live cycle 2026-09-03 17:02:55 UTC: 3/3
+   devices ACKed in <2s — including the two MT5 builds that had dropped
+   signals (they dispatch `type:CANARY` fine; only type-less SIGNAL
+   payloads fell over, which is exactly what the engine fix addresses).
+
+Alerts flow to ntfy topic `pat-connectivity` (CRITICAL = high priority) and
+appear in the admin monitoring snapshot.
+
 ## Addendum (2026-09-03, 5730430): "Unknown queue item type:" + "ingest TICK failed: HTTP 1003"
 
 Two client-log lines, two different causes:
