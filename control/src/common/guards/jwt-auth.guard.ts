@@ -56,29 +56,20 @@ export class JwtAuthGuard implements CanActivate {
         await this.validatePrivilegedUser(req);
       }
 
-      // AUTH-1 (hardened): privileged roles must have MFA enabled. Login mints
-      // `mfaEnrollmentRequired: true` into the access token when a privileged
-      // account lacks an enabled TOTP method (auth.service generateTokens).
-      // Enrollment / logout / refresh stay reachable so the operator can
-      // complete enrollment; every other endpoint 403s until MFA is enabled.
+      // AUTH-1 (softened 2026-09-03, operator request): privileged accounts
+      // WITHOUT an enabled TOTP no longer get hard-blocked (403 on every
+      // endpoint until enrollment). Forced MFA bricked operator workflows
+      // (e.g. backtesting admin page) whenever TOTP was disabled mid-session.
+      // mfaEnrollmentRequired stays minted into the token and /auth/me still
+      // reports it, so the UI can show a non-blocking "enable MFA" banner.
+      // Login-time TOTP verification itself is unchanged and still mandatory
+      // for accounts that have an ENABLED TOTP method.
       const PRIVILEGED_ROLES = new Set(['ADMIN', 'SUPER_ADMIN', 'OPERATOR', 'RISK_MANAGER', 'TRADING_OPERATOR']);
       if (payload.mfaEnrollmentRequired === true && PRIVILEGED_ROLES.has(String(payload.role))) {
         const path: string = req.originalUrl || req.url || '';
-        // /auth/me is read-only self-inspection AND the channel the frontend
-        // uses to learn mfaEnrollmentRequired — blocking it bricks the whole
-        // session UI (sidebar falls back to "Access Denied" because /me 401s
-        // and the provider clears the user). Enrollment / logout / refresh /
-        // profile stay reachable; everything else 403s until MFA is enabled.
-        const EXEMPT = [
-          /^\/api\/v1\/auth\/mfa(\/|$)/,
-          /^\/api\/v1\/auth\/logout(\/|$)/,
-          /^\/api\/v1\/auth\/refresh(\/|$)/,
-          /^\/api\/v1\/auth\/me(\/|$)/,
-        ];
-        if (!EXEMPT.some((re) => re.test(path))) {
-          this.logger.warn(`MFA gate: blocked ${payload.email ?? payload.sub} at ${path}`);
-          throw new ForbiddenException('MFA enrollment required before accessing privileged resources');
-        }
+        this.logger.warn(
+          `MFA not enrolled for privileged account ${payload.email ?? payload.sub} (advisory) — ${path}`,
+        );
       }
       return true;
     } catch (err) {
