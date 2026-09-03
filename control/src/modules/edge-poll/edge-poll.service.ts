@@ -166,11 +166,22 @@ export class EdgePollService {
       [deviceId],
     );
     // Mirror into devices.last_seen_at so admin dashboards stay truthful.
+    // v1.22: persist the EA-declared terminal platform ("MT4"/"MT5" from the
+    // heartbeat body) into devices.os_name — /admin/agent-mesh splits the
+    // Agents-Connected count by platform using exactly this field.
     await this.pool.query(
       `UPDATE licensing.devices SET last_seen_at = now(), last_ip = COALESCE($2::inet, last_ip)
         WHERE id = $1::uuid`,
       [deviceId, ip || null],
     ).catch(() => {});
+    const terminal = typeof body?.terminal === 'string' ? body.terminal.toUpperCase() : '';
+    if (terminal === 'MT4' || terminal === 'MT5') {
+      await this.pool.query(
+        `UPDATE licensing.devices SET os_name = $2, updated_at = now()
+          WHERE id = $1::uuid AND (os_name IS NULL OR os_name <> $2)`,
+        [deviceId, terminal],
+      ).catch(() => {});
+    }
 
     return { ok: true, server_time: new Date().toISOString() };
   }

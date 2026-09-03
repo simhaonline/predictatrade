@@ -1039,6 +1039,33 @@ func toF(d decimal.Decimal) float64 {
 	return f
 }
 
+// v1.22 FIX: /admin/agent-mesh "Agents Connected" was always blank/0 — the
+// response never carried agents_connected and mt4/mt5/data counts were
+// hardcoded 0. Real counts now come from edge_device_state liveness (same
+// 120s rule as edgeDevicesOnline) split by the platform each EA declares in
+// its heartbeat (persisted to devices.os_name by the control plane).
+func (h *HTTPServer) edgeDeviceCounts() (total, mt4, mt5, dataAgents int) {
+	if h.persister == nil {
+		return
+	}
+	err := h.persister.GetDB().QueryRow(
+		`SELECT count(*),
+		        count(*) FILTER (WHERE d.os_name = 'MT4'),
+		        count(*) FILTER (WHERE d.os_name = 'MT5'),
+		        count(*) FILTER (WHERE d.device_name ILIKE '%master node%')
+		   FROM licensing.edge_device_state s
+		   JOIN licensing.devices d ON d.id = s.device_id
+		  WHERE d.revoked_at IS NULL
+		    AND d.deleted_at IS NULL
+		    AND GREATEST(COALESCE(s.last_poll_at, to_timestamp(0)),
+		                 COALESCE(s.last_ack_at, to_timestamp(0)),
+		                 COALESCE(s.last_heartbeat_at, to_timestamp(0))) > now() - interval '120 seconds'`).Scan(&total, &mt4, &mt5, &dataAgents)
+	if err != nil {
+		return 0, 0, 0, 0
+	}
+	return
+}
+
 func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	// Always use LIVE data for agent connection status.
@@ -1089,10 +1116,12 @@ func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) 
 			dataHealth = "HEALTHY"
 		}
 	}
+	agentsConnected, mt4Connected, mt5Connected, dataAgentsConnected := h.edgeDeviceCounts()
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"agents_online":         agentsOnline,
 		"edge_devices_online":   h.edgeDevicesOnline(),
-		"data_agents_connected": 0,
+		"agents_connected":      agentsConnected,
+		"data_agents_connected": dataAgentsConnected,
 		"snapshot_count":        snapshotCount,
 		"last_market_data_at":   lastMarketDataAt.UTC().Format(time.RFC3339),
 		"last_snapshot_at":      lastSnapshotAt.UTC().Format(time.RFC3339),
@@ -1100,8 +1129,8 @@ func (h *HTTPServer) handleAgentsStatus(w http.ResponseWriter, r *http.Request) 
 		"data_health":           dataHealth,
 		"market_closed":         marketClosed,
 		"next_market_open_utc":  nextMarketOpenUTC(time.Now().UTC()).Format(time.RFC3339),
-		"mt4_connected":         0,
-		"mt5_connected":         0,
+		"mt4_connected":         mt4Connected,
+		"mt5_connected":         mt5Connected,
 		"timestamp":             time.Now().UTC().Format(time.RFC3339),
 		"server_time":           time.Now().UTC().Format(time.RFC3339),
 	})
