@@ -96,9 +96,22 @@ export function DevilLiquidityPanel({ title = "Devil Liquidity / Devil's Mark En
           <IconAlertTriangle size={16} /> Failed to load Devil Liquidity marks.
         </div>
       ) : !data || data.marks.length === 0 ? (
-        <div className="text-sm text-pat-text-muted border border-pat-border rounded-lg p-6">
-          No active Devil&apos;s Marks right now. Marks are created only on completed candles that show a flat-edged
-          displacement with sufficient body dominance, ATR expansion and volume. They expire if untested.
+        <div className="text-sm text-pat-text-muted border border-pat-border rounded-lg p-6 space-y-2">
+          <p>
+            No active Devil&apos;s Marks right now. Marks are created only on completed candles that show a flat-edged
+            displacement with sufficient body dominance, ATR expansion and volume. They expire if untested.
+          </p>
+          {data?.stats && (
+            <p className="text-xs text-pat-text-secondary">
+              Engine diagnostics — candles processed: {data.stats.candles_processed ?? 0} · marks created:{" "}
+              {data.stats.marks_created ?? 0} · symbols seen: {data.stats.symbols_seen?.join(", ") || "—"}
+              {data.stats.last_candle_time && (
+                <>
+                  {" "}· last candle: {new Date(data.stats.last_candle_time).toLocaleTimeString()}
+                </>
+              )}
+            </p>
+          )}
         </div>
       ) : (
         <div className="overflow-x-auto border border-pat-border rounded-lg">
@@ -126,13 +139,21 @@ export function DevilLiquidityPanel({ title = "Devil Liquidity / Devil's Mark En
                       {m.direction}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-right font-mono">{m.mark_price.toFixed(2)}</td>
-                  <td className="px-3 py-2">{m.status}</td>
-                  <td className="px-3 py-2 text-right">{m.mark_quality_score.toFixed(1)}</td>
-                  <td className="px-3 py-2 text-right">{m.combined_score.toFixed(1)}</td>
-                  <td className="px-3 py-2 text-right">{m.distance_atr.toFixed(2)}</td>
+                  <td className="px-3 py-2 text-right font-mono">
+                    {typeof m.mark_price === "number" ? m.mark_price.toFixed(2) : "—"}
+                  </td>
+                  <td className="px-3 py-2">{m.status ?? "—"}</td>
+                  <td className="px-3 py-2 text-right">
+                    {typeof m.mark_quality_score === "number" ? m.mark_quality_score.toFixed(1) : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {typeof m.combined_score === "number" ? m.combined_score.toFixed(1) : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {typeof m.distance_atr === "number" ? m.distance_atr.toFixed(2) : "—"}
+                  </td>
                   <td className="px-3 py-2 text-xs text-pat-text-muted">
-                    {new Date(m.detected_at).toLocaleTimeString()}
+                    {m.detected_at ? new Date(m.detected_at).toLocaleTimeString() : "—"}
                   </td>
                 </tr>
               ))}

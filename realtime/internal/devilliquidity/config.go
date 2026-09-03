@@ -131,77 +131,77 @@ type ScoreComponents struct {
 
 // DevilMark is the canonical in-memory + persisted mark record.
 type DevilMark struct {
-	ID        string
-	Symbol    string
-	Timeframe string
-	Direction MarkDirection
-	MarkPrice float64
+	ID        string        `json:"id"`
+	Symbol    string        `json:"symbol"`
+	Timeframe string        `json:"timeframe"`
+	Direction MarkDirection `json:"direction"`
+	MarkPrice float64       `json:"mark_price"`
 
-	Open           float64
-	High           float64
-	Low            float64
-	Close          float64
-	Range          float64
-	Body           float64
-	BodyRatio      float64
-	UpperWick      float64
-	LowerWick      float64
-	UpperWickRatio float64
-	LowerWickRatio float64
+	Open           float64 `json:"open"`
+	High           float64 `json:"high"`
+	Low            float64 `json:"low"`
+	Close          float64 `json:"close"`
+	Range          float64 `json:"range"`
+	Body           float64 `json:"body"`
+	BodyRatio      float64 `json:"body_ratio"`
+	UpperWick      float64 `json:"upper_wick"`
+	LowerWick      float64 `json:"lower_wick"`
+	UpperWickRatio float64 `json:"upper_wick_ratio"`
+	LowerWickRatio float64 `json:"lower_wick_ratio"`
 
-	ATR           float64
-	DetectedATR   float64
-	RangeATRRatio float64
-	BodyExpansion float64
-	Volume        int64
-	VolumeRatio   float64
-	VolumeZScore  float64
+	ATR           float64 `json:"atr"`
+	DetectedATR   float64 `json:"detected_atr"`
+	RangeATRRatio float64 `json:"range_atr_ratio"`
+	BodyExpansion float64 `json:"body_expansion"`
+	Volume        int64   `json:"volume"`
+	VolumeRatio   float64 `json:"volume_ratio"`
+	VolumeZScore  float64 `json:"volume_z_score"`
 
-	Spread   float64
-	Digits   int
-	TickSize float64
+	Spread   float64 `json:"spread"`
+	Digits   int     `json:"digits"`
+	TickSize float64 `json:"tick_size"`
 
 	// Structural context (optional, injected by caller).
-	FVGPresent   bool
-	FVGID        string
-	BOSPresent   bool
-	MSSPresent   bool
-	CHoCHPresent bool
+	FVGPresent   bool   `json:"fvg_present"`
+	FVGID        string `json:"fvg_id"`
+	BOSPresent   bool   `json:"bos_present"`
+	MSSPresent   bool   `json:"mss_present"`
+	CHoCHPresent bool   `json:"choch_present"`
 
-	FormationSession string
-	FormationRegime  string
+	FormationSession string `json:"formation_session"`
+	FormationRegime  string `json:"formation_regime"`
 
-	MarkQuality   float64
-	PriorityScore float64
+	MarkQuality   float64 `json:"mark_quality_score"`
+	PriorityScore float64 `json:"priority_score"`
 
-	State MarkState
+	State MarkState `json:"status"`
 
-	FirstApproachAt     *time.Time
-	FirstTouchAt        *time.Time
-	FirstSweepAt        *time.Time
-	SweepLow            float64
-	SweepHigh           float64
-	ReclaimAt           *time.Time
-	ReversalConfirmedAt *time.Time
-	SweepDepthATR       float64
-	ReclaimStrength     float64
+	FirstApproachAt     *time.Time `json:"first_approach_at"`
+	FirstTouchAt        *time.Time `json:"first_touch_at"`
+	FirstSweepAt        *time.Time `json:"first_sweep_at"`
+	SweepLow            float64    `json:"sweep_low"`
+	SweepHigh           float64    `json:"sweep_high"`
+	ReclaimAt           *time.Time `json:"reclaim_at"`
+	ReversalConfirmedAt *time.Time `json:"reversal_confirmed_at"`
+	SweepDepthATR       float64    `json:"sweep_depth_atr"`
+	ReclaimStrength     float64    `json:"reclaim_strength"`
 
-	ReversalScore float64
-	CombinedScore float64
+	ReversalScore float64 `json:"reversal_score"`
+	CombinedScore float64 `json:"combined_score"`
 
-	DistanceATR float64
+	DistanceATR float64 `json:"distance_atr"`
 
-	ExpiredAt     *time.Time
-	InvalidatedAt *time.Time
-	ResolvedAt    *time.Time
+	ExpiredAt     *time.Time `json:"expired_at"`
+	InvalidatedAt *time.Time `json:"invalidated_at"`
+	ResolvedAt    *time.Time `json:"resolved_at"`
 
-	FeedSource    string
-	Broker        string
-	ServerID      string
-	ConfigVersion string
+	FeedSource    string `json:"feed_source"`
+	Broker        string `json:"broker"`
+	ServerID      string `json:"server_id"`
+	ConfigVersion string `json:"config_version"`
 
-	DetectedAt time.Time
-	UpdatedAt  time.Time
+	DetectedAt time.Time `json:"detected_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 
 	BarsSinceDetect int
 }
