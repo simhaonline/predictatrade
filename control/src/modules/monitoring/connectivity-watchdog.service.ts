@@ -82,17 +82,11 @@ export class ConnectivityWatchdogService implements OnModuleInit, OnModuleDestro
       });
       return;
     }
-    if (alive.agents === 0) {
-      await this.raiseAlert({
-        alertKey: 'ENGINE:no-agents',
-        severity: 'CRITICAL',
-        scope: 'ENGINE',
-        message: 'Realtime engine UP but zero agents connected (no market-data master) — signals will be stale.',
-      });
-    } else {
-      await this.resolveAlert('ENGINE:realtime-down');
-      await this.resolveAlert('ENGINE:no-agents');
-    }
+    // NOTE: ws_clients==0 is NORMAL in Option B — EAs poll/ingest over HTTP,
+    // they never connect to the WS hub (that is dashboard live-stream only).
+    // Client-impact is covered by realtime-down + tick-feed-stale below.
+    await this.resolveAlert('ENGINE:realtime-down');
+    await this.resolveAlert('ENGINE:no-agents');
     // Feed health: ticks must keep landing. gateway_receipt_time is the
     // transport truth (source `time` lags when the master PC clock drifts —
     // seen live 2026-09-03: 15+ min source lag with 0.2s receipt lag).
