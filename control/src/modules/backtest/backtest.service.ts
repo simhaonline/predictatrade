@@ -53,10 +53,23 @@ export class BacktestService {
 
       // H3 fix: attribute the run to its owner so subsequent reads can be
       // scoped per-user. Best-effort: ignore errors (e.g. run_id parse failure).
+      // R9: also stamp the subscription + plan snapshot so backtests can be
+      // attributed per-plan (which subscription generated which runs/strategy).
       if (runId !== 'unknown' && userId) {
         await this.pool
           .query(`UPDATE trading.backtest_runs SET user_id = $2 WHERE run_id = $1`, [runId, userId])
           .catch(() => undefined);
+        const sub = await this.resolveActiveSubscription(userId, dto.strategy).catch(() => null);
+        if (sub) {
+          await this.pool
+            .query(
+              `UPDATE trading.backtest_runs
+               SET subscription_id = $2, plan_code = $3, plan_name = $4
+               WHERE run_id = $1`,
+              [runId, sub.subscriptionId, sub.planCode, sub.planName],
+            )
+            .catch(() => undefined);
+        }
       }
 
       // Parse key metrics from stdout
@@ -98,9 +111,114 @@ export class BacktestService {
     }
   }
 
-  private parseMetric(stdout: string, label: string): string {
+  /* ─── Subscription attribution (R9) ─── */
+
+  /** Resolve the caller's ACTIVE subscription whose plan allows the strategy
+   * being backtested. Plan snapshot is denormalized onto the run so revenue
+   * reporting stays correct even after plan changes. Returns null when the
+   * user has no qualifying subscription (admin/platform runs, free tier). */
+  private async resolveActiveSubscription(
+    userId: string,
+    strategy: string,
+  ): Promise<{ subscriptionId: string; planCode: string; planName: string } | null> {
+    const res = await this.pool.query(
+      `SELECT s.id AS subscription_id, p.code AS plan_code, p.name AS plan_name
+       FROM billing.subscriptions s
+       JOIN control.plans p ON p.id = s.plan_id
+       WHERE s.user_id = $1
+         AND s.status IN ('ACTIVE', 'TRIALING')
+         AND s.billing_period_end > now()
+         AND (
+           p.allowed_strategies @> $2::jsonb
+           OR s.selected_strategies @> $2::jsonb
+           OR jsonb_array_length(p.allowed_strategies) = 0
+         )
+       ORDER BY p.monthly_price DESC
+       LIMIT 1`,
+      [userId, JSON.stringify([strategy])],
+    );
+    if (res.rows.length === 0) return null;
+    return {
+      subscriptionId: res.rows[0].subscription_id,
+      planCode: res.rows[0].plan_code,
+      planName: res.rows[0].plan_name,
+    };
+  }
+
+  /** Per-plan revenue + backtest-usage report (admin). Joins stamped runs
+   * with subscriptions and actual collected payments so the operator sees,
+   * per plan: MRR from ACTIVE subs, collected revenue, and how many
+   * backtest runs / strategies the plan's users executed. */
+  async getRevenueByPlan(): Promise<{
+    plans: Array<{
+      planCode: string;
+      planName: string;
+      monthlyPrice: number;
+      activeSubscriptions: number;
+      mrr: number;
+      collectedRevenue: number;
+      backtestRuns: number;
+      strategiesUsed: string[];
+    }>;
+    totals: { mrr: number; collectedRevenue: number; backtestRuns: number };
+  }> {
+    const planRes = await this.pool.query(
+      `SELECT p.code, p.name, p.monthly_price,
+              count(s.id) FILTER (WHERE s.status IN ('ACTIVE','TRIALING')) AS active_subs,
+              COALESCE(sum(p.monthly_price) FILTER (WHERE s.status IN ('ACTIVE','TRIALING')), 0) AS mrr,
+              COALESCE((
+                SELECT sum(pay.amount)
+                FROM billing.payments pay
+                JOIN billing.subscriptions s2 ON s2.id = pay.subscription_id
+                WHERE s2.plan_id = p.id AND pay.status = 'SUCCEEDED'
+              ), 0) AS collected
+       FROM control.plans p
+       LEFT JOIN billing.subscriptions s ON s.plan_id = p.id
+       WHERE p.status = 'ACTIVE'
+       GROUP BY p.id, p.code, p.name, p.monthly_price
+       ORDER BY p.monthly_price`,
+    );
+
+    const runRes = await this.pool.query(
+      `SELECT p.code AS plan_code,
+              count(DISTINCT r.id) AS runs,
+              COALESCE(jsonb_agg(DISTINCT r.strategy_id) FILTER (WHERE r.strategy_id IS NOT NULL), '[]'::jsonb) AS strategies
+       FROM trading.backtest_runs r
+       JOIN control.plans p ON p.code = r.plan_code
+       WHERE r.plan_code IS NOT NULL
+       GROUP BY p.code`,
+    );
+    const runMap = new Map<string, { runs: number; strategies: string[] }>();
+    for (const row of runRes.rows) {
+      runMap.set(row.plan_code, { runs: parseInt(row.runs, 10), strategies: row.strategies ?? [] });
+    }
+
+    const plans = planRes.rows.map((p) => {
+      const usage = runMap.get(p.code);
+      return {
+        planCode: p.code,
+        planName: p.name,
+        monthlyPrice: parseFloat(p.monthly_price),
+        activeSubscriptions: parseInt(p.active_subs ?? '0', 10),
+        mrr: parseFloat(p.mrr ?? '0'),
+        collectedRevenue: parseFloat(p.collected ?? '0'),
+        backtestRuns: usage?.runs ?? 0,
+        strategiesUsed: usage?.strategies ?? [],
+      };
+    });
+    return {
+      plans,
+      totals: {
+        mrr: plans.reduce((a, p) => a + p.mrr, 0),
+        collectedRevenue: plans.reduce((a, p) => a + p.collectedRevenue, 0),
+        backtestRuns: plans.reduce((a, p) => a + p.backtestRuns, 0),
+      },
+    };
+  }
+
+  private parseMetric(text: string, label: string): string | null {
     const regex = new RegExp(`${label}\\s*\\$?(-?[\\d.]+)`);
-    const match = stdout.match(regex);
+    const match = text.match(regex);
     return match ? match[1] : '0';
   }
 

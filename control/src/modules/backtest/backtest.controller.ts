@@ -32,6 +32,13 @@ export class BacktestController {
     return this.backtestService.listRuns(limit ? parseInt(limit) : 20, userId, isAdmin);
   }
 
+  /** Admin: per-plan revenue + backtest-usage attribution (R9). */
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Get('revenue-by-plan')
+  async getRevenueByPlan() {
+    return this.backtestService.getRevenueByPlan();
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('runs/:runId')
   async getRunDetails(
