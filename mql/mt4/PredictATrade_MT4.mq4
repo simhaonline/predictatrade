@@ -30,7 +30,7 @@
 //| SERVER - no EA recompile required.                               |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.26"
+#property version   "1.27"
 #property strict
 
 // ─── Signal/Execution inputs ───
@@ -719,7 +719,7 @@ int OnInit()
     g_connection = "OFFLINE";
     g_licenseStatus = "PENDING";
 
-    Print("Predict-A-Trade MT4 EA v1.26 initializing...");
+    Print("Predict-A-Trade MT4 EA v1.27 initializing...");
     Print("Symbol: ", g_symbol);
     Print("Account: ", g_accountID);
     Print("License Key: ", (g_licenseKey == "" ? "NOT SET — SIGNALS WILL BE IGNORED" : g_licenseKey));
@@ -1447,7 +1447,7 @@ void SendInitMessage()
             else if(OrderType() == OP_SELL) { sellCount++; totalLots += OrderLots(); }
         }
     }
-    string msg = "INIT|{\"ea_version\":\"1.26\",\"broker\":\"" + AccountCompany() +
+    string msg = "INIT|{\"ea_version\":\"1.27\",\"broker\":\"" + AccountCompany() +
                  "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
                  "\",\"license_key\":\"" + LicenseKey +
                  "\",\"balance\":" + DoubleToString(AccountBalance(), 2) +
@@ -1470,7 +1470,7 @@ void SendInitMessage()
 //+------------------------------------------------------------------+
 void SendAccountInfo()
 {
-    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.26\",\"account\":\"" + g_accountID +
+    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.27\",\"account\":\"" + g_accountID +
                  "\",\"broker\":\"" + AccountCompany() +
                  "\",\"symbol\":\"" + g_symbol +
                  "\",\"currency\":\"" + AccountCurrency() +
@@ -2861,8 +2861,28 @@ void PollFromCloud()
             else
                 HandleLicenseResponse(payload);
         }
-        else if(msgType == "CLOSE_POSITION")
-            HandleClosePosition(StringLen(payload) > 0 ? payload : "{}");
+        else if(msgType == "SERVER_COMMAND" || msgType == "CLOSE_POSITION")
+        {
+            // v1.27: server command envelopes (queueCommandForDevice wraps
+            // CLOSE_POSITION / EMERGENCY_STOP / KILL_SWITCH / REQUEST_SNAPSHOT
+            // as {"type":"SERVER_COMMAND","command":…}). Dispatch by the inner
+            // command, mirroring the MT5 client; unknown commands log and ACK.
+            string cmd = ExtractJSONString(payload, "command");
+            if(cmd == "") cmd = (msgType == "CLOSE_POSITION" ? "CLOSE_POSITION" : "");
+            string inner = ExtractJSONString(payload, "payload");
+            if(cmd == "CLOSE_POSITION")
+                HandleClosePosition(StringLen(inner) > 0 ? inner : payload);
+            else if(cmd == "EMERGENCY_STOP")
+                HandleEmergencyStop(inner);
+            else if(cmd == "KILL_SWITCH")
+                HandleKillSwitch(inner);
+            else if(cmd == "REQUEST_SNAPSHOT")
+                Print("[Predict-A-Trade] Server command received: REQUEST_SNAPSHOT (master data refresh requested)");
+            else if(StringLen(cmd) > 0)
+                Print("[Predict-A-Trade] Server command received: ", cmd);
+            else
+                Print("[Predict-A-Trade] Server command envelope missing 'command' field — acked.");
+        }
         else if(msgType == "EMERGENCY_STOP")
             HandleEmergencyStop(payload);
         else if(msgType == "KILL_SWITCH")
