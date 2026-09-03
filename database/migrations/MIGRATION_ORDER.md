@@ -42,6 +42,14 @@ delete orphan rows. A rollback SQL is generated alongside it.
 - `098_broker_account_types.sql` — broker account types
 - `099_igs_institutional_gold_signal.sql` — IGS composites + AI research reports
   + versioned weights (seed row `1.0.0/shadow`) + compression/retention policies
+- `121_backtest_runs_user_id.sql` — trading.backtest_runs.user_id + index (R1 per-user
+  attribution; fixes HTTP 500 on /backtest/runs when the column was missing)
+- `122_trusted_devices.sql` — iam.trusted_devices: hashed trusted-device tokens for the
+  "remember this device" MFA bypass (30d, single-use rotation)
+- `123_backtest_runs_subscription.sql` — trading.backtest_runs.subscription_id +
+  plan_code/plan_name snapshot + index (R9 per-plan backtest/revenue attribution)
+- `124_backtest_runs_raw_output.sql` — trading.backtest_runs.raw_output: verbatim
+  backtest-engine stdout per run (R9-verify audit trail; admin-only exposure)
 
 Rollback: no `down` migrations exist by design; point-in-time recovery (PITR)
 from the 6-hourly backup is the documented rollback path (see docs/operations).
