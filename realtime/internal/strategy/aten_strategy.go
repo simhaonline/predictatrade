@@ -36,8 +36,19 @@ func (s *ATENStrategy) Evaluate(state *features.MarketState) StrategyResult {
 		Evidence:      []types.EvidenceContribution{},
 		ExpiryMinutes: 60,
 	}
+	if state == nil {
+		result.HumanReason = "ATEN suppressed: nil market state"
+		result.ReasonCodes = []types.NoTradeReason{types.NTStaleData}
+		return result
+	}
 
-	now := time.Now().UTC()
+	// v1.26: astro state derives from the evaluation timestamp (candle time)
+	// so backtests see per-bar astro evolution and live stays clock-true
+	// (live candle time ≈ now). Fall back to wall clock on zero timestamps.
+	now := state.Timestamp.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
 	at := astro.Compute(now, false)
 
 	// NOTE (MACRO_AUDIT 2.10): Astro/ATEN inputs are DERIVED, non-market
@@ -97,17 +108,40 @@ func (s *ATENStrategy) Evaluate(state *features.MarketState) StrategyResult {
 	result.LongScore = decimal.NewFromFloat(math.Max(composite, 0))
 	result.ShortScore = decimal.NewFromFloat(math.Max(-composite, 0))
 
-	// Entry/SL/TP — ATR-calibrated from market state if available
+	// Entry/SL/TP — DB exit profile (PERCENTAGE) is authoritative for live
+	// parity (mig 130); direction-correct via computePercentageSLTP (the old
+	// hardcoded bid−10/bid+20 block was BUY-only — wrong-side stops if SELL
+	// ever fired). Fallback preserves the original fixed 1:2 astro geometry,
+	// now mirrored for SELL. Expiry widened 60→120min: an astro-horizon bias
+	// needs room for its TP, 4×M15 bars was noise-cutting it short.
 	if state != nil && state.LastTick != nil {
 		bid, _ := state.LastTick.Bid.Float64()
-		if bid > 0 {
-			result.EntryPrice = decimal.NewFromFloat(bid)
-			if !at.MarketClosed {
-				result.StopLoss = decimal.NewFromFloat(bid - 10.0)
-				result.TP1 = decimal.NewFromFloat(bid + 20.0)
-				result.TP2 = decimal.NewFromFloat(bid + 20.0)
-				result.TP3 = decimal.NewFromFloat(bid + 30.0)
-				result.ExpiryMinutes = 60
+		if bid > 0 && !at.MarketClosed && result.Direction != types.DirectionNoTrade {
+			entry := decimal.NewFromFloat(bid)
+			result.EntryPrice = entry
+			atr := state.Indicators.ATR
+			profile := LoadExitProfile(string(types.StrategyATEN))
+			if profile != nil && profile.CalculationMode == "PERCENTAGE" {
+				pSL, pTP1, pTP2, pTP3 := computePercentageSLTP(entry, result.Direction, atr, profile)
+				if !pSL.IsZero() {
+					result.StopLoss = pSL
+					result.TP1 = pTP1
+					result.TP2 = pTP2
+					result.TP3 = pTP3
+					result.ExpiryMinutes = 120
+				}
+			} else if result.Direction == types.DirectionBuy {
+				result.StopLoss = entry.Sub(decimal.NewFromFloat(10.0))
+				result.TP1 = entry.Add(decimal.NewFromFloat(20.0))
+				result.TP2 = entry.Add(decimal.NewFromFloat(20.0))
+				result.TP3 = entry.Add(decimal.NewFromFloat(30.0))
+				result.ExpiryMinutes = 120
+			} else {
+				result.StopLoss = entry.Add(decimal.NewFromFloat(10.0))
+				result.TP1 = entry.Sub(decimal.NewFromFloat(20.0))
+				result.TP2 = entry.Sub(decimal.NewFromFloat(20.0))
+				result.TP3 = entry.Sub(decimal.NewFromFloat(30.0))
+				result.ExpiryMinutes = 120
 			}
 		}
 	}
@@ -122,6 +156,20 @@ func (s *ATENStrategy) Evaluate(state *features.MarketState) StrategyResult {
 	// Composite consensus evidence
 	addEvidence(evidence, "CONSENSUS", "ATEN composite score",
 		dirFromF(composite), 30, composite*0.30, types.QualityDerived, fmt.Sprintf("%.1f", composite))
+
+	// v1.26 undorm (2026-09-03): ATEN was structurally dead in the production
+	// path — it never called applyRefinement, so EntryGatePassed stayed at its
+	// zero-value false on EVERY directional read and the parity gate blocked
+	// 4,909/4,909 bars (backtest) while the delivery layer downgraded all live
+	// reads. Every other strategy enriches through applyRefinement; ATEN now
+	// does too (astro spread-cap 4.0 pips + 1:2 geometry via StrategyExitSpec).
+	cfg := StrategyConfig{
+		StrategyID:      types.StrategyATEN,
+		MinConfluence:   25,  // astro composite bias bar (ATEN's own threshold)
+		MinMTFAlignment: 0,   // astro layer carries no MTF alignment evidence
+		MinRR:           1.5, // matches ATEN ExitSpec
+	}
+	applyRefinement(&result, state, result.Direction, cfg, result.RawScore)
 
 	return result
 }

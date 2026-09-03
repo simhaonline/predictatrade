@@ -65,6 +65,18 @@ func StrategyExitSpec(id types.StrategyID) ExitSpec {
 	case types.StrategyMarnieFib:
 		return ExitSpec{ATRMultSL: 1.5, ATRMultTP1: 2.0, ATRMultTP2: 3.5, ATRMultTP3: 5.5,
 			MicroTPATRMult: 0.7, PartialClosePct: 0.40, MaxSpreadPips: 4.0, MinRR: 2.0}
+	case types.StrategyATEN:
+		// v1.26 undorm (2026-09-03): ATEN previously fell into the default
+		// spec whose MaxSpreadPips 2.5 sat BELOW both the synthetic test
+		// spread ($0.30 = 3.0 pips) and the real broker spread (~33-35 pts
+		// = 3.3-3.5 pips) — the entry gate vetoed EVERY bar (4,909/4,909 in
+		// the 90d backtest) and ATEN could never trade live either.
+		// ATEN's own geometry: fixed $10 SL / $20 TP1 (1:2 gross R:R) →
+		// breakeven wr ≈ 33%+cost, comfortably above the astro-bias base
+		// rate. Spec mirrors that: SL 1.5×ATR / TP1 3.0×ATR, spread cap
+		// 4.0 pips (survives the real spread), MinRR 1.5.
+		return ExitSpec{ATRMultSL: 1.5, ATRMultTP1: 3.0, ATRMultTP2: 5.0, ATRMultTP3: 7.5,
+			MicroTPATRMult: 1.0, PartialClosePct: 0.35, MaxSpreadPips: 4.0, MinRR: 1.5}
 	default:
 		return ExitSpec{ATRMultSL: 1.5, ATRMultTP1: 2.5, ATRMultTP2: 4.0, ATRMultTP3: 6.0,
 			MicroTPATRMult: 0.8, PartialClosePct: 0.40, MaxSpreadPips: 2.5, MinRR: 2.0}

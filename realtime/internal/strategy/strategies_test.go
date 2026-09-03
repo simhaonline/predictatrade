@@ -408,9 +408,27 @@ func TestStrategyRegression_AllFourStrategiesConsistent(t *testing.T) {
 		// (each has different thresholds but the fixture is strong enough)
 		// Exception: MarnieFib needs confirmed swing high/low structure which the
 		// fixture doesn't provide, so NO-TRADE with FIB_NO_SWING_ANCHORS is correct.
-		if strat.ID() == types.StrategyMarnieFib || strat.ID() == types.StrategyATEN || strat.ID() == types.StrategyArcanist {
+		// ATEN (v1.26): direction is astro-clock-derived only (no fixture data
+		// dependency) — after the undorm it evaluates per-bar ephemeris and may
+		// legitimately emit BUY; assert gate consistency instead of a fixed direction.
+		if strat.ID() == types.StrategyMarnieFib || strat.ID() == types.StrategyArcanist {
 			if result.Direction != types.DirectionNoTrade {
 				t.Errorf("%s: Expected NO-TRADE (specialized data/structure not in fixture), got %s", strat.ID(), result.Direction)
+			}
+			continue
+		}
+		if strat.ID() == types.StrategyATEN {
+			// Astro-only: whatever today's composite says is valid, but the
+			// refinement enrichment MUST be wired (gate field meaningful) —
+			// the undorm's core fix. A directional read must never leave
+			// EntryGatePassed at its zero-value false.
+			if result.Direction == types.DirectionBuy || result.Direction == types.DirectionSell {
+				if !result.EntryGatePassed && len(result.ReasonCodes) == 0 {
+					t.Errorf("%s: directional read with EntryGatePassed=false and no reason codes (applyRefinement not wired)", strat.ID())
+				}
+				if result.MicroTP.IsZero() {
+					t.Errorf("%s: MicroTP must be populated after refinement", strat.ID())
+				}
 			}
 			continue
 		}

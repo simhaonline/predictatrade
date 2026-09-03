@@ -152,14 +152,16 @@ var (
 // canonicalPlanStrategies defines the AUTHORITATIVE maximum strategy set per
 // subscription plan. A subscriber can NEVER receive strategies outside their
 // plan's set — this is enforced fail-closed at signal delivery. The tiers are
-// strictly nested EXCEPT by design PRO is a MIX (no TREND_SWING, no experimental
-// strategies) and only ELITE receives the full set including TREND_SWING,
-// MARNIE_FIB, ATEN and ARCANIST.
+// strictly nested EXCEPT by design PRO is a MIX (v1.26: TREND_SWING moved
+// into PRO — it is already capital-tier-gated to $5k+ accounts by min-lot
+// risk, so the plan gate was redundant risk protection while excluding the
+// fleet's best-performing strategy from every polling device; ELITE keeps
+// the experimental set: MARNIE_FIB, ATEN and ARCANIST).
 var canonicalPlanStrategies = map[string][]string{
 	"free":     {"STANDARD_SCALPING"},
 	"standard": {"STANDARD_SCALPING", "STANDARD_SWING", "ARCANIST"},
 	"basic":    {"STANDARD_SCALPING", "STANDARD_SWING", "ARCANIST"},
-	"pro":      {"STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING"},
+	"pro":      {"STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING"},
 	"elite":    {"STANDARD_SCALPING", "ULTRA_SCALPING", "STANDARD_SWING", "TREND_SWING", "MARNIE_FIB", "ATEN", "ARCANIST"},
 }
 

@@ -89,10 +89,14 @@ func Compute(t time.Time, marketClosed bool) *State {
 	st.Vedic.Pada = pada
 	st.Vedic.NakshatraBias = nakshatraBias[st.Vedic.NakshatraName]
 
-	// Hora: hour within day (broker-agnostic UTC), day lord from local weekday
+	// Hora: hour within day (broker-agnostic UTC), day lord from local weekday.
+	// Pre-sunrise times (00:00-05:59 UTC) subtract to negative hours; Go's %
+	// keeps the sign, which produced a negative hora index and a runtime panic
+	// (found via the v1.26 ATEN backtest — latent live crash for 00:00-05:59
+	// UTC ticks). Normalize into [0,24) before indexing.
 	dayLord := weekdayLord[t.Weekday()]
 	dayStart := time.Date(t.Year(), t.Month(), t.Day(), 6, 0, 0, 0, time.UTC) // 06:00 sunrise
-	hoursFromSunrise := int(t.Sub(dayStart).Hours()) % 24
+	hoursFromSunrise := ((int(t.Sub(dayStart).Hours()) % 24) + 24) % 24
 	startIdx := indexOf(horaOrder, dayLord)
 	st.Vedic.HoraLord = horaOrder[(startIdx+hoursFromSunrise)%7]
 	st.Vedic.HoraBias = horaBias[st.Vedic.HoraLord]
