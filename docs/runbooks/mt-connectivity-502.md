@@ -120,6 +120,22 @@ with high priority.
 6. EA side: edge-poll errors in Experts log; token self-heal should recover
    401s (see pat-ea-auth-diagnostics skill).
 
+## Realtime ingest 502s (2026-09-03, 5a78258)
+
+`ingest TICK failed: HTTP 502` on the Master/data EA maps 1:1 to
+pat-realtime deploy windows (e.g. 19:44:57 journal time = 15:44 UTC
+engine rebuild; tick flow 318/min → 2 for ~40s → recovered by 15:47).
+
+Realtime is a **stateful singleton** — a second engine instance would
+split in-memory candle/strategy state, so there is no failover peer.
+Mitigation (5a78258): `/ingest/agent` retries ONCE via
+`error_page 502 503 504 = @realtime_retry` (fresh DNS resolve +
+reconnect). Ticks are per-tick idempotent; the EA's next POST succeeds
+once the container is back.
+
+**Ops rule: schedule pat-realtime rebuilds in low-liquidity windows.**
+Control-plane deploys are safe anytime (dual-replica failover proven).
+
 ## Related
 
 - `docs/runbooks/edge-poll-429.md` — rate-limit side of edge-poll.
