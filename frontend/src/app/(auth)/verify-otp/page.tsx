@@ -1,13 +1,11 @@
 "use client";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { customInstance } from "@/lib/axios-instance";
 import { getApiErrorMessage } from "@/lib/errors";
-import { setAccessToken } from "@/lib/auth";
-import BrandLogo from "@/components/brand-logo";
+import { setAccessToken, getRoleFromToken, getRoleFromTokenUnchecked } from "@/lib/auth";
+import { homeRouteForRole } from "@/lib/roles";
 
 export default function VerifyOtpPage() {
-  const router = useRouter();
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -25,7 +23,14 @@ export default function VerifyOtpPage() {
       const res = await customInstance.post("/auth/verify-otp", { challengeId, code });
       if (res.data?.accessToken) {
         setAccessToken(res.data.accessToken);
-        router.push("/dashboard/live");
+        // Role-aware redirect via FULL page load: the auth provider's session
+        // bootstrap effect only runs once per mount, and on this page the
+        // provider skipped initialization (auth-skip list). A client-side
+        // router.push left user/session state unresolved, so admins landing
+        // on any /admin route saw "Access Denied" in the sidebar.
+        const token = res.data.accessToken as string;
+        const role = getRoleFromToken(token) || getRoleFromTokenUnchecked(token);
+        window.location.href = homeRouteForRole(role);
       }
     } catch (err: unknown) {
       setError(getApiErrorMessage(err, "Verification failed"));
@@ -37,7 +42,6 @@ export default function VerifyOtpPage() {
   return (
     <div className="flex flex-col items-center justify-center" style={{ gap: "clamp(0.5rem, 1.5vh, 1rem)" }}>
       <div className="text-center">
-        <BrandLogo />
         <h1 className="font-bold text-pat-text-primary" style={{ fontSize: "clamp(1.1rem, 2.5vh, 1.5rem)" }}>MFA Verification</h1>
         <p className="text-sm text-pat-text-secondary">Enter your 6-digit authentication code</p>
       </div>

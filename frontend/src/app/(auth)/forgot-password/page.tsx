@@ -3,7 +3,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { customInstance } from "@/lib/axios-instance";
 import { getApiErrorMessage } from "@/lib/errors";
-import BrandLogo from "@/components/brand-logo";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -28,7 +27,6 @@ export default function ForgotPasswordPage() {
   return (
     <div className="flex flex-col items-center justify-center" style={{ gap: "clamp(0.5rem, 1.5vh, 1rem)" }}>
       <div className="text-center">
-        <BrandLogo />
         <h1 className="font-bold text-pat-text-primary" style={{ fontSize: "clamp(1.1rem, 2.5vh, 1.5rem)" }}>Forgot Password</h1>
         <p className="text-sm text-pat-text-secondary">Enter your email to receive reset instructions</p>
       </div>

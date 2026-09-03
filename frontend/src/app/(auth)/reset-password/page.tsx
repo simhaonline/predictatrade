@@ -4,7 +4,6 @@ import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { customInstance } from "@/lib/axios-instance";
 import { getApiErrorMessage } from "@/lib/errors";
-import BrandLogo from "@/components/brand-logo";
 
 function ResetForm() {
   const token = useSearchParams().get("token");
@@ -32,7 +31,6 @@ function ResetForm() {
   return (
     <div className="flex flex-col items-center justify-center" style={{ gap: "clamp(0.5rem, 1.5vh, 1rem)" }}>
       <div className="text-center">
-        <BrandLogo />
         <h1 className="font-bold text-pat-text-primary" style={{ fontSize: "clamp(1.1rem, 2.5vh, 1.5rem)" }}>Reset Password</h1>
       </div>
       {success ? (
