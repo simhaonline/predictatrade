@@ -67,7 +67,8 @@ Entity relationships for the core domains: **[DB_ERD.md](DB_ERD.md)** (mermaid `
 - `licensing.edge_device_state.account_type` + `.account_type_verified`,
   `licensing.devices.account_type` — heartbeat-persisted EA detection
   (edge-poll v1.27 fail-open update).
-- Detection truth chain: EA `CAccountTypeDetector` (lazy per-login cache,
+- Detection truth chain: EA account-type detector (INLINED in every
+  .mq5/.mq4 — no external files; lazy per-login cache,
   Islamic 3× rollover confirm, fail-safe Standard) → INIT/ACCOUNT_INFO/
   EXECUTION_ACK/heartbeat payloads → engine `SnapshotAccount.AccountType` →
   `edge_device_state` → dashboards/fan-out. Spec corrections documented in

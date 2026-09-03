@@ -91,10 +91,11 @@ alerts (ACK TTL 2m, fill TTL 10m) and prunes reconciled records. Fail-observing 
 
 **Account-Type Detection & Adaptation (v1.27, mig 133/134):** Every EA now
 classifies its own account — `Demo > Contest > Islamic > MicroCent > ECN >
-STP > Standard` priority — via `CAccountTypeDetector` (shared `.mqh` on the
-fleet EAs/MasterNodes; inlined self-contained in the pat-scalping UltraScalper
-per its no-include rule). Detection is lazy-cached per login, fail-safe to
-`Standard`, and Islamic detection is confirmed by 3 hourly rollover checks
+STP > Standard` priority — via the account-type detector, INLINED into each
+.mq5/.mq4 (operator mandate: no external MQL files — every EA compiles
+standalone; the shared-source `.mqh` was deleted after inlining). Detection
+is lazy-cached per login, fail-safe to `Standard`, and Islamic detection is
+confirmed by 3 hourly rollover checks
 (auto-reclassify if swap is ever observed). Execution adapts per type: cent
 accounts size lots ÷100; ECN accounts open naked and attach SL/TP post-fill
 (3 attempts, watchdog fail-closed backstop); STP adds a +2pt slippage buffer
