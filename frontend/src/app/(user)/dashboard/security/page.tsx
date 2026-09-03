@@ -59,6 +59,8 @@ function MfaTab({ mfaEnabled, onEnabled }: { mfaEnabled: boolean; onEnabled: () 
   const [secret, setSecret] = useState<string | null>(null);
   const [otpauth, setOtpauth] = useState<string | null>(null);
   const [code, setCode] = useState("");
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  const [dismissedCodes, setDismissedCodes] = useState(false);
 
   const setup = useMutation({
     mutationFn: async () => {
@@ -72,17 +74,28 @@ function MfaTab({ mfaEnabled, onEnabled }: { mfaEnabled: boolean; onEnabled: () 
   const verify = useMutation({
     mutationFn: async () => {
       if (!code) throw new Error("Enter the 6-digit code");
-      await mfaVerify(code);
+      return mfaVerify(code);
     },
-    onSuccess: () => {
+    onSuccess: (r) => {
       toast.success("MFA enabled successfully.");
       setSecret(null);
       setOtpauth(null);
       setCode("");
+      // Show the one-time recovery codes with an explicit confirm step —
+      // the user MUST acknowledge them before the panel goes away.
+      if (r.recoveryCodes?.length) {
+        setRecoveryCodes(r.recoveryCodes);
+        setDismissedCodes(false);
+      }
       onEnabled();
     },
     onError: (e: Error) => toast.error(e.message || "Invalid code."),
   });
+
+  const copyRecoveryCodes = () => {
+    if (!recoveryCodes) return;
+    navigator.clipboard?.writeText(recoveryCodes.join("\n")).catch(() => {});
+  };
 
   return (
     <div className="space-y-4">
@@ -145,6 +158,32 @@ function MfaTab({ mfaEnabled, onEnabled }: { mfaEnabled: boolean; onEnabled: () 
               className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50"
             >
               {verify.isPending ? "Verifying…" : "Verify & Enable"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {recoveryCodes && !dismissedCodes && (
+        <div className="space-y-3 rounded-lg border border-pat-warning/40 bg-pat-warning/5 p-4">
+          <div className="text-sm font-medium text-pat-text-primary">✅ MFA enabled — save these recovery codes</div>
+          <div className="text-xs text-pat-text-muted">
+            Each code works once if you lose access to your authenticator. Store them somewhere safe — they are shown only this once.
+          </div>
+          <div className="rounded-md bg-pat-bg-surface-secondary p-3 font-mono text-sm space-y-1">
+            {recoveryCodes.map((c) => <div key={c}>{c}</div>)}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={copyRecoveryCodes}
+              className="rounded-md border border-pat-border px-3 py-2 text-xs text-pat-text-secondary hover:text-pat-text-primary"
+            >
+              Copy codes
+            </button>
+            <button
+              onClick={() => setDismissedCodes(true)}
+              className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground"
+            >
+              I&apos;ve saved them — Continue
             </button>
           </div>
         </div>

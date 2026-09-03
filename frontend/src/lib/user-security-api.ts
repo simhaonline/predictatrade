@@ -11,8 +11,8 @@ export async function mfaSetup(): Promise<MfaSetupResult> {
   return res.data;
 }
 
-export async function mfaVerify(code: string): Promise<{ mfaEnabled: boolean }> {
-  const res = await customInstance.post<{ mfaEnabled: boolean }>("/auth/mfa/verify", { code });
+export async function mfaVerify(code: string): Promise<{ mfaEnabled: boolean; recoveryCodes: string[] }> {
+  const res = await customInstance.post<{ mfaEnabled: boolean; recoveryCodes: string[] }>("/auth/mfa/verify", { code });
   return res.data;
 }
 

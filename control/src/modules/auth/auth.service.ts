@@ -498,6 +498,10 @@ export class AuthService {
   async getProfile(userId: string) {
     const result = await this.pool.query(
       `SELECT u.id, u.email, u.full_name, u.status, u.created_at,
+              EXISTS (
+                SELECT 1 FROM iam.mfa_methods m
+                WHERE m.user_id = u.id AND m.method_type = 'TOTP' AND m.is_enabled = true
+              ) AS mfa_enabled,
               NOT EXISTS (
                 SELECT 1 FROM iam.mfa_methods m
                 WHERE m.user_id = u.id AND m.method_type = 'TOTP' AND m.is_enabled = true
