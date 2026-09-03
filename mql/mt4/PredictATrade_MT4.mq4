@@ -30,7 +30,7 @@
 //| SERVER - no EA recompile required.                               |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.25"
+#property version   "1.26"
 #property strict
 
 // ─── Signal/Execution inputs ───
@@ -715,10 +715,11 @@ int OnInit()
 
     g_accountID = IntegerToString(AccountNumber());
     g_licenseKey = LicenseKey;
+    g_deviceFile = PAT_ComputeDeviceFile(); // v1.26: per-terminal bootstrap state
     g_connection = "OFFLINE";
     g_licenseStatus = "PENDING";
 
-    Print("Predict-A-Trade MT4 EA v1.25 initializing...");
+    Print("Predict-A-Trade MT4 EA v1.26 initializing...");
     Print("Symbol: ", g_symbol);
     Print("Account: ", g_accountID);
     Print("License Key: ", (g_licenseKey == "" ? "NOT SET — SIGNALS WILL BE IGNORED" : g_licenseKey));
@@ -1446,7 +1447,7 @@ void SendInitMessage()
             else if(OrderType() == OP_SELL) { sellCount++; totalLots += OrderLots(); }
         }
     }
-    string msg = "INIT|{\"ea_version\":\"1.25\",\"broker\":\"" + AccountCompany() +
+    string msg = "INIT|{\"ea_version\":\"1.26\",\"broker\":\"" + AccountCompany() +
                  "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
                  "\",\"license_key\":\"" + LicenseKey +
                  "\",\"balance\":" + DoubleToString(AccountBalance(), 2) +
@@ -1469,7 +1470,7 @@ void SendInitMessage()
 //+------------------------------------------------------------------+
 void SendAccountInfo()
 {
-    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.25\",\"account\":\"" + g_accountID +
+    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.26\",\"account\":\"" + g_accountID +
                  "\",\"broker\":\"" + AccountCompany() +
                  "\",\"symbol\":\"" + g_symbol +
                  "\",\"currency\":\"" + AccountCurrency() +
@@ -2215,7 +2216,15 @@ int    g_pollOkCount    = 0;
 int    g_pollErrCount   = 0;
 long   g_hmacCounter    = 0;
 
-#define PAT_DEVICE_FILE "PAT_device_mt4.txt" // device_id|device_secret|refresh_token (MT4-specific: MT4+MT5 share FILE_COMMON)
+#define PAT_DEVICE_FILE "PAT_device_mt4.txt" // LEGACY shared name (v1.26 reads it only for one-time migration)
+// v1.26: per-terminal state file. The old fixed "PAT_device_mt4.txt" in
+// FILE_COMMON is shared by EVERY MT4 terminal on the machine — two broker
+// terminals overwrite each other's device credentials, each then presents
+// the other's (rotated) refresh token, the server's reuse detection revokes
+// the whole token family, and both terminals 401-loop. State is now keyed
+// per terminal: broker + account + terminal path, set in OnInit.
+string  g_deviceFile     = PAT_DEVICE_FILE; // per-terminal state file, set in OnInit (v1.26)
+string  g_deviceFileSet  = "";     // which file the in-memory creds were loaded from
 
 //--- PAT_SHA256: pure-MQL4 SHA-256 (FIPS 180-4) over UTF-8 bytes
 int PAT_ROTR(int x, int n) { return (int)(((uint)x >> n) | ((uint)x << (32 - n))); }
@@ -2446,8 +2455,38 @@ bool PAT_EnsureDevice()
 {
     if(StringLen(g_deviceId) > 0 && StringLen(g_deviceSecret) > 0) return true;
 
-    // 2) Persisted bootstrap state
-    string saved = PAT_ReadFile(PAT_DEVICE_FILE);
+    // 2) Persisted bootstrap state (per-terminal file)
+    string saved = PAT_ReadFile(g_deviceFile);
+    if(StringLen(saved) == 0 && StringLen(g_deviceFileSet) == 0)
+    {
+        // v1.26 one-time migration: adopt legacy shared PAT_device_mt4.txt
+        // state into this terminal's own file (see PAT_ComputeDeviceFile).
+        string legacy = PAT_ReadFile(PAT_DEVICE_FILE);
+        if(StringLen(legacy) > 0)
+        {
+            string lparts[4];
+            int ln = 0;
+            string lrest = legacy;
+            while(true)
+            {
+                int lp = StringFind(lrest, "|");
+                if(lp < 0) { lparts[ln] = lrest; ln++; break; }
+                lparts[ln] = StringSubstr(lrest, 0, lp);
+                ln++;
+                lrest = StringSubstr(lrest, lp + 1);
+                if(ln >= 4) break;
+            }
+            if(ln >= 2 && StringLen(lparts[0]) > 0 && StringLen(lparts[1]) > 0)
+            {
+                g_deviceId = lparts[0];
+                g_deviceSecret = lparts[1];
+                if(ln >= 3) g_refreshToken = lparts[2];
+                g_deviceFileSet = PAT_DEVICE_FILE;
+                Print("[Predict-A-Trade] Adopted legacy device state (v1.25 migration): ", g_deviceId);
+                return true;
+            }
+        }
+    }
     if(StringLen(saved) > 0)
     {
         string parts[4];
@@ -2468,6 +2507,7 @@ bool PAT_EnsureDevice()
             g_deviceId = parts[0];
             g_deviceSecret = parts[1];
             if(n >= 3) g_refreshToken = parts[2];
+            g_deviceFileSet = g_deviceFile;
             return true;
         }
     }
@@ -2499,7 +2539,7 @@ bool PAT_EnsureDevice()
         Print("[Predict-A-Trade] Activation response missing device_id/device_secret.");
         return false;
     }
-    PAT_WriteFile(PAT_DEVICE_FILE, g_deviceId + "|" + g_deviceSecret + "|" + g_refreshToken + "\n");
+    PAT_WriteFile(g_deviceFile, g_deviceId + "|" + g_deviceSecret + "|" + g_refreshToken + "\n");
     Print("[Predict-A-Trade] Device activated: ", g_deviceId);
     return true;
 }
@@ -2526,7 +2566,7 @@ bool PAT_EnsureAccessToken()
     if(StringLen(newRt) > 0) g_refreshToken = newRt;
     g_tokenExpiry = TimeGMT() + (expiresIn > 0 ? (datetime)(expiresIn - 60) : 82800);
     if(StringLen(g_accessToken) == 0) return false;
-    PAT_WriteFile(PAT_DEVICE_FILE, g_deviceId + "|" + g_deviceSecret + "|" + g_refreshToken + "\n");
+    PAT_WriteFile(g_deviceFile, g_deviceId + "|" + g_deviceSecret + "|" + g_refreshToken + "\n");
     return true;
 }
 
@@ -2545,7 +2585,35 @@ string PAT_JSONEscape(string s)
 }
 
 //+------------------------------------------------------------------+
-//| PAT_URLEncode — percent-encoding for query values                 |
+//--- PAT_SanitizeFileTag: make broker/terminal strings safe for filenames
+string PAT_SanitizeFileTag(string s)
+{
+    string outp = "";
+    for(int i = 0; i < StringLen(s); i++)
+    {
+        int c = StringGetChar(s, i);
+        if((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+            outp += CharToStr((uchar)c);
+        else if(c == ' ' || c == '-' || c == '_' || c == '.')
+            outp += "_";
+        // everything else dropped
+    }
+    if(StringLen(outp) > 24) outp = StringSubstr(outp, 0, 24);
+    return outp;
+}
+
+//--- PAT_ComputeDeviceFile: per-terminal state filename. Distinct per
+//    broker+account+terminal-path, stable across restarts. This is what
+//    stops two MT4 terminals on one machine from swapping refresh tokens.
+string PAT_ComputeDeviceFile()
+{
+    string tag = PAT_SanitizeFileTag(AccountCompany()) + "_" +
+                 g_accountID + "_" +
+                 PAT_SanitizeFileTag(TerminalInfoString(TERMINAL_PATH));
+    return "PAT_device_mt4_" + tag + ".txt";
+}
+
+//--- PAT_URLEncode — percent-encoding for query values
 //+------------------------------------------------------------------+
 string PAT_URLEncode(string s)
 {

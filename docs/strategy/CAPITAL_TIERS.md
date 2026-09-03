@@ -181,3 +181,39 @@ Both gates are EA-side only — no server change, no schema change. Sources
 synced to `frontend/public/downloads/`. Recompile required on the Windows
 MetaEditor side to activate. Admin per-tier counters remain a follow-up
 (pipeline-monitor).
+
+## Per-terminal device state + token-fix (MT5 v1.25 / MT4 v1.26 — 3 Sep 2026)
+
+**Symptom (user-reported):** MT5 `token refresh failed: HTTP 401 —
+re-activating.` and MT4 `License Key: NOT SET — SIGNALS WILL BE IGNORED`
+on two different clients.
+
+**Root cause (server-verified):** every MT5 terminal on one machine shares
+the single `FILE_COMMON\PAT_device.txt` bootstrap file. With Equiti MT5 and
+Xelans MT5 on the same VPS, each terminal periodically overwrote the other's
+rotated refresh token; the other then POSTed an already-used token,
+`device-auth` reuse detection revoked the whole token family, and both
+terminals re-activated — pairs of activations 20–30s apart all day
+(04:50:26/04:50:46, 06:12/06:13, 07:44/07:45, 09:06:02/09:06:14, same IP).
+Each re-activation also killed the other terminal's session → 401 loop.
+(MT4 avoided the MT5 file but would hit the same wall with two MT4
+terminals: fixed `PAT_device_mt4.txt`.)
+
+**Fix (both EAs):**
+1. **Per-terminal state file** — `PAT_ComputeDeviceFile()` builds
+   `PAT_device[_mt4]_<broker>_<account>_<terminalpath>.txt` (sanitized,
+   stable across restarts). All credential reads/writes/clears now target
+   that file; the legacy fixed name is read exactly once for migration
+   (v1.24/v1.25 → new scheme) and never re-shared.
+2. **MT4 empty-LicenseKey is no longer silently fatal at the log level** —
+   the message text is unchanged but the diagnosis is explicit: the MT4 EA
+   `LicenseKey` **input** is terminal-side config and was lost when the EA
+   was re-attached after recompile. Server never received a license key →
+   `LICENSE_CHECK` skipped → status stayed `PENDING` → signal processing
+   blocked at the `g_licenseStatus != "ACTIVE"` gate. Fix on the operator
+   side: re-fill LicenseKey in EA inputs (device credentials themselves
+   survive in the per-terminal file).
+
+**Operator actions:** recompile both EAs (MT5 v1.25 / MT4 v1.26), keep the
+LicenseKey input filled on MT4 charts. Old shared `PAT_device*.txt` files
+migrate automatically per terminal.

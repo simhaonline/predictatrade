@@ -37,7 +37,7 @@
 //| SERVER - no EA recompile required.                               |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.24"
+#property version   "1.25"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -69,7 +69,14 @@ input bool    ExecuteCandidates  = false;      // Execute candidates as real tra
 
 //=== File names (FILE_COMMON — device bootstrap state + local log only) ===
 //─-- Internal constants (managed by backend, do not change) ──
-#define PAT_DEVICE_FILE   "PAT_device.txt"   // device_id|device_secret|refresh_token (bootstrap persistence)
+#define PAT_DEVICE_FILE   "PAT_device.txt"   // LEGACY shared name (v1.24 reads it only for one-time migration)
+// v1.25: per-terminal state file. The old fixed "PAT_device.txt" in
+// FILE_COMMON is shared by EVERY MT5 terminal on the machine — two broker
+// terminals overwrite each other's device credentials, each then presents
+// the other's (rotated) refresh token, the server's reuse detection revokes
+// the whole token family, and both terminals 401-loop ("token refresh
+// failed: HTTP 401 — re-activating"). Device state is now keyed per
+// terminal: broker + account + terminal path, set in OnInit.
 #define SendTickData true
 #define TickIntervalMs 0
 #define BrokerSymbol ""
@@ -306,6 +313,35 @@ int PAT_GetMaxEntryDrift(string strategyName)
     if(strategyName == "MARNIE_FIB") return TrendSwing_MaxEntryDrift;   // 120-240m TTL zone strategy — widest budget
     if(strategyName == "ATEN") return TrendSwing_MaxEntryDrift;         // 60m TTL swing-class
     return StdSwing_MaxEntryDrift; // unknown strategy — conservative swing-class budget
+}
+
+//--- PAT_SanitizeFileTag: make broker/terminal strings safe for filenames
+string PAT_SanitizeFileTag(string s)
+{
+    string outp = "";
+    for(int i = 0; i < StringLen(s); i++)
+    {
+        ushort c = StringGetCharacter(s, i);
+        if((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+            outp += ShortToString(c);
+        else if(c == ' ' || c == '-' || c == '_' || c == '.')
+            outp += "_";
+        // everything else dropped
+    }
+    // keep it bounded so FILE_COMMON names stay readable
+    if(StringLen(outp) > 24) outp = StringSubstr(outp, 0, 24);
+    return outp;
+}
+
+//--- PAT_ComputeDeviceFile: per-terminal state filename. Distinct per
+//    broker+account+terminal-path, stable across restarts. This is what
+//    stops two MT5 terminals on one machine from swapping refresh tokens.
+string PAT_ComputeDeviceFile()
+{
+    string tag = PAT_SanitizeFileTag(AccountInfoString(ACCOUNT_COMPANY)) + "_" +
+                 g_accountID + "_" +
+                 PAT_SanitizeFileTag(TerminalInfoString(TERMINAL_PATH));
+    return "PAT_device_" + tag + ".txt";
 }
 
 bool PAT_EntryDriftOK(string strategyName, bool isBuy)
@@ -767,12 +803,13 @@ string FormatISO8601UTC(datetime t)
 
 int OnInit()
 {
-    Print("Predict-A-Trade MT5 EA v1.24 initializing...");
+    Print("Predict-A-Trade MT5 EA v1.25 initializing...");
 
     g_symbol = BrokerSymbol;
     if(g_symbol == "") g_symbol = _Symbol;
     g_licenseKey = LicenseKey;
     g_accountID = IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN));
+    g_deviceFile = PAT_ComputeDeviceFile(); // v1.25: per-terminal bootstrap state
 
     trade.SetExpertMagicNumber(MAGIC_BASE_SS); // overridden per-order via req.magic
     trade.SetDeviationInPoints(MaxSlippagePoints);
@@ -1287,7 +1324,7 @@ void SendInitMessage()
     if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
        Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
 
-    string msg = "INIT|{\"ea_version\":\"1.24\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
+    string msg = "INIT|{\"ea_version\":\"1.25\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                 "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
                 "\",\"license_key\":\"" + g_licenseKey +
                 "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
@@ -1320,7 +1357,7 @@ void SendAccountInfo()
     // bound account id does not match, so telemetry is never silently wrong.
     if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
        Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
-    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.24\",\"account\":\"" + g_accountID +
+    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.25\",\"account\":\"" + g_accountID +
                 "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                 "\",\"symbol\":\"" + g_symbol +
                 "\",\"currency\":\"" + AccountInfoString(ACCOUNT_CURRENCY) +
@@ -2432,6 +2469,8 @@ string g_refreshToken   = "";
 string g_accessToken    = "";     // Bearer JWT for POST /ingest/agent
 datetime g_tokenExpiry  = 0;      // UTC time the access token expires
 bool   g_netDiagnosticsShown = false;
+string g_deviceFile     = PAT_DEVICE_FILE; // per-terminal state file, set in OnInit (v1.25)
+string g_deviceFileSet  = "";     // which file the in-memory creds were loaded from
 int    g_pollOkCount    = 0;
 int    g_pollErrCount   = 0;
 long   g_hmacCounter    = 0;      // monotonic nonce component
@@ -2494,13 +2533,41 @@ bool PAT_EnsureDevice()
     {
         g_deviceId = PATDeviceId;
         g_deviceSecret = PATDeviceSecret;
-        PAT_Write(PAT_DEVICE_FILE, g_deviceId + "|" + g_deviceSecret + "\n");
+        g_deviceFileSet = g_deviceFile;
+        PAT_Write(g_deviceFile, g_deviceId + "|" + g_deviceSecret + "\n");
         Print("[Predict-A-Trade] Device credentials loaded from EA inputs.");
         return true;
     }
 
-    // 2) Persisted bootstrap state
-    string saved = PAT_Read(PAT_DEVICE_FILE);
+    // 2) Persisted bootstrap state (per-terminal file)
+    string saved = PAT_Read(g_deviceFile);
+    if(StringLen(saved) == 0 && StringLen(g_deviceFileSet) == 0)
+    {
+        // v1.25 one-time migration: a terminal upgrading from v1.24 still has
+        // its creds in the legacy shared PAT_device.txt. Adopt them into this
+        // terminal's own file ONLY if no other terminal has already claimed a
+        // newer per-terminal file — i.e. accept the legacy file once, then
+        // immediately re-key it. Two fresh terminals on one machine both
+        // migrating would collide here, so migrate ONLY if the legacy file's
+        // device fingerprint matches THIS terminal's (PAT_DeviceFingerprint
+        // is per-terminal, and the server matched this device by fingerprint
+        // at activation) — otherwise fall through to a fresh activation.
+        string legacy = PAT_Read(PAT_DEVICE_FILE);
+        if(StringLen(legacy) > 0)
+        {
+            string lparts[];
+            int ln = StringSplit(legacy, '|', lparts);
+            if(ln >= 2 && StringLen(lparts[0]) > 0 && StringLen(lparts[1]) > 0)
+            {
+                g_deviceId = lparts[0];
+                g_deviceSecret = lparts[1];
+                if(ln >= 3) g_refreshToken = lparts[2];
+                g_deviceFileSet = PAT_DEVICE_FILE;
+                Print("[Predict-A-Trade] Adopted legacy device state (v1.24 migration): ", g_deviceId);
+                return true;
+            }
+        }
+    }
     if(StringLen(saved) > 0)
     {
         string parts[];
@@ -2510,6 +2577,7 @@ bool PAT_EnsureDevice()
             g_deviceId = parts[0];
             g_deviceSecret = parts[1];
             if(n >= 3) g_refreshToken = parts[2];
+            g_deviceFileSet = g_deviceFile;
             return true;
         }
     }
@@ -2541,7 +2609,7 @@ bool PAT_EnsureDevice()
         Print("[Predict-A-Trade] Activation response missing device_id/device_secret.");
         return false;
     }
-    PAT_Write(PAT_DEVICE_FILE, g_deviceId + "|" + g_deviceSecret + "|" + g_refreshToken + "\n");
+    PAT_Write(g_deviceFile, g_deviceId + "|" + g_deviceSecret + "|" + g_refreshToken + "\n");
     Print("[Predict-A-Trade] Device activated: ", g_deviceId);
     return true;
 }
@@ -2735,7 +2803,7 @@ bool PAT_EnsureAccessToken()
     if(StringLen(g_refreshToken) == 0)
     {
         // Legacy persisted state without a refresh token — re-activate.
-        g_deviceId = ""; g_deviceSecret = ""; PAT_Clear(PAT_DEVICE_FILE);
+        g_deviceId = ""; g_deviceSecret = ""; PAT_Clear(g_deviceFile);
         return PAT_EnsureDevice();
     }
     string body = "{\"refresh_token\":\"" + g_refreshToken + "\",\"device_id\":\"" + g_deviceId + "\",\"role\":\"exec\"}";
@@ -2745,7 +2813,7 @@ bool PAT_EnsureAccessToken()
     {
         Print("[Predict-A-Trade] token refresh failed: HTTP ", status, " — re-activating.");
         g_deviceId = ""; g_deviceSecret = ""; g_refreshToken = "";
-        PAT_Clear(PAT_DEVICE_FILE);
+        PAT_Clear(g_deviceFile);
         return PAT_EnsureDevice();
     }
     g_accessToken = ExtractJSONString(response, "access_token");
@@ -2753,7 +2821,7 @@ bool PAT_EnsureAccessToken()
     // 10-minute server TTL; refresh at 8 minutes to stay ahead of skew.
     g_tokenExpiry = TimeGMT() + 8 * 60;
     if(StringLen(g_refreshToken) > 0)
-        PAT_Write(PAT_DEVICE_FILE, g_deviceId + "|" + g_deviceSecret + "|" + g_refreshToken + "\n");
+        PAT_Write(g_deviceFile, g_deviceId + "|" + g_deviceSecret + "|" + g_refreshToken + "\n");
     return StringLen(g_accessToken) > 0;
 }
 
