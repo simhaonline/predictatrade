@@ -9,6 +9,7 @@
 - [Strategy Playbooks](strategy/STRATEGY_PLAYBOOKS.md) — 5 engine configurations, per-strategy exit specs, micro profit-taking, quality grades, expectancy metrics
 - [Indicators & Features](strategy/INDICATORS_AND_FEATURES.md) — 42 indicators, 13 evidence pillars, P2 features (all ACTIVE), broker time ORB
 - [Risk Gates](strategy/RISK_GATES.md) — 16 gates with per-(strategy, timeframe) isolation, 5% capital protection, operator edge-arming
+- [Capital-Tiered Signal Engine](strategy/CAPITAL_TIERS.md) — MICRO/STANDARD/PRO capital bands, per-tier signal viability + delivery, tier-aware sizing (v1.23)
 
 ### API
 - [REST & WebSocket Reference](api/API_REFERENCE.md) — Full surface: both backends, all 16 control modules + realtime, signal schema, events, rate limits (64-path OpenAPI mirror)

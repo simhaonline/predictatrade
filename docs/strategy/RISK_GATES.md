@@ -1,6 +1,10 @@
 # Risk Gates
 ## v1.17.4 — 30 August 2026
 
+> **v1.23 capital tiers:** signal delivery and sizing are now capital-tier
+> aware (MICRO < $500 / STANDARD $500–5k / PRO ≥ $5k). Effective per-trade
+> cap = min(plan cap, tier cap 2%). See [CAPITAL_TIERS.md](CAPITAL_TIERS.md).
+
 ### Gate Pipeline (16 gates, ordered execution)
 
 | # | Gate | Type | Behaviour |
