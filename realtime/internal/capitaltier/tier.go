@@ -59,12 +59,24 @@ func All() []Tier {
 // PerTradeRiskCapPct is the tier's maximum per-trade risk as % of equity.
 // The EFFECTIVE cap is min(plan per_trade_risk_pct, this value) — the plan
 // cap can only tighten, never loosen, and neither cap is weakened here.
+//
+// v1.25 COMBINED TIER MODEL (user-approved a+b+c, 2026-09-03):
+//   - MICRO 4%: on the $100 band floor = $4 max min-lot risk → admits the
+//     ULTRA scalper (SL 0.08% of price ≈ 3.6pts at $4,485) in calm
+//     conditions; scalps/swings stay out (gap-through risk on a $100
+//     account is the binding constraint, not the average case).
+//   - STANDARD 5%: $25 max min-lot risk → admits the tightened swing
+//     geometry (SL 0.18% ≈ 8.1pts) plus all scalps and TREND (13.5pts).
+//     Previously 2% ($10) starved STANDARD of every swing signal —
+//     observed 2026-09-03: the only executable swing signal matched 0
+//     devices (PRO-only).
+//   - PRO 2%: unchanged — $100 cap, full catalog.
 func PerTradeRiskCapPct(t Tier) float64 {
 	switch t {
 	case Micro:
-		return 2.0
+		return 4.0
 	case Standard:
-		return 2.0
+		return 5.0
 	case Pro:
 		return 2.0
 	default:

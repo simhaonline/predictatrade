@@ -28,17 +28,29 @@ func TestClassify(t *testing.T) {
 }
 
 func TestEvaluate_TightScalpEligibleAllTiers(t *testing.T) {
-	// 0.8-point SL → min-lot risk $0.80; fits MICRO's $2 cap (100 × 2%).
+	// 0.8-point SL → min-lot risk $0.80; fits MICRO's $4 cap (100 × 4%).
 	el := Evaluate(0.8, 0.51)
 	if len(el.EligibleTiers) != 3 {
 		t.Fatalf("expected all tiers eligible, got %v (exclusions %v)", el.EligibleTiers, el.Exclusions)
 	}
 }
 
-func TestEvaluate_WideSwingStopProOnly(t *testing.T) {
-	// 22-point SL → min-lot risk $22. MICRO cap = 100×2% = $2 → excluded.
-	// STANDARD cap = 500×2% = $10 → excluded. PRO cap = 5000×2% = $100 → ok.
-	el := Evaluate(22.0, 0.51)
+func TestEvaluate_TightenedSwingReachesStandard(t *testing.T) {
+	// v1.25 combined model: tightened swing SL 0.18% ≈ 8.1pts → $8.07
+	// min-lot risk: STANDARD cap $25 (500×5%) admits it, MICRO ($4) does not.
+	el := Evaluate(8.1, 0.51)
+	if len(el.EligibleTiers) != 2 || el.EligibleTiers[0] != Standard || el.EligibleTiers[1] != Pro {
+		t.Fatalf("expected [STANDARD PRO], got %v (exclusions %v)", el.EligibleTiers, el.Exclusions)
+	}
+	if el.Exclusions[Micro] != "min_lot_risk_exceeds_tier_cap" {
+		t.Errorf("expected MICRO exclusion, got %v", el.Exclusions)
+	}
+}
+
+func TestEvaluate_WideTrendStopProOnly(t *testing.T) {
+	// Untightened legacy trend geometry (22-point SL → $22): still outside
+	// STANDARD's $25? No — 22 ≤ 25 fits; use 30pts ($30) which stays PRO-only.
+	el := Evaluate(30.0, 0.51)
 	if len(el.EligibleTiers) != 1 || el.EligibleTiers[0] != Pro {
 		t.Fatalf("expected PRO-only, got %v (exclusions %v)", el.EligibleTiers, el.Exclusions)
 	}
@@ -48,7 +60,7 @@ func TestEvaluate_WideSwingStopProOnly(t *testing.T) {
 }
 
 func TestEvaluate_MidStopScalping(t *testing.T) {
-	// 5-point SL → $5 min-lot risk: MICRO excluded ($2 cap), STANDARD+ ok.
+	// 5-point SL → $5 min-lot risk: MICRO excluded ($4 cap), STANDARD+ ok.
 	el := Evaluate(5.0, 0.51)
 	if len(el.EligibleTiers) != 2 {
 		t.Fatalf("expected STANDARD+PRO, got %v", el.EligibleTiers)
