@@ -4,6 +4,29 @@
 > "edge-poll failed: HTTP 502" incident, the HA fix, and the connectivity
 > watchdog. Read this before touching nginx, pat-control, or the watchdog.
 
+## Addendum (2026-09-03, 5730430): "Unknown queue item type:" + "ingest TICK failed: HTTP 1003"
+
+Two client-log lines, two different causes:
+
+1. **"Unknown queue item type: " (trailing blank)** — queued signal payloads
+   carried no `"type"` key. Old MT5 client builds dispatch ONLY on
+   `payload->>"type"`: real signals fell to UNKNOWN, were ACKed
+   `PROCESSED` with `type:""` but never executed — silent total drop.
+   Evidence: 126 empty-type ACKs (devices `35ef87d0`/`4e3e8b15`) vs 74
+   correct `SIGNAL` ACKs (MT4 `3e27f366`, which promotes empty→SIGNAL).
+   **Fix (server-side, no EA recompile needed):** `enqueueSignalForDevices`
+   injects `"type":"SIGNAL"` into every queued signal payload
+   (realtime v1.24.1, deployed 16:42 UTC). Wire-tested: typed payload →
+   ack `{"type":"SIGNAL","status":"PROCESSED"}`. MT5 v1.26.1/MT4 v1.27.1
+   also promote empty msgType via the `ID` key for future recompiles.
+2. **"ingest TICK failed: HTTP 1003"** — NOT a server status. nginx logged
+   13,325/13,325 ingest POSTs = 200 in that window; zero 1003 server-side.
+   The status came from a client-side middlebox (local HTTP proxy /
+   antivirus TLS interception on the MT machine; 1003 is the classic
+   Cloudflare-style "direct access denied" body). Transient, self-healed —
+   all three terminals POSTing 200 within minutes. If it recurs on one
+   client only, check that machine's proxy/AV, not the server.
+
 ## Incident summary (2026-09-03)
 
 MT clients (MT4/MT5 EAs) intermittently logged:
