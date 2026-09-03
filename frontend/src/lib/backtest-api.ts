@@ -101,6 +101,30 @@ export async function fetchRunDetails(runId: string): Promise<{ run: BacktestRun
   return res.json();
 }
 
+export interface PlanRevenue {
+  planCode: string;
+  planName: string;
+  monthlyPrice: number;
+  activeSubscriptions: number;
+  mrr: number;
+  collectedRevenue: number;
+  backtestRuns: number;
+  strategiesUsed: string[];
+}
+
+export interface RevenueByPlanResponse {
+  plans: PlanRevenue[];
+  totals: { mrr: number; collectedRevenue: number; backtestRuns: number };
+}
+
+// Admin only (backend enforces AdminGuard). Per-plan subscription counts,
+// MRR, collected payments and backtest-usage attribution.
+export async function fetchRevenueByPlan(): Promise<RevenueByPlanResponse> {
+  const res = await fetch(`${API_BASE}/backtest/revenue-by-plan`, fetchOpts());
+  if (!res.ok) throw new Error(await describeApiError(res, "Failed to fetch revenue by plan"));
+  return res.json();
+}
+
 export async function runBacktest(req: RunBacktestRequest): Promise<RunBacktestResponse> {
   const res = await fetch(`${API_BASE}/backtest/run`, fetchOpts({
     method: "POST",

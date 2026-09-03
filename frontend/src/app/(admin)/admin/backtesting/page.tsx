@@ -1,5 +1,6 @@
 "use client";
 import BacktestPanel from "@/components/backtest/backtest-panel";
+import RevenueByPlanCard from "@/components/backtest/revenue-by-plan-card";
 
 export default function AdminBacktestingPage() {
   return (
@@ -10,6 +11,7 @@ export default function AdminBacktestingPage() {
           Run backtests with real historical data. Select strategy, timeframe, and date range to generate reports.
         </p>
       </div>
+      <RevenueByPlanCard />
       <BacktestPanel isAdmin />
     </div>
   );
