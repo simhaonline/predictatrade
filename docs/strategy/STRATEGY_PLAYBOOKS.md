@@ -1,5 +1,10 @@
 # Strategy Playbooks
-## v1.17.4 — 30 August 2026
+## v1.26.0 — 03 September 2026
+
+> v1.26 headline: STANDARD_SCALPING win-rate-first rebuild (ba83784) —
+> parity backtest −45.97% PF 0.81 → +17.90% PF 1.30 (wr 57.4%, DD 7.86%).
+> Cost-aware geometry (SL 0.8×ATR / TP1 1.2×ATR, mig 129), liquidity
+> dead-zone block (02/19/21/23h UTC), OVEREXTENDED score-cap gate (≥62).
 
 ### Engine Inventory
 
@@ -23,12 +28,18 @@ Each strategy now has its own exit profile with defined TP1/TP2/TP3 levels and m
 | Trend Swing | 2.0x | 4.0x | — | Configurable | Configurable |
 | MARNIE_FIB | Per fib level | Per fib level | — | — | — |
 
-### Standard Scalping (M1/M5)
+### Standard Scalping (M1/M5) — v1.26 REBUILD (2026-09-03, ba83784)
 - Personality: Quick scalping, high-frequency, low-exposure
 - Decision TF: M1, HTF confirmation: M5
 - Min ATR: 5 pips, Max spread: 2.5 pips
-- SL buffer: 1.5x ATR, TP1: 1.0x, TP2: 2.0x, TP3: 3.0x
-- Regime: TRENDING_BULLISH, TRENDING_BEARISH, RANGE
+- Cost-aware geometry (mig 129): SL 0.8×ATR (stop_pct 0.08%), TP1 1.2×ATR
+  (0.09%), TP2 2.0×ATR (0.15%), TP3 3.5×ATR (0.26%) — breakeven wr ≈44%
+- Entry gate: momentum (OsMA/MACD) must not contradict direction + ADX≥20;
+  liquidity dead-zones blocked (02/19/21/23h UTC); OVEREXTENDED gate at
+  RawScore≥62 (mid-band momentum = entry; extreme = exit)
+- Regime: TRENDING_BULLISH, TRENDING_BEARISH, RANGE, HIGH_VOLATILITY
+- Backtest evidence (90d Q4-2025 parity): 61 trades, wr 57.4%, PF 1.30,
+  +17.90%, maxDD 7.86% (was −45.97% PF 0.81 at TP1 2.5×ATR)
 
 ### Ultra Scalping (M1)
 - Personality: Ultra-fast, lower thresholds, quick exits
