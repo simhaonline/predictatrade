@@ -13,7 +13,7 @@
 | 1 | Standard Scalping | STANDARD_SCALPING | M1/M5 | 65 | 10m | LIVE |
 | 2 | Ultra Scalping | ULTRA_SCALPING | M1 | 60 | 5m | LIVE |
 | 3 | Standard Swing | STANDARD_SWING | M15/H1 | 68 | 30m | LIVE |
-| 4 | Trend Swing | TREND_SWING | H1/H4 | 70 | 60m | LIVE |
+| 4 | Trend Swing | TREND_SWING | H1/H4 | 70 | 60m | LIVE (PRO+ELITE, v1.26 8370d62) |
 | 5 | MARNIE_FIB | MARNIE_FIB | H1 | 70 | 60m | SHADOW |
 
 ### Per-Strategy Exit Specifications (v1.16.x)
@@ -66,6 +66,14 @@ Each strategy now has its own exit profile with defined TP1/TP2/TP3 levels and m
 - Requires BOS/CHoCH + 2+ fib confluences
 - Accumulating outcomes before activation
 - Available on ELITE plan
+
+### ATEN (astro engine) — ADVISORY (v1.26 undorm, 8370d62)
+- Personality: Vedic DI + Western tropical astro confluence layer (QualityDerived evidence only)
+- Bias: |composite| ≥ 25 → directional read; per-bar ephemeris from candle timestamp
+- Geometry (DB exit profile, mig 130): SL 0.25% / TP1 0.50% / TP2 0.50% / TP3 0.75%, expiry 120min
+- Spread cap 4.0 pips (survives real 33-35 pt spread); hora panic fix (00:00-05:59 UTC) in astro/state.go
+- Status: UNARMED (advisory) — Q4-2025 per-bar parity measured wr 33.6% / PF 0.96 vs 34.5% breakeven; no positive forward evidence yet
+- Plan: ELITE
 
 ### Micro Profit-Taking (v1.16.x)
 Each strategy defines a `MicroTP` level — a first partial profit target before TP1. The engine computes `PartialClosePct` (fraction of position to close at MicroTP) per strategy, enabling risk-reducing partial exits while letting the remainder run to full TP targets.
