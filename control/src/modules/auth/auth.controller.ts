@@ -238,6 +238,13 @@ export class AuthController {
     return this.authService.verifyMfa(userId, dto.code);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } }) // brute-force bound on the step-up code
+  @Post('mfa/disable')
+  async disableMfa(@CurrentUser('sub') userId: string, @Body() dto: MfaSetupDto) {
+    return this.authService.disableMfa(userId, dto.code);
+  }
+
   @Throttle({ default: { limit: 5, ttl: 60_000 } }) // 5 forgot-password per minute per IP
   @Post('forgot')
   async forgotPassword(@Body() dto: ForgotPasswordDto, @Res({ passthrough: true }) res: Response) {

@@ -16,6 +16,11 @@ export async function mfaVerify(code: string): Promise<{ mfaEnabled: boolean; re
   return res.data;
 }
 
+export async function mfaDisable(code: string): Promise<{ mfaEnabled: boolean }> {
+  const res = await customInstance.post<{ mfaEnabled: boolean }>("/auth/mfa/disable", { code });
+  return res.data;
+}
+
 // === Trusted Devices (user-scoped via licensing) ===
 export interface DeviceActivation {
   id?: string;

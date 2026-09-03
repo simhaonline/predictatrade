@@ -557,6 +557,33 @@ export class AuthService {
     return { mfaEnabled: true, recoveryCodes: (r.rows[0].recovery_codes as string[]) ?? [] };
   }
 
+  /**
+   * Disable TOTP MFA. Step-up protected: requires a fresh valid TOTP code —
+   * a stolen session alone can never turn MFA off. Recovery codes are
+   * cleared and an audit event is recorded.
+   */
+  async disableMfa(userId: string, code: string) {
+    const r = await this.pool.query(
+      `SELECT secret FROM iam.mfa_methods WHERE user_id = $1 AND method_type = 'TOTP'`, [userId],
+    );
+    if (r.rows.length === 0) throw new NotFoundException('MFA not set up');
+    const valid = otp.authenticator.verify({ token: code, secret: r.rows[0].secret });
+    if (!valid) throw new UnauthorizedException('Invalid MFA code');
+    await this.pool.query(
+      `UPDATE iam.mfa_methods
+          SET is_enabled = false, recovery_codes = NULL, is_primary = false
+        WHERE user_id = $1 AND method_type = 'TOTP'`, [userId],
+    );
+    try {
+      await this.pool.query(
+        `INSERT INTO audit.audit_events (actor_type, actor_id, action, entity_type, entity_id, reason, new_value)
+         VALUES ('user', $2, 'iam.mfa.disabled', 'user', $1, 'User-initiated disable with valid TOTP step-up', '{"mfaEnabled":false}'::jsonb)`,
+        [userId, userId],
+      );
+    } catch { /* don't let audit failures break the auth flow */ }
+    return { mfaEnabled: false };
+  }
+
   /* ─── Forgot / Reset password ─── */
 
   async forgotPassword(email: string): Promise<{ message: string }> {

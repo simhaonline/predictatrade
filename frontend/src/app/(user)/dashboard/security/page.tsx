@@ -16,6 +16,7 @@ import StatusBadge from "@/components/ui/status-badge";
 import {
   mfaSetup,
   mfaVerify,
+  mfaDisable,
   fetchTrustedDevices,
   revokeTrustedDevice,
   fetchSessions,
@@ -61,6 +62,8 @@ function MfaTab({ mfaEnabled, onEnabled }: { mfaEnabled: boolean; onEnabled: () 
   const [code, setCode] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
   const [dismissedCodes, setDismissedCodes] = useState(false);
+  const [disableMode, setDisableMode] = useState(false);
+  const [disableCode, setDisableCode] = useState("");
 
   const setup = useMutation({
     mutationFn: async () => {
@@ -96,6 +99,21 @@ function MfaTab({ mfaEnabled, onEnabled }: { mfaEnabled: boolean; onEnabled: () 
     if (!recoveryCodes) return;
     navigator.clipboard?.writeText(recoveryCodes.join("\n")).catch(() => {});
   };
+
+  const disable = useMutation({
+    mutationFn: async () => {
+      if (!disableCode) throw new Error("Enter the 6-digit code");
+      return mfaDisable(disableCode);
+    },
+    onSuccess: () => {
+      toast.success("MFA disabled.");
+      setDisableMode(false);
+      setDisableCode("");
+      setRecoveryCodes(null);
+      onEnabled();
+    },
+    onError: (e: Error) => toast.error(e.message || "Invalid code."),
+  });
 
   return (
     <div className="space-y-4">
@@ -189,9 +207,54 @@ function MfaTab({ mfaEnabled, onEnabled }: { mfaEnabled: boolean; onEnabled: () 
         </div>
       )}
 
-      {mfaEnabled && (
+      {mfaEnabled && !disableMode && (
+        <div className="rounded-lg border border-pat-border bg-pat-bg-surface p-4">
+          <div className="text-sm font-medium text-pat-text-primary">Disable MFA</div>
+          <div className="text-xs text-pat-text-muted mt-1">
+            Turning off MFA removes the second factor from your login. To authorize this, enter a fresh 6-digit code from your authenticator.
+          </div>
+          <button
+            onClick={() => setDisableMode(true)}
+            className="mt-3 rounded-md border border-pat-danger/40 px-4 py-2 text-sm text-pat-danger hover:bg-pat-danger/10"
+          >
+            Disable MFA…
+          </button>
+        </div>
+      )}
+
+      {mfaEnabled && disableMode && (
+        <div className="space-y-3 rounded-lg border border-pat-danger/40 bg-pat-danger/5 p-4">
+          <div className="text-sm font-medium text-pat-text-primary">Confirm — disable MFA</div>
+          <div className="text-xs text-pat-text-muted">
+            Enter a current 6-digit code from your authenticator to authorize. Your recovery codes will be voided.
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              value={disableCode}
+              onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="123456"
+              className="rounded-md border border-pat-input-border bg-pat-input-bg px-3 py-2 text-sm text-pat-input-text outline-none focus:border-primary"
+            />
+            <button
+              onClick={() => disable.mutate()}
+              disabled={disable.isPending || disableCode.length !== 6}
+              className="rounded-md bg-pat-danger px-4 py-2 text-sm text-white disabled:opacity-50"
+            >
+              {disable.isPending ? "Disabling…" : "Disable MFA"}
+            </button>
+            <button
+              onClick={() => { setDisableMode(false); setDisableCode(""); }}
+              className="rounded-md border border-pat-border px-4 py-2 text-sm text-pat-text-secondary hover:text-pat-text-primary"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!mfaEnabled && (
         <DegradedNote>
-          Disabling MFA is not available from this page yet. Use account recovery / admin support if you need to reset it.
+          MFA is currently disabled. Enable it above to secure your account.
         </DegradedNote>
       )}
     </div>

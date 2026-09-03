@@ -34,6 +34,7 @@ export default function AdminSettingsPage() {
   const [mfaVerifying, setMfaVerifying] = useState(false);
   const [mfaRecoveryCodes, setMfaRecoveryCodes] = useState<string[] | null>(null);
   const [mfaError, setMfaError] = useState<string | null>(null);
+  const [mfaDisabling, setMfaDisabling] = useState(false);
 
   const startMfaSetup = async () => {
     setMfaError(null);
@@ -70,6 +71,24 @@ export default function AdminSettingsPage() {
     if (!mfaRecoveryCodes) return;
     navigator.clipboard?.writeText(mfaRecoveryCodes.join("\n")).catch(() => {});
     toast.success("Recovery codes copied");
+  };
+
+  const disableMfa = async () => {
+    if (!mfaCode.trim()) { setMfaError("Enter the 6-digit code to authorize"); return; }
+    setMfaDisabling(true);
+    setMfaError(null);
+    try {
+      await customInstance.post<{ mfaEnabled: boolean }>("/auth/mfa/disable", { code: mfaCode.trim() });
+      setMfaCode("");
+      setMfaRecoveryCodes(null);
+      await refreshUser();
+      toast.success("MFA disabled");
+    } catch {
+      setMfaError("Invalid code — try again");
+      toast.error("Invalid MFA code");
+    } finally {
+      setMfaDisabling(false);
+    }
   };
 
   useEffect(() => {
@@ -261,7 +280,31 @@ export default function AdminSettingsPage() {
               </div>
             </div>
           ) : user?.mfaEnabled ? (
-            <p className="text-xs text-pat-text-secondary">MFA is currently enabled. Contact support to disable.</p>
+            <div className="space-y-3">
+              <p className="text-xs text-pat-text-secondary">MFA is currently enabled.</p>
+              <div className="rounded-md border border-pat-danger/40 bg-pat-danger/5 p-3 space-y-2">
+                <p className="text-xs text-pat-text-primary font-medium">Disable MFA</p>
+                <p className="text-xs text-pat-text-muted">
+                  Removing the second factor lowers account security. Enter a current 6-digit code from your
+                  authenticator to authorize — recovery codes will be voided.
+                </p>
+                <div className="flex gap-2 items-center">
+                  <input
+                    value={mfaCode}
+                    onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    placeholder="123456"
+                    inputMode="numeric"
+                    maxLength={6}
+                    className="w-28 rounded-md border border-pat-input-border bg-pat-input-bg px-2 py-1.5 text-sm text-pat-input-text"
+                  />
+                  <button onClick={disableMfa} disabled={mfaDisabling || mfaCode.length !== 6}
+                    className="px-3 py-1.5 text-sm rounded-md bg-pat-danger text-white hover:opacity-90 disabled:opacity-50">
+                    {mfaDisabling ? "Disabling…" : "Disable MFA"}
+                  </button>
+                </div>
+                {mfaError && <p className="text-xs text-pat-danger">{mfaError}</p>}
+              </div>
+            </div>
           ) : (
             <button onClick={startMfaSetup}
               className="px-4 py-2 text-sm font-medium bg-pat-primary text-pat-primary-foreground rounded-md hover:bg-pat-primary-hover transition-colors">
