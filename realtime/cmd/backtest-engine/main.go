@@ -36,6 +36,7 @@ func main() {
 	higherTFs := flag.String("higher-tfs", "M15,H1,H4,D1", "Higher timeframes for MTF alignment")
 	source := flag.String("source", "", "market.candles.source to restrict to. Empty = all sources (default; avoids 0-bar runs when the named source is absent).")
 	maxPos := flag.Int("max-positions", 3, "Maximum simultaneous open positions (1 = one-at-a-time)")
+	raw := flag.Bool("raw", false, "Disable production-parity gates (study the raw direction engine — NOT what live clients receive)")
 	profile := flag.String("profile", "", "Write a pprof CPU profile to this path while the backtest runs (dev diagnostics)")
 	flag.Parse()
 
@@ -91,6 +92,7 @@ func main() {
 	config.MaxPositions = *maxPos
 	config.DBUrl = url
 	config.Source = *source
+	config.ProductionParity = !*raw
 
 	// Parity fix (v1.25): wire the DB exit-profile loader so backtests use the
 	// SAME percentage SL/TP geometry as the live engine (trading.exit_profiles).
@@ -122,6 +124,11 @@ func main() {
 	fmt.Printf("  Source:      %s\n", *source)
 	fmt.Printf("  Balance:     $%.2f\n", *balance)
 	fmt.Printf("  Store in DB: %v\n", *store)
+	if config.ProductionParity {
+		fmt.Println("  Gates:       PRODUCTION PARITY (trade bar + entry gate + EV + cooldown — mirrors live EXECUTABLE promotion)")
+	} else {
+		fmt.Println("  Gates:       RAW (--raw — direction engine only, NOT what live clients receive)")
+	}
 	fmt.Println(strings.Repeat("=", 70))
 
 	// Run backtest
@@ -159,6 +166,7 @@ func main() {
 	fmt.Printf("  SELL signals:    %d\n", result.SellSignals)
 	fmt.Printf("  NO_TRADE:        %d\n", result.NoTradeCount)
 	fmt.Printf("  Blocked:         %d\n", result.BlockedCount)
+	fmt.Printf("  Parity-blocked:  %d (directional reads that would NOT be EXECUTABLE live)\n", result.ParityBlockedCount)
 	fmt.Printf("  Total trades:    %d\n", len(result.Trades))
 	if len(result.NoTradeReasons) > 0 {
 		fmt.Println("  NO-TRADE reasons:")

@@ -50,6 +50,16 @@ type BacktestConfig struct {
 	// assume SL is hit first (conservative).
 	ConservativeSLTP bool
 
+	// ProductionParity gates (v1.26): when true, the runner only opens trades
+	// that the LIVE pipeline would have promoted as EXECUTABLE:
+	//   rawScore >= GetThresholds(strategy, regime).trade  (regime trade bar)
+	//   EntryGatePassed                                    (unique entry gate)
+	//   !IsLossCandidate                                   (profitability EV gate)
+	// plus per-strategy cooldowns (StrategyResult.CooldownMinutes).
+	// Mirrors main.go's promotion rule: rawScore >= tradeThresh && AllGatesPass.
+	// Raw direction-engine studies can disable this with --raw.
+	ProductionParity bool
+
 	// Swap costs (NEW v1.06 — model overnight swap charges)
 	SwapPerLotPerDay decimal.Decimal // swap charge per lot per overnight holding
 	TripleSwapDay    string          // day that gets 3x swap (e.g. "Wednesday")
@@ -91,6 +101,7 @@ func DefaultConfig() BacktestConfig {
 		TripleSwapDay:        "Wednesday",
 		AvoidOvernight:       true,
 		DataSource:           "database",
+		ProductionParity:     true, // default: only trade what the live pipeline would promote
 	}
 }
 
@@ -173,21 +184,24 @@ type Metrics struct {
 
 // BacktestResult is the complete output of a backtest run.
 type BacktestResult struct {
-	RunID         string
-	Config        BacktestConfig
-	Trades        []Trade
-	NoTradeCount  int
-	BlockedCount  int
-	BuySignals    int
-	SellSignals   int
+	RunID          string
+	Config         BacktestConfig
+	Trades         []Trade
+	NoTradeCount   int
+	BlockedCount   int
+	BuySignals     int
+	SellSignals    int
 	NoTradeReasons map[string]int // diagnostic tally of NO-TRADE reason codes
-	BarsProcessed int
-	Metrics       Metrics
-	StartTime     time.Time
-	EndTime       time.Time
-	Duration      time.Duration
-	Status        string // "COMPLETED", "FAILED"
-	Error         string
+	BarsProcessed  int
+	// ParityBlockedCount tallies directional reads the production-parity gate
+	// suppressed (would have been advisory/NO_TRADE live). Diagnostics only.
+	ParityBlockedCount int
+	Metrics            Metrics
+	StartTime          time.Time
+	EndTime            time.Time
+	Duration           time.Duration
+	Status             string // "COMPLETED", "FAILED"
+	Error              string
 }
 
 // SignalDecision records what each strategy decided at each bar.

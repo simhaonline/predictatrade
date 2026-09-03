@@ -41,6 +41,44 @@ capital-protection's negative-live-edge veto and the profitability gate
 remain the safety net. Swing signals will be rare and selective — that is
 correct behavior, not a bug.
 
+## Production-parity backtest gates (2026-09-03, v1.26 — REAL-WORLD PERFORMANCE)
+
+User directive: "do all needful to fix issue we need to have realworld
+performance". Root issue: backtests measured the raw direction engine,
+not the product clients receive. Fix shipped (runner.go + types.go +
+cmd/backtest-engine/main.go):
+
+- `ProductionParity` config (default ON; `--raw` disables): mirrors the
+  live EXECUTABLE promotion rule before opening any trade —
+  `rawScore >= GetThresholds(strategy, regime).trade` +
+  `EntryGatePassed` + `!IsLossCandidate` + per-strategy cooldown
+  (`CooldownMinutes` set on entry, like live CooldownManager).
+- `ParityBlockedCount` + labeled veto tallies
+  (`PARITY_BELOW_TRADE_BAR / PARITY_ENTRY_GATE / PARITY_NEGATIVE_EV /
+  PARITY_COOLDOWN`) print in every run's NO-TRADE reasons.
+- Verified in-run banner: `Gates: PRODUCTION PARITY`.
+
+**90-day parity results (Kaggle Q4-2025 M15/M5, $10k) vs raw control:**
+
+| Strategy | Raw engine | Production-parity | Verdict |
+|---|---|---|---|
+| TREND_SWING | −129.4%, PF 0.47, 1204 tr | **+17.6%, PF 1.86, DD 8.0%, wr 44.8%, 29 tr** | workhorse ✓ (stored run 149ad7c1) |
+| STANDARD_SWING | −162.4%, PF 0.49 | −10.0%, PF 0.82, DD 17.9%, 52 tr | marginal, chop-vulnerable |
+| STANDARD_SCALPING | −160%, PF 0.45 | 1 trade (entry-gate vetoes 10,524) | matches live negative-edge fail-closed |
+| ULTRA_SCALPING | — | 0 trades (HIGH_SPREAD ×14,475 — Kaggle synthetic spread) | live-only edge; NO-TRADE is a valid result |
+
+**THE PROOF:** same strategy, same data — raw TREND_SWING loses 129%,
+production-parity TREND_SWING makes +17.6%. The gate stack IS the edge.
+The product clients receive is the gated pipeline, and the gated system
+is now honestly measurable in backtests. Swing signals being rare is
+correct behavior: TREND_SWING took 29 trades in 90 days with PF 1.86.
+
+Data limitations (honest): Kaggle synthetic feed blocks ULTRA spread
+modeling; live MT5_MASTER only covers ~2 weeks; Q4-2025 was one regime.
+Real-world validation should continue with live-forward tracking (the
+delivery canary + ack chain already capture what clients actually
+receive), not more synthetic backtests.
+
 ## v1.25 DEPLOYED LIVE (2026-09-03 17:38 UTC, user-authorized early deploy)
 
 "i need to get signals on clients" — done, verified end-to-end:

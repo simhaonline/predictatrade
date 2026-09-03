@@ -15,11 +15,12 @@ import (
 // Runner is the main backtest engine. It feeds historical candles through
 // the real production feature engine and strategy evaluators.
 type Runner struct {
-	config       BacktestConfig
-	registry     *features.Registry
-	strategy     strategy.Strategy
-	tracker      *TradeTracker
-	reader       *DBCandleReader
+	config        BacktestConfig
+	registry      *features.Registry
+	strategy      strategy.Strategy
+	tracker       *TradeTracker
+	reader        *DBCandleReader
+	cooldownUntil time.Time // production-parity: no new entries before this time
 }
 
 // NewRunner creates a backtest runner with the given configuration.
@@ -147,6 +148,20 @@ func (r *Runner) Run(ctx context.Context) (*BacktestResult, error) {
 		store.cur = candle.Time
 		stratResult := r.strategy.Evaluate(state)
 
+		// Production-parity promotion (v1.26): mirror the live engine's
+		// EXECUTABLE promotion rule (main.go: rawScore >= tradeThresh &&
+		// all gates pass) before opening anything. Without this the runner
+		// trades every directional read — measuring the raw direction engine,
+		// not the product clients receive.
+		if r.config.ProductionParity {
+			reason, ok := r.parityGate(stratResult, candle, state)
+			if !ok {
+				result.ParityBlockedCount++
+				result.NoTradeReasons[reason]++
+				continue
+			}
+		}
+
 		switch stratResult.Direction {
 		case types.DirectionBuy:
 			result.BuySignals++
@@ -178,6 +193,44 @@ func (r *Runner) Run(ctx context.Context) (*BacktestResult, error) {
 	result.Duration = time.Since(startTime)
 
 	return result, nil
+}
+
+// parityGate mirrors the live engine's EXECUTABLE promotion rule before a
+// trade is opened. Returns a NoTradeReason label when the read would NOT
+// have been promoted to an executable signal live:
+//  1. cooldown — the strategy is still in its post-signal cooldown window
+//     (live: CooldownManager set on every confirmed signal);
+//  2. trade bar — rawScore must reach the regime-specific TRADE threshold
+//     (live: scoreDirectionWithThresholds candidate-band reads are advisory);
+//  3. unique entry gate — the strategy's own entry gate must pass
+//     (StrategyResult.EntryGatePassed, set by applyRefinement);
+//  4. profitability — EV <= 0 loss candidates are vetoed fail-closed
+//     (StrategyResult.IsLossCandidate; live: capital-protection downgrade).
+func (r *Runner) parityGate(res strategy.StrategyResult, candle *types.Candle, state *features.MarketState) (string, bool) {
+	// Only directional reads can be promoted at all.
+	if res.Direction != types.DirectionBuy && res.Direction != types.DirectionSell {
+		return "", true
+	}
+
+	if !r.cooldownUntil.IsZero() && candle.Time.Before(r.cooldownUntil) {
+		return "PARITY_COOLDOWN", false
+	}
+
+	scoreF, _ := res.RawScore.Float64()
+	_, tradeThresh, found := strategy.GetThresholds(r.config.StrategyID, state.Regime.Current)
+	if found && scoreF < tradeThresh {
+		return "PARITY_BELOW_TRADE_BAR", false
+	}
+
+	if !res.EntryGatePassed {
+		return "PARITY_ENTRY_GATE", false
+	}
+
+	if res.IsLossCandidate {
+		return "PARITY_NEGATIVE_EV", false
+	}
+
+	return "", true
 }
 
 // openTrade opens a new position from a strategy result.
@@ -241,6 +294,12 @@ func (r *Runner) openTrade(stratResult strategy.StrategyResult, candle *types.Ca
 		Regime:      state.Regime.Current,
 		Session:     state.Session.CurrentSession,
 		RawScore:    stratResult.RawScore,
+	}
+
+	// Production parity: a confirmed signal starts the strategy's cooldown
+	// window (live: CooldownManager.Set on every confirmed executable).
+	if stratResult.CooldownMinutes > 0 {
+		r.cooldownUntil = candle.Time.Add(time.Duration(stratResult.CooldownMinutes) * time.Minute)
 	}
 
 	r.tracker.OpenPosition(pos)
