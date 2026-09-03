@@ -2,6 +2,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import { IconBroadcast } from "@tabler/icons-react";
+import StatusBadge from "@/components/ui/status-badge";
 
 interface AgentsStatusResponse {
   agents_connected: number;
@@ -20,18 +21,19 @@ interface AgentsStatusResponse {
   server_time: string;
 }
 
-const HEALTH_STYLES: Record<string, string> = {
-  HEALTHY: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-  STALE: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-  CRITICAL: "bg-rose-500/15 text-rose-300 border-rose-500/30",
-  NO_DATA: "bg-slate-500/15 text-slate-300 border-slate-500/30",
+/** Accent colours for the feed-health banner — PAT semantic tokens only. */
+const HEALTH_BANNER: Record<string, { border: string; bg: string; text: string; dot: string }> = {
+  HEALTHY: { border: "border-pat-success/40", bg: "bg-pat-success/10", text: "text-pat-text-primary", dot: "bg-pat-success" },
+  STALE: { border: "border-pat-warning/40", bg: "bg-pat-warning/10", text: "text-pat-text-primary", dot: "bg-pat-warning" },
+  CRITICAL: { border: "border-pat-danger/40", bg: "bg-pat-danger/10", text: "text-pat-text-primary", dot: "bg-pat-danger" },
+  NO_DATA: { border: "border-pat-border", bg: "bg-pat-bg-surface", text: "text-pat-text-primary", dot: "bg-pat-text-muted" },
 };
 
 function Metric({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-4">
-      <div className="text-xs uppercase tracking-wide text-slate-400">{label}</div>
-      <div className="mt-1 text-xl font-semibold text-white">{value}</div>
+    <div className="rounded-lg border border-pat-border bg-pat-bg-surface p-4">
+      <div className="text-xs uppercase tracking-wide text-pat-text-muted">{label}</div>
+      <div className="mt-1 text-xl font-semibold text-pat-text-primary">{value}</div>
     </div>
   );
 }
@@ -44,30 +46,32 @@ export default function AdminAgentMeshPage() {
     refetchInterval: 10000,
   });
 
+  const health = HEALTH_BANNER[data?.data_health || ""] || HEALTH_BANNER.NO_DATA;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Agent Mesh</h1>
-          <p className="text-sm text-slate-400">
+          <h1 className="text-xl font-bold text-pat-text-primary">Agent Mesh</h1>
+          <p className="text-sm text-pat-text-secondary mt-1">
             Windows Agent bridge + AI Agent Mesh connectivity (real-time, sourced from the Go engine).
           </p>
         </div>
         {data?.timestamp && (
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-pat-text-muted whitespace-nowrap">
             Updated {new Date(data.timestamp).toLocaleTimeString()}
           </span>
         )}
       </div>
 
       {isLoading && (
-        <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-8 text-center text-slate-400">
+        <div className="rounded-lg border border-pat-border bg-pat-bg-surface p-8 text-center text-sm text-pat-text-muted">
           Loading agent mesh state…
         </div>
       )}
 
       {isError && (
-        <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-4 text-rose-300">
+        <div className="rounded-lg border border-pat-danger/40 bg-pat-danger/10 p-4 text-sm text-pat-danger">
           Failed to load agent mesh: {(error as Error)?.message || "unknown error"}
           <button onClick={() => refetch()} className="ml-3 underline">
             retry
@@ -77,21 +81,21 @@ export default function AdminAgentMeshPage() {
 
       {data && (
         <>
-          <div
-            className={`flex items-center gap-3 rounded-xl border p-4 ${
-              HEALTH_STYLES[data.data_health] || HEALTH_STYLES.NO_DATA
-            }`}
-          >
-            <IconBroadcast size={28} />
+          <div className={`flex items-center gap-3 rounded-lg border p-4 ${health.border} ${health.bg}`}>
+            <span className={`h-2.5 w-2.5 rounded-full ${health.dot}`} />
+            <IconBroadcast size={24} className="text-pat-text-secondary" />
             <div>
-              <div className="text-sm font-medium">Data Feed Health</div>
-              <div className="text-lg font-semibold">{data.data_health}</div>
+              <div className="text-sm text-pat-text-secondary">Data Feed Health</div>
+              <div className={`text-lg font-semibold ${health.text}`}>{data.data_health}</div>
             </div>
-            {data.market_closed && (
-              <span className="ml-auto rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300">
-                Market closed — next open {new Date(data.next_market_open_utc).toUTCString()}
-              </span>
-            )}
+            <div className="ml-auto flex items-center gap-2">
+              <StatusBadge status={data.data_health} size="sm" />
+              {data.market_closed && (
+                <span className="rounded-md bg-pat-bg-surface-secondary border border-pat-border px-2 py-1 text-xs text-pat-text-secondary">
+                  Market closed — next open {new Date(data.next_market_open_utc).toUTCString()}
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -118,7 +122,7 @@ export default function AdminAgentMeshPage() {
             />
           </div>
 
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-pat-text-muted">
             Agents online: {String(data.agents_online)} · Server time:{" "}
             {new Date(data.server_time).toUTCString()}
           </p>

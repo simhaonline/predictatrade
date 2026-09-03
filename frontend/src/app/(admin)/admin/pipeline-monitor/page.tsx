@@ -1,7 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
-import { IconListCheck } from "@tabler/icons-react";
+import StatusBadge from "@/components/ui/status-badge";
 
 interface PipelineStage {
   stage: string;
@@ -21,13 +21,14 @@ interface PipelineMonitorResponse {
   timestamp: string;
 }
 
-const STATUS_STYLES: Record<string, string> = {
-  healthy: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-  idle: "bg-slate-500/15 text-slate-300 border-slate-500/30",
-  live: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-  connected: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-  db_error: "bg-rose-500/15 text-rose-300 border-rose-500/30",
-  degraded: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+/** Dot colour per lifecycle status — PAT semantic tokens only. */
+const STATUS_DOTS: Record<string, string> = {
+  healthy: "bg-pat-success",
+  live: "bg-pat-success",
+  connected: "bg-pat-success",
+  idle: "bg-pat-text-muted",
+  db_error: "bg-pat-danger",
+  degraded: "bg-pat-warning",
 };
 
 export default function AdminPipelineMonitorPage() {
@@ -40,28 +41,28 @@ export default function AdminPipelineMonitorPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Pipeline Monitor</h1>
-          <p className="text-sm text-slate-400">
+          <h1 className="text-xl font-bold text-pat-text-primary">Pipeline Monitor</h1>
+          <p className="text-sm text-pat-text-secondary mt-1">
             Live Signal → Risk → Execution → Review pipeline (real-time, sourced from the Go engine).
           </p>
         </div>
         {data?.timestamp && (
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-pat-text-muted whitespace-nowrap">
             Updated {new Date(data.timestamp).toLocaleTimeString()}
           </span>
         )}
       </div>
 
       {isLoading && (
-        <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-8 text-center text-slate-400">
+        <div className="rounded-lg border border-pat-border bg-pat-bg-surface p-8 text-center text-sm text-pat-text-muted">
           Loading pipeline state…
         </div>
       )}
 
       {isError && (
-        <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-4 text-rose-300">
+        <div className="rounded-lg border border-pat-danger/40 bg-pat-danger/10 p-4 text-sm text-pat-danger">
           Failed to load pipeline monitor: {(error as Error)?.message || "unknown error"}
           <button onClick={() => refetch()} className="ml-3 underline">
             retry
@@ -69,59 +70,63 @@ export default function AdminPipelineMonitorPage() {
         </div>
       )}
 
-      {data?.pipeline?.map((stage) => {
-        const badge = STATUS_STYLES[stage.status] || "bg-slate-500/15 text-slate-300 border-slate-500/30";
-        return (
-          <div key={stage.stage} className="rounded-xl border border-slate-700 bg-slate-900/50 p-5">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <span className="text-lg font-semibold text-white">{stage.stage}</span>
-                <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${badge}`}>
-                  {stage.status}
-                </span>
-              </div>
-              <span className="text-sm text-slate-300">{stage.name}</span>
+      {data?.pipeline?.map((stage) => (
+        <div key={stage.stage} className="rounded-lg border border-pat-border bg-pat-bg-surface p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  STATUS_DOTS[stage.status] || "bg-pat-text-muted"
+                }`}
+              />
+              <span className="text-base font-semibold text-pat-text-primary">{stage.stage}</span>
+              <StatusBadge status={stage.status} size="sm" />
             </div>
+            <span className="text-sm text-pat-text-secondary">{stage.name}</span>
+          </div>
 
-            <p className="mt-2 text-sm text-slate-400">{stage.detail || stage.note}</p>
+          <p className="mt-2 text-sm text-pat-text-secondary">{stage.detail || stage.note}</p>
 
-            <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-sm">
-              {typeof stage.count_5m === "number" && (
-                <span className="text-slate-300">
-                  Signals (5m): <span className="font-semibold text-white">{stage.count_5m}</span>
-                </span>
-              )}
-              {stage.last_at && (
-                <span className="text-slate-300">
-                  Last at: <span className="font-semibold text-white">{stage.last_at}</span>
-                </span>
-              )}
-              {typeof stage.vetoed_5m === "number" && (
-                <span className="text-slate-300">
-                  Vetoed (5m): <span className="font-semibold text-white">{stage.vetoed_5m}</span>
-                </span>
-              )}
-              {typeof stage.backfill === "number" && (
-                <span className="text-slate-300">
-                  Backfill: <span className="font-semibold text-white">{stage.backfill}%</span>
-                </span>
-              )}
-            </div>
-
-            {stage.engines && stage.engines.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {stage.engines.map((e) => (
-                  <span key={e} className="rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-200">
-                    {e}
-                  </span>
-                ))}
-              </div>
+          <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-sm text-pat-text-secondary">
+            {typeof stage.count_5m === "number" && (
+              <span>
+                Signals (5m): <span className="font-semibold text-pat-text-primary">{stage.count_5m}</span>
+              </span>
+            )}
+            {stage.last_at && (
+              <span>
+                Last at: <span className="font-semibold text-pat-text-primary">{stage.last_at}</span>
+              </span>
+            )}
+            {typeof stage.vetoed_5m === "number" && (
+              <span>
+                Vetoed (5m):{" "}
+                <span className="font-semibold text-pat-text-primary">{stage.vetoed_5m}</span>
+              </span>
+            )}
+            {typeof stage.backfill === "number" && (
+              <span>
+                Backfill: <span className="font-semibold text-pat-text-primary">{stage.backfill}%</span>
+              </span>
             )}
           </div>
-        );
-      })}
 
-      <p className="text-xs text-slate-500">
+          {stage.engines && stage.engines.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {stage.engines.map((e) => (
+                <span
+                  key={e}
+                  className="rounded-md bg-pat-bg-surface-secondary border border-pat-border px-2 py-0.5 text-xs text-pat-text-secondary"
+                >
+                  {e}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+
+      <p className="text-xs text-pat-text-muted">
         The Intelligence Engine roster above is returned live by the engine. IGS (Institutional Gold
         Signal) is a shadow/research engine and is intentionally excluded from the live pipeline until
         its validation gate is promoted — see the architecture design doc.
