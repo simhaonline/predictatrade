@@ -4244,6 +4244,39 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 						if sig.Executable && (sig.Direction == types.DirectionBuy || sig.Direction == types.DirectionSell) {
 							sig.SignalClass = "EXECUTABLE"
 						}
+						// v1.23.2: capital-tier eligibility on the promoted-candidate
+						// path too. This path can emit EXECUTABLE signals, and it
+						// previously skipped the tier evaluation entirely (only the
+						// full-decision path had it), so promoted STANDARD_SWING
+						// signals reached every tier regardless of geometry.
+						// Geometry is final here: seedMarketLevels +
+						// sanitizeStratResult ran above before candDecision.
+						{
+							cEntryF, _ := sig.EntryPrice.Float64()
+							cSlF, _ := sig.StopLoss.Float64()
+							cSlDist := 0.0
+							if cEntryF > 0 && cSlF > 0 {
+								cSlDist = cEntryF - cSlF
+								if cSlDist < 0 {
+									cSlDist = -cSlDist
+								}
+							}
+							cTierEl := capitaltier.Evaluate(cSlDist, spreadNow+cfg.SlippageCostPoints+cfg.CommissionCostPoints)
+							for _, t := range cTierEl.EligibleTiers {
+								sig.EligibleTiers = append(sig.EligibleTiers, string(t))
+							}
+							if len(cTierEl.EligibleTiers) < len(capitaltier.All()) {
+								obs := observability.Log.Info().Str("strategy", string(strat.ID())).Strs("eligible_tiers", sig.EligibleTiers).Float64("sl_distance", cSlDist)
+								excl := map[string]string{}
+								for t, r := range cTierEl.Exclusions {
+									excl[string(t)] = r
+								}
+								if len(excl) > 0 {
+									obs = obs.Interface("exclusions", excl)
+								}
+								obs.Msg("[CAPITAL-TIER] promoted candidate restricted to capital categories by min-lot risk")
+							}
+						}
 					}
 
 					broadcastSignalToAll(wsHub, sig)
@@ -4570,14 +4603,33 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 		spreadNow, _ := mergedState.Spread.Float64()
 		roundTripCostF := spreadNow + cfg.SlippageCostPoints + cfg.CommissionCostPoints
 		roundTripCost := decimal.NewFromFloat(roundTripCostF)
-		// v1.23.1: capital-tier eligibility is computed UNCONDITIONALLY from the
-		// seeded strategy geometry (entry/SL are final after seedMarketLevels +
-		// sanitizeStratResult, independent of any account snapshot). Previously
-		// the tier evaluation lived inside the account-known sizing guard, so a
-		// stale/missing ACCOUNT_INFO silently degraded EligibleTiers to empty →
-		// enqueue defaulted to all-tiers → wide-swing signals leaked to tiny
-		// accounts. Tier math needs only SL distance and round-trip cost.
 		var decisionTierEligible []string
+		// P1-001: Derive entitlement/license/execution state from the authoritative
+		// gate registry — never hardcoded. Fail closed if any state is unknown/stale.
+		entitlementState := gates.ResolveEntitlementState(gateRegistry)
+		if !entitlementState.EntitlementOK || !entitlementState.LicenseActive || !entitlementState.ExecutionPermitted {
+			observability.EntitlementDenialTotal.Inc()
+			for _, r := range entitlementState.DenialReasons {
+				observability.Log.Warn().Strs("denial_reasons", entitlementState.DenialReasons).
+					Str("strategy", string(strat.ID())).Msg("Execution denied — gate state not positively verified")
+				_ = r
+				break
+			}
+		}
+		// Seed market entry (if strategy gave none) and repair levels BEFORE gate
+		// evaluation so wrong_side_sl / total_cost see tradeable (not zero/corrupt)
+		// levels — otherwise valid trades get vetoed and downgraded to ADVISORY.
+		seedMarketLevels(&stratResult, mergedState.Bid, mergedState.Ask)
+		sanitizeStratResult(&stratResult)
+		// v1.23.2: capital-tier eligibility computed UNCONDITIONALLY from the
+		// FINAL seeded strategy geometry (after seedMarketLevels +
+		// sanitizeStratResult), independent of any account snapshot. Two prior
+		// placement bugs taught us the ordering constraints: inside the
+		// account-known sizing guard (v1.23.0) a stale ACCOUNT_INFO degraded
+		// EligibleTiers to empty → all-tiers default; before the seed
+		// (v1.23.1) entry/SL were still zero → same empty-tier leak. Tier
+		// math needs only SL distance and round-trip cost, but that geometry
+		// is only trustworthy after the seed/repair step above.
 		{
 			entryF0, _ := stratResult.EntryPrice.Float64()
 			slF0, _ := stratResult.StopLoss.Float64()
@@ -4604,23 +4656,6 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 				obs.Msg("[CAPITAL-TIER] signal restricted to capital categories by min-lot risk")
 			}
 		}
-		// P1-001: Derive entitlement/license/execution state from the authoritative
-		// gate registry — never hardcoded. Fail closed if any state is unknown/stale.
-		entitlementState := gates.ResolveEntitlementState(gateRegistry)
-		if !entitlementState.EntitlementOK || !entitlementState.LicenseActive || !entitlementState.ExecutionPermitted {
-			observability.EntitlementDenialTotal.Inc()
-			for _, r := range entitlementState.DenialReasons {
-				observability.Log.Warn().Strs("denial_reasons", entitlementState.DenialReasons).
-					Str("strategy", string(strat.ID())).Msg("Execution denied — gate state not positively verified")
-				_ = r
-				break
-			}
-		}
-		// Seed market entry (if strategy gave none) and repair levels BEFORE gate
-		// evaluation so wrong_side_sl / total_cost see tradeable (not zero/corrupt)
-		// levels — otherwise valid trades get vetoed and downgraded to ADVISORY.
-		seedMarketLevels(&stratResult, mergedState.Bid, mergedState.Ask)
-		sanitizeStratResult(&stratResult)
 		decision := engine.DecideWithAdvanced(buildAdvancedInput(sigengine.DecisionInput{
 			MarketClosed: globalAgentProvider != nil && globalAgentProvider.IsMarketClosed(), NextMarketOpen: nextMarketOpen(time.Now().UTC()),
 			StrategyID: strat.ID(), Direction: stratResult.Direction,
