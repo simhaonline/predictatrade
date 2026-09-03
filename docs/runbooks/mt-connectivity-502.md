@@ -4,6 +4,33 @@
 > "edge-poll failed: HTTP 502" incident, the HA fix, and the connectivity
 > watchdog. Read this before touching nginx, pat-control, or the watchdog.
 
+## "Why no trade" production truth (2026-09-03, d08bc27)
+
+Answer to "signals not executing on MetaTrader" after the type fix:
+delivery infrastructure is fine — the engine is not emitting tier-eligible
+executable signals. Verified chain of custody for 2026-09-03:
+
+- 453 signal items enqueued Sep 2 → Sep 3 08:04 UTC were ALL eaten by the
+  type-less payload bug (fixed 5730430, deployed 16:42).
+- After 16:42: zero signal payloads enqueued. Two verified reasons:
+  1. The single EXECUTABLE swing signal (b549decd, SELL, score 77.1,
+     17:01:15 UTC) was PRO-only by capital-tier math (SL distance 19.6pts
+     → min-lot risk $19.6 > STANDARD 2% cap $10) while the fleet is
+     MICRO×2 + STANDARD×1 → delivery SQL matched 0 devices (correct
+     fail-closed behavior, but silent).
+  2. Every other strong read (scores 66–85, trade bar 70) was vetoed by
+     the advisory-candidate gate path — which logged NOTHING (no log, no
+     metric, no DB row). Standard-scalping additionally carries a
+     proven-negative live edge (65 downgrades; fail-closed by design).
+- Profitability math replay for the 77.1 read PASSES (netRR 3.72, EV
+  +17.8) → the veto is a different, unnamed gate; identified only after
+  v1.24.2 observability deploys.
+
+v1.24.2 (d08bc27, scheduled deploy 21:05 UTC) makes both failure classes
+loud: `[CANDIDATE-GATE]` logs + `pat_gate_veto_total` for every strong
+candidate veto, and `[DELIVERY]` WARN when an executable signal matches
+0 devices. Engine log version now reflects the real engine version.
+
 ## Permanent delivery guardrails (2026-09-04, this repo)
 
 The silent-drop incident exposed the core gap: **nothing verified that an
