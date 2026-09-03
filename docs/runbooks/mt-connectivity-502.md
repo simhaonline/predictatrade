@@ -4,6 +4,43 @@
 > "edge-poll failed: HTTP 502" incident, the HA fix, and the connectivity
 > watchdog. Read this before touching nginx, pat-control, or the watchdog.
 
+## Walk-forward A/B: tightened vs old swing geometry (2026-09-03, Kaggle Q4-2025 M15)
+
+**Parity fix first (real bug found):** the backtest-engine never called
+`strategy.InitExitProfileDB`, so historical backtests ran on the
+ATR-fallback geometry, NOT the DB `exit_profiles` — live geometry changes
+were invisible to backtests. Fixed in `cmd/backtest-engine/main.go`
+(database/sql via pgx stdlib → `InitExitProfileDB`); binary rebuilt,
+`docker compose restart control control-b` (bind-mount inode rule).
+Verified in-run: `[EXIT_PROFILE] Loaded STANDARD_SWING: mode=PERCENTAGE
+SL=0.1800%`.
+
+**A/B (90 days, M15, Kaggle Q4-2025, $10k, no gates — raw direction engine):**
+
+| Run | Geometry | Trades | Win rate | PF | Expectancy/trade | Return |
+|---|---|---|---|---|---|---|
+| A | NEW (SL 0.18% / TP1 0.40%) | 1907 | 27.5% | 0.49 | −$8.52 | −162.4% |
+| B | OLD (SL 0.25% / TP1 0.25%) | 2097 | 42.3% | 0.45 | −$7.64 | −160.2% |
+| C | NEW, max 1 position | 861 | 28.0% | 0.40 | −$14.24 | −122.6% |
+
+**Honest verdict: neither geometry is profitable raw.** The runner opens a
+trade on EVERY directional `Evaluate` (no score bar, no gates, no
+cooldowns, no tier filter — by design it tests the strategy engine, not
+the production pipeline). Geometry comparison is still valid (same
+inputs): NEW yields 2× larger avg wins ($30.37 vs $14.75) and PF 0.49 vs
+0.45 — marginally better maths — but the ~27–42% raw direction accuracy
+in a choppy 663-pt Q4 range loses under any exit scheme. The production
+signal (score bar 25–40 + 23 gates + micro-TP + cooldowns + tier caps) is
+a different, far more selective system; these runs measure the inner
+direction engine alone.
+
+**Implication for the fleet:** keep the tightened geometry (better
+expectancy per trade, better tier fit, EV-correct ladder) BUT the swing
+strategy's live viability rests on the gate stack doing its job —
+capital-protection's negative-live-edge veto and the profitability gate
+remain the safety net. Swing signals will be rare and selective — that is
+correct behavior, not a bug.
+
 ## v1.25 DEPLOYED LIVE (2026-09-03 17:38 UTC, user-authorized early deploy)
 
 "i need to get signals on clients" — done, verified end-to-end:

@@ -2,12 +2,14 @@
 // EXACT production Go feature engine and strategy evaluators.
 //
 // Usage:
-//   backtest-engine --strategy STANDARD_SCALPING --timeframe M5 --start 2025-06-01 --end 2025-06-30
-//   backtest-engine --strategy TREND_SWING --timeframe M5 --start 2025-01-01 --end 2025-12-31 --store
+//
+//	backtest-engine --strategy STANDARD_SCALPING --timeframe M5 --start 2025-06-01 --end 2025-06-30
+//	backtest-engine --strategy TREND_SWING --timeframe M5 --start 2025-01-01 --end 2025-12-31 --store
 package main
 
 import (
 	"context"
+	"database/sql"
 	"flag"
 	"fmt"
 	"os"
@@ -16,9 +18,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver for exit-profile reads
 	"github.com/predictatrade/realtime/internal/backtest"
-	"github.com/shopspring/decimal"
+	"github.com/predictatrade/realtime/internal/strategy"
 	"github.com/predictatrade/realtime/internal/types"
+	"github.com/shopspring/decimal"
 )
 
 func main() {
@@ -87,6 +91,25 @@ func main() {
 	config.MaxPositions = *maxPos
 	config.DBUrl = url
 	config.Source = *source
+
+	// Parity fix (v1.25): wire the DB exit-profile loader so backtests use the
+	// SAME percentage SL/TP geometry as the live engine (trading.exit_profiles).
+	// Previously only cmd/realtime-engine called InitExitProfileDB, so backtests
+	// silently fell back to ATR-multiplier geometry — historical results could
+	// not validate live geometry changes (e.g. the tightened swing profiles).
+	profileDB, pdbErr := sql.Open("pgx", url)
+	if pdbErr == nil {
+		if pingErr := profileDB.Ping(); pingErr == nil {
+			profileDB.SetMaxOpenConns(2)
+			profileDB.SetMaxIdleConns(1)
+			strategy.InitExitProfileDB(profileDB)
+			fmt.Println("  Exit profiles: trading.exit_profiles (DB-backed, live parity)")
+		} else {
+			fmt.Printf("  Exit profiles: DB ping failed (%v) — ATR fallback geometry\n", pingErr)
+		}
+	} else {
+		fmt.Printf("  Exit profiles: DB open failed (%v) — ATR fallback geometry\n", pdbErr)
+	}
 
 	// Print config
 	fmt.Println(strings.Repeat("=", 70))
@@ -206,4 +229,3 @@ func main() {
 	fmt.Println(strings.Repeat("=", 70))
 	fmt.Println("Backtest complete.")
 }
-
