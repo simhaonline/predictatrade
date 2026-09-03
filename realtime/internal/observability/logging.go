@@ -18,6 +18,6 @@ func InitLogger(level string) {
 	Log = zerolog.New(os.Stdout).Level(lvl).With().
 		Timestamp().
 		Str("service", "realtime-engine").
-		Str("version", "1.0.0").
+		Str("version", "1.24.2").
 		Logger()
 }

@@ -740,6 +740,17 @@ func enqueueSignalForDevices(signal *types.Signal) {
 	if n, _ := res.RowsAffected(); n > 0 {
 		observability.Log.Info().Str("signal_id", signal.ID).Int64("devices", n).
 			Msg("Signal enqueued for EA-direct devices")
+	} else {
+		// v1.24.2: a 0-device match on an EXECUTABLE signal used to vanish
+		// silently (the only "queued" evidence was the pre-enqueue broadcast
+		// log). That masked the 2026-09-03 tier-gating block for hours — the
+		// PRO-only swing signal had zero eligible devices. Log it loudly so
+		// delivery gaps are diagnosable from the engine log alone.
+		observability.Log.Warn().
+			Str("signal_id", signal.ID).
+			Str("strategy", string(signal.StrategyID)).
+			Strs("eligible_tiers", signal.EligibleTiers).
+			Msg("[DELIVERY] executable signal matched 0 devices — tier/entitlement filter excluded the whole fleet")
 	}
 }
 
@@ -4261,6 +4272,21 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 						sig.Executable = rawScoreF >= tradeThresh && candDecision.AllGatesPass
 						if sig.Executable && (sig.Direction == types.DirectionBuy || sig.Direction == types.DirectionSell) {
 							sig.SignalClass = "EXECUTABLE"
+						}
+						// v1.24.2: permanent observability — the advisory-candidate
+						// path never logged WHICH gate vetoed a strong read, which
+						// made "why no trade" undiagnosable from production data
+						// (2026-09-03 incident: 138 tier-eligible candidates died
+						// with zero gate-level evidence). Log every candidate-path
+						// first-veto and feed the GateVetoTotal metric.
+						if rawScoreF >= tradeThresh && !candDecision.AllGatesPass && candDecision.FirstVeto != nil {
+							observability.GateVetoTotal.WithLabelValues(string(candDecision.FirstVeto.GateID)).Inc()
+							observability.Log.Info().
+								Str("strategy", string(strat.ID())).
+								Str("gate", string(candDecision.FirstVeto.GateID)).
+								Str("reasons", strings.Join(candDecision.FirstVeto.ReasonCodes, ",")).
+								Float64("raw_score", rawScoreF).
+								Msg("[CANDIDATE-GATE] strong candidate vetoed — advisory (fail-closed)")
 						}
 						// v1.23.2: capital-tier eligibility on the promoted-candidate
 						// path too. This path can emit EXECUTABLE signals, and it
