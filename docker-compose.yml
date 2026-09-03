@@ -149,13 +149,53 @@ services:
     # realtime/cmd/backtest-engine; it connects via DATABASE_URL above).
     volumes:
       - /srv/predictatrade/xauusd/realtime/bin/backtest-engine:/app/backtest-engine:ro
-    ports:
-      - "13080:13080"
+    # HA (2026-09-04): MT-client edge-poll must NEVER 502 during a deploy.
+    # Control is stateless (PG-backed; edge-poll queue and the async backtest
+    # job worker both claim work with FOR UPDATE SKIP LOCKED, so two instances
+    # never double-run a job). nginx load-balances control + control-b and
+    # retries the peer on failure — a single-container restart is invisible
+    # to MT clients. Reach control via the docker network (nginx) or
+    # `docker exec` — the host port binding is intentionally REMOVED.
+    expose:
+      - "13080"
+    networks:
+      pat-net:
+        aliases:
+          - control
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:13080/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Second control-plane instance (identical build/env) — HA peer for
+  # nginx upstream pool. No host port (nginx is the only entrypoint).
+  control-b:
+    build:
+      context: ./control
+      dockerfile: Dockerfile
+    container_name: pat-control-b
+    env_file:
+      - ./infra/env/control.env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - CONTROL_HOST=0.0.0.0
+      - CONTROL_PORT=13080
+    volumes:
+      - /srv/predictatrade/xauusd/realtime/bin/backtest-engine:/app/backtest-engine:ro
+    expose:
+      - "13080"
     depends_on:
       postgres:
         condition: service_healthy
     networks:
-      - pat-net
+      pat-net:
+        aliases:
+          - control-b
     restart: always
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:13080/api/v1/health"]

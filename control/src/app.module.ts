@@ -20,6 +20,7 @@ import { HealthModule } from './modules/health/health.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { DeviceAuthModule } from './modules/device-auth/device-auth.module';
 import { EdgePollModule } from './modules/edge-poll/edge-poll.module';
+import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { OperationsModule } from './modules/operations/operations.module';
 import { BacktestModule } from './modules/backtest/backtest.module';
 import { GuestPreviewModule } from './modules/guest-preview/guest-preview.module';
@@ -58,6 +59,7 @@ import { ComplianceInterceptor } from './common/interceptors/compliance.intercep
     AdminModule,
     DeviceAuthModule,
     EdgePollModule,
+    MonitoringModule,
     OperationsModule,
     BacktestModule,
     GuestPreviewModule,
