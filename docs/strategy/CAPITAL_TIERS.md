@@ -147,4 +147,37 @@ Engine sizes signal for funded account, computes EligibleTiers (SL distance)
 - Deployed EAs (≤ v1.22) don't stream heartbeat equity yet → tiers stay
   unknown → **fail-open delivery (current behavior) until recompile**.
   After MT5 v1.23 / MT4 v1.24 compile, classification starts automatically.
-- Admin dashboards: per-tier counters are a follow-up (pipeline-monitor).
+
+## Signal freshness + entry-drift gates (MT5 v1.24 / MT4 v1.25 — 3 Sep 2026)
+
+Defense-in-depth hardening after a full signal-timing audit (master-node
+broker time → UTC conversion verified accurate to 0.5s live; server-side
+expiry already enforced at poll time in edge-poll before claim):
+
+1. **`PAT_SignalFresh()` was dead code** — fully implemented in both EAs
+   (server `ExpiresAt` first, `MaxSignalAgeSeconds` fallback) but never
+   invoked. Now wired into the exec path before any order: expired signals
+   are counted as filtered and refused, protecting against any future
+   server-side sweep regression.
+2. **Per-strategy entry-drift gate** — the EA executes at CURRENT market
+   price with the signal's SL. Between engine decision and EA execution
+   (2–15s normal, longer on spikes) price can run, silently distorting the
+   R:R the engine sized for. Beyond the budget the signal is refused
+   (fail-closed, logged `SIGNAL REJECTED (entry drift)`):
+
+   | Strategy | Drift budget (points) | Rationale |
+   |---|---|---|
+   | ULTRA_SCALPING | 15 | 3m TTL, thin edge — tightest |
+   | STANDARD_SCALPING | 25 | 10m TTL |
+   | STANDARD_SWING | 60 | 60m TTL zone strategy |
+   | TREND_SWING | 80 | 60m TTL, wider targets |
+   | MARNIE_FIB / ATEN | 80 | zone/swing class |
+   | unknown strategy | 60 | conservative default |
+
+   Budgets sit above per-strategy slippage (5/10/20/30) so normal
+   delivery latency never trips them; only genuine price runs do.
+
+Both gates are EA-side only — no server change, no schema change. Sources
+synced to `frontend/public/downloads/`. Recompile required on the Windows
+MetaEditor side to activate. Admin per-tier counters remain a follow-up
+(pipeline-monitor).

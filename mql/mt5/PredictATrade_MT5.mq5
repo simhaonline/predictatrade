@@ -37,7 +37,7 @@
 //| SERVER - no EA recompile required.                               |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.22"
+#property version   "1.24"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -108,6 +108,16 @@ input string TripleSwapDay      = "Wednesday"; // Weekday treated as triple-swap
 #define StdScalp_MaxSlippage 10
 #define StdSwing_MaxSlippage 20
 #define TrendSwing_MaxSlippage 30
+// v1.24: per-strategy entry-drift budgets (points). The EA executes at CURRENT
+// market price with the signal's SL — if price ran from EntryPrice between the
+// engine decision and this EA's poll (spikes move XAUUSD 5-10 pts in seconds),
+// the R:R geometry is silently distorted. Beyond this budget the EA refuses
+// the signal (fail-closed, counts as filtered). Budgets > per-strategy
+// slippage so normal latency (2-15s) never trips them; spikes do.
+#define UltraScalp_MaxEntryDrift 15
+#define StdScalp_MaxEntryDrift 25
+#define StdSwing_MaxEntryDrift 60
+#define TrendSwing_MaxEntryDrift 80
 #define RiskPerTradePct 1.0
 #define UseAutoLotSizing true
 
@@ -279,6 +289,44 @@ int PAT_GetMaxSlippage(string strategyName)
     if(strategyName == "STANDARD_SWING") return StdSwing_MaxSlippage;
     if(strategyName == "TREND_SWING") return TrendSwing_MaxSlippage;
     return MaxSlippagePoints;
+}
+
+//+------------------------------------------------------------------+
+//| v1.24: ENTRY-DRIFT GATE — refuse signals whose entry geometry    |
+//| is already stale. Compares CURRENT market price against the      |
+//| signal's EntryPrice; beyond the per-strategy budget the R:R the  |
+//| engine sized for no longer holds, so we fail closed.             |
+//+------------------------------------------------------------------+
+int PAT_GetMaxEntryDrift(string strategyName)
+{
+    if(strategyName == "ULTRA_SCALPING") return UltraScalp_MaxEntryDrift;
+    if(strategyName == "STANDARD_SCALPING") return StdScalp_MaxEntryDrift;
+    if(strategyName == "STANDARD_SWING") return StdSwing_MaxEntryDrift;
+    if(strategyName == "TREND_SWING") return TrendSwing_MaxEntryDrift;
+    if(strategyName == "MARNIE_FIB") return TrendSwing_MaxEntryDrift;   // 120-240m TTL zone strategy — widest budget
+    if(strategyName == "ATEN") return TrendSwing_MaxEntryDrift;         // 60m TTL swing-class
+    return StdSwing_MaxEntryDrift; // unknown strategy — conservative swing-class budget
+}
+
+bool PAT_EntryDriftOK(string strategyName, bool isBuy)
+{
+    if(g_entry <= 0) return true; // no entry reference in signal — nothing to compare
+    double price = isBuy ? SymbolInfoDouble(g_symbol, SYMBOL_ASK)
+                         : SymbolInfoDouble(g_symbol, SYMBOL_BID);
+    if(price <= 0) return false; // cannot verify market — fail closed
+    double driftPts = MathAbs(price - g_entry) / _Point;
+    int budget = PAT_GetMaxEntryDrift(strategyName);
+    if(driftPts > budget)
+    {
+        Print("SIGNAL REJECTED (entry drift): strategy=", strategyName,
+              " dir=", (isBuy ? "BUY" : "SELL"),
+              " signal_entry=", DoubleToString(g_entry, _Digits),
+              " market=", DoubleToString(price, _Digits),
+              " drift=", DoubleToString(driftPts, 1),
+              "pt budget=", budget, "pt — R:R geometry stale, NO-TRADE");
+        return false;
+    }
+    return true;
 }
 
 //+------------------------------------------------------------------+
@@ -719,7 +767,7 @@ string FormatISO8601UTC(datetime t)
 
 int OnInit()
 {
-    Print("Predict-A-Trade MT5 EA v1.19 initializing...");
+    Print("Predict-A-Trade MT5 EA v1.24 initializing...");
 
     g_symbol = BrokerSymbol;
     if(g_symbol == "") g_symbol = _Symbol;
@@ -1239,7 +1287,7 @@ void SendInitMessage()
     if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
        Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
 
-    string msg = "INIT|{\"ea_version\":\"1.22\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
+    string msg = "INIT|{\"ea_version\":\"1.24\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                 "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
                 "\",\"license_key\":\"" + g_licenseKey +
                 "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
@@ -1272,7 +1320,7 @@ void SendAccountInfo()
     // bound account id does not match, so telemetry is never silently wrong.
     if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
        Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
-    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.22\",\"account\":\"" + g_accountID +
+    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.24\",\"account\":\"" + g_accountID +
                 "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                 "\",\"symbol\":\"" + g_symbol +
                 "\",\"currency\":\"" + AccountInfoString(ACCOUNT_CURRENCY) +
@@ -1698,6 +1746,25 @@ void HandleSignal(string json)
     Print("SIGNAL-EXEC-CHECK dir=", g_signalDirection, " class=", g_signalClass,
           " AutoExecute=", AutoExecute, " ExecuteCandidates=", ExecuteCandidates,
           " conn=", g_connection, " lic=", g_licenseStatus);
+
+    // v1.24: TTL freshness gate — never execute a signal past its server
+    // ExpiresAt (or MaxSignalAgeSeconds fallback). Restores the intended
+    // defense-in-depth: the server already sweeps expired PENDING rows at
+    // poll time, but this EA-side check protects against any future server
+    // regression delivering stale payloads (fail-closed).
+    if(!PAT_SignalFresh())
+    {
+        g_signalsFiltered++;
+        return;
+    }
+
+    // v1.24: entry-drift gate — direction resolved first (candidates are
+    // normalized below), then current market is compared against the signal
+    // EntryPrice before any order is considered.
+    bool driftBuy = (g_signalDirection == "BUY" || g_signalDirection == "BUY_CANDIDATE");
+    bool driftSell = (g_signalDirection == "SELL" || g_signalDirection == "SELL_CANDIDATE");
+    if(driftBuy && !PAT_EntryDriftOK(g_signalStrategy, true))  { g_signalsFiltered++; return; }
+    if(driftSell && !PAT_EntryDriftOK(g_signalStrategy, false)) { g_signalsFiltered++; return; }
 
     if(AutoExecute && g_signalDirection == "BUY")
         ExecuteBuy();
