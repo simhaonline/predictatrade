@@ -1452,6 +1452,12 @@ void PollFromCloud()
         // KILL_SWITCH/REQUEST_SNAPSHOT…).
         string msgType = ExtractJSONString(payload, "type");
 
+        // v1.26.1: type-less payload with an "ID" key = a real signal (the
+        // queue carries json.Marshal(signal) — no "type" key on some writers).
+        // Promote so the ack and dispatch are correct on every build.
+        if(StringLen(msgType) == 0 && ExtractJSONString(payload, "ID") != "")
+            msgType = "SIGNAL";
+
         if(msgType == "SIGNAL" || ExtractJSONString(payload, "ID") != "")
             HandleSignal(payload);
         else if(msgType == "LICENSE_STATUS")

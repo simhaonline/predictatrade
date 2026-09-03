@@ -678,7 +678,25 @@ func enqueueSignalForDevices(signal *types.Signal) {
 			string(capitaltier.Micro), string(capitaltier.Standard), string(capitaltier.Pro),
 		}
 	}
-	payload, err := json.Marshal(signal)
+	// v1.24.1: inject "type":"SIGNAL" into the queued payload. Older client
+	// EA builds dispatch the queue item by payload->>"type" only and fall
+	// into "Unknown queue item type: " for type-less signal JSON — the item
+	// was acked (PROCESSED, type:"") but never executed, silently dropping
+	// every delivered signal on those terminals (observed 2026-09-03: 126
+	// empty-type ACKs on devices 35ef87d0/4e3e8b15 vs correct SIGNAL ACKs on
+	// 3e27f366). The extra key is ignored by HandleSignal (it reads ID /
+	// EntryPrice / StopLoss / TP* directly) and is forward+backward
+	// compatible with every EA dispatch in the field.
+	rawPayload, err := json.Marshal(signal)
+	if err != nil {
+		return
+	}
+	var payloadMap map[string]interface{}
+	if err := json.Unmarshal(rawPayload, &payloadMap); err != nil {
+		return
+	}
+	payloadMap["type"] = "SIGNAL"
+	payload, err := json.Marshal(payloadMap)
 	if err != nil {
 		return
 	}

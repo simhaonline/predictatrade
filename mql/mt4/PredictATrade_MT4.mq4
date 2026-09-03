@@ -2851,6 +2851,8 @@ void PollFromCloud()
         // Signal payloads carry "ID" (no "type", no "signal_id") — detect them the
         // same way the MT5 client does, else every real signal fell to UNKNOWN and
         // was acked-but-never-executed.
+        // v1.27.1: promote an empty msgType BEFORE dispatch (parity with MT5
+        // v1.26.1): type-less payload with "ID" = a real signal.
         if(StringLen(msgType) == 0)
         {
             if(StringFind(payload, "\"signal_id\"") >= 0 || ExtractJSONString(payload, "ID") != "")
