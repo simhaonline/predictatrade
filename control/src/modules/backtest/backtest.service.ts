@@ -22,6 +22,32 @@ export class BacktestService {
   async runBacktest(dto: RunBacktestDto, userId: string, isAdmin: boolean) {
     this.logger.log(`Backtest requested by ${userId}: ${dto.strategy} ${dto.timeframe} ${dto.startDate}→${dto.endDate}`);
 
+    // Range guard (2026-09-03): the engine processes ~3.5ms per bar across
+    // all strategies/timeframes (measured: 27.5k M1 bars ≈ 94s, 5.5k M5 bars
+    // ≈ 20s). Runs are synchronous (HTTP + 300s execFile timeout), so reject
+    // upfront any range that cannot complete in time with an actionable
+    // message instead of an opaque "Command failed"/504. Users should split
+    // long M1 ranges into chunks (history is stored per run and the per-plan
+    // cards aggregate whatever runs exist).
+    const startMs = Date.parse(`${dto.startDate}T00:00:00Z`);
+    const endMs = Date.parse(`${dto.endDate}T00:00:00Z`);
+    const maxDaysByTimeframe: Record<string, number> = {
+      M1: 40, // ~45s/day × 40d ≈ 200s — worst case; M1 candles are ~43k/month
+      M5: 300, // ~30s/month × 5y
+    };
+    const tfKey = String(dto.timeframe || '').toUpperCase();
+    const cap = maxDaysByTimeframe[tfKey] ?? 0;
+    if (cap > 0 && Number.isFinite(startMs) && Number.isFinite(endMs) && endMs - startMs > cap * 86_400_000) {
+      const days = Math.round((endMs - startMs) / 86_400_000);
+      return {
+        runId: 'rejected',
+        status: 'FAILED',
+        strategy: dto.strategy,
+        timeframe: dto.timeframe,
+        error: `Range too long for ${tfKey}: ${days} days exceeds the ${cap}-day synchronous limit (the engine evaluates ~3.5ms per bar, so this would exceed the 5-minute timeout and fail). Split the backtest into ≤${cap}-day chunks — each run is stored and the plan performance cards aggregate all stored runs.`,
+      };
+    }
+
     const args = [
       '--strategy', dto.strategy,
       '--timeframe', dto.timeframe,
