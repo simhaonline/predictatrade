@@ -977,9 +977,6 @@ bool PAT_ValidateLevels(bool isBuy, double entry, double &sl, double &tpFinal)
     return true;
 }
 
-//+------------------------------------------------------------------+
-//| Signal expiry: prefer server-provided ExpiresAt, else age input   |
-//+------------------------------------------------------------------+
 datetime PAT_ParseISO8601UTC(string s)
 {
     // Handles "2026-08-24T16:25:11[.frac][Z|+03:00|-05:00]"
@@ -1035,6 +1032,46 @@ datetime PAT_ParseISO8601UTC(string s)
     return (localInterp + off - suffixOff);
 }
 
+//+------------------------------------------------------------------+
+//| External signal timestamp -> broker (TimeCurrent) timeline.       |
+//| v1.28: ALL trading decisions must run on the broker clock that   |
+//| TimeCurrent() returns (Master Node mandate). Use this helper to  |
+//| convert any EXTERNAL timestamp — an upstream provider signal     |
+//| issued in a fixed wall-clock zone (UTC, Dubai GMT+4, exchange    |
+//| local …) — onto the broker timeline BEFORE comparing it against  |
+//| TimeCurrent(), iTime()/Copy* bar times, or an order expiration.  |
+//| srcOffsetMinutes: minutes EAST of UTC of the source wall clock   |
+//| (0 = UTC, 240 = Dubai GMT+4, -300 = New York GMT-5).             |
+//| Returns 0 when the input is empty/unparseable (fail-closed:      |
+//| callers must treat 0 as "unknown, use fallback age gate").       |
+//+------------------------------------------------------------------+
+datetime PAT_LocalToBroker(string iso, int srcOffsetMinutes)
+{
+    // Step 1: parse components as-is (no offset math inside the parser).
+    datetime src = PAT_ParseISO8601UTC(iso);
+    if(src <= 0) return 0;
+    // PAT_ParseISO8601UTC has already normalized a trailing Z/+HH:MM/-HH:MM
+    // suffix to UTC, so a non-zero srcOffsetMinutes would double-shift.
+    // Only apply the fixed source offset when the string carries none.
+    int suffixOff = 0;
+    if(StringLen(iso) >= 20)
+    {
+        string c = StringSubstr(iso, 19, 1);
+        if(c == "Z" || c == "z" || c == "+" || c == "-") suffixOff = 1;
+    }
+    if(suffixOff == 0 && srcOffsetMinutes != 0)
+        src = (datetime)((long)src - srcOffsetMinutes * 60);
+    // Step 2: UTC -> broker timeline (same live wall-clock diff the expiry
+    // parser uses; DST-safe for brokers that observe DST).
+    return (datetime)((long)src + ((long)TimeCurrent() - (long)TimeGMT()));
+}
+
+//+------------------------------------------------------------------+
+//| Signal expiry: prefer server-provided ExpiresAt, else age input. |
+//| v1.28: the age gate anchors on the payload's server issue time   |
+//| (CreatedAt/IssuedAt, UTC ISO) when present — NOT on the receive  |
+//| moment — so queued/replayed signals cannot exceed their TTL.     |
+//+------------------------------------------------------------------+
 bool PAT_SignalFresh()
 {
     datetime expiry = PAT_ParseISO8601UTC(ExtractJSONString(g_lastSignalJSON, "ExpiresAt"));
@@ -1047,6 +1084,21 @@ bool PAT_SignalFresh()
             return false;
         }
         return true;
+    }
+    // v1.28: anchor on the server's issue timestamp when the payload carries
+    // one (CreatedAt/IssuedAt — UTC ISO8601). The old g_signalTime = receive
+    // moment lets an edge-queue replay reset the TTL each poll; the issued
+    // timestamp is the true clock origin. Fallback stays receive-anchored.
+    datetime issued = 0;
+    string issuedStr = ExtractJSONString(g_lastSignalJSON, "CreatedAt");
+    if(StringLen(issuedStr) == 0) issuedStr = ExtractJSONString(g_lastSignalJSON, "IssuedAt");
+    if(StringLen(issuedStr) > 0) issued = PAT_ParseISO8601UTC(issuedStr);
+    if(issued > 0 && TimeCurrent() > issued + MaxSignalAgeSeconds)
+    {
+        Print("SIGNAL EXPIRED (age>): signal=", g_signalID,
+              " issued=", TimeToString(issued, TIME_DATE|TIME_SECONDS),
+              " older than ", MaxSignalAgeSeconds, "s");
+        return false;
     }
     if(g_signalTime > 0 && TimeCurrent() > g_signalTime + MaxSignalAgeSeconds)
     {

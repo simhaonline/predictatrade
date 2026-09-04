@@ -1213,6 +1213,22 @@ func main() {
 		} else {
 			log.Info().Msg("Broker UTC offset will be auto-detected from live Master Node ticks (broker-session-aligned candles)")
 		}
+
+		// v1.28: keep the features-package session clock (BrokerLocation)
+		// locked to the SAME offset the candles use. BrokerOffsetHours()
+		// resolves the authoritative chain (operator override → Master Node
+		// live report → tick auto-detection); feeding it to
+		// features.SetLiveBrokerOffset makes session classification /
+		// ORB ranges run on the exact broker clock the EAs' TimeCurrent()
+		// runs on — never a stale static default.
+		features.SetLiveBrokerOffset(agentProvider.BrokerOffsetHours())
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				features.SetLiveBrokerOffset(agentProvider.BrokerOffsetHours())
+			}
+		}()
 	}
 	if isAgentProvider {
 		log.Info().Msg("Using AgentProvider — waiting for Windows MT5 Agent connection for real tick data")

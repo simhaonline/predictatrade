@@ -87,10 +87,15 @@ func (dm *DeliveryManager) RecordDelivery(ctx context.Context, signal *types.Sig
 		SequenceNumber: seq,
 		DeliveryState:  DeliverySent,
 		SendAttempts:   1,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		// v1.28: timestamps MUST be UTC instants — .UTC() guarantees the
+		// RFC3339 payload carries Z (or +00:00) so every consumer (EA
+		// freshness gates, dashboards, broker-time conversions) treats them
+		// unambiguously. The Postgres write path uses now() (timestamptz) and
+		// is unaffected.
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	delivery.SentAt = &now
 
 	if dm.db == nil {

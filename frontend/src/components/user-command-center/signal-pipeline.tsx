@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import { strategyLabel } from "@/lib/strategy-labels";
 import { getGlobalWs, type WsMessage } from "@/lib/websocket";
-import { format } from "date-fns";
+import { useServerTime, formatBrokerTimestamp } from "@/lib/use-server-time";
 
 interface EngineSignal {
   ID: string; StrategyID: string; Direction: string; Status: string;
@@ -19,6 +19,7 @@ interface EngineSignal {
 
 export function SignalPipeline() {
   const ws = getGlobalWs();
+  const { brokerOffset } = useServerTime();
 
   const { data: engineData, refetch } = useQuery<{ signals: EngineSignal[] }>({
     queryKey: ["user-signal-pipeline"],
@@ -115,7 +116,8 @@ export function SignalPipeline() {
                   <div className="flex items-center gap-2 text-[10px] text-pat-text-muted">
                     {score > 0 && <span>Score: {score.toFixed(1)}</span>}
                     {prob > 0 && <span>Prob: {(prob * 100).toFixed(1)}%</span>}
-                    <span>{s.CreatedAt ? format(new Date(s.CreatedAt), "HH:mm:ss") : "—"}</span>
+                    {/* Broker-clock render: same clock as the EAs' TimeCurrent(), not the browser's TZ */}
+                    <span>{formatBrokerTimestamp(s.CreatedAt, brokerOffset, "HH:mm:ss")}</span>
                   </div>
                 </div>
 

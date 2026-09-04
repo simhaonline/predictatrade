@@ -320,12 +320,12 @@ Alert types:
 - Check EA is attached to XAUUSD M1 chart
 - Look for smiley face icon in MT4/MT5 (green = active)
 - Check Experts tab for error messages — look for SIGNAL-EXEC-CHECK and TRADE-CONFIG diagnostics
-- Verify broker server time matches engine timezone (default: GMT+3; configurable via BROKER_TIMEZONE)
+- Verify broker server time matches engine timezone (live-detected from the Master Node; fallback default GMT+2, configurable via BROKER_TIMEZONE or BROKER_UTC_OFFSET)
 - Check for "Duplicate signal ID — skipping" or "Strategy check: X NOT in allowed list" messages
 - Verify license status: the EA checks license status server-side and fails closed
 
 ### Signal timestamps off by a few hours
-The engine uses broker-local time (GMT+3) for session classification. Signal timestamps in Postgres are UTC. The frontend displays in UTC. If you see a 3-hour offset, it's the normal broker-local vs UTC difference and does not affect signal accuracy.
+All backend signal timestamps (CreatedAt, ExpiresAt, server_time) are UTC instants. The engine classifies sessions in broker-local time — GMT+2 by default for this deployment, detected live from the Master Node. The dashboard renders signal times on the same broker clock (label `B+2`, from useServerTime) — NOT your browser's timezone. The EAs compare server expiry against their broker clock (TimeCurrent). If you see an offset, it is the normal broker-local vs UTC difference and does not affect signal accuracy.
 
 ### Support
 - Email: support@predictatrade.com

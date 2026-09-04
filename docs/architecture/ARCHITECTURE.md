@@ -37,7 +37,9 @@ Go REALTIME ENGINE (:13081)
 > in-process automatically.
 
 ### Timezone Model
-The broker server runs in GMT+3 (standard XAUUSD FX broker time, no DST). All session classification, ORB ranges, and hour-of-day logic use broker-local time via `BrokerLocation()`, configurable through `BROKER_TIMEZONE` environment variable. Absolute instants are stored as TIMESTAMPTZ (UTC) in Postgres; only hour-of-day logic converts to broker time.
+The broker server runs in **GMT+2** (this deployment's XAUUSD broker server time, fixed, no DST). All session classification, ORB ranges, and hour-of-day logic use broker-local time via `BrokerLocation()`. Precedence (v1.28): (1) the offset observed **live from the Master Node** (`TimeGMTOffset()` reported on every tick — authoritative, matches the exact clock the EAs' `TimeCurrent()` runs on), (2) `BROKER_TIMEZONE` env (IANA name or fixed `+2`/`-5` offset), (3) fixed GMT+2 default. Absolute instants are stored as TIMESTAMPTZ (UTC) in Postgres and every API timestamp is a UTC RFC3339 instant; only hour-of-day logic converts to broker time.
+
+**EA clock authority (v1.28):** ALL EA trading logic — `iTime()`/`CopyRates` bar math, session/swap-hour windows (`IsNearSwapTime`, `IsTripleSwapDay`), signal TTL (`ExpiresAt`, `MaxSignalAgeSeconds`), and order expiry — runs on the broker clock `TimeCurrent()` returns, never on Windows-local time. Client EAs anchor the TTL age gate on the payload's server issue timestamp (`CreatedAt`/`IssuedAt`, UTC ISO) when present, so edge-queue replays cannot reset a signal's TTL. External timestamps from other zones convert via `PAT_LocalToBroker(iso, srcOffsetMinutes)` (in every EA file), which maps a source wall-clock instant (e.g. Dubai GMT+4 → `240`, UTC → `0`) onto the broker timeline using the live `TimeCurrent() − TimeGMT()` diff — DST-safe for brokers that observe DST. The frontend renders signal timestamps on the same broker clock via `formatBrokerTimestamp()` (`frontend/src/lib/use-server-time.ts`), not the browser's timezone.
 
 ### Plane Boundaries (mandatory)
 
@@ -122,7 +124,7 @@ without changing the engine.
 
 ### Recent Architectural Changes (v1.16.x)
 
-**Broker Timezone (GMT+3):** Session engine, ORB ranges, and all hour-of-day classification now use broker-local time instead of UTC. This fixes a 3-hour offset in session boundaries that affected signal timing display. Controlled by `BROKER_TIMEZONE` env var (defaults to `GMT+3`).
+**Broker Timezone (live-detected, v1.28):** Session engine, ORB ranges, and all hour-of-day classification use broker-local time instead of UTC. `BrokerLocation()` resolves the offset from the Master Node's live report first (authoritative — matches the EAs' `TimeCurrent()` clock), then `BROKER_TIMEZONE` env (IANA name or fixed `+HH` offset), then the GMT+2 default. Wired from the engine's `AgentProvider.BrokerOffsetHours()` every 30s via `features.SetLiveBrokerOffset`.
 
 **Capital-Loss Protection (5%):** New `SeedCapitalProtection` gate enforces a fail-closed daily loss cap of 5% of account equity. Engine computes account-size-aware position sizing (`SuggestedLot`, `RiskDollars`, `RiskPctOfEquity`, `SLDistancePoints`) and annotates every signal with these metrics.
 

@@ -4,8 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import { strategyLabel } from "@/lib/strategy-labels";
 import { getGlobalWs, type ConnectionState } from "@/lib/websocket";
+import { useServerTime, formatBrokerTimestamp } from "@/lib/use-server-time";
 import { IconChartBar, IconCoins, IconCheck, IconHourglass } from "@tabler/icons-react";
-import { format } from "date-fns";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface MarketSnapshot {
@@ -191,7 +191,8 @@ function GlobalMarketHeader({ snapshot, wsState, marketState, agentsStatus }: {
   // next-open window.
   const ccNextOpenStr = agentsStatus?.next_market_open_utc as string | undefined;
   const ccNextOpen = ccNextOpenStr ? new Date(ccNextOpenStr).getTime() : null;
-  const ccHoursToOpen = ccNextOpen !== null ? (ccNextOpen - Date.now()) / 3600000 : null;
+  // nowMs (interval-driven state) instead of Date.now() — react-hooks/purity.
+  const ccHoursToOpen = ccNextOpen !== null && nowMs ? (ccNextOpen - nowMs) / 3600000 : null;
   const ccMarketClosed = agentsStatus?.market_closed === true || (ccHoursToOpen !== null && ccHoursToOpen > 0 && ccHoursToOpen < 48);
   const snack = !tick ? (ccMarketClosed ? "CLOSED" : "UNKNOWN")
     : tickAgeSec !== null && tickAgeSec < 60 ? "LIVE"
@@ -654,6 +655,7 @@ function CompactMarketView({ snapshot }: { snapshot?: MarketSnapshot }) {
 }
 
 function CompactSignalsView({ signals }: { signals: SignalRecord[] }) {
+  const { brokerOffset } = useServerTime();
   const directional = signals.filter((s) => s.Direction !== "NO-TRADE").slice(0, 5);
   if (directional.length === 0) return <div className="text-xs text-pat-text-muted py-2 text-center">No active signals</div>;
   return (
@@ -666,7 +668,8 @@ function CompactSignalsView({ signals }: { signals: SignalRecord[] }) {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-pat-text-muted">Score: <span className="font-mono text-pat-text-primary">{parseFloat(s.RawScore || "0").toFixed(1)}</span></span>
-            <span className="text-pat-text-muted">{s.CreatedAt ? format(new Date(s.CreatedAt), "HH:mm") : "—"}</span>
+            {/* Broker-clock render: same clock as the EAs' TimeCurrent(), not the browser's TZ */}
+            <span className="text-pat-text-muted">{formatBrokerTimestamp(s.CreatedAt, brokerOffset, "HH:mm")}</span>
           </div>
         </div>
       ))}

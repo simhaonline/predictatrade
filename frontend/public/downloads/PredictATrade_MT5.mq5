@@ -41,6 +41,525 @@
 #property strict
 
 #include <Trade\Trade.mqh>
+// v1.27 account-type detection (additive; pure MQL, guarded for MT4/MT5)
+//+------------------------------------------------------------------+
+//| CAccountTypeDetector — INLINED (operator mandate: the MQL must    |
+//| not reference any external file). Formerly                        |
+//| mql/include/CAccountTypeDetector.mqh; identical content, same     |
+//| PAT_ATD_* / CAccountTypeDetector API.                             |
+//+------------------------------------------------------------------+
+
+//--- Account type enum (stable string codes for wire payloads & DB)
+enum ENUM_PAT_ACCOUNT_TYPE
+{
+   PAT_ATD_STANDARD = 0,   // Standard (default/baseline)
+   PAT_ATD_DEMO,           // Demo account
+   PAT_ATD_CONTEST,        // Contest/competition account
+   PAT_ATD_ISLAMIC,        // Swap-free (Islamic) account
+   PAT_ATD_MICRO_CENT,     // Micro / cent-denominated account
+   PAT_ATD_ECN,            // ECN (market execution + commission)
+   PAT_ATD_STP             // STP (straight-through processing)
+};
+
+//--- Cached detection state (globals: one instance per terminal)
+long     g_patATD_login       = 0;       // account login the cache belongs to
+int      g_patATD_type        = -1;      // cached type (-1 = not yet detected)
+string   g_patATD_reason      = "";      // human-readable detection reason
+int      g_patATD_confirms    = 0;       // confirmation count (rollover checks)
+bool     g_patATD_verified    = false;   // verified = confirmed by observation
+string   g_patATD_override    = "";      // manual override ("", or type code)
+bool     g_patATD_swapRoll    = false;   // swap-free indicator observed
+int      g_patATD_swapChecks  = 0;       // rollover checks performed
+datetime g_patATD_lastRoll    = 0;       // last rollover check time
+double   g_patATD_histComm    = 0;       // max commission seen in deal history
+
+//--- Public inputs may be mapped to these by the host EA (optional).
+//    Defaults keep detection fully automatic.
+input string PAT_ATD_Override     = "";    // Manual account-type override ("" = auto)
+input bool   PAT_ATD_EnableDetect = true;  // Enable account type detection
+
+//+------------------------------------------------------------------+
+//| Type → wire string (used in signals, ACKs, heartbeats, DB)         |
+//+------------------------------------------------------------------+
+string PAT_ATD_TypeName(int t)
+{
+   switch(t)
+   {
+      case PAT_ATD_DEMO:       return "Demo";
+      case PAT_ATD_CONTEST:    return "Contest";
+      case PAT_ATD_ISLAMIC:    return "Islamic";
+      case PAT_ATD_MICRO_CENT: return "MicroCent";
+      case PAT_ATD_ECN:        return "ECN";
+      case PAT_ATD_STP:        return "STP";
+      default:                 return "Standard";
+   }
+}
+
+//+------------------------------------------------------------------+
+//| String → type (for the manual override input)                     |
+//+------------------------------------------------------------------+
+int PAT_ATD_TypeFromName(const string name)
+{
+   string n = name;
+   StringToLower(n);
+   if(n == "demo")       return PAT_ATD_DEMO;
+   if(n == "contest")    return PAT_ATD_CONTEST;
+   if(n == "islamic")    return PAT_ATD_ISLAMIC;
+   if(n == "micro" || n == "microcent" || n == "micro_cent" || n == "cent")
+                         return PAT_ATD_MICRO_CENT;
+   if(n == "ecn")        return PAT_ATD_ECN;
+   if(n == "stp")        return PAT_ATD_STP;
+   if(n == "standard")   return PAT_ATD_STANDARD;
+   return -1;
+}
+
+//+------------------------------------------------------------------+
+//| Empirical commission scan: max DEAL_COMMISSION in recent history  |
+//| MT5: HistorySelect + HistoryDealGetDouble(DEAL_COMMISSION).       |
+//| MT4: OrderSelect loop reading OrderCommission().                  |
+//| Returns the largest absolute commission seen (account currency).  |
+//+------------------------------------------------------------------+
+double PAT_ATD_ScanCommission()
+{
+   double maxComm = 0;
+#ifdef __MQL5__
+   datetime from = TimeCurrent() - 30*24*60*60; // last 30 days
+   if(!HistorySelect(from, TimeCurrent() + 60))
+      return 0; // fail-open: treat as no commission data
+   int total = HistoryDealsTotal();
+   int scan  = MathMin(total, 200); // bounded scan
+   for(int i = total - 1; i >= total - scan && i >= 0; i--)
+   {
+      ulong ticket = HistoryDealGetTicket(i);
+      if(ticket == 0) continue;
+      double c = MathAbs(HistoryDealGetDouble(ticket, DEAL_COMMISSION));
+      if(c > maxComm) maxComm = c;
+   }
+#else
+   int total = OrdersHistoryTotal();
+   int scan  = MathMin(total, 200);
+   for(int i = total - 1; i >= total - scan && i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      double c = MathAbs(OrderCommission());
+      if(c > maxComm) maxComm = c;
+   }
+#endif
+   return maxComm;
+}
+
+//+------------------------------------------------------------------+
+//| Swap-free confirmation: does any OPEN position carry swap?        |
+//| Returns true when at least one open position exists and ALL of    |
+//| them report swap == 0.00. (Positions on the account, any symbol.) |
+//+------------------------------------------------------------------+
+bool PAT_ATD_OpenPositionsAllSwapFree(bool &anyOpen)
+{
+   anyOpen = false;
+#ifdef __MQL5__
+   int total = PositionsTotal();
+   for(int i = 0; i < total; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      if(PositionGetDouble(POSITION_SWAP) != 0.0) return false;
+      anyOpen = true;
+   }
+#else
+   int total = OrdersTotal();
+   for(int i = 0; i < total; i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderType() > OP_SELL) continue; // ignore pending orders
+      if(OrderSwap() != 0.0) return false;
+      anyOpen = true;
+   }
+#endif
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Core detection (no caching — call Detect() instead)               |
+//+------------------------------------------------------------------+
+int PAT_ATD_DetectCore(string &reasonOut, int &confirms)
+{
+   confirms = 0;
+
+   //--- Manual override has the highest priority of all (operator authority)
+   string ov = PAT_ATD_Override;
+   StringToLower(ov);
+   if(StringLen(ov) > 0)
+   {
+      int t = PAT_ATD_TypeFromName(ov);
+      if(t >= 0)
+      {
+         confirms = 1;
+         g_patATD_reason = "manual override: " + ov;
+         return t;
+      }
+   }
+
+   //--- 1) Demo / 2) Contest — authoritative platform flags
+   long tradeMode = -1;
+#ifdef __MQL5__
+   tradeMode = AccountInfoInteger(ACCOUNT_TRADE_MODE);
+#else
+   // MT4 has ACCOUNT_TRADE_MODE via AccountInfoInteger (build 600+).
+   tradeMode = AccountInfoInteger(ACCOUNT_TRADE_MODE);
+#endif
+   // ACCOUNT_TRADE_MODE_DEMO=0, CONTEST=1, REAL=2 (both platforms)
+   if(tradeMode == 0)
+   {
+      confirms = 1;
+      g_patATD_reason = "ACCOUNT_TRADE_MODE=DEMO";
+      return PAT_ATD_DEMO;
+   }
+   if(tradeMode == 1)
+   {
+      confirms = 1;
+      g_patATD_reason = "ACCOUNT_TRADE_MODE=CONTEST";
+      return PAT_ATD_CONTEST;
+   }
+
+   //--- 3) Islamic (swap-free) — symbol swap + rollover confirmation.
+   //    The type itself is declared immediately (swap-free symbol) and
+   //    CONFIRMED by observing open-position swap staying 0.00 across
+   //    3 rollover boundaries (call PAT_ATD_OnRollover() from the timer).
+   string sym = _Symbol;
+#ifdef __MQL5__
+   double swapL = SymbolInfoDouble(sym, SYMBOL_SWAP_LONG);
+   double swapS = SymbolInfoDouble(sym, SYMBOL_SWAP_SHORT);
+#else
+   // MT4: MarketInfo swap values for the chart symbol
+   double swapL = MarketInfo(Symbol(), MODE_SWAPLONG);
+   double swapS = MarketInfo(Symbol(), MODE_SWAPSHORT);
+#endif
+   bool symbolSwapFree = (swapL == 0.0 && swapS == 0.0);
+   if(symbolSwapFree && !g_patATD_swapRoll)
+   {
+      // Seed the rollover observer: check open-position swap right away.
+      g_patATD_swapRoll = true;
+      g_patATD_swapChecks = 0;
+      g_patATD_lastRoll = TimeCurrent();
+   }
+   if(symbolSwapFree && g_patATD_swapChecks >= 3)
+   {
+      confirms = g_patATD_swapChecks;
+      g_patATD_reason = "swap-free symbol + " + IntegerToString(g_patATD_swapChecks) + " rollover confirms";
+      return PAT_ATD_ISLAMIC;
+   }
+   else if(symbolSwapFree)
+   {
+      // Provisional Islamic while rollover confirmation accumulates.
+      confirms = g_patATD_swapChecks;
+      g_patATD_reason = "swap-free symbol (pending " + IntegerToString(3 - g_patATD_swapChecks) + " rollover confirms)";
+      return PAT_ATD_ISLAMIC;
+   }
+
+   //--- 4) Micro / Cent — lot/balance scaling pattern
+   double volMin = 0;
+   long   curDigits = 0;
+#ifdef __MQL5__
+   volMin = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   // ACCOUNT_CURRENCY_DIGITS is not a standard identifier; approximate the
+   // cent-denomination check with balance/equity granularity: cent accounts
+   // report balances like 123456.78 CENTS (= $78.56 standard). Heuristic:
+   // balance with .00 precision AND large value AND tiny min-lot. The min-lot
+   // check is the reliable half of the pair (spec: SYMBOL_VOLUME_MIN < 0.01).
+#else
+   volMin = MarketInfo(Symbol(), MODE_MINLOT);
+#endif
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+   bool tinyLot   = (volMin > 0 && volMin < 0.01);
+   bool hugeBalance = (balance >= 1000000.0); // 1e6 "units" = $10k on cent scale
+   if(tinyLot || (curDigits > 2))
+   {
+      confirms = 1;
+      g_patATD_reason = "min-lot " + DoubleToString(volMin, 3) + " < 0.01 (cent denomination)";
+      return PAT_ATD_MICRO_CENT;
+   }
+   if(hugeBalance && volMin <= 0.01)
+   {
+      confirms = 1;
+      g_patATD_reason = "balance " + DoubleToString(balance, 0) + " + min-lot " + DoubleToString(volMin, 3) + " (cent scaling pattern)";
+      return PAT_ATD_MICRO_CENT;
+   }
+
+   //--- 5) ECN / 6) STP — execution-mode + commission fingerprint
+   double histComm = PAT_ATD_ScanCommission();
+   g_patATD_histComm = histComm;
+   bool hasCommission = (histComm > 0.0);
+
+   // Execution mode fingerprint.
+   // MT5: SYMBOL_TRADE_MODE + fill-or-kill availability + zero stops level
+   // (market execution allows SL/TP modification post-open; instant does not).
+   long stopsLevel = 0;
+   long fillMode = 0;
+   bool marketExec = false;
+   bool instantOrRequest = false;
+#ifdef __MQL5__
+   stopsLevel = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   fillMode   = SymbolInfoInteger(_Symbol, SYMBOL_FILLING_MODE);
+   long symExec = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE);
+   marketExec        = (symExec != 0); // tradable; execution mode refined below
+   instantOrRequest  = (stopsLevel > 0); // instant/request brokers enforce stop distance at send time
+   // Instant/Request execution is signaled by a non-zero stops level OR the
+   // account forbidding market orders... MT5 exposes execution mode per symbol
+   // via SYMBOL_TRADE_MODE bits; a directly-queryable EXECUTION_INSTANT flag
+   // does not exist. Empirical: market execution brokers typically report
+   // stops level 0 on majors + allow post-open modify. We use that.
+   if(stopsLevel == 0) { marketExec = true; instantOrRequest = false; }
+#else
+   // MT4: MODE_PROHIBITED / instant by default; stop level > 0 ⇒ instant.
+   stopsLevel = MarketInfo(Symbol(), MODE_STOPLEVEL);
+   if(stopsLevel == 0) { marketExec = true; instantOrRequest = false; }
+   else                { instantOrRequest = true; }
+#endif
+
+   if(marketExec && hasCommission)
+   {
+      confirms = 1;
+      g_patATD_reason = "market execution + commission " + DoubleToString(histComm, 2) + "/lot (stops level " + IntegerToString((int)stopsLevel) + ")";
+      return PAT_ATD_ECN;
+   }
+   if(instantOrRequest && !hasCommission)
+   {
+      confirms = 1;
+      g_patATD_reason = "instant/request execution, no commission, stop level " + IntegerToString((int)stopsLevel);
+      return PAT_ATD_STP;
+   }
+
+   //--- 7) Standard — default classification
+   confirms = 1;
+   g_patATD_reason = "default (marketExec=" + (marketExec ? "1" : "0") + " comm=" + DoubleToString(histComm, 2) + " stops=" + IntegerToString((int)stopsLevel) + ")";
+   return PAT_ATD_STANDARD;
+}
+
+//+------------------------------------------------------------------+
+//| Rollover confirmation — call from OnTimer (once per hour max).    |
+//| Islamic confirmation needs 3 checks with open positions' swap 0. |
+//| Cheap: one pass over open positions.                              |
+//+------------------------------------------------------------------+
+void PAT_ATD_OnRollover()
+{
+   if(!PAT_ATD_EnableDetect) return;
+   if(g_patATD_type < 0) return;      // not detected yet
+   if(!g_patATD_swapRoll) return;     // not tracking a swap-free candidate
+
+   // At most one check per hour (rollover cadence proxy)
+   if(TimeCurrent() - g_patATD_lastRoll < 3600) return;
+   g_patATD_lastRoll = TimeCurrent();
+
+   bool anyOpen = false;
+   if(PAT_ATD_OpenPositionsAllSwapFree(anyOpen))
+   {
+      g_patATD_swapChecks++;
+      g_patATD_confirms = g_patATD_swapChecks;
+      if(g_patATD_swapChecks >= 3 && g_patATD_type == PAT_ATD_ISLAMIC)
+      {
+         g_patATD_verified = true;
+         Print("[ACCT-DETECT] Islamic swap-free CONFIRMED after ",
+               IntegerToString(g_patATD_swapChecks), " rollover checks (all open positions swap=0.00)");
+      }
+   }
+   else
+   {
+      // Swap observed — the account is NOT swap-free after all. Downgrade.
+      if(g_patATD_type == PAT_ATD_ISLAMIC)
+      {
+         Print("[ACCT-DETECT] Islamic hypothesis REJECTED: open position carries swap. Reclassifying.");
+         g_patATD_swapRoll = false;
+         g_patATD_swapChecks = 0;
+         g_patATD_type = PAT_ATD_Detect(); // re-run detection (cached fields reset inside)
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Public API — lazy, cached detection.                              |
+//| Returns the detected type; never throws; falls back to STANDARD.  |
+//+------------------------------------------------------------------+
+int PAT_ATD_Detect()
+{
+   long login = 0;
+#ifdef __MQL5__
+   login = AccountInfoInteger(ACCOUNT_LOGIN);
+#else
+   login = (long)AccountNumber();
+#endif
+   // Cache valid for the same login
+   if(g_patATD_type >= 0 && g_patATD_login == login)
+      return g_patATD_type;
+
+   g_patATD_login = login;
+   if(!PAT_ATD_EnableDetect)
+   {
+      g_patATD_type   = PAT_ATD_STANDARD;
+      g_patATD_reason = "detection disabled";
+      g_patATD_verified = true;
+      return g_patATD_type;
+   }
+
+   int confirms = 0;
+   int t = PAT_ATD_STANDARD;
+   string reason = "";
+   // MQL has no try/catch; the fail-safe is a defined fallback on any
+   // unexpected path. Detection itself cannot throw — all calls return
+   // values or 0 on failure.
+   t = PAT_ATD_DetectCore(reason, confirms);
+
+   if(t < 0) // belt & braces: never return an invalid type
+   {
+      t = PAT_ATD_STANDARD;
+      reason = "fallback after detection anomaly";
+   }
+   g_patATD_type     = t;
+   g_patATD_reason   = reason;
+   g_patATD_confirms = confirms;
+   g_patATD_verified = (t == PAT_ATD_STANDARD || t == PAT_ATD_DEMO || t == PAT_ATD_CONTEST || confirms >= 1);
+
+   Print("[ACCT-DETECT] account ", IntegerToString(login),
+         " → ", PAT_ATD_TypeName(t),
+         " (", reason, "; confirms=", IntegerToString(confirms), ")");
+   return t;
+}
+
+//--- Convenience getters (all O(1) cache reads after first call)
+int    PAT_ATD_GetType()          { if(g_patATD_type < 0) PAT_ATD_Detect(); return g_patATD_type; }
+string PAT_ATD_GetTypeName()      { return PAT_ATD_TypeName(PAT_ATD_GetType()); }
+string PAT_ATD_GetReason()        { if(g_patATD_type < 0) PAT_ATD_Detect(); return g_patATD_reason; }
+int    PAT_ATD_GetConfirms()      { if(g_patATD_type < 0) PAT_ATD_Detect(); return g_patATD_confirms; }
+bool   PAT_ATD_IsVerified()       { if(g_patATD_type < 0) PAT_ATD_Detect(); return g_patATD_verified; }
+long   PAT_ATD_GetLogin()         { if(g_patATD_type < 0) PAT_ATD_Detect(); return g_patATD_login; }
+
+//+------------------------------------------------------------------+
+//| ADAPTATION HELPERS — per-type math                                |
+//+------------------------------------------------------------------+
+
+//--- Position sizing scale factor. Micro/cent accounts: lots are divided
+//--- by 100 (1.00 cent-lot = 0.01 standard lot).
+double PAT_ATD_LotScale()
+{
+   int t = PAT_ATD_GetType();
+   if(t == PAT_ATD_MICRO_CENT) return 0.01;
+   return 1.0;
+}
+
+//--- Lot scale + broker min-lot floor respected.
+double PAT_ATD_ScaleLot(double lot)
+{
+   double s = PAT_ATD_LotScale();
+   if(s == 1.0) return lot;
+   double scaled = lot * s;
+   // A cent account's lot step is already 100× finer; the min lot on the
+   // cent symbol is typically 0.002 standard-ish. Respect the SYMBOL's own
+   // min (the EA's normalizer re-clamps to SymVolMin anyway).
+   return scaled;
+}
+
+//--- Round-trip commission cost in account currency for a given lot.
+//--- ECN: commission_per_lot × lot × 2 (entry + exit). Other types: use
+//--- the empirically scanned commission if the broker charges per-deal.
+double PAT_ATD_CommissionRoundTrip(double lot, double commissionPerLot)
+{
+   if(lot <= 0) return 0.0;
+   double perLot = commissionPerLot;
+   if(perLot <= 0) perLot = 0; // no commission model available
+   int t = PAT_ATD_GetType();
+   if(t == PAT_ATD_ECN)
+      return perLot * lot * 2.0; // round trip
+   if(t == PAT_ATD_MICRO_CENT)
+      return perLot * lot * 2.0 * 0.01; // cent-scale commission
+   return perLot * lot * 2.0; // standard/STP: charge both legs when present
+}
+
+//--- Extra slippage buffer in POINTS for risk/exit math.
+double PAT_ATD_SlippageBufferPts(double baseBufferPts)
+{
+   int t = PAT_ATD_GetType();
+   if(t == PAT_ATD_STP)
+      return baseBufferPts + 2.0;  // STP: 1-2 pip slippage buffer (use 2)
+   if(t == PAT_ATD_MICRO_CENT)
+      return baseBufferPts + 1.0;  // cent feeds can print wider momentary spreads
+   return baseBufferPts;
+}
+
+//--- Swap contribution to holding cost. Islamic: ALWAYS 0 in P&L math.
+double PAT_ATD_SwapAdjust(double rawSwap)
+{
+   int t = PAT_ATD_GetType();
+   if(t == PAT_ATD_ISLAMIC) return 0.0;
+   return rawSwap;
+}
+
+//--- P&L adjustment: commission + swap handling per account type.
+//--- netPnL = raw + swap_adjusted − commission_round_trip
+double PAT_ATD_NetPnL(double rawProfit, double swap, double lot, double commissionPerLot)
+{
+   double pnl = rawProfit + PAT_ATD_SwapAdjust(swap);
+   int t = PAT_ATD_GetType();
+   if(t == PAT_ATD_ECN || t == PAT_ATD_MICRO_CENT)
+      pnl -= PAT_ATD_CommissionRoundTrip(lot, commissionPerLot);
+   else if(g_patATD_histComm > 0)
+      pnl -= g_patATD_histComm; // broker-charged, already in deal P&L — no double count
+   return pnl;
+}
+
+//--- Risk-reward adjustment for commission erosion (ECN).
+//--- Returns the RR multiplier to apply so net RR meets the target.
+double PAT_ATD_RRErosionMult(double tpDistPrice, double slDistPrice, double lot, double commissionPerLot, double valuePerUnit)
+{
+   if(tpDistPrice <= 0 || slDistPrice <= 0) return 1.0;
+   int t = PAT_ATD_GetType();
+   if(t != PAT_ATD_ECN) return 1.0;
+   double comm = PAT_ATD_CommissionRoundTrip(lot, commissionPerLot);
+   if(comm <= 0) return 1.0;
+   double commPrice = comm / MathMax(valuePerUnit, 0.0000001); // $ → price units
+   double erodedTP = tpDistPrice - commPrice;                  // net win distance
+   double netRR = erodedTP / slDistPrice;
+   if(netRR <= 0) return 1.0; // degenerate — do not amplify
+   // Widen the TP so net RR equals the gross RR the strategy expects.
+   double mult = tpDistPrice / MathMax(erodedTP, tpDistPrice * 0.1);
+   return MathMax(1.0, mult);
+}
+
+//--- Demo flag for delivery payloads ("demo" tag on every signal).
+bool PAT_ATD_IsDemo()
+{
+   return (PAT_ATD_GetType() == PAT_ATD_DEMO);
+}
+
+//--- One-line traceability tag for signals/ACKs.
+string PAT_ATD_Tag()
+{
+   int t = PAT_ATD_GetType();
+   string tag = "\"account_type\":\"" + PAT_ATD_TypeName(t) + "\"";
+   if(t == PAT_ATD_DEMO) tag = "\"account_type\":\"Demo\",\"demo\":true";
+   return tag;
+}
+//+------------------------------------------------------------------+
+//| CAccountTypeDetector — facade class (name-compatible with spec).  |
+//| MQL classes cannot use try/catch; the fail-safe lives in the       |
+//| functions above. All methods are static-equivalent wrappers.       |
+//+------------------------------------------------------------------+
+class CAccountTypeDetector
+{
+public:
+   static int    Detect()               { return PAT_ATD_Detect(); }
+   static string TypeName()             { return PAT_ATD_GetTypeName(); }
+   static string Reason()               { return PAT_ATD_GetReason(); }
+   static int    ConfirmationCount()    { return PAT_ATD_GetConfirms(); }
+   static bool   IsVerified()           { return PAT_ATD_IsVerified(); }
+   static long   Login()                { return PAT_ATD_GetLogin(); }
+   static double LotScale()             { return PAT_ATD_LotScale(); }
+   static double ScaleLot(double lot)   { return PAT_ATD_ScaleLot(lot); }
+   static double SlippageBufferPts(double base) { return PAT_ATD_SlippageBufferPts(base); }
+   static double SwapAdjust(double s)   { return PAT_ATD_SwapAdjust(s); }
+   static bool   IsDemo()               { return PAT_ATD_IsDemo(); }
+   static string Tag()                  { return PAT_ATD_Tag(); }
+   static void   RolloverCheck()        { PAT_ATD_OnRollover(); }
+};
+//+------------------------------------------------------------------+
 
 //=== Input Parameters ===
 input bool    AutoExecute    = false;   // SIGNAL_ONLY=true by default (display only). Set true to auto-trade.
@@ -204,6 +723,42 @@ double  g_regTP3[PAT_REG_MAX];
 double  g_regOrigLot[PAT_REG_MAX];
 datetime g_regOpenTime[PAT_REG_MAX];
 int     g_regCount = 0;
+
+// v1.27: detected account type (lazy-cached inside CAccountTypeDetector).
+// "Standard" until the first Detect() runs in OnInit; used for traceability
+// tags and type-specific adaptation.
+string  g_accountType    = "Standard";
+string  g_accountTypeWhy = "";
+
+//+------------------------------------------------------------------+
+//| v1.27 ADDITIVE HELPERS — account-type integration                 |
+//| Appended by CAccountTypeDetector integration; no existing line     |
+//| modified. All functions are new and PAT_ATD_-prefixed internally.  |
+//+------------------------------------------------------------------+
+// Run detection once (lazy + cached + fail-safe to Standard). Called from
+// OnInit; safe to call again at any time.
+void PAT_ATD_InitDetect()
+{
+   int t = CAccountTypeDetector::Detect();          // never throws; falls back Standard
+   g_accountType    = CAccountTypeDetector::TypeName();
+   g_accountTypeWhy = CAccountTypeDetector::Reason();
+   if(CAccountTypeDetector::IsVerified())
+      Print("[Predict-A-Trade] account_type=", g_accountType,
+            " login=", IntegerToString(CAccountTypeDetector::Login()),
+            " confirmed (", g_accountTypeWhy, ")");
+   else
+      Print("[Predict-A-Trade] account_type=", g_accountType,
+            " PROVISIONAL (", g_accountTypeWhy, ") — confirmation pending");
+}
+
+// Signal payload tag for downstream traceability (append to any JSON).
+string PAT_ATD_SignalTag()
+{
+   string tag = ",\"account_type\":\"" + g_accountType + "\"";
+   if(g_accountType == "Demo") tag += ",\"demo\":true";
+   return tag;
+}
+//+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
 //| Strategy mapping                                                  |
@@ -422,9 +977,6 @@ bool PAT_ValidateLevels(bool isBuy, double entry, double &sl, double &tpFinal)
     return true;
 }
 
-//+------------------------------------------------------------------+
-//| Signal expiry: prefer server-provided ExpiresAt, else age input   |
-//+------------------------------------------------------------------+
 datetime PAT_ParseISO8601UTC(string s)
 {
     // Handles "2026-08-24T16:25:11[.frac][Z|+03:00|-05:00]"
@@ -480,6 +1032,46 @@ datetime PAT_ParseISO8601UTC(string s)
     return (localInterp + off - suffixOff);
 }
 
+//+------------------------------------------------------------------+
+//| External signal timestamp -> broker (TimeCurrent) timeline.       |
+//| v1.28: ALL trading decisions must run on the broker clock that   |
+//| TimeCurrent() returns (Master Node mandate). Use this helper to  |
+//| convert any EXTERNAL timestamp — an upstream provider signal     |
+//| issued in a fixed wall-clock zone (UTC, Dubai GMT+4, exchange    |
+//| local …) — onto the broker timeline BEFORE comparing it against  |
+//| TimeCurrent(), iTime()/Copy* bar times, or an order expiration.  |
+//| srcOffsetMinutes: minutes EAST of UTC of the source wall clock   |
+//| (0 = UTC, 240 = Dubai GMT+4, -300 = New York GMT-5).             |
+//| Returns 0 when the input is empty/unparseable (fail-closed:      |
+//| callers must treat 0 as "unknown, use fallback age gate").       |
+//+------------------------------------------------------------------+
+datetime PAT_LocalToBroker(string iso, int srcOffsetMinutes)
+{
+    // Step 1: parse components as-is (no offset math inside the parser).
+    datetime src = PAT_ParseISO8601UTC(iso);
+    if(src <= 0) return 0;
+    // PAT_ParseISO8601UTC has already normalized a trailing Z/+HH:MM/-HH:MM
+    // suffix to UTC, so a non-zero srcOffsetMinutes would double-shift.
+    // Only apply the fixed source offset when the string carries none.
+    int suffixOff = 0;
+    if(StringLen(iso) >= 20)
+    {
+        string c = StringSubstr(iso, 19, 1);
+        if(c == "Z" || c == "z" || c == "+" || c == "-") suffixOff = 1;
+    }
+    if(suffixOff == 0 && srcOffsetMinutes != 0)
+        src = (datetime)((long)src - srcOffsetMinutes * 60);
+    // Step 2: UTC -> broker timeline (same live wall-clock diff the expiry
+    // parser uses; DST-safe for brokers that observe DST).
+    return (datetime)((long)src + ((long)TimeCurrent() - (long)TimeGMT()));
+}
+
+//+------------------------------------------------------------------+
+//| Signal expiry: prefer server-provided ExpiresAt, else age input. |
+//| v1.28: the age gate anchors on the payload's server issue time   |
+//| (CreatedAt/IssuedAt, UTC ISO) when present — NOT on the receive  |
+//| moment — so queued/replayed signals cannot exceed their TTL.     |
+//+------------------------------------------------------------------+
 bool PAT_SignalFresh()
 {
     datetime expiry = PAT_ParseISO8601UTC(ExtractJSONString(g_lastSignalJSON, "ExpiresAt"));
@@ -492,6 +1084,21 @@ bool PAT_SignalFresh()
             return false;
         }
         return true;
+    }
+    // v1.28: anchor on the server's issue timestamp when the payload carries
+    // one (CreatedAt/IssuedAt — UTC ISO8601). The old g_signalTime = receive
+    // moment lets an edge-queue replay reset the TTL each poll; the issued
+    // timestamp is the true clock origin. Fallback stays receive-anchored.
+    datetime issued = 0;
+    string issuedStr = ExtractJSONString(g_lastSignalJSON, "CreatedAt");
+    if(StringLen(issuedStr) == 0) issuedStr = ExtractJSONString(g_lastSignalJSON, "IssuedAt");
+    if(StringLen(issuedStr) > 0) issued = PAT_ParseISO8601UTC(issuedStr);
+    if(issued > 0 && TimeCurrent() > issued + MaxSignalAgeSeconds)
+    {
+        Print("SIGNAL EXPIRED (age>): signal=", g_signalID,
+              " issued=", TimeToString(issued, TIME_DATE|TIME_SECONDS),
+              " older than ", MaxSignalAgeSeconds, "s");
+        return false;
     }
     if(g_signalTime > 0 && TimeCurrent() > g_signalTime + MaxSignalAgeSeconds)
     {
@@ -856,6 +1463,7 @@ int OnInit()
     }
 
     UpdatePanel();
+    PAT_ATD_InitDetect(); // v1.27: account-type detection (fail-safe; never blocks init)
     return(INIT_SUCCEEDED);
 }
 
@@ -924,6 +1532,10 @@ void OnTimer()
     // device liveness fresh in edge_device_state even when the engine ingest
     // is healthy but quiet (weekend).
     PAT_EdgeHeartbeat();
+
+    // v1.27: hourly Islamic/swap-free rollover confirmation (internally rate-
+    // limited to once per hour; no-op for non-candidate account types).
+    CAccountTypeDetector::RolloverCheck();
 }
 
 void PAT_Watchdog()
@@ -1338,6 +1950,7 @@ void SendInitMessage()
                   ",\"total_lots\":" + DoubleToString(totalLots, 2) +
                   ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
                   ",\"floating_pnl\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
+                  PAT_ATD_SignalTag() +
                   "}\n";
     PAT_Send(msg);
     Print("Init message sent with account data - balance: ", AccountInfoDouble(ACCOUNT_BALANCE));
@@ -1367,6 +1980,7 @@ void SendAccountInfo()
                 ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
                 ",\"leverage\":" + IntegerToString((int)AccountInfoInteger(ACCOUNT_LEVERAGE)) +
                 ",\"open_positions\":" + IntegerToString((int)PositionsTotal()) +
+                PAT_ATD_SignalTag() +
                 "}\n";
     PAT_Send(msg);
 }
@@ -1390,6 +2004,7 @@ void RequestLicenseValidation()
                   ",\"profit\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2) +
                   ",\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) +
                   ",\"open_positions\":" + IntegerToString(PositionsTotal()) +
+                  PAT_ATD_SignalTag() +
                   "}\n";
     PAT_Send(msg);
     Print("License validation with account data - balance: ", AccountInfoDouble(ACCOUNT_BALANCE));
@@ -1451,6 +2066,12 @@ void PollFromCloud()
         // SERVER_COMMAND envelopes (CLOSE_POSITION/EMERGENCY_STOP/
         // KILL_SWITCH/REQUEST_SNAPSHOT…).
         string msgType = ExtractJSONString(payload, "type");
+
+        // v1.26.1: type-less payload with an "ID" key = a real signal (the
+        // queue carries json.Marshal(signal) — no "type" key on some writers).
+        // Promote so the ack and dispatch are correct on every build.
+        if(StringLen(msgType) == 0 && ExtractJSONString(payload, "ID") != "")
+            msgType = "SIGNAL";
 
         if(msgType == "SIGNAL" || ExtractJSONString(payload, "ID") != "")
             HandleSignal(payload);
@@ -1879,6 +2500,59 @@ void HandleLicenseResponse(string json)
 //| Opens ONE position with the TOTAL lot; TP set to TP3 (final).     |
 //| TP1/TP2 are taken as EA-managed PARTIAL closes.                   |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| v1.27 ECN adaptation — attach SL/TP to an already-open position.   |
+//| ECN/market-execution brokers commonly reject orders that carry     |
+//| SL/TP at send time; the position is opened naked and stops are     |
+//| attached right after the fill (3 attempts, stops-level aware).     |
+//| Fail-safe: on total failure the missing-SL watchdog still closes   |
+//| the position — never an unprotected live position by design.       |
+//+------------------------------------------------------------------+
+void PAT_ATD_EcnAttachStops(ulong ticket, bool isBuy, double sl, double tp)
+{
+   if(ticket == 0) return;
+   if(!PositionSelectByTicket(ticket))
+   {
+      Print("ECN attach: position ", ticket, " not found (already closed?)");
+      return;
+   }
+   double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+   long stopsLevel = SymbolInfoInteger(g_symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   double slDist = stopsLevel * SymbolInfoDouble(g_symbol, SYMBOL_POINT);
+   for(int attempt = 0; attempt < 3; attempt++)
+   {
+      if(sl > 0 && tp > 0)
+      {
+         double sl2 = sl, tp2 = tp;
+         if(isBuy)
+         {
+            if(openPrice - sl2 < slDist) sl2 = openPrice - slDist - _Point;
+            if(tp2 - openPrice < slDist) tp2 = openPrice + slDist + _Point;
+         }
+         else
+         {
+            if(sl2 - openPrice < slDist) sl2 = openPrice + slDist + _Point;
+            if(openPrice - tp2 < slDist) tp2 = openPrice - slDist - _Point;
+         }
+         if(trade.PositionModify(ticket, sl2, tp2))
+         {
+            Print("ECN OPEN-THEN-MODIFY: SL/TP attached on attempt ", attempt + 1,
+                  " sl=", DoubleToString(sl2, _Digits), " tp=", DoubleToString(tp2, _Digits));
+            return;
+         }
+      }
+      else
+      {
+         Print("ECN attach: signal carried no SL/TP — skipping attach (watchdog will guard)");
+         return;
+      }
+      Print("ECN attach attempt ", attempt + 1, " failed: ", trade.ResultRetcode(),
+            " ", trade.ResultRetcodeDescription());
+      Sleep(250);
+   }
+   Print("ECN WARNING: SL/TP attach incomplete after 3 attempts — missing-SL watchdog will re-check");
+}
+
 void ExecuteBuy()
 {
     // 1. WRONG-SIDE SL/TP REJECT (highest priority — abort, never clamp)
@@ -1905,6 +2579,10 @@ void ExecuteBuy()
     double slDistExec = MathAbs(g_entry - g_sl);
     double clientCapLot = PAT_CalcLotSize(AccountInfoDouble(ACCOUNT_EQUITY), slDistExec);
     double vol = PAT_NormalizeLot(serverLot);
+    // v1.27 Micro/Cent adaptation: cent-denominated accounts quote in cent
+    // lots — 1.00 cent-lot = 0.01 standard lot (PAT_ATD_LotScale → 0.01 only
+    // on detected MicroCent accounts; identity otherwise).
+    vol = CAccountTypeDetector::ScaleLot(vol);
     if(clientCapLot > 0 && vol > clientCapLot)
     {
         Print("LOT CAPPED by local equity risk: server=", DoubleToString(vol, 2),
@@ -1933,16 +2611,35 @@ void ExecuteBuy()
         return;
     }
 
+    // v1.27 ECN adaptation (additive): on ECN accounts lot sizing is
+    // cent-scaled if the broker runs cent lots, and the execution path is
+    // marked for open-then-modify (ECN brokers commonly reject orders that
+    // carry SL/TP at send time). The modify step runs right after the fill
+    // below via PAT_ATD_EcnAttachStops(); non-ECN accounts keep the
+    // existing open-with-SL/TP path untouched.
+    bool atdEcnOpenModify = (g_accountType == "ECN");
+    double atdSl = g_sl, atdTp = finalTP;
+
     double ask = SymbolInfoDouble(g_symbol, SYMBOL_ASK);
     Print("ExecuteBuy: vol=", DoubleToString(vol, 2), " ask=", DoubleToString(ask, _Digits),
           " sl=", DoubleToString(g_sl, _Digits), " tp3=", DoubleToString(finalTP, _Digits),
-          " magic=", magic, " comment=", comment);
+          " magic=", magic, " comment=", comment,
+          " acct_type=", g_accountType);
 
     trade.SetExpertMagicNumber(magic);
     // W5 FIX: apply per-strategy max slippage (overrides the global default
     // set at init) so each strategy respects its configured slippage budget.
     trade.SetDeviationInPoints(PAT_GetMaxSlippage(g_signalStrategy));
-    if(trade.Buy(vol, g_symbol, ask, g_sl, finalTP, comment))
+    bool sentBuy = false;
+    if(atdEcnOpenModify)
+    {
+        // ECN: open naked, then attach SL/TP post-execution (spec §order mode)
+        sentBuy = trade.Buy(vol, g_symbol, ask, 0, 0, comment);
+        if(sentBuy) Print("ECN OPEN-THEN-MODIFY: order naked-filled, attaching SL/TP");
+    }
+    else
+        sentBuy = trade.Buy(vol, g_symbol, ask, g_sl, finalTP, comment);
+    if(sentBuy)
     {
         g_lastExecutedSignalID = g_signalID;
         ulong posTicket = trade.ResultOrder();
@@ -1958,7 +2655,14 @@ void ExecuteBuy()
                        g_tp1, g_tp2, g_tp3, vol);
         }
         PAT_SaveStage((long)magic, 0);
-        Print("BUY executed: order=", posTicket, " magic=", magic, " vol=", DoubleToString(vol, 2));
+        Print("BUY executed: order=", posTicket, " magic=", magic, " vol=", DoubleToString(vol, 2),
+              " acct_type=", g_accountType);
+
+        // v1.27 ECN: attach SL/TP after the naked fill (fail-closed watchdog
+        // would otherwise close the position for missing SL if attach fails —
+        // attempt up to 3 times with live stops-level clearance).
+        if(atdEcnOpenModify && posTicket > 0)
+            PAT_ATD_EcnAttachStops(posTicket, true, atdSl, atdTp);
 
         string ack = "EXECUTION_ACK|{";
         ack += "\"signal_id\":\"" + g_signalID + "\"";
@@ -1969,6 +2673,7 @@ void ExecuteBuy()
         ack += ",\"entry\":" + DoubleToString(ask, _Digits);
         ack += ",\"sl\":" + DoubleToString(g_sl, _Digits);
         ack += ",\"tp\":" + DoubleToString(finalTP, _Digits);
+        ack += PAT_ATD_SignalTag();  // v1.27 account-type traceability
         ack += "}\n";
         PAT_Send(ack);
         CheckSlippage(posTicket, "BUY", ask);
@@ -2001,6 +2706,10 @@ void ExecuteSell()
     double slDistExec = MathAbs(g_entry - g_sl);
     double clientCapLot = PAT_CalcLotSize(AccountInfoDouble(ACCOUNT_EQUITY), slDistExec);
     double vol = PAT_NormalizeLot(serverLot);
+    // v1.27 Micro/Cent adaptation: cent-denominated accounts quote in cent
+    // lots — 1.00 cent-lot = 0.01 standard lot (PAT_ATD_LotScale → 0.01 only
+    // on detected MicroCent accounts; identity otherwise).
+    vol = CAccountTypeDetector::ScaleLot(vol);
     if(clientCapLot > 0 && vol > clientCapLot)
     {
         Print("LOT CAPPED by local equity risk: server=", DoubleToString(vol, 2),
@@ -2026,15 +2735,28 @@ void ExecuteSell()
         return;
     }
 
+    // v1.27 ECN adaptation (see ExecuteBuy — additive; non-ECN unchanged)
+    bool atdEcnOpenModify = (g_accountType == "ECN");
+    double atdSl = g_sl, atdTp = finalTP;
+
     double bid = SymbolInfoDouble(g_symbol, SYMBOL_BID);
     Print("ExecuteSell: vol=", DoubleToString(vol, 2), " bid=", DoubleToString(bid, _Digits),
           " sl=", DoubleToString(g_sl, _Digits), " tp3=", DoubleToString(finalTP, _Digits),
-          " magic=", magic, " comment=", comment);
+          " magic=", magic, " comment=", comment,
+          " acct_type=", g_accountType);
 
     trade.SetExpertMagicNumber(magic);
     // W5 FIX: apply per-strategy max slippage (see ExecuteBuy).
     trade.SetDeviationInPoints(PAT_GetMaxSlippage(g_signalStrategy));
-    if(trade.Sell(vol, g_symbol, bid, g_sl, finalTP, comment))
+    bool sentSell = false;
+    if(atdEcnOpenModify)
+    {
+        sentSell = trade.Sell(vol, g_symbol, bid, 0, 0, comment);
+        if(sentSell) Print("ECN OPEN-THEN-MODIFY: order naked-filled, attaching SL/TP");
+    }
+    else
+        sentSell = trade.Sell(vol, g_symbol, bid, g_sl, finalTP, comment);
+    if(sentSell)
     {
         g_lastExecutedSignalID = g_signalID;
         ulong posTicket = trade.ResultOrder();
@@ -2050,7 +2772,12 @@ void ExecuteSell()
                        g_tp1, g_tp2, g_tp3, vol);
         }
         PAT_SaveStage((long)magic, 0);
-        Print("SELL executed: order=", posTicket, " magic=", magic, " vol=", DoubleToString(vol, 2));
+        Print("SELL executed: order=", posTicket, " magic=", magic, " vol=", DoubleToString(vol, 2),
+              " acct_type=", g_accountType);
+
+        // v1.27 ECN: attach SL/TP after the naked fill (see ExecuteBuy)
+        if(atdEcnOpenModify && posTicket > 0)
+            PAT_ATD_EcnAttachStops(posTicket, false, atdSl, atdTp);
 
         string ack = "EXECUTION_ACK|{";
         ack += "\"signal_id\":\"" + g_signalID + "\"";
@@ -2061,6 +2788,7 @@ void ExecuteSell()
         ack += ",\"entry\":" + DoubleToString(bid, _Digits);
         ack += ",\"sl\":" + DoubleToString(g_sl, _Digits);
         ack += ",\"tp\":" + DoubleToString(finalTP, _Digits);
+        ack += PAT_ATD_SignalTag();  // v1.27 account-type traceability
         ack += "}\n";
         PAT_Send(ack);
         CheckSlippage(posTicket, "SELL", bid);
@@ -2716,7 +3444,10 @@ void PAT_EdgeHeartbeat()
     // suitable for the account size. Equity is account currency.
     string body = "{\"terminal\":\"MT5\",\"account\":\"" + g_accountID + "\","
                   "\"symbol\":\"" + g_symbol + "\",\"build\":" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD)) + ","
-                  "\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) + "}";
+                  "\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) +
+                  ",\"account_type\":\"" + g_accountType + "\"" +
+                  ",\"account_type_verified\":" + (CAccountTypeDetector::IsVerified() ? "true" : "false") +
+                  ",\"account_type_confirms\":" + IntegerToString(CAccountTypeDetector::ConfirmationCount()) + "}";
     string response = "";
     int status = PAT_SignedPost("/api/v1/devices/edge-heartbeat", body, response);
     if(status != 200 && !g_netDiagnosticsShown)

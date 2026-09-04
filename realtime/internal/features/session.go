@@ -2,26 +2,102 @@ package features
 
 import (
 	"os"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
-// BrokerLocation returns the broker's operational timezone. The XAUUSD broker
-// server time is GMT+3 (standard for most FX brokers). All time-of-day logic
-// (session classification, ORB ranges, candle/signal timestamps that represent
-// broker wall-clock time) MUST use this location, NOT UTC, otherwise every
-// session boundary and displayed time is shifted by 3 hours. Absolute instants
-// are still stored as TIMESTAMPTZ (UTC) in Postgres; only hour-of-day logic
-// converts to this location.
+// liveBrokerOffsetHours holds the broker UTC offset observed live from the
+// Master Node (EA reports TimeGMTOffset()/wall-clock diff on every tick).
+// When non-zero it OVERRIDES the BROKER_TIMEZONE/BROKER_UTC_OFFSET defaults so
+// hour-of-day logic always matches the exact clock the trading EAs run on
+// (TimeCurrent). Wired from main.go via SetLiveBrokerOffset.
+var liveBrokerOffsetHours atomic.Int32
+
+// SetLiveBrokerOffset records the broker UTC offset (hours) reported live by
+// the Master Node. It takes precedence over the static BROKER_TIMEZONE env so
+// session classification never drifts from the broker's actual clock, even
+// when the operator's static config is stale (e.g. a DST-observing broker).
+func SetLiveBrokerOffset(hours int) {
+	if hours < -12 || hours > 14 {
+		return
+	}
+	liveBrokerOffsetHours.Store(int32(hours))
+}
+
+// LiveBrokerOffset returns the live-reported offset (0 = none observed yet).
+func LiveBrokerOffset() int { return int(liveBrokerOffsetHours.Load()) }
+
+// BrokerLocation returns the broker's operational timezone. Precedence:
+//  1. Live offset observed from the Master Node (authoritative — matches the
+//     exact clock the EAs' TimeCurrent() runs on).
+//  2. BROKER_TIMEZONE env (IANA name or fixed "+HH"/"-HH" offset).
+//  3. Fixed GMT+2 default (this deployment's XAUUSD broker server time, no DST).
+//
+// All time-of-day logic (session classification, ORB ranges, candle/signal
+// timestamps that represent broker wall-clock time) MUST use this location,
+// NOT UTC, otherwise every session boundary and displayed time is shifted.
+// Absolute instants are still stored as TIMESTAMPTZ (UTC) in Postgres; only
+// hour-of-day logic converts to this location.
 func BrokerLocation() *time.Location {
+	if off := LiveBrokerOffset(); off != 0 {
+		return time.FixedZone(brokerZoneName(off), off*3600)
+	}
 	if tz := os.Getenv("BROKER_TIMEZONE"); tz != "" {
 		if l, err := time.LoadLocation(tz); err == nil {
 			return l
 		}
+		// Fixed-offset form: "+2", "-5", "+02:30"
+		if off, ok := parseFixedOffsetHours(tz); ok {
+			return time.FixedZone(brokerZoneName(off), off*3600)
+		}
 	}
-	// Default: GMT+3 (typical XAUUSD FX broker server time, no DST for the
-	// fixed-offset broker session model).
-	return time.FixedZone("GMT+3", 3*3600)
+	// Default: GMT+2 — this deployment's XAUUSD broker server time (fixed,
+	// no DST for the fixed-offset broker session model).
+	return time.FixedZone("GMT+2", 2*3600)
+}
+
+// brokerZoneName renders a display name for a fixed broker offset zone.
+func brokerZoneName(offHours int) string {
+	sign := "+"
+	if offHours < 0 {
+		sign = "-"
+		offHours = -offHours
+	}
+	return "GMT" + sign + strconv.Itoa(offHours)
+}
+
+// parseFixedOffsetHours accepts "+2", "-5", "+02:30" style fixed offsets.
+func parseFixedOffsetHours(s string) (int, bool) {
+	if len(s) < 2 || (s[0] != '+' && s[0] != '-') {
+		return 0, false
+	}
+	sign := 1
+	if s[0] == '-' {
+		sign = -1
+	}
+	body := s[1:]
+	for i := 0; i < len(body); i++ {
+		if body[i] == ':' {
+			body = body[:i]
+			break
+		}
+	}
+	if body == "" {
+		return 0, false
+	}
+	h := 0
+	for i := 0; i < len(body); i++ {
+		if body[i] < '0' || body[i] > '9' {
+			return 0, false
+		}
+		h = h*10 + int(body[i]-'0')
+	}
+	if h > 14 {
+		return 0, false
+	}
+	return sign * h, true
 }
 
 // SessionEngine determines the current trading session and news state.

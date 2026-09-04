@@ -1237,6 +1237,70 @@ void SendMarketSnapshot()
 }
 
 //+------------------------------------------------------------------+
+//| External signal timestamp -> broker (TimeCurrent) timeline.       |
+//| v1.28: ALL trading decisions must run on the broker clock that   |
+//| TimeCurrent() returns (Master Node mandate). Converts an EXTERNAL|
+//| timestamp — an upstream provider signal issued in a fixed        |
+//| wall-clock zone (UTC, Dubai GMT+4, exchange local …) — onto the  |
+//| broker timeline BEFORE comparing it against TimeCurrent(),       |
+//| iTime()/Copy* bar times, or an order expiration.                 |
+//| srcOffsetMinutes: minutes EAST of UTC of the source wall clock   |
+//| (0 = UTC, 240 = Dubai GMT+4, -300 = New York GMT-5). A trailing  |
+//| Z/+HH:MM/-HH:MM suffix in the string wins over srcOffsetMinutes. |
+//| Returns 0 when the input is empty/unparseable (fail-closed).     |
+//+------------------------------------------------------------------+
+datetime PAT_LocalToBroker(string iso, int srcOffsetMinutes)
+{
+    datetime src = PAT_ParseISO8601Local(iso, srcOffsetMinutes);
+    if(src <= 0) return 0;
+    // Absolute UTC -> broker timeline: same live wall-clock diff the bar
+    // exporters use (TimeGMT() - TimeCurrent()), DST-safe.
+    return (datetime)((long)src + ((long)TimeCurrent() - (long)TimeGMT()));
+}
+
+//+------------------------------------------------------------------+
+//| Internal: parse ISO8601 with an explicit fixed source offset.     |
+//| Used by PAT_LocalToBroker for external timestamps that carry no   |
+//| Z/+HH:MM/-HH:MM suffix (components are in the source wall clock). |
+//+------------------------------------------------------------------+
+datetime PAT_ParseISO8601Local(string iso, int srcOffsetMinutes)
+{
+    // Handles "2026-08-24T16:25:11[.frac]" — components are in the SOURCE
+    // wall clock (srcOffsetMinutes east of UTC) when no suffix is present;
+    // a trailing Z/+HH:MM/-HH:MM suffix always wins over srcOffsetMinutes.
+    if(StringLen(iso) < 19) return 0;
+    int y  = (int)StringToInteger(StringSubstr(iso, 0, 4));
+    int mo = (int)StringToInteger(StringSubstr(iso, 5, 2));
+    int d  = (int)StringToInteger(StringSubstr(iso, 8, 2));
+    int h  = (int)StringToInteger(StringSubstr(iso, 11, 2));
+    int mi = (int)StringToInteger(StringSubstr(iso, 14, 2));
+    int se = (int)StringToInteger(StringSubstr(iso, 17, 2));
+    if(y < 2000 || mo < 1 || mo > 12 || d < 1 || d > 31) return 0;
+    MqlDateTime dt;
+    dt.year = y; dt.mon = mo; dt.day = d; dt.hour = h; dt.min = mi; dt.sec = se;
+    dt.day_of_week = 0; dt.day_of_year = 0;
+    datetime src = StructToTime(dt);
+    int suffixOff = 0;
+    if(StringLen(iso) >= 20)
+    {
+        string c = StringSubstr(iso, 19, 1);
+        if(c == "Z" || c == "z") suffixOff = 0;                 // explicit UTC
+        else if(c == "+" || c == "-")
+        {
+            int sign = (c == "+") ? 1 : -1;
+            int oh = (int)StringToInteger(StringSubstr(iso, 20, 2));
+            int om = 0;
+            if(StringLen(iso) >= 25)
+                om = (int)StringToInteger(StringSubstr(iso, 23, 2));
+            suffixOff = sign * (oh * 3600 + om * 60);           // seconds east of UTC
+        }
+    }
+    if(suffixOff != 0 || srcOffsetMinutes != 0)
+        src = (datetime)((long)src - suffixOff - srcOffsetMinutes * 60);
+    return src;                                                 // absolute UTC
+}
+
+//+------------------------------------------------------------------+
 //| Get OHLC bar data for a timeframe as JSON                         |
 //+------------------------------------------------------------------+
 string GetBarJSON(ENUM_TIMEFRAMES timeframe)

@@ -236,6 +236,16 @@ Guest-preview suite (`/guest`): `session`, `status`, `register`, `otp/resend`, `
 `ExpectancyR`, `ExpectancyScore`, `SuggestedLot`, `RiskDollars`, `RiskPctOfEquity`,
 `SLDistancePoints`, `Evidence{}`, `ReasonCodes[]`, `Executable: bool`, `CreatedAt` (UTC).
 
+**Timestamp semantics (v1.28):** Every server-issued timestamp — signal `CreatedAt`/`ExpiresAt`,
+`server_time`, delivery `sent_at`, queue payload `ExpiresAt` — is a UTC RFC3339 instant (`…Z`).
+Delivery records are normalized with `.UTC()` (`realtime/internal/signal/delivery.go`). Consumers:
+- **EA clients** parse `ExpiresAt`/`CreatedAt`/`IssuedAt` (UTC ISO) and convert onto the broker
+  timeline before comparing with `TimeCurrent()` — see `PAT_ParseISO8601UTC` / `PAT_LocalToBroker`
+  in each EA file. External timestamps in other wall clocks must go through
+  `PAT_LocalToBroker(iso, srcOffsetMinutes)` before any TTL/expiry/order-expiry comparison.
+- **Dashboard** renders them on the broker clock via `formatBrokerTimestamp()` in
+  `frontend/src/lib/use-server-time.ts` (never the browser timezone).
+
 **Account-type fields (v1.27, additive everywhere — absent = legacy EA):**
 - EA → engine (`INIT`, `ACCOUNT_INFO`, `LICENSE_CHECK`, `EXECUTION_ACK` JSON payloads;
   `edge-heartbeat` body): `account_type` ∈ `Demo|Contest|Islamic|MicroCent|ECN|STP|Standard`

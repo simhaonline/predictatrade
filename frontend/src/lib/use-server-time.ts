@@ -16,6 +16,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { customInstance } from "@/lib/axios-instance";
+import { format } from "date-fns";
 
 interface ServerTimeState {
   /** Server UTC time in milliseconds since epoch */
@@ -146,4 +147,30 @@ export function formatDrift(driftMs: number): string {
   if (abs < 1000) return "±0s";
   if (abs < 60_000) return `±${(abs / 1000).toFixed(0)}s`;
   return `±${(abs / 60_000).toFixed(1)}min`;
+}
+
+/**
+ * formatBrokerInstant — Render a SERVER-issued timestamp (signal CreatedAt,
+ * ExpiresAt, delivery sent_at …) on the broker session clock.
+ *
+ * All backend timestamps are UTC instants (RFC3339 with Z). The dashboard
+ * MUST NOT render them with date-fns `format(new Date(s.CreatedAt))` — that
+ * silently converts to the BROWSER's timezone, so a UTC 09:00 signal shows
+ * 13:00 for a Dubai viewer while the EA's TimeCurrent() reads 12:00
+ * (broker GMT+3) — three different clocks for the same event.
+ *
+ * Pass the brokerOffset from useServerTime() so the rendering follows the
+ * same live Master-Node-reported offset the engine's session logic uses.
+ * When brokerOffset is 0 (UTC-aligned mode) it falls back to UTC.
+ */
+export function formatBrokerTimestamp(
+  iso: string | number | Date | null | undefined,
+  brokerOffset: number,
+  formatStr: string = "HH:mm:ss"
+): string {
+  if (iso === null || iso === undefined || iso === "") return "—";
+  const d = iso instanceof Date ? iso : new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  const shifted = brokerOffset !== 0 ? new Date(d.getTime() + brokerOffset * 3600_000) : d;
+  return format(shifted, formatStr) + (brokerOffset !== 0 ? ` (B${brokerOffset > 0 ? "+" : ""}${brokerOffset})` : "");
 }
