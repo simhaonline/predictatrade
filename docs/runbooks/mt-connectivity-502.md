@@ -386,6 +386,37 @@ once the container is back.
 **Ops rule: schedule pat-realtime rebuilds in low-liquidity windows.**
 Control-plane deploys are safe anytime (dual-replica failover proven).
 
+## Tick-lag vs candle-fresh split (2026-09-04, loop-split fix)
+
+Signature: `market.ticks` MASTER rows carry `time` ~20 min behind
+`gateway_receipt_time` (rows insert at ~2/s but trail real time), while
+`market.candles` stays fresh. NOT an EA clock problem and NOT a WSS drop —
+both terminals kept streaming; candles bypass the engine's main loop via
+`SetCandleSyncFn` (provider goroutine → `PushExternalCandle`), ticks ride
+`tickChan` (4096 slots) consumed by the same single `select` loop that runs
+candle-driven strategy evaluation (~5 candles/s across TFs on this feed).
+When candle work saturates that loop, the tick queue backs up and drains at
+~0.1× real time while `/health` stays green.
+
+Fix: tick and candle channels now drain in **separate goroutines**
+(`realtime/cmd/realtime-engine/main.go` — `handleTick` loop split out; both
+handlers only share mutex-guarded state and clone-emit paths already exercised
+concurrently by the snapshot handler). Verified post-deploy: tick lag 0.0 min
+while candle rate unchanged.
+
+Diagnostic shortcut: `SELECT max(time), max(gateway_receipt_time) FROM
+market.ticks WHERE source LIKE '%MASTER%';` — growing gap between the two =
+backlog inside the engine, not a feed outage. `/metrics`
+`pat_tick_latency_ms_*` histogram confirms (p99 collapses from ~e9 ns-scale
+sums/counts to sub-second after the split).
+
+Related deploy gotcha (same incident): recreating pat-realtime with plain
+`docker compose up -d realtime` drops `DATABASE_URL` interpolation (host
+shell has no env) → engine crash-loops `Config validation failed` and, once
+given a host-loopback URL, panics at `Persister.GetDB` (main.go:2168).
+Deploy with `docker compose --env-file infra/env/.env up -d realtime` — the
+canonical env file carries the container-network Postgres URL.
+
 ## Related
 
 - `docs/runbooks/edge-poll-429.md` — rate-limit side of edge-poll.

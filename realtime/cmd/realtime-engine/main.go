@@ -3202,15 +3202,34 @@ func main() {
 			processCandle(candle, featureReg, stateMgr, strategies, engine, mlEngine, ollamaClient, healthManager, staleChecker, calibConsumer, reconciler, wsHub, persister, gateRegistry, cooldownMgr, dupChecker, ptbEngine, auditLogger, xmEngine, xmPersister, xmValidation, engTracker, cfg, posCaps, broker)
 		}
 
+		// TICK/CANDLE LOOP SPLIT (P0, 2026-09-04): the combined select loop below
+		// starves ticks whenever candle-driven strategy evaluation saturates the
+		// single goroutine (observed ~5 candles/s across TFs → market.ticks
+		// trailing real time by ~20 min while market.candles stayed fresh; the
+		// 4096-slot tickChan backed up and drained at ~0.1× real time). Ticks and
+		// candles have independent handlers that share only mutex-guarded state
+		// (StateManager), cloned-emit paths (WS hub, Valkey cache) and pool-based
+		// persistence — all already exercised from multiple goroutines by the
+		// snapshot handler. Split into two drain loops so the tick persist path
+		// stays real-time regardless of candle-processing load.
+		tickDrainDone := ctx.Done()
+		go func() {
+			for {
+				select {
+				case <-tickDrainDone:
+					return
+				case tick, ok := <-tickChan:
+					if !ok {
+						return
+					}
+					handleTick(tick)
+				}
+			}
+		}()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case tick, ok := <-tickChan:
-				if !ok {
-					return
-				}
-				handleTick(tick)
 			case candle, ok := <-candleChan:
 				if !ok {
 					return
