@@ -1036,23 +1036,31 @@ datetime PAT_ParseISO8601UTC(string s)
 //| External signal timestamp -> broker (TimeCurrent) timeline.       |
 //| v1.28: ALL trading decisions must run on the broker clock that   |
 //| TimeCurrent() returns (Master Node mandate). Use this helper to  |
-//| convert any EXTERNAL timestamp — an upstream provider signal     |
-//| issued in a fixed wall-clock zone (UTC, Dubai GMT+4, exchange    |
+//| convert any EXTERNAL timestamp — the backend signal issued in    |
+//| UTC (…Z) or a fixed wall-clock zone (Dubai GMT+4, exchange       |
 //| local …) — onto the broker timeline BEFORE comparing it against  |
 //| TimeCurrent(), iTime()/Copy* bar times, or an order expiration.  |
 //| srcOffsetMinutes: minutes EAST of UTC of the source wall clock   |
-//| (0 = UTC, 240 = Dubai GMT+4, -300 = New York GMT-5).             |
+//| (0 = UTC, 240 = Dubai GMT+4, -300 = New York GMT-5); a trailing  |
+//| Z/+HH:MM/-HH:MM suffix in the string wins over srcOffsetMinutes. |
 //| Returns 0 when the input is empty/unparseable (fail-closed:      |
 //| callers must treat 0 as "unknown, use fallback age gate").       |
+//| DST: conversion uses ONLY live clock diffs (TimeLocal-TimeGMT,   |
+//| TimeLocal-TimeCurrent) — no hardcoded offsets, so the Equiti     |
+//| GMT+2 winter / GMT+3 summer change and the Windows PC's own DST  |
+//| are both picked up automatically.                                |
 //+------------------------------------------------------------------+
 datetime PAT_LocalToBroker(string iso, int srcOffsetMinutes)
 {
-    // Step 1: parse components as-is (no offset math inside the parser).
-    datetime src = PAT_ParseISO8601UTC(iso);
-    if(src <= 0) return 0;
-    // PAT_ParseISO8601UTC has already normalized a trailing Z/+HH:MM/-HH:MM
-    // suffix to UTC, so a non-zero srcOffsetMinutes would double-shift.
-    // Only apply the fixed source offset when the string carries none.
+    // Step 0: string -> absolute UTC epoch.
+    // PAT_ParseISO8601UTC normalizes any trailing Z/+HH:MM/-HH:MM suffix and
+    // projects its result onto the TimeCurrent() broker timeline; convert
+    // back to a true UTC epoch first, then subtract the fixed source offset
+    // ONLY when the string carries no suffix (components are then the source
+    // wall clock, e.g. Dubai GMT+4 => 240).
+    datetime proj = PAT_ParseISO8601UTC(iso);
+    if(proj <= 0) return 0;
+    long utc = (long)proj - ((long)TimeCurrent() - (long)TimeGMT());
     int suffixOff = 0;
     if(StringLen(iso) >= 20)
     {
@@ -1060,10 +1068,37 @@ datetime PAT_LocalToBroker(string iso, int srcOffsetMinutes)
         if(c == "Z" || c == "z" || c == "+" || c == "-") suffixOff = 1;
     }
     if(suffixOff == 0 && srcOffsetMinutes != 0)
-        src = (datetime)((long)src - srcOffsetMinutes * 60);
-    // Step 2: UTC -> broker timeline (same live wall-clock diff the expiry
-    // parser uses; DST-safe for brokers that observe DST).
-    return (datetime)((long)src + ((long)TimeCurrent() - (long)TimeGMT()));
+        utc -= (long)srcOffsetMinutes * 60;              // source wall -> UTC
+    // Steps 1+2: UTC -> terminal-local -> broker, via live clock diffs only.
+    return PAT_UTCToBrokerWall(utc);
+}
+
+//+------------------------------------------------------------------+
+//| DST-ADAPTIVE TIME BRIDGES — no hardcoded offsets anywhere.        |
+//| Two live diffs do all the work:                                  |
+//|   localOffset = TimeLocal() - TimeGMT()  (Windows PC zone, DST-  |
+//|   aware: +4 Dubai summer / +3 Dubai winter, follows the OS);     |
+//|   brokerOffset = TimeLocal() - TimeCurrent() (broker zone as the |
+//|   SERVER sees it: GMT+2 winter / GMT+3 summer on Equiti, changes |
+//|   automatically when the broker rolls DST — nothing to re-set).  |
+//| Pure MQL5/MQL4: no WebRequest, no files, no includes.            |
+//+------------------------------------------------------------------+
+long PAT_LocalGMTOffsetSeconds()
+{
+    return ((long)TimeLocal() - (long)TimeGMT());
+}
+
+long PAT_BrokerOffsetSeconds()
+{
+    return ((long)TimeLocal() - (long)TimeCurrent());
+}
+
+datetime PAT_UTCToBrokerWall(long utcSeconds)
+{
+    // utc - localOffset = the same instant expressed as the PC's local
+    // wall-clock; brokerOffset shifts that wall-clock onto the broker's.
+    return (datetime)(utcSeconds - PAT_LocalGMTOffsetSeconds()
+                                   + PAT_BrokerOffsetSeconds());
 }
 
 //+------------------------------------------------------------------+

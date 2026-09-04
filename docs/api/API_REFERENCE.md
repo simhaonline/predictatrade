@@ -242,7 +242,10 @@ Delivery records are normalized with `.UTC()` (`realtime/internal/signal/deliver
 - **EA clients** parse `ExpiresAt`/`CreatedAt`/`IssuedAt` (UTC ISO) and convert onto the broker
   timeline before comparing with `TimeCurrent()` — see `PAT_ParseISO8601UTC` / `PAT_LocalToBroker`
   in each EA file. External timestamps in other wall clocks must go through
-  `PAT_LocalToBroker(iso, srcOffsetMinutes)` before any TTL/expiry/order-expiry comparison.
+  `PAT_LocalToBroker(iso, srcOffsetMinutes)` before any TTL/expiry/order-expiry comparison;
+  the conversion is DST-adaptive (live `TimeLocal()−TimeGMT()` and `TimeLocal()−TimeCurrent()`
+  diffs via `PAT_UTCToBrokerWall`) — no hardcoded offsets, handles Equiti GMT+2 winter /
+  GMT+3 summer automatically.
 - **Dashboard** renders them on the broker clock via `formatBrokerTimestamp()` in
   `frontend/src/lib/use-server-time.ts` (never the browser timezone).
 
