@@ -1,5 +1,5 @@
 # Predict-A-Trade Architecture
-## v1.27.0 — 04 September 2026
+## v1.28.2 — 04 September 2026
 
 > Visual flows: tick→signal sequence, execution reconciliation, auth, licensing, payments,
 > update/rollback, backup/DR are in **[FLOW_DIAGRAMS.md](FLOW_DIAGRAMS.md)** (Mermaid).
@@ -37,9 +37,12 @@ Go REALTIME ENGINE (:13081)
 > in-process automatically.
 
 ### Timezone Model
-The broker server runs in **GMT+2** (this deployment's XAUUSD broker server time, fixed, no DST). All session classification, ORB ranges, and hour-of-day logic use broker-local time via `BrokerLocation()`. Precedence (v1.28): (1) the offset observed **live from the Master Node** (`TimeGMTOffset()` reported on every tick — authoritative, matches the exact clock the EAs' `TimeCurrent()` runs on), (2) `BROKER_TIMEZONE` env (IANA name or fixed `+2`/`-5` offset), (3) fixed GMT+2 default. Absolute instants are stored as TIMESTAMPTZ (UTC) in Postgres and every API timestamp is a UTC RFC3339 instant; only hour-of-day logic converts to broker time.
+The broker server runs on **GMT+2 winter / GMT+3 summer** (Equiti Master Node; DST-following). All session classification, ORB ranges, and hour-of-day logic use broker-local time via `BrokerLocation()`. Precedence (v1.28): (1) the offset observed **live from the Master Node** (`TimeGMTOffset()` reported on every tick — authoritative, matches the exact clock the EAs' `TimeCurrent()` runs on, and rolls automatically at the DST change), (2) `BROKER_TIMEZONE` env (IANA name or fixed `+2`/`-5` offset), (3) fixed GMT+2 default (winter value). Absolute instants are stored as TIMESTAMPTZ (UTC) in Postgres and every API timestamp is a UTC RFC3339 instant; only hour-of-day logic converts to broker time.
 
 **EA clock authority (v1.28):** ALL EA trading logic — `iTime()`/`CopyRates` bar math, session/swap-hour windows (`IsNearSwapTime`, `IsTripleSwapDay`), signal TTL (`ExpiresAt`, `MaxSignalAgeSeconds`), and order expiry — runs on the broker clock `TimeCurrent()` returns, never on Windows-local time. Client EAs anchor the TTL age gate on the payload's server issue timestamp (`CreatedAt`/`IssuedAt`, UTC ISO) when present, so edge-queue replays cannot reset a signal's TTL. External timestamps from other zones convert via `PAT_LocalToBroker(iso, srcOffsetMinutes)` (in every EA file), which maps a source wall-clock instant (e.g. Dubai GMT+4 → `240`, UTC → `0`) onto the broker timeline — **DST-adaptive with no hardcoded offsets** (v1.28.1): the conversion subtracts the live `TimeLocal() − TimeGMT()` diff and adds the live `TimeLocal() − TimeCurrent()` diff (`PAT_UTCToBrokerWall` bridge), so the Equiti GMT+2 winter / GMT+3 summer change and the Windows PC's own DST roll are both picked up automatically on the next tick. The frontend renders signal timestamps on the same broker clock via `formatBrokerTimestamp()` (`frontend/src/lib/use-server-time.ts`), not the browser's timezone.
+
+### Master Node market-data storage (v1.28.2)
+Master MT4 and MT5 data share the single `market.ticks` / `market.candles` hypertables, separated by the `source` column (`MT4_MASTER` / `MT5_MASTER`) — one table keeps parity joins, retention and backfills cheap while the ON CONFLICT key `(time, symbol, source)` prevents cross-terminal overwrites. Per-terminal "separate table" ergonomics are provided by views `market.v_ticks_master_mt4`, `market.v_ticks_master_mt5`, `market.v_candles_master_mt4`, `market.v_candles_master_mt5` (mig 136). Legacy alias source strings (`MT5_MASTER_NODE`, `M_MASTER`, `MT4_MASTER_NODE`) are auto-normalized to canonical keys by `market.normalize_master_source()` triggers on write, and CHECK constraints (`chk_*_master_source`) reject any other `*MASTER*` value — the alias drift that fragmented parity queries is structurally closed. The MT5 Master EA bar-event path now emits the canonical `MT5_MASTER` string directly (v1.28.2).
 
 ### Plane Boundaries (mandatory)
 

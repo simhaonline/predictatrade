@@ -907,7 +907,7 @@ void SendBarClosedEvent(string tfName, ENUM_TIMEFRAMES tf, MqlRates &closedBar, 
     msg += ",\"detected_at_utc\":\"" + FormatISO8601UTC(detectedUTC) + "\"";
     msg += ",\"terminal_connected\":" + (TerminalInfoInteger(TERMINAL_CONNECTED) ? "true" : "false");
     msg += ",\"sequence\":" + IntegerToString(g_barEventSequence);
-    msg += ",\"source\":\"MT5_MASTER_NODE\"";
+    msg += ",\"source\":\"MT5_MASTER\""; // v1.28.2: canonical source key (was MT5_MASTER_NODE — fragmented parity queries)
     msg += "}";
     msg += "\n";
 
