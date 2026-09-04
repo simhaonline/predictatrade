@@ -228,6 +228,40 @@ export class EdgePollService {
           WHERE id = $1::uuid AND (account_type IS NULL OR account_type <> $2)`,
         [deviceId, accountType],
       ).catch(() => {});
+      // The EA's account login rides in body.account (sent by all fleet EAs).
+      const login = typeof body?.account === 'string' ? body.account.trim() : '';
+      const confirms = Number.isFinite(Number(body?.account_type_confirms))
+        ? Math.max(0, Math.floor(Number(body?.account_type_confirms)))
+        : 0;
+      const verified = body?.account_type_verified === true;
+      if (login.length > 0 && login.length <= 20 && /^\d+$/.test(login)) {
+        const upd = await this.pool.query(
+          `UPDATE licensing.account_types
+              SET detected_type       = $2,
+                  confirmation_count  = $3,
+                  is_verified         = $4,
+                  device_id           = $5::uuid,
+                  detection_reason    = COALESCE(NULLIF($6, ''), detection_reason),
+                  detection_timestamp = now(),
+                  updated_at          = now()
+            WHERE account_login = $1::bigint AND is_latest
+              RETURNING id`,
+          [login, accountType, confirms, verified, deviceId,
+            typeof body?.account_type_reason === 'string' ? body.account_type_reason.slice(0, 500) : ''],
+        );
+        if (upd.rowCount === 0) {
+          await this.pool.query(
+            `INSERT INTO licensing.account_types
+                 (account_login, detected_type, confirmation_count, is_verified,
+                  device_id, detection_reason, detection_source, is_latest)
+             VALUES ($1::bigint, $2, $3, $4, $5::uuid,
+                     COALESCE(NULLIF($6, ''), NULL), 'EA', TRUE)
+             ON CONFLICT (account_login) WHERE is_latest DO NOTHING`,
+            [login, accountType, confirms, verified, deviceId,
+              typeof body?.account_type_reason === 'string' ? body.account_type_reason.slice(0, 500) : ''],
+          ).catch(() => {});
+        }
+      }
     }
 
     return { ok: true, server_time: new Date().toISOString() };
