@@ -38,10 +38,14 @@ Entity relationships for the core domains: **[DB_ERD.md](DB_ERD.md)** (mermaid `
 | `audit.client_event_log` | 1 day | 064_audit_retention_and_logging |
 | `market.cot_raw_reports` | 7 days | COT ingestion lifecycle (011) |
 
-### Migration discipline (98 files, unique prefixes, numbered to 137)
+### Migration discipline (99 files, unique prefixes, numbered to 138)
 
-- Forward-only SQL under `database/migrations/001…137`; `audit.migration_history` is reconciled
+- Forward-only SQL under `database/migrations/001…138`; `audit.migration_history` is reconciled
   to disk by `scripts/check_migrations.sh` (also enforced in CI).
+- 138 adds `licensing.device_risk_events` — EA capital-guard telemetry
+  (`FLOATING_DD_BREAKER`/`SOFT_HALT`/`RECOVER`) written by the realtime engine on
+  `CAPITAL_PROTECTION` ingest, read by `GET /api/v1/admin/devices/risk-events`
+  (admin → Device Auth page panel). Applied live 2026-09-05.
 - The 7 duplicate-prefix pairs were renumbered to `089–095` (v1.17.2) — never rewrite applied
   history; `MIGRATION_ORDER.md` is the canonical sequence.
 - Dual mechanism removed: `initdb.d` no longer auto-runs migrations (DB-5); `scripts/migrate.sh`

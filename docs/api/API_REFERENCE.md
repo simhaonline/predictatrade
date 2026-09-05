@@ -162,7 +162,7 @@ API (`edge-poll.controller.ts`) used by Client EAs every ~3s.
 |--------|------|-------------|
 | GET | /admin/overview | User/subscription/commission headline metrics |
 | GET/PATCH | /admin/users · /admin/users/{id}/status | User management |
-| GET | /admin/health · /admin/subscriptions · /admin/commissions(+summary) · /admin/payouts(+stats) · /admin/plans · /admin/licenses · /admin/devices · /admin/activations | Console data grids |
+| GET | /admin/health · /admin/subscriptions · /admin/commissions(+summary) · /admin/payouts(+stats) · /admin/plans · /admin/licenses · /admin/devices · /admin/devices/risk-events · /admin/activations | Console data grids |
 | GET | /admin/subscriptions/{payments|refunds|chargebacks|coupons|provider} | Billing ops |
 | GET | /admin/trading-reports | Aggregated from `trading.trade_results` (real fills only) |
 | GET | /admin/regime-diagnostics *(realtime)* | Regime engine state |
