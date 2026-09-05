@@ -90,25 +90,39 @@ export class ConnectivityWatchdogService implements OnModuleInit, OnModuleDestro
     // Feed health: ticks must keep landing. gateway_receipt_time is the
     // transport truth (source `time` lags when the master PC clock drifts —
     // seen live 2026-09-03: 15+ min source lag with 0.2s receipt lag).
+    // Market-aware: when no instrument in the market session is trading
+    // (weekend / holiday close), a stale tick feed is EXPECTED — report
+    // INFO, not CRITICAL (2026-09-05: 694 weekend occurrences of a frozen
+    // "167 min" message that actually meant "no rows in the 1h window").
     await this.checkTickFeed();
   }
 
   /** market.ticks must show a fresh gateway_receipt within TICK_STALE. */
   private async checkTickFeed(): Promise<void> {
+    // True receipt lag regardless of any WHERE window: once no tick lands
+    // inside a bounded window, max() over that window is NULL and a naive
+    // query reports a bogus fallback forever (seen live: frozen "167 min"
+    // = the 9999s fallback while the real lag was 31+ hours). Take the
+    // global max receipt and measure against now().
     const res = await this.pool.query(
       `SELECT EXTRACT(EPOCH FROM (now() - max(gateway_receipt_time)))::int AS receipt_lag_secs,
               EXTRACT(EPOCH FROM (now() - max(time)))::int AS source_lag_secs
-       FROM market.ticks
-       WHERE gateway_receipt_time > now() - interval '1 hour'`,
+       FROM market.ticks`,
     );
     const r = res.rows[0] ?? {};
     const receiptLag = Number(r.receipt_lag_secs ?? 9999);
     if (receiptLag > TICK_STALE_SECS) {
+      // During the weekend / market close a quiet feed is expected — the
+      // master terminals have nothing to stream. Downgrade to INFO so ops
+      // get a single honest heads-up, not CRITICAL spam every check.
+      const marketOpen = await this.isMarketOpen();
       await this.raiseAlert({
         alertKey: 'ENGINE:tick-feed-stale',
-        severity: 'CRITICAL',
+        severity: marketOpen ? 'CRITICAL' : 'INFO',
         scope: 'ENGINE',
-        message: `No ticks received for ${Math.round(receiptLag / 60)} min — the market-data master stopped streaming. MT clients will receive no fresh signals.`,
+        message: marketOpen
+          ? `No ticks received for ${Math.round(receiptLag / 60)} min — the market-data master stopped streaming. MT clients will receive no fresh signals.`
+          : `No ticks for ${Math.round(receiptLag / 60)} min — market closed (weekend/holiday). Feed expected quiet; no action needed.`,
       });
     } else {
       await this.resolveAlert('ENGINE:tick-feed-stale');
@@ -127,6 +141,25 @@ export class ConnectivityWatchdogService implements OnModuleInit, OnModuleDestro
     }
   }
 
+  /**
+   * Is any tracked instrument inside its regular trading session right now?
+   * XAUUSD trades Sun 22:00 UTC → Fri 22:00 UTC (with the daily 23:00–00:00
+   * UTC break, when ticks naturally pause). Saturday (and Sunday until the
+   * Monday 00:00 server-week rollover) = closed. Cheap local clock check —
+   * no broker round-trip needed; DST quirks affect session edges by an hour
+   * at most, which the 3-min staleness window dwarfs.
+   */
+  private async isMarketOpen(): Promise<boolean> {
+    const now = new Date();
+    const day = now.getUTCDay(); // 0=Sun .. 6=Sat
+    const hour = now.getUTCHours() + now.getUTCMinutes() / 60;
+    if (day === 6) return false; // Saturday: fully closed
+    if (day === 0) return hour >= 22; // Sunday: opens 22:00 UTC
+    if (day === 5) return hour < 22; // Friday: closes 22:00 UTC
+    // Mon–Thu: daily break 23:00–00:00 UTC (ticks pause, feed not broken).
+    return hour >= 0 && hour < 23;
+  }
+
   /** Devices bound to active licenses that stopped polling. */
   private async checkDeviceFreshness(): Promise<void> {
     const res = await this.pool.query(
@@ -136,7 +169,7 @@ export class ConnectivityWatchdogService implements OnModuleInit, OnModuleDestro
        WHERE d.revoked_at IS NULL
          AND EXISTS (
            SELECT 1 FROM licensing.licenses l
-           WHERE l.id = d.license_id AND l.status IN ('ACTIVE','TRIALING')
+           WHERE l.id = d.bound_license_id AND l.status IN ('ACTIVE','TRIALING')
          )
          AND d.last_seen_at < now() - ($1::text || ' milliseconds')::interval
          AND d.last_seen_at > now() - interval '30 days'`,
