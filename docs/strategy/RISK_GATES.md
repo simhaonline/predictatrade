@@ -1,5 +1,5 @@
 # Risk Gates
-## v1.17.4 — 30 August 2026
+## v1.29.0 — 05 September 2026
 
 > **v1.23 capital tiers:** signal delivery and sizing are now capital-tier
 > aware (MICRO < $500 / STANDARD $500–5k / PRO ≥ $5k). Effective per-trade
@@ -26,23 +26,24 @@
 |15 | RegimeFilter | Market | Advisory. |
 |16 | ProfitTarget | Capital | Fail-closed. |
 
-### Key Changes (v1.17.x)
+### Key Changes (v1.17.x → v1.23 delivery model)
 
-**Per-Client Risk Isolation at Signal Delivery:**
+**Per-Device Entitlement Delivery (EA-direct era, v1.19+):**
 Beyond the server-side 16-gate pipeline (which evaluates signal-worthiness at
-generation time), signal **delivery** now enforces a per-receiving-client account
-check (`AgentHub.SetRiskCheck` → `AgentProvider.AgentAccountOK`). This isolates
-clients: an executable signal is forwarded to a given Windows Agent only if that
-agent's OWN broker account has free margin > 0. A client whose account is blown
-or over-exposed is skipped individually — it cannot suppress signals for any
-other client. The check is fail-open: an agent with no known/remote account
-state, or whose last snapshot is >60s stale, is allowed (preserving default
-behavior). This closes the "one client's bad account blocks everyone" risk class
-at the delivery boundary.
+generation time), signal **delivery** enforces per-receiving-device entitlement
+in SQL at enqueue time (`enqueueSignalForDevices` → `licensing.edge_signal_queue`)
+and re-checks it at poll time (control-plane `edge-poll` handler). An executable
+signal is queued only for devices whose license is ACTIVE/PENDING, whose license
++ plan whitelist includes the signal's strategy, whose device role is `exec`,
+and whose resolved capital tier matches the signal's `EligibleTiers` (unknown
+tier or missing tier list → fail-open per the v1.23 delivery rules; unresolvable
+plan → device skipped, fail-closed). One ineligible device can never suppress or
+contaminate another device's signals.
 
-> Note: account-state tracking is now per-agent (`AgentProvider` registry); the
-> global `broker` equity still influences **lot sizing** for all clients and will
-> be made per-client in the next sub-phase.
+**Account-state primitive:** `AgentProvider.AgentAccountOK` remains the
+per-device broker-account guard (free margin > 0, snapshot < 60s old). As of the
+5244776 remediation it is **fail-closed**: unknown, stale, incomplete, or
+no-buying-power account state rejects the receiving device.
 
 ### Key Changes (v1.16.x)
 
@@ -71,4 +72,4 @@ Validates SL/TP/lot against broker symbol metadata (min stop, min freeze, max sp
 - Engine liveness tracking distinguishes DEGRADED from NO-TRADE
 - Gate state is isolated per (strategy, timeframe) — no cross-contamination
 
-> **Distinction — server gates vs. client EA guard:** The gates above are enforced by the **Go real-time engine** (server-side). The MetaTrader **Execution EA** additionally enforces its own client-side daily-loss guard, which is independent of these gates: a **soft** limit (`WarningLossPct`) blocks new entries only and recovers intraday (bypassable via the `BypassDailyLossBlock` EA input), while a **hard** limit (`MaxDailyLossPct`) closes all positions and is never bypassable. `AutoExecute` defaults to **false** (signal-only). See the [Windows Agent Guide](../guides/WINDOWS_AGENT.md).
+> **Distinction — server gates vs. client EA guard:** The gates above are enforced by the **Go real-time engine** (server-side). The MetaTrader **Client EA** additionally enforces its own client-side daily-loss guard, which is independent of these gates: a **soft** limit (`WarningLossPct`) blocks new entries only and recovers intraday (bypassable via the `BypassDailyLossBlock` EA input), while a **hard** limit (`MaxDailyLossPct`) closes all positions and is never bypassable. `AutoExecute` defaults to **false** (signal-only). See the [EA Client Guide](../guides/EA_CLIENT_GUIDE.md).

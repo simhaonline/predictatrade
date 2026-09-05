@@ -1,5 +1,5 @@
 # Predict-A-Trade Documentation Index
-## v1.17.4 — 30 August 2026
+## v1.29.0 — 05 September 2026
 
 ### Architecture
 - [Architecture & Boundaries](architecture/ARCHITECTURE.md) — 13+ services, NestJS 12/ESM notes, plane boundaries, BE-6 reconciliation, recent changes
@@ -33,7 +33,7 @@
 - [Disaster Recovery Plan](operations/DR_PLAN.md) — RTO/RPO, asset inventory, risk assessment, backup strategy, recovery procedures, testing schedule
 
 ### Guides
-- [Admin Guide](guides/ADMIN_GUIDE.md) — System administration: users, billing, signals, agent monitoring, security
+- [Admin Guide](guides/ADMIN_GUIDE.md) — System administration: users, billing, signals, device monitoring, security
 - [User Guide](guides/USER_GUIDE.md) — Dashboard, strategies, signal interpretation, MT4/MT5 setup, troubleshooting
 - [EA Client Guide (MT4/MT5)](guides/EA_CLIENT_GUIDE.md) — Option B EA-direct cloud transport: install, WebRequest allowlist, signal-delivery guarantees, troubleshooting
 
@@ -48,4 +48,4 @@
 
 ### Current status (living documents)
 - [Implementation Status](reports/IMPLEMENTATION_STATUS.md) — per-requirement implementation ledger (29 Aug)
-- [Changelog](../../realtime/CHANGELOG.md) — version history (v1.17.4 current)
+- [Changelog](../../realtime/CHANGELOG.md) — version history (v1.29.0 current)

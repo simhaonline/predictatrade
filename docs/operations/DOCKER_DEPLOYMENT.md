@@ -1,5 +1,5 @@
 # Docker Deployment Guide
-## v1.18.0 — 30 August 2026
+## v1.29.0 — 05 September 2026
 
 Step-by-step guide to deploy Predict-A-Trade XAUUSD using Docker Compose.
 
@@ -74,7 +74,7 @@ nano infra/env/.env          # set the 5 secrets above
 ```
 
 For production:
-1. Set a strong `JWT_SECRET` in `infra/env/.env` (32+ chars). **If you rotate it, re-issue Windows Agent tokens** (the agent link will drop until re-registered).
+1. Set a strong `JWT_SECRET` in `infra/env/.env` (32+ chars). **If you rotate it, EA device JWTs re-mint on the next activation/refresh** (the `device-auth` service signs with the same secret), and browser sessions will re-login; persistent device identity (30-day rotating refresh tokens) survives.
 2. Set a strong `POSTGRES_PASSWORD` in `infra/env/.env`.
 3. Update `CORS_ORIGINS` in `infra/env/control.env`.
 

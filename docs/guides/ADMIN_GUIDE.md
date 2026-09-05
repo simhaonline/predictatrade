@@ -1,5 +1,5 @@
 # Admin Guide
-## v1.17.4 — 30 August 2026
+## v1.29.0 — 05 September 2026
 
 ### Overview
 
@@ -107,13 +107,14 @@ Active plans: FREE ($0), STANDARD ($49/mo), PRO ($199/mo), ELITE ($499/mo)
 - Device details: OS, IP, activation date, last heartbeat
 - Force-deactivate devices (revokes access)
 
-### Windows Agent Monitoring
-- Agent connection status (WebSocket heartbeat) — now bridged into the control-plane database for unified monitoring
-- Two agent roles: **Client Agent** (execution, `pat-agent-client`, port 13081) and **Master Node** (data-only, `pat-agent-master`, port 13091)
-- Agent version tracking, health endpoint verification, and license validation (proactive server-side, no agent changes)
-- Suspended agents list (3-strike SL violation system)
-- Agent commands: disconnect, emergency stop, kill switch
-- Live agent status visible via `/api/v1/agents/status` and admin dashboard
+### Device Monitoring (EA-direct era)
+- Device connection status (edge-poll heartbeat, bridged from the Go engine into the control-plane database for unified monitoring)
+- Two EA roles: **Client EA** (execution: activates a device, polls signals via HMAC `edge-poll`, ACKs, executes) and **Master Node EA** (data-only: streams ticks/snapshots via `POST /ingest/agent` Bearer device JWT — never executes)
+- Per-device account type is now surfaced (v1.27+): `Demo | Contest | Islamic | MicroCent | ECN | STP | Standard`, persisted by the `edge-heartbeat` API
+- Device version tracking, health verification, and license validation (proactive server-side, no EA changes)
+- Suspended devices list (3-strike SL violation system)
+- Device commands: disconnect, emergency stop, kill switch (delivered on the next edge-poll)
+- Live device status visible via `/api/v1/agents/status` and admin dashboard, including `data_health` (NO_DATA/HEALTHY/STALE/CRITICAL) and `market_closed`
 - **EA Diagnostics (v1.16.x):** TRADE-CONFIG startup diagnostic confirms AutoExecute/ExecuteCandidates/algo-trading flags. SIGNAL-EXEC-CHECK reveals execution decision per signal — traces swap/triple-swap vetoes, duplicate ID filtering, license status, and all silent veto reasons
 - **EA defaults & capital protection:** `AutoExecute` now defaults to **false** (signal-only — the EA displays signals; operators must opt in to auto-trade). The Execution EA enforces a client-side daily-loss guard: a **soft** limit blocks new entries only (recovers intraday, bypassable via the `BypassDailyLossBlock` EA input) and a **hard** limit (`MaxDailyLossPct`) closes all positions and is **never** bypassable. Client terminal logs (`error.log` / Experts) emit `STATUS`, `SIGNAL RECEIVED`, and `CAPITAL` lines (all times broker/server time, not UTC); license *strategy* detail is intentionally omitted.
 
@@ -122,8 +123,8 @@ Active plans: FREE ($0), STANDARD ($49/mo), PRO ($199/mo), ELITE ($499/mo)
 ## 6. Signal & Trading Oversight
 
 ### Signal Monitoring (Admin → Signals)
-- Real-time signal feed from all 5 strategy engines with **20-signal-per-page pagination** (prevents browser lockup)
-- Multi-tab strategy filtering: ALL, STANDARD_SCALPING, ULTRA_SCALPING, STANDARD_SWING, TREND_SWING, MARNIE_FIB
+- Real-time signal feed from all 7 strategy engines (STANDARD_SCALPING, ULTRA_SCALPING, STANDARD_SWING, TREND_SWING, MARNIE_FIB, ATEN, ARCANIST) with **20-signal-per-page pagination** (prevents browser lockup)
+- Multi-tab strategy filtering: ALL, STANDARD_SCALPING, ULTRA_SCALPING, STANDARD_SWING, TREND_SWING, MARNIE_FIB, ATEN, ARCANIST
 - Direction filters: BUY, BUY_CANDIDATE, SELL, SELL_CANDIDATE, NO-TRADE
 - Full table columns: Time, Direction, Strategy, Symbol, Probability, Score, Entry, SL, TP1, TP2, TP3, Regime, Session, Quality Grade (A+/A/B), Expectancy (EV_R), Rejection Reason, Status
 - Expand rows: Click any signal to reveal full evidence chain, lot sizing (SuggestedLot), risk metrics (RiskDollars, RiskPctOfEquity, SLDistancePoints), pillar contributions, gate results
@@ -282,9 +283,10 @@ Prometheus (port 13081 `/metrics`):
 - `pat_reconciliation_tracked_signals` — registry size
 
 Alerts (ntfy): `SIGNAL_ACK_TIMEOUT`, `SIGNAL_FILL_TIMEOUT`, deduped per signal with a
-10-minute re-alert window. Sustained non-zero values usually mean the Windows Agent is
-disconnected, the EA is detached, or a broker order was silently rejected — cross-check
-Admin → Signals (delivery state) and the agent's local health port (:9000 client / :9001 master).
+10-minute re-alert window. Sustained non-zero values usually mean the Client EA is offline
+(not polling), the EA is detached from the XAUUSD chart, or a broker order was silently
+rejected — cross-check Admin → Signals (delivery state) and the device's last edge-poll
+heartbeat in Admin → Devices.
 
 ---
 

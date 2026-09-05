@@ -1,5 +1,5 @@
 # Database Architecture
-## v1.27.0 — 04 September 2026
+## v1.29.0 — 04 September 2026
 
 ### Stack
 - PostgreSQL 17 + TimescaleDB (hypertables) — `timescale/timescaledb-ha:pg17`
@@ -38,14 +38,16 @@ Entity relationships for the core domains: **[DB_ERD.md](DB_ERD.md)** (mermaid `
 | `audit.client_event_log` | 1 day | 064_audit_retention_and_logging |
 | `market.cot_raw_reports` | 7 days | COT ingestion lifecycle (011) |
 
-### Migration discipline (65 files, unique prefixes)
+### Migration discipline (98 files, unique prefixes, numbered to 137)
 
-- Forward-only SQL under `database/migrations/001…095`; `audit.migration_history` is reconciled
+- Forward-only SQL under `database/migrations/001…137`; `audit.migration_history` is reconciled
   to disk by `scripts/check_migrations.sh` (also enforced in CI).
 - The 7 duplicate-prefix pairs were renumbered to `089–095` (v1.17.2) — never rewrite applied
   history; `MIGRATION_ORDER.md` is the canonical sequence.
 - Dual mechanism removed: `initdb.d` no longer auto-runs migrations (DB-5); `scripts/migrate.sh`
-  is the only runner.
+  is the only runner (`make db-migrate`).
+- ⚠️ Deploy-time quirk: history rows with a non-`COMPLETED` status make the runner replay that
+  migration — 134's `APPLIED` row was reconciled to `COMPLETED` on 2026-09-04.
 
 **v1.17.4 — payments honesty (USDT-only era):**
 - `billing.payments.status` values now include `UNDERPAID` (IPN amount

@@ -47,4 +47,4 @@
   - [GitHub](https://github.com/simhaonline/predictatrade)
   - [Platform](https://platform.predictatrade.com)
   - [Live Terminal](https://live.predictatrade.com)
-  - [Downloads](https://downloads.predictatrade.com/windows-agent/)
+  - [Downloads](https://downloads.predictatrade.com/mql/)

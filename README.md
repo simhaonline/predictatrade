@@ -223,7 +223,7 @@ Located in `realtime/`. Key packages:
 - `internal/strategy` — 7 strategy engines, evidence scoring, confluence, geometry
 - `internal/gates` — 16 hard risk gates (ordered, fail-closed)
 - `internal/signal` — master decision engine, cooldown, duplicate prevention
-- `internal/gateway` — HTTP, dashboard WS, Windows Agent WS handlers
+- `internal/gateway` — HTTP, dashboard WS handlers (browser relay; EA traffic is HTTPS ingest + edge-poll)
 - `internal/crossmarket` — DXY, BTC, Oil macro module
 - `internal/ml` — ONNX model inference (advisory)
 - `internal/sentiment` — Ollama sentiment analysis (advisory)

@@ -1,6 +1,6 @@
 # Predict-A-Trade XAUUSD — Documentation
 
-> Multi-plane XAUUSD algorithmic trading platform · v1.18.0 · GO for paper/sandbox/advisory; NO-GO for live automated trading arming (`LIVE_TRADING_AUTHORIZED=false`). Docker-first deployment via `docker compose --env-file infra/env/.env`. CI 6/6 green, dashboards runtime-audited, Windows Agent verified.
+> Multi-plane XAUUSD algorithmic trading platform · v1.29.0 · GO for paper/sandbox/advisory; live-trading arming is operator-authorized with fail-closed capital-protection gates. Docker-first deployment via `docker compose --env-file infra/env/.env`. CI 6/6 green, dashboards runtime-audited, EA-direct cloud transport (Option B) verified.
 
 Welcome to the official documentation for Predict-A-Trade — a production-grade XAUUSD trading signal generation platform. Use the sidebar to navigate, or start with the sections below.
 
@@ -21,8 +21,8 @@ Welcome to the official documentation for Predict-A-Trade — a production-grade
 | [Disaster Recovery](operations/DR_PLAN.md) | RTO/RPO, backups, testing |
 | [Mail Relay Runbook](https://github.com/simhaonline/predictatrade/tree/main/mail-relay) | Go SMTP submission relay, DNS records |
 | [Admin Guide](guides/ADMIN_GUIDE.md) | System administration, agent monitoring, signals |
-| [User Guide](guides/USER_GUIDE.md) | Dashboard, MT4/MT5 setup, signal interpretation |
-| [Windows Agent Guide](guides/WINDOWS_AGENT.md) | Client Agent + Master Node roles, install/update/uninstall, health endpoints |
+| [User Guide](guides/USER_GUIDE.md) | Dashboard, MT4/MT5 EA setup, signal interpretation |
+| [EA Client Guide](guides/EA_CLIENT_GUIDE.md) | EA-direct cloud transport: Client + Master Node roles, WebRequest allowlist, signal-delivery guarantees |
 | [Whitepaper](reports/WHITEPAPER.md) | 12-section technical whitepaper |
 | [PhD Thesis](reports/PHD_THESIS.md) | 9-chapter academic thesis |
 | [UI/UX Audit Report](reports/UI_UX_AUDIT_REPORT.md) | Dashboard accessibility, UX, visual, performance audit |
@@ -35,16 +35,16 @@ Welcome to the official documentation for Predict-A-Trade — a production-grade
 
 | Metric | Value |
 |--------|-------|
-| Strategy Engines | 5 (4 active, 1 shadow) |
+| Strategy Engines | 7 (STANDARD_SCALPING, ULTRA_SCALPING, STANDARD_SWING, TREND_SWING, MARNIE_FIB, ATEN, ARCANIST) |
 | Technical Indicators | 42 (35 live, 7 warming) |
 | Evidence Pillars | 13 |
 | Risk Gates | 16 (per-strategy/timeframe isolated) |
-| Services (Docker) | 13 healthy |
+| Services (Docker) | 16 (docker compose, all healthy) |
 | Tests | Go 40 pkgs · control 167 · frontend 84 + e2e 18 · Python 154 (153 pass, 1 skip) — all PASS |
 | CI jobs | 6/6 green |
 | API surface | 64 documented paths (OpenAPI 3.0 in [`api/openapi.json`](api/openapi.json)) |
 | Dashboard pages | 38 runtime-audited (25 admin + 19 user routes) |
-| Windows Agent | v1.2.44, self-healing installer + honest telemetry |
+| Windows Agent | REMOVED (v1.19.0 Option B) — EAs talk to the cloud directly; see [EA Client Guide](guides/EA_CLIENT_GUIDE.md) |
 | Payments | USDT-only (NOWPayments verified settlement; Stripe off) |
 | Outbound Mail | Go SMTP relay (pat.predictatrade.com), spool+retry |
 

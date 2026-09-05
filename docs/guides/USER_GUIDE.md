@@ -1,9 +1,9 @@
 # User Guide
-## v1.17.4 — 30 August 2026
+## v1.29.0 — 05 September 2026
 
 ### Overview
 
-Predict-A-Trade generates XAUUSD trading signals using 5 strategy engines, 42 technical indicators, and 16 risk gates. This guide covers the user dashboard, signal interpretation, account management, and Windows/MT4-MT5 setup.
+Predict-A-Trade generates XAUUSD trading signals using 7 strategy engines, 42 technical indicators, and 16 risk gates. This guide covers the user dashboard, signal interpretation, account management, and MT4/MT5 setup.
 
 ---
 
@@ -162,60 +162,41 @@ View the evidence chain by clicking any signal in the dashboard.
 
 ---
 
-## 6. Windows Agent & MT4/MT5 Setup
+## 6. MT4/MT5 EA Setup (EA-direct cloud transport)
 
-> Full details: see the [Windows Agent Guide](WINDOWS_AGENT.md).
+> Full details: see the [EA Client Guide](EA_CLIENT_GUIDE.md). Since v1.19 the EAs talk to
+> the Predict-A-Trade cloud **directly over HTTPS** — there is no Windows Agent, no local
+> services, and no open ports on the trader's machine.
 
 ### Prerequisites
-- Windows 10/11 (64-bit)
-- MetaTrader 4 or MetaTrader 5 installed
+- Windows 10/11 (64-bit) with MetaTrader 4 or MetaTrader 5 installed
 - Active Predict-A-Trade subscription (STANDARD tier or higher)
 - Broker account with XAUUSD symbol
 
-### Two Roles
-The Windows Agent installs as one of two roles (both can run on the same machine):
+### Two EA Roles (single-file pure-MQL, no includes)
 
-| Role | Purpose | Install command |
-|------|---------|-----------------|
-| **Client Agent** | Receives signals and places/closes XAUUSD orders (execution). | `irm https://downloads.predictatrade.com/windows-agent/client/install.ps1 \| iex` |
-| **Master Node** | Streams market/structure data only — never executes. | `irm https://downloads.predictatrade.com/windows-agent/master/install.ps1 \| iex` |
+| Role | EA file | Purpose |
+|------|---------|---------|
+| **Client EA** | `PredictATrade_MT5.mq5` / `PredictATrade_MT4.mq4` | Activates a device with your license key, polls for executable signals + server commands (HMAC `edge-poll`), ACKs each, executes on the broker account. |
+| **Master Node EA** (data) | `PredictATrade_MasterNode_MT5.mq5` / `PredictATrade_MasterNode_MT4.mq4` | Streams XAUUSD ticks/snapshots via `POST /ingest/agent` (Bearer device JWT) — data only, never executes. |
 
 ### Installation Steps
 
-1. **Run the role installer** (PowerShell, as Administrator — UAC prompt appears):
-   ```powershell
-   # Client Agent (execution)
-   irm https://downloads.predictatrade.com/windows-agent/client/install.ps1 | iex
+1. **Download the EA source** from `https://downloads.predictatrade.com/mql/` (Client + Master Node, one file per platform).
+2. **Compile in MetaEditor** (F7) — must show 0 errors, then copy to the chart:
+   - Attach the **Master Node EA** to an XAUUSD chart on the data terminal (set `MasterLicenseKey`).
+   - Attach the **Client EA** to an XAUUSD chart on the execution terminal and paste your license key (Dashboard → **MetaTrader Client** page).
+   - Enable "Allow Automated Trading" in MT4/MT5.
+3. **Allowlist the cloud** (one time per terminal): Tools → Options → Expert Advisors → tick *"Allow WebRequest for listed URL"* → add `https://api.predictatrade.com`.
+4. **Verify connection**: the EA activates its cloud device automatically (state file per platform in `Common\Files`) and starts polling. Dashboard shows the device **Online**; Admin → Devices shows the edge-poll heartbeat and account type.
 
-   # Master Node (data-only)
-   irm https://downloads.predictatrade.com/windows-agent/master/install.ps1 | iex
-   ```
+### Troubleshooting first checks
+- `Agent won't connect` → verify the license key (Dashboard → Settings → License), confirm the WebRequest allowlist contains `https://api.predictatrade.com`, and check the Experts log for `STATUS` lines.
+- Compile errors → re-download the latest source; the fleet is single-file (no external `.mqh` needed).
 
-2. **Enter your license key** (Client Agent only — the Master Node needs no license)
-   - Find your license key at: Dashboard → Settings → License
-   - Enter it in the Execution EA input parameters
-
-3. **Connect to MT4/MT5**
-   - Attach the Master Node EA to an XAUUSD chart (data collection)
-   - Attach the Execution EA to an XAUUSD chart with your license key
-   - Enable "Allow Automated Trading" in MT4/MT5
-
-4. **Verify connection**
-   - Agent status shows "Connected" with green indicator
-   - Dashboard shows "Agent Online" with device name
-   - Health endpoint: `http://127.0.0.1:9000` (client) / `http://127.0.0.1:9001` (master)
-
-### MQL Expert Advisor Installation
-The Windows Agent installs the MQL EA automatically. Manual steps:
-1. Copy `mql/mt5/Experts/PAT_SignalExecutor.ex5` to your MT5 Experts folder
-2. Copy `mql/mt4/Experts/PAT_SignalExecutor.ex4` to your MT4 Experts folder
-3. Restart MetaTrader
-4. Attach EA to XAUUSD chart (any timeframe — execution is by symbol + price levels)
-5. Enable "Allow Automated Trading" in MT4/MT5
-
-### Agent Features
+### EA Features
 - **Auto-trade mode:** when `AutoExecute` is enabled, the EA executes received signals automatically. **Default is `false` (signal-only)** — the EA displays signals and you place trades manually.
-- **Manual mode:** with `AutoExecute=false`, the agent shows signals and you place trades manually.
+- **Manual mode:** with `AutoExecute=false`, the EA shows signals and you place trades manually.
 - **Risk controls:** max lot size, max spread, and an EA-side daily-loss guard.
 - **Capital protection (EA-side daily-loss guard):** a **soft** limit blocks only *new* entries (and recovers intraday if the loss recedes); a **hard** limit closes *all* positions as an emergency backstop. The soft limit can be bypassed by the operator via the `BypassDailyLossBlock` EA input; the hard limit is never bypassable.
 - **SL enforcement:** Server verifies stop losses are set correctly.
@@ -311,9 +292,9 @@ Alert types:
 
 ### Agent won't connect
 - Verify license key is valid (Dashboard → Settings → License)
-- Check Windows firewall allows outbound WebSocket (port 443)
-- Ensure internet connection is stable
-- Restart Windows Agent as administrator
+- Check the terminal WebRequest allowlist contains `https://api.predictatrade.com` (Tools → Options → Expert Advisors)
+- Ensure internet connection is stable; outbound HTTPS 443 must be allowed
+- Check the Experts log for `STATUS` / activation lines; the device state file lives in `Common\Files` (delete only on support instruction — it holds the device identity)
 
 ### MT4/MT5 EA not working
 - Confirm "Allow Automated Trading" is enabled

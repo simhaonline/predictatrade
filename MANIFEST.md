@@ -96,12 +96,7 @@
 │   ├── scripts/               # Research scripts
 │   └── fixtures/              # Test fixtures
 │
-├── windows-agent/             # Go — Windows Agent (MT4/MT5 bridge)
-│   ├── cmd/                   # Entrypoint
-│   ├── internal/              # Agent logic, IPC, fingerprint
-│   └── validation/            # Validation tests
-│
-├── mql/                       # MQL4/MQL5 Expert Advisors
+├── mql/                       # MQL4/MQL5 Expert Advisors (Option B — EA-direct cloud transport)
 │   ├── mt4/PredictATrade_MT4.mq4
 │   └── mt5/PredictATrade_MT5.mq5
 │
@@ -259,8 +254,9 @@ docker compose --env-file infra/env/.env ps
 A macroscopic audit (`docs/reports/MACRO_AUDIT_2026-08-30.md`) was performed; its P0 code
 fixes were applied earlier and the remaining high-severity items were resolved in this pass:
 
-- **2.1** Agent/data WebSocket now requires `AGENT_WS_TOKEN` (set in `infra/env/realtime.env`
-  + `windows-agent.env`; documented in `infra/env/realtime.env.example`).
+- **2.1** *(superseded by v1.19.0 Option B — the agent/data WebSocket endpoints were removed
+  with the Windows Agent; EA traffic is now `POST /ingest/agent` (Bearer device JWT) on 13081
+  and the HMAC `edge-poll` API).*
 - **2.2** NestJS Jest green: 13 suites / 167 tests pass via `npm test`
   (`NODE_OPTIONS=--experimental-vm-modules`, already in the script); `tsc --noEmit` clean.
 - **2.3** Backtest service public nginx proxy removed; Docker port bound to `127.0.0.1:8088`

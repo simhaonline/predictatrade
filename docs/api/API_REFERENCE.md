@@ -1,12 +1,18 @@
 # REST & WebSocket API Reference
-## v1.27.0 — 04 September 2026
+## v1.29.0 — 04 September 2026
 
 Two backends share the API surface:
 
 | Service | Base URL | Port | Stack |
 |---------|----------|:----:|-------|
 | NestJS Control Plane | `/api/v1` | 13080 | NestJS 12 |
-| Go Realtime Engine | `/` (direct) or `/api/v1/*` via `api.` edge | 13081 (+13091 data) | Go 1.25 |
+| Go Realtime Engine | `/` (direct) or `/api/v1/*` via `api.` edge | 13081 | Go 1.25 |
+
+> The Windows Agent era is gone (v1.19.0 Option B): there is **no** dedicated agent
+> data port 13091 and **no** `/ws/v1/agent` / `/ws/v1/data` transports. EAs talk to
+> port 13081 only — market data via `POST /ingest/agent` (Bearer device JWT), signal
+> delivery via the control-plane HMAC `edge-poll` API. Browsers use `GET /ws` /
+> `GET /ws/v1` on 13081 and the platform relay.
 
 **Machine-readable spec:** [`openapi.json`](openapi.json) (OpenAPI 3.0, 64 paths — generated from
 the control plane's `@nestjs/swagger` decorators; also served from `control/openapi.json`).
@@ -134,7 +140,9 @@ Admin (under `/admin`): `/admin/subscriptions`, `/admin/subscriptions/{payments|
 | GET | /licensing/licenses | Admin | All licenses + status |
 
 Device-auth suite (`/devices`): `activate`, `refresh`, `heartbeat`, `sessions`, `devices/{id}`,
-`devices/{id}/revoke` — used by the Windows Agent for activation sessions.
+`devices/{id}/revoke` — device activation sessions for the EA fleet (Client EA bootstrap +
+token rotation), plus the HMAC `edge-poll` / `edge-ack` / `edge-heartbeat` signal-delivery
+API (`edge-poll.controller.ts`) used by Client EAs every ~3s.
 
 ## 10. Operations (`/operations`) — Admin — `operations.controller.ts`
 
@@ -200,20 +208,28 @@ Guest-preview suite (`/guest`): `session`, `status`, `register`, `otp/resend`, `
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | /health | None | `{status:"ok", broker_time, time_mode:"UTC_ALIGNED"}` |
+| GET | /health | None | `{status:"ok", broker_time, broker_offset, time_mode:"BROKER_ALIGNED", server_time, db, cache, ws_clients, emergency_halt, version}` — `broker_offset` is the live Master-reported broker UTC offset in hours (e.g. `-4` when the PC runs GMT+4 against a GMT+2-winter broker … DST-following at `+3` summer), `time_mode` is `BROKER_ALIGNED` (v1.28+) |
 | GET | /api/v1/signals | JWT* | Signals (limit ≤200). Admin sees all; user sees entitled strategies; anonymous sees ADVISORY-only |
 | GET | /api/v1/trades | JWT | Real fills from `trading.trade_results` (`?strategy=` filter) |
 | GET | /api/v1/market/snapshot | None | Tick + 42 indicators + VWAP bands + session |
 | GET | /api/v1/market/state | None | Full market state incl. Regime |
-| GET | /api/v1/market/indicators | JWT | Indicators only |
-| GET | /api/v1/candles | JWT | Cached candles (TimescaleDB ⇢ Valkey ⇢ in-memory ladder) |
-| GET | /api/v1/agents/status | Admin | Agent count, mt4/mt5 links, snapshot_count, `data_health` (NO_DATA/HEALTHY/STALE/CRITICAL), `market_closed` (true when Master EA reports closed-market liveness snapshots), `last_snapshot_at` |
-| GET | /api/v1/engines/status | JWT | 5 strategy engines + liveness |
+| GET | /api/v1/candles | JWT | Cached candles (TimescaleDB ⇢ Valkey ⇢ in-memory ladder). Timeframes `M1..MN`; `MN1` requests serve the canonical `MN` series (mig 137) |
+| GET | /api/v1/agents/status | Admin | Device count, mt4/mt5 links, snapshot_count, `data_health` (NO_DATA/HEALTHY/STALE/CRITICAL), `market_closed` (true when Master EA reports closed-market liveness snapshots), `last_snapshot_at`, per-device account type (v1.27) |
+| GET | /api/v1/engines/status | JWT | 7 strategy engines + truthful liveness (never fabricated green) |
 | GET | /api/v1/system-health | Admin | Engine + DB + feeds + agents rollup |
 | GET | /api/v1/liquidity/** | JWT | Devil Liquidity marks/qualification |
 | GET | /api/v1/cross-market/** | JWT | DXY/BTC/Oil confluence + validation |
 | GET | /api/v1/devil-liquidity/marks | JWT | Mark lifecycle states |
 | GET | /api/v1/strategies | None | Enabled strategy IDs |
+| GET | /api/v1/feeds | None | Per-source feed divergence/health panel (`degraded` at 90s, `stale` at 180s) |
+| GET | /api/v1/pipeline/monitor | Admin | Signal-pipeline stage monitor |
+| GET | /api/v1/price/history | None | Historical prices |
+| GET | /api/v1/signals/resume | JWT | Signal resume/replay state |
+| GET | /api/v1/astro/state · /astro/mindmap · /astro/screens | JWT | Astro Intelligence (Vedic + Western) state/mindmap/screens |
+| GET | /api/v1/admin/regime-diagnostics *(admin)* | Regime engine state |
+| GET | /api/v1/admin/signal-engine *(admin)* | Capital-tier signal engine overview: per-tier device/delivery counts, recent signals with EligibleTiers, 24h stats |
+| POST | /api/v1/admin/emergency-stop · /admin/kill-switch · /admin/emergency-resume | Admin JWT | Emergency controls (activate server-side EmergencyHalt — stops generation AND delivery) |
+| POST | /ingest/agent | Device JWT | EA-direct market-data ingest (v1.19+ Option B): `TYPE|{json}` lines — INIT, ACCOUNT_INFO, LICENSE_CHECK, MARKET_SNAPSHOT, MASTER_TICK, MASTER_INIT/DEINIT, EXECUTION_ACK, TRADE_RESULT, SLIPPAGE_EVENT, CAPITAL_WARNING, LIVENESS. Canonical Master source keys: `MT4_MASTER`/`MT5_MASTER` (legacy aliases normalized by DB triggers, mig 136) |
 | POST | /api/v1/license/validate | Agent | Proactive license validation (v1.16+) |
 | GET | /metrics | Prometheus | Scrape endpoint (`pat_*` metric families incl. `pat_reconciliation_*`, gates, engines) |
 
@@ -221,13 +237,20 @@ Guest-preview suite (`/guest`): `session`, `status`, `register`, `otp/resend`, `
 
 | Path | Port | Auth | Purpose |
 |------|:----:|------|---------|
-| /ws/v1/agent | 13081 | Agent token | Windows **Client Agent** (execution): receives SIGNAL, CLOSE_POSITION, EMERGENCY_STOP, KILL_SWITCH, LICENSE_STATUS, REQUEST_SNAPSHOT; sends EXECUTION_ACK, TRADE_RESULT, SLIPPAGE_EVENT, CAPITAL_WARNING |
-| /ws/v1/data | 13091 | Agent token | Windows **Master Node** (data-only): MARKET_SNAPSHOT, MASTER_TICK, MASTER_INIT/DEINIT, LICENSE_CHECK |
-| /ws/v1 | 13081 | JWT | Browser signal stream (dashboard) |
+| /ws and /ws/v1 | 13081 | JWT | Browser signal stream (dashboard) |
 | /ws | platform edge | JWT | Browser realtime (live-terminal relay) |
 
-**Server → client events:** `signal`, `signal_update`, `tick`, `engine_status`, `market_alert`,
-`LICENSE_STATUS`, `CLOSE_POSITION`, `EMERGENCY_STOP`, `KILL_SWITCH`, `REQUEST_SNAPSHOT`; client EAs also emit a `LIVENESS` ping (connectivity-only, `market_closed:true`) that the agent forwards upstream during closed markets, `LIVENESS` (client-EA closed-market connectivity ping — agent→engine) — the status page and agents/status now also expose `market_closed`.
+> The former `/ws/v1/agent` (execution) and `/ws/v1/data` (13091) agent transports were
+> removed in v1.19.0 (Option B). EA execution messages (EXECUTION_ACK, TRADE_RESULT,
+> SLIPPAGE_EVENT, CAPITAL_WARNING, LIVENESS) now arrive via `POST /ingest/agent`;
+> signal/command delivery flows through the control-plane HMAC `edge-poll` API with
+> always-ACK semantics. Server → EA commands still include `SIGNAL`, `CLOSE_POSITION`,
+> `EMERGENCY_STOP`, `KILL_SWITCH`, `LICENSE_STATUS`, `REQUEST_SNAPSHOT` in the poll
+> response.
+
+**Server → client events (browser WS):** `signal`, `signal_update`, `tick`, `engine_status`, `market_alert`,
+`LICENSE_STATUS`, `CLOSE_POSITION`, `EMERGENCY_STOP`, `KILL_SWITCH`, `REQUEST_SNAPSHOT`;
+the status page and `agents/status` also expose `market_closed`.
 
 **Signal object** (abridged — full field list in §9 of old reference and `realtime/internal/types`):
 `ID`, `Direction`, `StrategyID`, `SignalClass` (ADVISORY|EXECUTABLE), `RawScore`,
