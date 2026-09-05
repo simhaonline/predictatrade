@@ -37,7 +37,7 @@
 //| SERVER - no EA recompile required.                               |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.26"
+#property version   "1.28"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -646,6 +646,16 @@ input string TripleSwapDay      = "Wednesday"; // Weekday treated as triple-swap
 #define TrendSwing_MaxEntryDrift 80
 #define RiskPerTradePct 1.0
 #define UseAutoLotSizing true
+// v1.28 client-side capital guards (reference: standalone PAT v1.2 cost/rollover/
+// floating-DD design; integrated with the server-trust gate architecture):
+#define FloatingDDProtection true   // close-all + day halt when floating loss exceeds pct of balance
+#define FloatingDD_MaxPct 5.0       // floating drawdown % of balance that trips the breaker
+#define AvoidRolloverWindow true    // refuse EXECUTABLE signals inside the broker rollover window
+#define RolloverOpenHour 23
+#define RolloverOpenMin 15
+#define RolloverCloseHour 0
+#define RolloverCloseMin 45
+#define MaxTradesPerDay 50          // terminal-local execution cap (server plan caps still apply)
 
 // Client MT terminal log — formatted [Predict-A-Trade] lines written here (FILE_COMMON)
 // and echoed to the MT Experts log so the trader can see status/signal activity.
@@ -710,6 +720,9 @@ int           g_slippageRejects = 0;
 bool          g_equityHalted   = false;
 int           g_magicSeq       = 0;
 string        g_lastSignalJSON = "";
+// v1.28 client-side capital guards
+bool          g_fddHalted      = false;   // floating-DD breaker latched for the broker day
+int           g_dayTradeCount  = 0;       // EXECUTABLE entries sent this broker day
 
 // Per-trade registry (runtime, keyed by magic; stage persists via GVs)
 ulong   g_regMagic[PAT_REG_MAX];
@@ -939,6 +952,24 @@ bool PAT_ValidateLevels(bool isBuy, double entry, double &sl, double &tpFinal)
               " sl=", DoubleToString(sl, _Digits),
               " tp=", DoubleToString(tpFinal, _Digits));
         return false;
+    }
+    // v1.28: broker stops/freeze distance check (reference: standalone PAT v1.2
+    // MinStopDist gate). A TP/SL closer than SYMBOL_TRADE_STOPS_LEVEL is
+    // rejected by the broker at send time — reject here instead, with a clean
+    // log line (ECN open-then-modify re-checks after the naked fill).
+    long stopsLevel  = SymbolInfoInteger(g_symbol, SYMBOL_TRADE_STOPS_LEVEL);
+    long freezeLevel = SymbolInfoInteger(g_symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+    long minDistPts  = MathMax(stopsLevel, freezeLevel);
+    if(minDistPts > 0)
+    {
+        double minDist = (double)minDistPts * _Point;
+        if(MathAbs(entry - sl) < minDist || MathAbs(tpFinal - entry) < minDist)
+        {
+            Print("REJECTED levels_too_close: SL/TP within stops/freeze distance (",
+                  IntegerToString((int)minDistPts), " pt) — entry=", DoubleToString(entry, _Digits),
+                  " sl=", DoubleToString(sl, _Digits), " tp=", DoubleToString(tpFinal, _Digits));
+            return false;
+        }
     }
     if(isBuy)
     {
@@ -1445,7 +1476,7 @@ string FormatISO8601UTC(datetime t)
 
 int OnInit()
 {
-    Print("Predict-A-Trade MT5 EA v1.26 initializing...");
+    Print("Predict-A-Trade MT5 EA v1.28 initializing...");
 
     g_symbol = BrokerSymbol;
     if(g_symbol == "") g_symbol = _Symbol;
@@ -1537,6 +1568,7 @@ void OnTick()
 
     PAT_ManagePositions();
     UpdateCapitalProtection();
+    PAT_CheckFloatingDrawdown(); // v1.28: floating-loss breaker (runs after realized-P&L guard)
     PAT_HistoryPoll();
     UpdatePanel();
 }
@@ -1890,6 +1922,89 @@ bool IsTripleSwapDay()
     if(TripleSwapDay == "Thursday" && dt.day_of_week == 4) return true;
     if(TripleSwapDay == "Friday" && dt.day_of_week == 5) return true;
     return false;
+}
+
+//+------------------------------------------------------------------+
+//| v1.28 BROKER-ROLLOVER WINDOW (reference: standalone PAT v1.2)     |
+//| Spread widens and liquidity thins around the 00:00 broker-day     |
+//| swap; XAUUSD print quality degrades. The EA refuses EXECUTABLE    |
+//| signals inside the window; open positions are untouched (server   |
+//| owns exit logic). Purely local — no server coupling.              |
+//+------------------------------------------------------------------+
+bool PAT_InRolloverWindow()
+{
+    if(!AvoidRolloverWindow) return false;
+    MqlDateTime dt;
+    TimeToStruct(TimeCurrent(), dt);
+    if(dt.day_of_week < 1 || dt.day_of_week > 5) return false; // weekend gap — nothing to avoid
+    int nowMin = dt.hour * 60 + dt.min;
+    int openMin  = (RolloverOpenHour * 60  + RolloverOpenMin);
+    int closeMin = (RolloverCloseHour * 60 + RolloverCloseMin);
+    if(closeMin >= openMin)                    // same-calendar-day window
+        return (nowMin >= openMin && nowMin < closeMin);
+    return (nowMin >= openMin || nowMin < closeMin); // midnight-spanning
+}
+
+//+------------------------------------------------------------------+
+//| v1.28 FLOATING-DRAWDOWN BREAKER (reference: standalone PAT v1.2)  |
+//| Last-resort equity guard independent of the realized daily-P&L    |
+//| limit: if open floating loss vs balance exceeds the % budget,     |
+//| close ALL PAT positions and halt new entries for the broker day.  |
+//| The engine's 16-gate pipeline sizes risk server-side, but only    |
+//| this terminal sees its own live equity between polls.             |
+//+------------------------------------------------------------------+
+void PAT_CheckFloatingDrawdown()
+{
+    if(!FloatingDDProtection) return;
+    double bal = AccountInfoDouble(ACCOUNT_BALANCE);
+    double eq  = AccountInfoDouble(ACCOUNT_EQUITY);
+    if(bal <= 0) return;
+    double floatingLoss = bal - eq;
+    if(floatingLoss <= bal * (FloatingDD_MaxPct / 100.0)) return;
+
+    Print("*** FLOATING-DD BREAKER: equity ", DoubleToString(eq, 2),
+          " is ", DoubleToString(floatingLoss, 2), " (",
+          DoubleToString(floatingLoss / bal * 100.0, 2), "% of balance) below balance",
+          " — closing ALL PAT positions and halting for the day ***");
+    CloseAllPatPositions("FLOATING_DD_BREAKER");
+    g_fddHalted = true;
+    GlobalVariableSet("PAT_FDD_DAY", (double)g_currentDay);
+    string msg = "CAPITAL_PROTECTION|{\"event_type\":\"FLOATING_DD_BREAKER\",\"floating_loss\":"
+               + DoubleToString(floatingLoss, 2) + ",\"floating_loss_pct\":"
+               + DoubleToString(floatingLoss / bal * 100.0, 2) + ",\"action\":\"EMERGENCY_CLOSE_ALL\"}";
+    PAT_Send(msg);
+    PAT_LogLine("CAPITAL | floating-DD breaker fired: loss " + DoubleToString(floatingLoss, 2)
+              + " (" + DoubleToString(floatingLoss / bal * 100.0, 2) + "%) — closed all, halted");
+}
+
+//+------------------------------------------------------------------+
+//| v1.28 TERMINAL-LOCAL MARGIN PRE-CHECK                             |
+//| The engine sizes lots from the last ACCOUNT_INFO snapshot; this   |
+//| terminal verifies the CURRENT free margin covers the lot right    |
+//| before the order (AccountInfoDouble snapshots can be minutes old  |
+//| at 3s poll cadence). Fail-closed: no margin math → no order.      |
+//+------------------------------------------------------------------+
+bool PAT_MarginOK(bool isBuy, double lot)
+{
+    if(lot <= 0) return false;
+    double px = isBuy ? SymbolInfoDouble(g_symbol, SYMBOL_ASK)
+                      : SymbolInfoDouble(g_symbol, SYMBOL_BID);
+    double need = 0;
+    if(!OrderCalcMargin(isBuy ? ORDER_TYPE_BUY : ORDER_TYPE_SELL, g_symbol, lot, px, need)
+       || need <= 0)
+    {
+        Print("REJECTED margin_calc_failed: OrderCalcMargin returned no cost — refusing to send");
+        return false;
+    }
+    double free = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+    if(need > free * 0.8)   // hold 20% cushion — never trade to a margin call
+    {
+        Print("REJECTED insufficient_margin: need=", DoubleToString(need, 2),
+              " free=", DoubleToString(free, 2),
+              " (cap 80% of free) lot=", DoubleToString(lot, 2));
+        return false;
+    }
+    return true;
 }
 
 //+------------------------------------------------------------------+
@@ -2422,6 +2537,9 @@ void HandleSignal(string json)
     }
 
     if(g_tradingBlocked) { Print("SIGNAL BLOCKED: g_tradingBlocked (daily loss limit reached) — NO-TRADE"); g_signalsFiltered++; return; }
+    if(g_fddHalted)      { Print("SIGNAL BLOCKED: floating-DD breaker latched for this broker day — NO-TRADE"); g_signalsFiltered++; return; }
+    if(g_dayTradeCount >= MaxTradesPerDay) { Print("SIGNAL BLOCKED: terminal executed ", g_dayTradeCount, " entries today (cap ", MaxTradesPerDay, ") — NO-TRADE"); g_signalsFiltered++; return; }
+    if(PAT_InRolloverWindow()) { Print("SIGNAL BLOCKED: broker rollover window (", RolloverOpenHour, ":", (RolloverOpenMin<10?"0":""), RolloverOpenMin, "-", RolloverCloseHour, ":", (RolloverCloseMin<10?"0":""), RolloverCloseMin, ") — NO-TRADE"); g_signalsFiltered++; return; }
     if(AvoidSwapCharges && IsNearSwapTime()) { Print("SIGNAL BLOCKED: AvoidSwapCharges + near swap-time (broker ", TimeToString(TimeCurrent(), TIME_MINUTES), ") — NO-TRADE"); g_signalsFiltered++; return; }
     if(IsTripleSwapDay()) { Print("SIGNAL BLOCKED: AvoidTripleSwapDay=true and today is ", TripleSwapDay, " (triple-swap) — ALL signals vetoed, NO-TRADE. Set EA input AvoidTripleSwapDay=false to trade today."); g_signalsFiltered++; return; }
     g_signalsDisplayed++;
@@ -2632,8 +2750,14 @@ void ExecuteBuy()
         return;
     }
 
-    // 4. EA-side risk gate (spread, drift, TTL, caps, risk$, martingale, margin)
-    // Risk gates handled by SERVER — EA trusts server decision
+    // v1.28: terminal-local margin pre-check on the CURRENT free margin (the
+    // engine sizes from the last ACCOUNT_INFO snapshot, which can be a poll
+    // cycle old). Fail-closed — an unaffordable lot is never sent.
+    if(!PAT_MarginOK(true, vol))
+    {
+        g_signalsFiltered++;
+        return;
+    }
 
     // Enforce EA-side position caps / halt flags. PAT_PreTradeGate was defined
     // but never invoked here — that omission allowed duplicate/over-positioning
@@ -2677,6 +2801,7 @@ void ExecuteBuy()
     if(sentBuy)
     {
         g_lastExecutedSignalID = g_signalID;
+        g_dayTradeCount++; // v1.28: terminal-local daily execution count
         ulong posTicket = trade.ResultOrder();
         if(PositionSelectByTicket(posTicket))
         {
@@ -2759,7 +2884,13 @@ void ExecuteSell()
         return;
     }
 
-    // Risk gates handled by SERVER — EA trusts server decision
+    // v1.28: terminal-local margin pre-check (see ExecuteBuy — CURRENT free
+    // margin, 20% cushion, fail-closed).
+    if(!PAT_MarginOK(false, vol))
+    {
+        g_signalsFiltered++;
+        return;
+    }
 
     // Enforce EA-side position caps / halt flags (same as ExecuteBuy — this was
     // the missing call that permitted multiple positions per signal).
@@ -2794,6 +2925,7 @@ void ExecuteSell()
     if(sentSell)
     {
         g_lastExecutedSignalID = g_signalID;
+        g_dayTradeCount++; // v1.28: terminal-local daily execution count
         ulong posTicket = trade.ResultOrder();
         if(PositionSelectByTicket(posTicket))
         {
@@ -2959,6 +3091,11 @@ void UpdateCapitalProtection()
         g_dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
         g_dailyPnL = 0;
         g_tradingBlocked = false;
+        // v1.28: new broker day clears the floating-DD latch and the local
+        // trade-count cap (both are day-scoped like the realized-P&L guard).
+        g_fddHalted = false;
+        g_dayTradeCount = 0;
+        GlobalVariableSet("PAT_FDD_DAY", 0);
     }
     g_dailyPnL = 0;
     datetime dayStart = today;
@@ -3112,6 +3249,9 @@ void UpdatePanel()
     p += "Time:     " + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\n";
     p += "Slip rejects: " + IntegerToString(g_slippageRejects) + "\n";
     p += "Daily P&L: " + DoubleToString(g_dailyPnL, 2) + "\n";
+    p += "Trades today: " + IntegerToString(g_dayTradeCount) + " / " + IntegerToString(MaxTradesPerDay) + " (local cap)\n";  // v1.28
+    if(FloatingDDProtection) p += "FloatDD: " + DoubleToString(MathMax(0.0, AccountInfoDouble(ACCOUNT_BALANCE) - AccountInfoDouble(ACCOUNT_EQUITY)), 2) + " (breaker " + DoubleToString(FloatingDD_MaxPct, 1) + "%)\n";  // v1.28
+    if(g_fddHalted) p += "*** HALTED: FLOATING-DD BREAKER (this broker day) ***\n";  // v1.28
     if(BypassDailyLossBlock) p += "DailyLoss guard: BYPASSED (client override)\n";
     if(g_tradingBlocked) p += "*** TRADING BLOCKED (daily loss) ***\n";
     if(g_equityHalted)   p += "*** HALTED: EQUITY FLOOR ***\n";

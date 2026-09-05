@@ -201,6 +201,7 @@ View the evidence chain by clicking any signal in the dashboard.
 - **Capital protection (EA-side daily-loss guard):** a **soft** limit blocks only *new* entries (and recovers intraday if the loss recedes); a **hard** limit closes *all* positions as an emergency backstop. The soft limit can be bypassed by the operator via the `BypassDailyLossBlock` EA input; the hard limit is never bypassable.
 - **SL enforcement:** Server verifies stop losses are set correctly.
 - **Emergency commands:** CLOSE_POSITION, EMERGENCY_STOP, KILL_SWITCH from server.
+- **Terminal-local capital guards (v1.28):** floating-drawdown breaker (closes all PAT positions and halts the day when floating loss exceeds 5% of balance), rollover-window no-trade (23:15–00:45 broker time), daily execution cap (50 fills/day), margin pre-check on current free margin before every order, and stops/freeze distance validation. All fail-closed and visible on the chart panel (`Trades today`, `FloatDD`, halt lines) — see the EA Client Guide for details.
 
 ### Execution EA Input Parameters
 | Input | Default | Description |

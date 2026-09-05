@@ -1,5 +1,5 @@
 # MT4/MT5 EA-Client Guide (Option B)
-## v1.23 (MT4) / v1.20 (MT5) — 2 September 2026
+## v1.28 (MT4 + MT5) — 5 September 2026
 
 - **Edge-poll cadence guard**: new `PATPollMs` input (default 3000 ms, floor
   1000 ms). Polls are throttled to one per interval instead of one per tick —
@@ -53,6 +53,20 @@ Since v1.19.0 the MetaTrader EAs talk to the Predict-A-Trade cloud **directly ov
 - **Plan-gated (two layers)**: the engine filters at enqueue time (license status + license `allowed_strategies` + plan `allowed_strategies` in SQL) and the control plane re-checks at poll time — a license revoked or plan downgraded between enqueue and poll expires the queued signal.
 - **Always-ACK**: every polled item is ACKed (`{"status":"PROCESSED",...}`) so it leaves the queue permanently; stale IN_FLIGHT items (EA crash mid-batch) are reclaimed after 30s; signals past TTL expire.
 - **Server-enforced SL**: a trade without a stop-loss is auto-closed server-side (`CLOSE_POSITION` command arrives on the same poll channel).
+
+### Client-side capital guards (v1.28, terminal-local)
+
+The server owns signal-worthiness (16-gate pipeline) and entitlement filtering; the v1.28 Client EA adds **terminal-local, fail-closed** last-line guards that run between polls (these encode the standalone PAT cost/rollover design and execute only on the broker clock via `TimeCurrent()`):
+
+| Guard | Default | Behavior |
+|-------|---------|----------|
+| Floating-DD breaker | on, 5% of balance | If open floating loss vs balance exceeds 5%, closes **all PAT positions** immediately, halts new entries for the broker day, and reports `CAPITAL_PROTECTION` (event `FLOATING_DD_BREAKER`) to the cloud. Resets at the next broker day. |
+| Rollover window | on, 23:15–00:45 broker time | Refuses EXECUTABLE signals around the 00:00 broker-day swap (spread widen-out, thin liquidity). Open positions untouched — the server owns exits. |
+| Daily execution cap | 50 entries/day | Terminal-local counter of EXECUTABLE fills; blocks further entries for the day when reached (server plan caps still apply independently). |
+| Margin pre-check | on | Verifies the **current** free margin covers the sized lot right before `OrderSend` (MT5 `OrderCalcMargin` with an 80%-of-free cap; MT4 `AccountFreeMarginCheck`) — the engine sizes from the last account snapshot, which can be one poll cycle old. Fail-closed: no math → no order. |
+| Stops/freeze distance | on | Rejects SL/TP closer than the broker's `SYMBOL_TRADE_STOPS_LEVEL`/`FREEZE_LEVEL` (MT4: `MODE_STOPLEVEL`/`MODE_FREEZELEVEL`) with a clean log line instead of a broker error at send time. |
+
+All guards are `#define` constants at the top of the EA source (no new inputs); the chart panel shows live values: `Trades today`, `FloatDD`, and a `*** HALTED: FLOATING-DD BREAKER ***` line when latched.
 
 ### Master (data) EA
 
