@@ -104,6 +104,13 @@ export class AdminController {
     );
   }
 
+  /** v1.28: EA capital-guard risk events (FLOATING_DD_BREAKER, SOFT_HALT, RECOVER...). */
+  @Get('devices/risk-events')
+  async listRiskEvents(@Query('device_id') deviceId?: string, @Query('limit') limit?: string) {
+    const lim = Math.min(Math.max(limit ? parseInt(limit, 10) : 50, 1), 200);
+    return this.adminService.listDeviceRiskEvents(deviceId || '', lim);
+  }
+
   @Get('activations')
   async listActivations(@Query('page') page?: string, @Query('limit') limit?: string) {
     return this.adminService.listAllActivations(

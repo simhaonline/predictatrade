@@ -2606,6 +2606,96 @@ func main() {
 		}
 	})
 
+	// ─── CAPITAL_PROTECTION: persist EA capital-guard telemetry (mig 138) ───
+	// v1.28 Client EAs report terminal-local guard firings (floating-DD
+	// breaker, soft halt, recovery) over /ingest/agent. Persist every distinct
+	// event into licensing.device_risk_events so breakers survive log rotation;
+	// for FLOATING_DD_BREAKER (position-closing severity) also push an ops ntfy
+	// alert — de-duplicated per device per broker day in-memory so a flapping
+	// EA cannot spam the topic.
+	agentProvider.SetCapitalEventFn(func(agentID string, data []byte) {
+		if globalPersister == nil {
+			return
+		}
+		// The EA builders emit {"event_type":"...","floating_loss":...}; unwrap
+		// an outer {"type","payload"} envelope defensively like TRADE_RESULT.
+		var outerMsg struct {
+			Type    string          `json:"type"`
+			Payload json.RawMessage `json:"payload"`
+		}
+		payloadData := data
+		if err := json.Unmarshal(data, &outerMsg); err == nil && len(outerMsg.Payload) > 0 {
+			payloadData = outerMsg.Payload
+		}
+		var ev struct {
+			EventType       string  `json:"event_type"`
+			FloatingLoss    float64 `json:"floating_loss"`
+			FloatingLossPct float64 `json:"floating_loss_pct"`
+			DailyPnlPct     float64 `json:"daily_pnl_pct"`
+			Action          string  `json:"action"`
+		}
+		if err := json.Unmarshal(payloadData, &ev); err != nil {
+			log.Warn().Err(err).Str("agent_id", agentID).Msg("CAPITAL_PROTECTION parse failed")
+			return
+		}
+		if ev.EventType == "" {
+			ev.EventType = "UNSPECIFIED"
+		}
+		deviceID := deviceIDForAgent(agentID, agentDevice[agentID])
+
+		ctxCE, cancelCE := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelCE()
+		var alertedAt *time.Time
+		if err := globalPersister.GetDB().QueryRowContext(ctxCE, `
+			INSERT INTO licensing.device_risk_events (device_id, event_type, details)
+			VALUES (NULLIF($1,'')::uuid, $2, $3::jsonb)
+			RETURNING alerted_at`,
+			deviceID, ev.EventType, string(payloadData)).Scan(&alertedAt); err != nil {
+			log.Warn().Err(err).Str("agent_id", agentID).Str("event_type", ev.EventType).
+				Msg("CAPITAL_PROTECTION persist failed")
+			return
+		}
+
+		// Ops alert only for breaker-severity events, only when the row is new
+		// (alerted_at IS NULL on insert), with an in-memory per-device day
+		// de-dupe on top for flapping loops.
+		if ev.EventType == "FLOATING_DD_BREAKER" && alertedAt == nil {
+			ceKey := agentID + ":" + time.Now().UTC().Format("2006-01-02")
+			signalNotifyMu.Lock()
+			if last, ok := signalNotifyLast["fdd:"+ceKey]; ok && time.Since(last) < signalNotifyCooldown {
+				signalNotifyMu.Unlock()
+				return
+			}
+			signalNotifyLast["fdd:"+ceKey] = time.Now()
+			signalNotifyMu.Unlock()
+
+			log.Warn().Str("device_id", deviceID).Float64("floating_loss", ev.FloatingLoss).
+				Float64("pct", ev.FloatingLossPct).Msg("FLOATING-DD BREAKER fired (EA capital guard)")
+			if globalSignalNotifier != nil {
+				ctxN, cancelN := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancelN()
+				if err := globalSignalNotifier.Send(ctxN, &notifications.Notification{
+					NotificationID: uuid.New().String(),
+					EventType:      notifications.EventTradeClosed,
+					Severity:       "critical",
+					Title:          "FLOATING-DD BREAKER fired",
+					Message: fmt.Sprintf("Device %s closed ALL positions and halted for the broker day: floating loss %.2f (%.2f%% of balance).",
+						deviceID, ev.FloatingLoss, ev.FloatingLossPct),
+					CreatedAt: time.Now().UTC(),
+				}); err != nil {
+					log.Warn().Err(err).Str("device_id", deviceID).Msg("FLOATING_DD_BREAKER ntfy alert failed")
+				}
+			}
+			// Mark alerted so a control-plane reader knows this row pushed.
+			ctxA, cancelA := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancelA()
+			globalPersister.GetDB().ExecContext(ctxA,
+				`UPDATE licensing.device_risk_events SET alerted_at = now()
+				  WHERE device_id = NULLIF($1,'')::uuid AND event_type = $2 AND alerted_at IS NULL`,
+				deviceID, ev.EventType)
+		}
+	})
+
 	// License validation: when MASTER_INIT arrives, validate the license key
 	// against the control plane DB and send a LICENSE_STATUS response to the EA.
 	agentProvider.SetLicenseValidateFn(func(agentID, licenseKey, deviceID string) marketdata.LicenseValidationResult {

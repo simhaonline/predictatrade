@@ -326,6 +326,35 @@ export class AdminService {
     return { items: data.rows, total: parseInt(count.rows[0].total, 10), page, limit };
   }
 
+  /**
+   * v1.28: EA capital-guard risk events from licensing.device_risk_events
+   * (migration 138). Rows are written by the realtime engine when a Client EA
+   * reports CAPITAL_PROTECTION over /ingest/agent (floating-DD breaker,
+   * soft halt, recovery). Optional device_id filter for the device detail
+   * drawer; ordered newest-first, capped.
+   */
+  async listDeviceRiskEvents(deviceId = '', limit = 50) {
+    const params: (string | number)[] = [limit];
+    let where = '';
+    if (deviceId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(deviceId)) {
+      where = 'WHERE r.device_id = $2::uuid';
+      params.push(deviceId);
+    }
+    const result = await this.pool.query(
+      `SELECT r.id, r.device_id, r.event_type, r.details,
+              r.ingested_at, r.alerted_at,
+              d.device_name, d.hostname, u.email AS user_email
+         FROM licensing.device_risk_events r
+         LEFT JOIN licensing.devices d ON d.id = r.device_id
+         LEFT JOIN iam.users u ON u.id = d.user_id
+         ${where}
+        ORDER BY r.ingested_at DESC
+        LIMIT $1`,
+      params,
+    );
+    return { items: result.rows, total: result.rows.length, limit };
+  }
+
   /** List all device activations (admin only). */
   async listAllActivations(page = 1, limit = 20) {
     const offset = (page - 1) * limit;

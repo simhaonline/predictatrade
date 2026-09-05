@@ -312,6 +312,11 @@ type AgentProvider struct {
 	tradeResultFn  func(agentID string, data []byte)
 	executionAckFn func(agentID string, data []byte)
 
+	// CapitalEventFn — v1.28: receives EA capital-guard events
+	// (CAPITAL_PROTECTION: FLOATING_DD_BREAKER / SOFT_HALT / RECOVER).
+	// Set by main.go to persist into licensing.device_risk_events and alert.
+	capitalEventFn func(agentID string, data []byte)
+
 	// Broker session alignment. The Master Node sends the broker's server
 	// time per tick; we derive the broker UTC offset from it so candles align
 	// to BROKER session boundaries (not UTC). cfgOffset is an operator override
@@ -800,6 +805,14 @@ func (p *AgentProvider) SetTradeResultFn(fn func(agentID string, data []byte)) {
 // The server uses this to verify that trades were placed with the correct SL/TP.
 func (p *AgentProvider) SetExecutionAckFn(fn func(agentID string, data []byte)) {
 	p.executionAckFn = fn
+}
+
+// SetCapitalEventFn registers the capital-guard telemetry callback
+// (CAPITAL_PROTECTION events: FLOATING_DD_BREAKER / SOFT_HALT / RECOVER).
+// The handler persists into licensing.device_risk_events (mig 138) and
+// triggers the ops ntfy alert for breaker firings.
+func (p *AgentProvider) SetCapitalEventFn(fn func(agentID string, data []byte)) {
+	p.capitalEventFn = fn
 }
 
 func NewAgentProvider() *AgentProvider {
@@ -1489,6 +1502,15 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 			p.capitalStateMu.Lock()
 			p.lastCapitalState[agentID] = "CAPITAL_PROTECTION"
 			p.capitalStateMu.Unlock()
+		}
+		// v1.28: capital-guard telemetry → persist + alert (migration 138).
+		// The EA now emits distinct event types (FLOATING_DD_BREAKER,
+		// SOFT_HALT, RECOVER); forward every event body to the handler —
+		// the redundant-message de-dupe upstream keeps this at most once
+		// per distinct payload, and the handler applies its own
+		// per-device alert de-dupe for breaker firings.
+		if p.capitalEventFn != nil {
+			go p.capitalEventFn(agentID, data)
 		}
 
 	case "EXECUTION_ACK":

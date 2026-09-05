@@ -80,6 +80,22 @@ export default function AdminDeviceAuthPage() {
     queryFn: async () => (await customInstance.get("/market/snapshot")).data,
     refetchInterval: 10000,
   });
+
+  // v1.28: EA capital-guard risk events (floating-DD breaker, soft halts).
+  // Written by the realtime engine when a Client EA reports CAPITAL_PROTECTION.
+  const { data: riskEvents } = useQuery<{
+    items: {
+      id: number; device_id: string; event_type: string;
+      details: Record<string, unknown>;
+      ingested_at: string; alerted_at: string | null;
+      device_name: string | null; user_email: string | null;
+    }[];
+    total: number;
+  }>({
+    queryKey: ["admin-device-risk-events"],
+    queryFn: async () => (await customInstance.get("/admin/devices/risk-events?limit=10")).data,
+    refetchInterval: 30000,
+  });
   const { data, isLoading, error, refetch } = useQuery<{ items: Device[]; total: number; page: number; limit: number }>({
     queryKey: ["admin-devices", page],
     queryFn: async () => {
@@ -192,6 +208,36 @@ export default function AdminDeviceAuthPage() {
                 occurs when the Windows Agent sends its first heartbeat with a valid license key to the NestJS API.
               </div>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* v1.28: EA capital-guard risk events */}
+      <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-pat-text-primary">EA Capital-Guard Risk Events</h2>
+          <span className="text-[10px] text-pat-text-muted">FLOATING_DD_BREAKER · SOFT_HALT · RECOVER — terminal-local guards, reported via ingest</span>
+        </div>
+        {!riskEvents?.items?.length ? (
+          <div className="text-xs text-pat-text-muted py-2">No risk events recorded. The v1.28 Client EA reports breaker firings, soft halts and recoveries here in real time.</div>
+        ) : (
+          <div className="space-y-1.5">
+            {riskEvents.items.map((r) => (
+              <div key={r.id} className="flex items-center gap-3 rounded-lg bg-pat-bg-surface-secondary/20 px-3 py-2">
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${r.event_type === "FLOATING_DD_BREAKER" ? "bg-pat-danger/15 text-pat-danger" : r.event_type === "RECOVER" ? "bg-pat-success/15 text-pat-success" : "bg-pat-warning/15 text-pat-warning"}`}>
+                  {r.event_type}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs text-pat-text-primary truncate">
+                    {r.device_name || r.device_id.slice(0, 8)}{r.user_email ? ` · ${r.user_email}` : ""}
+                    {typeof r.details?.floating_loss === "number" && (
+                      <span className="text-pat-text-secondary"> — floating loss ${Number(r.details.floating_loss).toFixed(2)} ({Number(r.details?.floating_loss_pct ?? 0).toFixed(2)}%)</span>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-pat-text-muted">{format(new Date(r.ingested_at), "MMM d, yyyy HH:mm:ss")}{r.alerted_at ? " · alerted" : ""}</div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
