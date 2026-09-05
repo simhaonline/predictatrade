@@ -5,5 +5,7 @@
 package version
 
 // Version is the current engine release. Update on each release tag together
-// with the README version line.
-var Version = "1.18.0"
+// with the README version line. This default is the docker-compose build
+// fallback (realtime/Dockerfile has no ldflags pass) — keep it in sync with
+// observability/logging.go so /health and structured logs never disagree.
+var Version = "1.24.2"
