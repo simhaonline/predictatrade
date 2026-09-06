@@ -395,7 +395,7 @@ measurements all pointing the same way, summing past the bar.
 - **Geometry**: SL = 1.5×ATR (engine), TPs 3.0/5.0/8.0×ATR, Ichimoku cloud
   confirmation for swing TF trend.
 
-### 3.5 MARNIE_FIB — golden-zone retracement reversals
+### 3.5 EQFE (internal ID MARNIE_FIB) — golden-zone retracement reversals
 - **Idea**: price retraces into the 0.618–0.786 golden zone of a confirmed
   swing → enter with the swing direction; near 0.382/0.5 → weaker, candidate
   only; beyond 1.0 → treat as continuation, use extensions as targets.

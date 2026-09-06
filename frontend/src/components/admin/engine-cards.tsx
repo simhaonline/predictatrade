@@ -76,7 +76,7 @@ export function EngineCard({ e, serverTime }: { e: EngineSnapshot; serverTime: D
 /**
  * Strategy engine cards fed by the Go engine's /engines/status endpoint.
  * Shows truthful liveness with quality, expectancy, rejection diagnostics.
- * Includes MARNIE_FIB as the 5th engine (prompt.md Sections 19, 69).
+ * Includes EQFE (internal ID MARNIE_FIB) as the 5th engine (prompt.md Sections 19, 69).
  */
 export default function AdminEngineCards() {
   const { data, isLoading, isError } = useQuery({

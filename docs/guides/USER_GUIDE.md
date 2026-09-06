@@ -97,7 +97,7 @@ Complete signal table with per-strategy filtering and evidence chain expansion:
 - **Min score:** 70
 - **Expiry:** 60 minutes
 
-### MARNIE_FIB (H1) — SHADOW
+### EQFE (H1) — SHADOW
 - **Personality:** Fibonacci confluence trader
 - **Status:** Shadow mode — signals for observation only, not live trading
 - **Expiry:** 60 minutes

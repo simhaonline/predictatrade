@@ -178,7 +178,7 @@
 | DB Tables (user schemas) | 156 (per prior audit) |
 | ML Features | 42 |
 | ML Models | 5 (bootstrap placeholders — relabeled; NOT production-trained) |
-| Strategies | 6 core (STANDARD_SCALPING, ULTRA_SCALPING, STANDARD_SWING, TREND_SWING, MARNIE_FIB/EQFE, ATEN); Arcanist = 7th, ADVISORY-only |
+| Strategies | 6 core (STANDARD_SCALPING, ULTRA_SCALPING, STANDARD_SWING, TREND_SWING, EQFE, ATEN); IMLR = 7th, ADVISORY-only |
 | Risk Gates | 16 (per-strategy/timeframe isolated, fail-closed) |
 | Audit Checks | 51 (all PASS) |
 | Directional Signals | 50 |

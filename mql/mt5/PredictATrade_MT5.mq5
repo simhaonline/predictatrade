@@ -3212,6 +3212,18 @@ void UpdateCapitalProtection()
 }
 
 //+------------------------------------------------------------------+
+//| Display name for strategy IDs — internal IDs (MARNIE_FIB,       |
+//| ARCANIST) rebrand to user-facing EQFE / IMLR on the chart panel |
+//| only. Wire protocol, magic numbers, prefixes stay internal IDs.  |
+//+------------------------------------------------------------------+
+string PAT_StrategyDisplayName(string strategyID)
+{
+    if(strategyID == "MARNIE_FIB")  return "EQFE";
+    if(strategyID == "ARCANIST")    return "IMLR";
+    return strategyID;
+}
+
+//+------------------------------------------------------------------+
 void UpdatePanel()
 {
     string p = "=== Predict-A-Trade v1.00 ===\n";
@@ -3233,7 +3245,7 @@ void UpdatePanel()
     p += "Signal:   " + g_signalDirection + "\n";
     if(g_signalDirection != "NONE" && g_signalDirection != "EXPIRED")
     {
-        p += "Strategy: " + g_signalStrategy + "\n";
+        p += "Strategy: " + PAT_StrategyDisplayName(g_signalStrategy) + "\n";
         p += "Grade:    " + g_signalGrade + "\n";
         p += "Class:    " + g_signalClass + "\n";
         p += "Score:    " + DoubleToString(g_rawScore, 1) + "\n";

@@ -113,7 +113,7 @@ The platform enforces strict boundaries between five operational planes:
 | 2 | Ultra Scalping | M1 | 60 | 5 min | Ultra-fast, low exposure |
 | 3 | Standard Swing | M15/H1 | 68 | 30 min | Medium-term structure plays |
 | 4 | Trend Swing | H1/H4 | 70 | 60 min | Long-term trend following |
-| 5 | MARNIE_FIB | H1 | 70 | 60 min | Fibonacci confluence (SHADOW) |
+| 5 | EQFE (MARNIE_FIB) | H1 | 70 | 60 min | Fibonacci confluence (SHADOW) |
 
 ### 3.2 Evidence Scoring Architecture
 
@@ -252,7 +252,7 @@ The platform distinguishes process-alive from market-data-fresh:
 | FREE | $0 | — | Standard Scalping (STANDARD_SCALPING) | 5 | Basic dashboard, advisory signals |
 | STANDARD | $49 | $490 | Standard Scalping + Standard Swing | Unlimited | Real-time signals |
 | PRO | $199 | $1,990 | All 4 core strategies | Unlimited | + Backtesting, ML, priority support |
-| ELITE | $499 | $4,990 | All 6 (incl. EQFE/MARNIE_FIB + ATEN) | Unlimited | + API access, personal manager |
+| ELITE | $499 | $4,990 | All 6 (incl. EQFE + ATEN) | Unlimited | + API access, personal manager |
 
 ### 7.2 Referral Program
 
@@ -402,7 +402,7 @@ All 5 previously identified critical production blockers have been resolved and 
 
 ### In Development
 
-- 🔄 MARNIE_FIB engine — accumulating outcomes in SHADOW mode
+- 🔄 EQFE engine — accumulating outcomes in SHADOW mode
 - 🔄 Production API key provisioning
 
 ### Planned

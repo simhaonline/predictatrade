@@ -377,7 +377,7 @@ Nine dimensions were evaluated on a 0-100 scale using the following criteria:
 
 ### 9.1 Limitations
 
-1. **Sample Size:** The MARNIE_FIB engine has fewer than 30 resolved outcomes, insufficient for statistical confidence. It remains in SHADOW mode.
+1. **Sample Size:** The EQFE engine (internal ID MARNIE_FIB) has fewer than 30 resolved outcomes, insufficient for statistical confidence. It remains in SHADOW mode.
 
 2. **CI/CD:** Automated build pipeline active (`.github/workflows/ci.yml`) covering Go, NestJS, Next.js, Python, Windows agent cross-compile, and secret scanning.
 
