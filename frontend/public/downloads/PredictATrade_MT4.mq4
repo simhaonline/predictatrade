@@ -3333,6 +3333,13 @@ void PAT_WriteFile(string filename, string content)
     FileClose(h);
 }
 
+//--- PAT_ClearFile: truncate a FILE_COMMON file to empty (re-activation reset)
+void PAT_ClearFile(string filename)
+{
+    int h = FileOpen(filename, FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
+    if(h != INVALID_HANDLE) FileClose(h);
+}
+
 //--- PAT_DeviceFingerprint: stable per-terminal identity
 string PAT_DeviceFingerprint()
 {
@@ -3467,8 +3474,19 @@ bool PAT_EnsureAccessToken()
     int status = PAT_HTTPPost(PATCloudURL + "/api/v1/devices/refresh", body, response);
     if(status != 200)
     {
+        // v1.29 parity self-heal (matches MT5 v1.26): 401 on refresh means the
+        // stored token family is revoked (admin reset / reuse detection /
+        // license revoked). The old behavior returned false and let the EA
+        // 401-loop forever — the server log showed thousands of reuse
+        // warnings for one device. Clear ALL state and re-activate from the
+        // LicenseKey input on the next cycle.
         if(!g_netDiagnosticsShown)
-            Print("[Predict-A-Trade] Token refresh failed: HTTP ", status);
+            Print("[Predict-A-Trade] Token refresh failed: HTTP ", status, " — clearing device state and re-activating.");
+        g_deviceId = ""; g_deviceSecret = ""; g_refreshToken = ""; g_accessToken = ""; g_tokenExpiry = 0;
+        g_deviceFileSet = "";
+        PAT_ClearFile(g_deviceFile);
+        PAT_ClearFile(PAT_DEVICE_FILE); // legacy shared file, if present
+        PAT_EnsureDevice();
         return false;
     }
     g_accessToken  = ExtractJSONString(response, "access_token");
