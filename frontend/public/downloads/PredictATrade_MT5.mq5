@@ -2252,6 +2252,24 @@ void PollFromCloud()
                 HandleEmergencyStop(inner);
             else if(cmd == "KILL_SWITCH")
                 HandleKillSwitch(inner);
+            else if(cmd == "LICENSE_STATUS")
+            {
+                // v1.29: the engine pushes the LICENSE_STATUS verdict as a
+                // SERVER_COMMAND envelope ({type, command, license_status:{…}}),
+                // not as a top-level LICENSE_STATUS item — the old dispatcher
+                // only logged the command name and acked, so the panel stayed
+                // UNKNOWN(-) forever. Extract the nested verdict object.
+                int licKey = StringFind(payload, "\"license_status\":{");
+                if(licKey >= 0)
+                {
+                    int licStart = licKey + StringLen("\"license_status\":");
+                    string lic = PAT_ExtractJSONObject(payload, licStart);
+                    if(StringLen(lic) > 0)
+                        HandleLicenseResponse(lic);
+                }
+                else
+                    HandleLicenseResponse(payload);
+            }
             else
                 Print("[Predict-A-Trade] Server command received: ", cmd);
         }
