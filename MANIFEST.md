@@ -1,247 +1,218 @@
 # Predict-A-Trade Project Manifest
 
-## Version: v1.18.0 — Macro-Audit Remediation (2026-08-30)
+## Version: v1.29.0 — Docs & Repo Hygiene (2026-09-06)
+
+> Version lineage: v1.18.0 macro-audit remediation (2026-08-30) → v1.19.0 Option B
+> EA-direct transport (2026-09-01) → v1.24/1.25 tier-geometry + observability →
+> v1.26 STANDARD_SCALPING rebuild → v1.27 account-type detection → v1.28 EA
+> capital guards → v1.29.0 docs sweep (2026-09-05) → v1.29.1 EQFE/IMLR display
+> completion + repo cleanup (2026-09-06). Live structured-log version pin:
+> realtime v1.24.2. Changelog: `realtime/CHANGELOG.md`.
 
 ## Repository Structure
 
 ```
 /srv/predictatrade/xauusd/
-├── AGENTS.md                  # Codex repository instructions (canonical)
-├── AGENT.md                   # Compatibility pointer
-├── SKILLS.md                  # Skills index
+├── AGENTS.md                  # Agent operational instructions (canonical)
 ├── MANIFEST.md                # This file
 ├── README.md                  # System overview
+├── docs.md                    # Full pipeline + maths + all 7 strategies in plain words (from live engine source)
 ├── Makefile                   # Canonical build/lint/test commands
-├── docker-compose.yml         # Local Docker infra (Postgres, Valkey, Prometheus, Grafana)
-├── .gitleaks.toml              # Secret-scanning config with dev-test allowlists
+├── docker-compose.yml         # All services (16 containers)
+├── .gitleaks.toml             # Secret-scanning config
 ├── .gitignore                 # Comprehensive exclusions
 │
 ├── realtime/                  # Go — Real-Time Trading Plane (port 13081)
 │   ├── cmd/realtime-engine/   # Main entrypoint
-│   ├── cmd/backtest-engine/   # Backtesting engine entrypoint
+│   ├── cmd/backtest-engine/   # Backtest engine entrypoint
+│   ├── cmd/live-terminal/     # Public live-terminal service entrypoint
 │   ├── cmd/audit/             # Audit utility
-│   ├── internal/              # Internal packages (20+ modules)
+│   ├── cmd/backfill/          # Historical candle backfill
+│   ├── internal/              # Internal packages (34 modules)
 │   │   ├── adaptation/        # Loss recovery & adaptation
-│   │   ├── backtest/          # Backtesting engine
+│   │   ├── agent/             # Edge-transport agent session state
+│   │   ├── astro/             # ATEN astro-confluence engine
+│   │   ├── backtest/          # Backtesting engine (production-parity)
+│   │   ├── breakout/          # Session ORB breakout
 │   │   ├── cache/             # Valkey cache + candle cache
-│   │   ├── calibration/       # Probability calibration
+│   │   ├── calibration/       # Probability calibration (VALIDATED-gated)
+│   │   ├── capitaltier/       # Capital-tiered signal engine (v1.23)
 │   │   ├── config/            # Configuration loading
+│   │   ├── crossmarket/       # Cross-market driver synthesis
+│   │   ├── devilliquidity/    # Liquidity/stop-hunt analysis
+│   │   ├── engstatus/         # Engine status surface
 │   │   ├── features/          # 42-feature indicator engine
-│   │   ├── gates/             # Hard risk gates (12+ gates)
+│   │   ├── gates/             # 16 hard risk gates
 │   │   ├── gateway/           # HTTP + WebSocket server (pprof enabled)
 │   │   ├── hedging/           # Hedging engine
+│   │   ├── igs/               # Institutional Gold Intelligence layer
+│   │   ├── livepreview/       # Live preview funnel
 │   │   ├── maintenance/       # Daily maintenance scheduler
 │   │   ├── marketdata/        # Market data providers + persistence
 │   │   ├── ml/                # ML inference (ONNX)
 │   │   ├── observability/     # OpenTelemetry + Prometheus
+│   │   ├── oco/               # OCO order management
 │   │   ├── ptb/               # PTB synthesis engine
-│   │   ├── reconciliation/    # Trade reconciliation
+│   │   ├── reconciliation/    # EXECUTION_ACK → fill reconciliation
 │   │   ├── recovery/          # State recovery
 │   │   ├── replay/            # Signal replay & idempotency
+│   │   ├── risk/              # Risk event persistence
 │   │   ├── rl/                # Reinforcement learning
 │   │   ├── sentiment/         # Sentiment analysis (Ollama)
 │   │   ├── signal/            # Signal generation
-│   │   ├── strategy/          # 4 strategies + geometry
+│   │   ├── strategy/          # 7 strategies + geometry
 │   │   └── types/             # Shared types
 │   ├── pkg/                   # Public packages
 │   │   ├── health/            # Health manager
-│   │   ├── news/              # Economic calendar provider + risk engine
-│   │   ├── notifications/     # External notification adapters
 │   │   ├── macro/             # COT + DXY providers
 │   │   ├── math/              # Math parity (Wilder smoothing)
-│   │   ├── mlengine/          # ML engine interface
+│   │   ├── mlengine/          # ML engine + models/ watcher
 │   │   ├── mt5/               # MT5 protocol
+│   │   ├── news/              # Economic calendar provider + risk engine
+│   │   ├── notifications/     # External notification adapters
 │   │   ├── ollama/            # Ollama client
 │   │   └── strategy/          # Strategy definitions
 │   ├── configs/               # Strategy & gate configs
+│   ├── calibration/           # Live calibrator outputs (JSON, mounted into containers)
 │   ├── migrations/            # Go-level migrations (DB schema lives in database/migrations)
-│   ├── testdata/              # Test fixtures
-│   ├── web/                   # Static assets
-│   └── bin/                   # Compiled binaries (gitignored)
+│   └── bin/                   # Compiled binaries (gitignored; backtest-engine mounted into compose)
 │
 ├── control/                   # NestJS — SaaS/Control Plane (port 13080)
-│   ├── src/
-│   │   ├── modules/
-│   │   │   ├── admin/         # Admin operations
-│   │   │   ├── audit/         # Audit log
-│   │   │   ├── auth/          # IAM, MFA, RBAC
-│   │   │   ├── backtest/      # Backtest API
-│   │   │   ├── billing/       # Subscriptions & billing
-│   │   │   ├── commissions/   # Commission engine
-│   │   │   ├── device-auth/   # Device activation
-│   │   │   ├── licensing/     # License management
-│   │   │   ├── payouts/       # Payout engine
-│   │   │   ├── referrals/     # Referral network
-│   │   │   └── users/         # User management
-│   │   └── common/            # Shared utilities
-│   └── test/                  # E2E tests
+│   └── src/modules/           # 16 modules: auth, users, billing, licensing,
+│                              # device-auth, backtest, commissions, payouts,
+│                              # referrals, operations, admin, audit, …
 │
 ├── frontend/                  # Next.js — Presentation Plane (port 13082)
-│   ├── src/
-│   │   ├── app/
-│   │   │   ├── (admin)/       # Admin pages
-│   │   │   └── (user)/        # User dashboard pages
-│   │   ├── components/        # React components
-│   │   ├── lib/               # API hooks & utilities
-│   │   ├── config/            # Navigation config
-│   │   └── styles/            # Global CSS (theme tokens)
-│   └── public/                # Static assets + downloads
+│   ├── src/app/(admin)/       # Admin pages (25 routes)
+│   ├── src/app/(user)/        # User dashboard pages (19 routes)
+│   ├── src/components/        # React components
+│   ├── src/lib/               # API hooks & utilities (incl. strategy-labels.ts)
+│   └── public/downloads/      # Public EA sources + binaries (mirror of mql/)
 │
 ├── research/                  # Python — Intelligence/Research Plane
-│   ├── src/patresearch/
-│   │   ├── reference_math.py  # Reference math (parity baseline)
-│   │   ├── ml_training.py     # ML training pipeline
-│   │   └── quantitative_strategy_engine.py
-│   ├── tests/                 # 154 Python tests (153 pass, 1 skip)
-│   ├── scripts/               # Research scripts
-│   └── fixtures/              # Test fixtures
+│   ├── src/patresearch/       # Library (indicators, backtesting, ML, ai_research)
+│   ├── tests/                 # 154 tests (152 pass, 2 skip) — `uv run pytest`
+│   └── scripts/               # Research scripts
 │
 ├── mql/                       # MQL4/MQL5 Expert Advisors (Option B — EA-direct cloud transport)
-│   ├── mt4/PredictATrade_MT4.mq4
-│   └── mt5/PredictATrade_MT5.mq5
+│   ├── mt4/                   # PredictATrade_MT4.mq4 + MasterNode
+│   ├── mt5/                   # PredictATrade_MT5.mq5 + MasterNode
+│   └── compiled_executable/   # Compiled .ex4/.ex5 mirrors
+│
+├── windows-agent/             # Windows Agent (legacy installers, v1.2.x — REMOVED from runtime in v1.19.0 Option B)
 │
 ├── database/                  # SQL Migrations
-│   ├── migrations/            # 69 migration files (numbered to 099)
-│   ├── roles/                 # DB role definitions
-│   └── seeds/                 # Seed data
+│   └── migrations/            # 99 files (unique prefixes, numbered to 138) + MIGRATION_ORDER.md
 │
 ├── infra/                     # Infrastructure
 │   ├── env/                   # Environment files (gitignored; secrets only here)
 │   ├── nginx/                 # Nginx configs
 │   ├── systemd/               # Systemd service files — DISABLED (docker-first; do not use)
-│   ├── docker/                # Docker configs
-│   ├── otel/                  # OpenTelemetry config
+│   ├── ntfy/                  # ntfy config
 │   ├── prometheus/            # Prometheus config
 │   └── grafana/               # Grafana dashboards
 │
-├── scripts/                   # Operations scripts
-│   ├── full_audit.sh          # Full production audit (51 checks)
-│   ├── go_live.sh             # Go-live checklist
-│   ├── verify_math_parity.py  # Math parity verification
-│   ├── train_ml_model.py      # ML model training
-│   ├── migrate.sh             # Database migration runner
-│   ├── setup_ml_env.sh        # ML environment setup
-│   ├── run_training.sh        # Training pipeline runner
-│   ├── verify_live_production.sh
-│   ├── benchmark_latency.sh
-│   ├── goroutine_profile.sh
-│   ├── setup_crons.sh
-│   └── bootstrap_artifacts.py
-│
+├── scripts/                   # Operations scripts (migrate.sh, full_audit.sh, security-scan.sh, …)
+├── services/backtest-service/ # Python backtest API (container pat-backtest, 127.0.0.1:8088)
 ├── status/                    # Status page (Node.js, port 13083)
-│   └── server.js
+├── live-dashboard/            # Live dashboard PWA assets (served via nginx /var/www/pat-live/)
+├── live-terminal/             # Live terminal service Dockerfile (pat-live-terminal, 13090)
+├── mail-relay/                # Send-only SMTP relay (Go — pat-mail-relay)
+├── marketing/                 # Marketing site + content (static, nginx-served)
+├── models/                    # ML models (ONNX + metadata; watcher.go live-reload)
+├── legal/                     # Terms, privacy, cookie policy, trust center
+├── nginx/                     # Nginx site configs (platform., downloads., docs. vhosts)
+├── artifacts/                 # Evidence artifacts (go_live_evidence/)
 │
-├── models/                    # ML models (ONNX + metadata)
-│   ├── xgb_model.onnx
-│   ├── lstm_model.onnx
-│   ├── scaler.json
-│   ├── feature_columns.json
-│   └── model_version.txt
-│
-├── data/                      # Historical data (gitignored; NOT in repo by default — drop CSVs locally if needed)
-│
-├── live-dashboard/            # PWA live dashboard assets (served via nginx)
-├── live-terminal/             # Live terminal service Dockerfile (pat-live-terminal)
-├── mail-relay/                # Mail relay service (Go — pat-mail-relay)
-├── artifacts/                 # Evidence artifacts (e.g., go_live_evidence/)
-│
-├── logs/                      # Runtime logs (gitignored)
-│
-├── docs/                      # Documentation
-│   ├── INDEX.md               # Documentation index
-│   ├── CHANGELOG.md           # Version history
-│   ├── SCOPE_OF_WORK.md       # (authitative SOW is realtime/SCOPE_OF_WORK.md)
-│   ├── IMPLEMENTATION_STATUS.md
-│   ├── FINAL_TRACEABILITY_MATRIX.md
-│   ├── strategy/              # Strategy docs
-│   ├── api/                   # API reference
-│   ├── database/              # Database docs
-│   ├── frontend/              # Frontend docs
-│   ├── operations/            # Ops docs
-│   ├── guides/                # User/admin guides
-│   └── reports/               # Status & audit reports
-│
-├── .hermes/skills/           # Actual skill library (SKILL.md files)
-└── .github/workflows/         # CI/CD workflows
+└── docs/                      # Documentation (see docs/README.md + docs/INDEX.md)
+    ├── architecture/          # ARCHITECTURE, FLOW_DIAGRAMS, IGS design
+    ├── strategy/              # Playbooks, indicators, risk gates, capital tiers
+    ├── api/                   # API_REFERENCE + openapi.json
+    ├── database/              # DATABASE_ARCHITECTURE + DB_ERD
+    ├── operations/            # Deployment, backup/restore, incident, DR
+    ├── runbooks/              # mt-connectivity-502, edge-poll-429
+    ├── guides/                # ADMIN_GUIDE, USER_GUIDE, EA_CLIENT_GUIDE
+    ├── reports/               # Whitepaper, thesis, audits, remediation
+    ├── nginx/                 # docs.predictatrade.com serving config
+    └── MT4_MT5_CLIENT_TESTING.md # EA client test procedure
 ```
 
 ## Key Numbers
 
 | Metric | Value |
 |--------|-------|
-| Go Test Packages | 40/40 pass (`cd realtime && go test ./...`) |
-| Python Tests | 154 (153 pass, 1 skip) (`cd research && python3 -m pytest -q`) |
-| Frontend Tests | 84 pass (+18 e2e) (`npx jest --passWithNoTests`) |
-| Control (NestJS) Tests | 167 pass / 13 suites (`cd control && npm test`) |
-| TypeScript Errors | 0 (`tsc --noEmit`) |
-| DB Migrations | 69 (database/migrations, numbered to 099) + 0 (realtime/migrations); all applied to live DB |
-| DB Tables (user schemas) | 156 (per prior audit) |
-| ML Features | 42 |
-| ML Models | 5 (bootstrap placeholders — relabeled; NOT production-trained) |
-| Strategies | 6 core (STANDARD_SCALPING, ULTRA_SCALPING, STANDARD_SWING, TREND_SWING, EQFE, ATEN); IMLR = 7th, ADVISORY-only |
+| Go Test Packages | 39 pass, 0 fail (container `golang:1.25`, host has no Go toolchain) |
+| Python Tests | 154 (152 pass, 2 skip) — `cd research && uv run pytest` |
+| Frontend Tests | 84 pass + 18 e2e; `tsc --noEmit` clean |
+| Control (NestJS) Tests | 14 suites / 174 pass; `tsc --noEmit` clean |
+| DB Migrations | 99 files (unique prefixes, numbered to 138), all applied to live DB |
+| ML Features | 42 (35 live, 7 warming) |
+| ML Models | 5 (bootstrap placeholders — honest `bootstrap-v1.0.0`; NOT production-trained) |
+| Strategies | 7 (Standard Scalping, Ultra Scalping, Standard Swing, Trend Swing, EQFE, ATEN); IMLR = 7th, ADVISORY-only |
+| Strategy display naming | Internal IDs `MARNIE_FIB`/`ARCANIST` never user-facing — displayed as **EQFE**/**IMLR** everywhere |
 | Risk Gates | 16 (per-strategy/timeframe isolated, fail-closed) |
-| Audit Checks | 51 (all PASS) |
-| Directional Signals | 50 |
 | Indicators Live | 35/42 |
 | API Latency | < 3ms |
 
 ## Service Inventory (Docker-First — no systemd)
 
-All services run as Docker containers via `docker compose` with `--env-file infra/env/.env`.
+All services run as Docker containers via `docker compose --env-file infra/env/.env`.
 Systemd units (in `infra/systemd/`) are DISABLED and must not be used.
 
 | Service | Container | Port | Status |
 |---------|-----------|------|--------|
 | Real-Time Engine | pat-realtime | 13081 | ✅ Active (paper/sandbox/advisory) |
+| Control Plane (HA pair) | pat-control / pat-control-b | 13080 | ✅ Active (dual-control + nginx failover) |
 | Frontend | pat-frontend | 13082 | ✅ Active |
-| Control Plane | pat-control | 13080 | ✅ Active |
 | Status Page | pat-status | 13083 | ✅ Active |
 | Backtest Service | pat-backtest | 8088 (127.0.0.1 only) | ✅ Active |
-| PostgreSQL | pat-postgres | 5432 | ✅ Active |
+| Live Terminal | pat-live-terminal | 13090 | ✅ Active |
+| Mail Relay | pat-mail-relay | 25/587 | ✅ Active (send-only, spool+retry) |
+| PostgreSQL 17 + TimescaleDB | pat-postgres | 5432 | ✅ Active |
 | Valkey | pat-valkey | 6379 | ✅ Active |
-| Ollama | host/container | 11434 | ✅ Active |
 | Nginx | pat-nginx | 80/443 | ✅ Active |
 | Prometheus | pat-prometheus | 9090 | ✅ Active |
 | Grafana | pat-grafana | 3001 | ✅ Active |
 | ntfy | pat-ntfy | 8091 | ✅ Active |
+| NATS (optional bus) | pat-nats | 4222 | Optional (ingest decoupling seam) |
+| Backup Sync | pat-backup-sync | — | Hetzner S3 WAL + pg_dump off-host sync |
+| Ollama | host/container | 11434 | ✅ Active (sentiment; NOT_AI_VERIFIED provenance) |
 
 ## Live Data Status
 
 | Data | Source | Status |
 |------|--------|--------|
-| XAUUSD Price | **Master Node (Windows data agent)** via `PROVIDER_MODE=agent` (authoritative); Twelve Data used only for macro cross-checks | ✅ Live when a Master Node streams `MARKET_SNAPSHOT`; honest `NO_DATA` otherwise (never faked) |
-| COT Data | FMP API | ✅ Available (net_position=141636, percentile=0.22) |
-| DXY Data | Twelve Data API | ✅ Available (value=98.7451) |
-| Candle Cache | Valkey + PostgreSQL | ✅ Active |
-| ML Inference | ONNX Runtime | ✅ Active (bootstrap placeholders — NOT production-trained) |
+| XAUUSD Price | Master Node EA via Option B HTTPS ingest (`PROVIDER_MODE=agent`, authoritative); Twelve Data macro cross-check only | ✅ Live when a Master Node streams `MARKET_SNAPSHOT`; honest `NO_DATA` otherwise (never faked) |
+| COT Data | FMP API | ✅ Available |
+| DXY Data | Twelve Data API | ✅ Available |
+| Candle Cache | Valkey + PostgreSQL (Timescale hypertables) | ✅ Active |
+| ML Inference | ONNX Runtime + `models/` watcher | ✅ Active (bootstrap placeholders — NOT production-trained) |
 | Sentiment | Ollama (local LLM) | ✅ Connected (provenance: NOT_AI_VERIFIED) |
 
 ## Canonical Commands (Docker-First)
 
 ```bash
-# Build
-cd realtime && go build -o bin/realtime-engine ./cmd/realtime-engine/
-cd realtime && go build -o bin/backtest-engine ./cmd/backtest-engine/
+# Build (host has no Go toolchain — use the container)
+cd realtime && go build -o bin/realtime-engine ./cmd/realtime-engine/   # requires golang:1.25 container
 cd frontend && npx next build
 cd control && npm run build
 
 # Test
-cd realtime && go test ./...
-cd research && python3 -m pytest -q
-cd frontend && npx jest --passWithNoTests
+docker run --rm -v $PWD/realtime:/app -w /app golang:1.25 go test ./...
+cd research && uv run pytest
+cd frontend && npx jest --passWithNoTests && npx tsc -p tsconfig.json --noEmit
 cd control && npm test   # NODE_OPTIONS=--experimental-vm-modules (in npm script)
 
 # Lint
-cd realtime && go vet ./...
+docker run --rm -v $PWD/realtime:/app -w /app golang:1.25 go vet ./...
 cd frontend && npx tsc --noEmit
 
 # Audit
 bash scripts/full_audit.sh
 
 # Deploy / operate (ALL commands MUST use --env-file infra/env/.env)
-docker compose --env-file infra/env/.env build realtime
-docker compose --env-file infra/env/.env up -d
-docker compose --env-file infra/env/.env restart <service>
+docker compose --env-file infra/env/.env build <service>
+docker compose --env-file infra/env/.env up -d <service>
 docker compose --env-file infra/env/.env logs -f <service>
 docker compose --env-file infra/env/.env ps
 
@@ -249,36 +220,23 @@ docker compose --env-file infra/env/.env ps
 ./scripts/migrate.sh up
 ```
 
-## Recent Macro Audit (2026-08-30)
+## Repo Hygiene (2026-09-06)
 
-A macroscopic audit (`docs/reports/MACRO_AUDIT_2026-08-30.md`) was performed; its P0 code
-fixes were applied earlier and the remaining high-severity items were resolved in this pass:
+Removed from the repo root as superseded scratch: `check.md` (EA task-input
+scratch, all tasks completed), `summary.md` (stale 2026-09-01 snapshot —
+superseded by this manifest + docs/), `AGENT.md` (dead Codex-compat pointer),
+`SKILLS.md` (stale v1.0.0 skill index), `TESTING_LICENSE.md` (dev test license
+already seeded), `error.log` (stale MetaEditor output — the `PAT_ATD_histComm`
+errors were fixed in commit `545dbb8`). Root credential files
+`database_url.txt` / `jwt_secret.txt` remain (gitignored, consumed by scripts).
+Agent task-instructions workflow: drop files as `read.md`/`check.md` in the
+root, they are consumed and deleted in the same session.
 
-- **2.1** *(superseded by v1.19.0 Option B — the agent/data WebSocket endpoints were removed
-  with the Windows Agent; EA traffic is now `POST /ingest/agent` (Bearer device JWT) on 13081
-  and the HMAC `edge-poll` API).*
-- **2.2** NestJS Jest green: 13 suites / 167 tests pass via `npm test`
-  (`NODE_OPTIONS=--experimental-vm-modules`, already in the script); `tsc --noEmit` clean.
-- **2.3** Backtest service public nginx proxy removed; Docker port bound to `127.0.0.1:8088`
-  only; control-plane backtest API enforces JWT + `user_id` scoping.
-- **2.4** Commission credited only from validated NOWPayments settlement (not license
-  assignment); money math moved to `decimal.js` in `billing/nowpayments`.
-- **2.5** `PAT_PAPER_EQUITY` removed from `docker-compose.yml`; demo position caps reverted to
-  safe production defaults (fail-closed until a verified broker equity feed exists).
-- **2.6** Calibration floor raised (`minCalibratedOOSAUC` 0.5 → 0.52, min sample `n>=100`).
-- **2.7** `GO_ENGINE_AGENTS_URL` added to `infra/env/control.env` (`http://realtime:13081`).
-- **2.9** Dead Prometheus metric graveyard (~57 dead metrics) removed; `/health` and `/ready`
-  now DB-aware.
-- **2.10** ATEN/astro provenance honestly labeled `QualityDerived` (not Authoritative); LLM
-  sentiment remains `NOT_AI_VERIFIED`.
-
-### Production Status (honest)
+## Production Status (honest)
 
 - **GO** for paper / sandbox / advisory signal operation.
 - **LIVE TRADING ARMING AUTHORIZED BY OPERATOR (2026-08-30)**: `LIVE_TRADING_AUTHORIZED=true`
-  in `infra/env/realtime.env` (gitignored deploy config, read by `realtime` service via env_file).
-  Capital-protection gates remain **fail-closed**: signals stay ADVISORY unless a connected
-  Client Agent forwards a verified broker equity/order feed. `PAT_PAPER_EQUITY` was removed, so
-  arming requires real broker equity — it does not self-promote to live execution without it.
+  in `infra/env/realtime.env` (gitignored deploy config). Capital-protection gates remain
+  **fail-closed**: signals stay ADVISORY unless a verified broker equity/order feed exists.
 - No profitability, accuracy, hit-rate, or live-trading-capability claims are made without
   evidence. Demo/replay/sandbox data is labeled and cannot mutate live trading or real finance.

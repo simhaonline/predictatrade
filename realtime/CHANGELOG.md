@@ -1,5 +1,38 @@
 # Predict-A-Trade Changelog
 
+> v1.18.0 – v1.29.0 entries (29 Aug – 05 Sep 2026) live in git history; this file
+> carries the detailed v1.17.x-and-earlier record plus new detailed entries.
+> Key versions since: v1.24.x delivery observability + watchdogs, v1.25
+> combined tier-geometry model, v1.26 STANDARD_SCALPING win-rate rebuild +
+> ATEN undorm/TREND_SWING tier, v1.27 account-type detection (mig 133/134),
+> v1.28 EA client capital guards (floating-DD breaker, rollover window,
+> mig 135–138: strategy parameter seeds, time-authority, master source
+> canonicalization, candle-TF aliases, device risk events), v1.29.0 docs sweep
+> (Option B transport everywhere).
+
+## v1.29.1 (6 September 2026) — EQFE/IMLR display completion + repo hygiene
+
+### Branding (EQFE / IMLR display names)
+- Second doc pass: engine tables, plan rows, playbook headings and Key-Metrics
+  lists in README.md, docs.md, USER_GUIDE, WHITEPAPER, STRATEGY_PLAYBOOKS,
+  SCOPE_OF_WORK, PRODUCTION_READINESS_AUDIT, docs/README now render display
+  names (EQFE/IMLR). Internal IDs unchanged in DB/signals/telemetry/EA wire.
+- Label maps verified across all surfaces: frontend strategy-labels.ts,
+  realtime strategyLabelIMLR(), live-dashboard STRAT_LABELS, EA
+  PAT_StrategyDisplayName(), public downloads synced with mql/ sources.
+
+### Repo hygiene + docs sync (this change)
+- Removed superseded root scratch: check.md, summary.md, AGENT.md, SKILLS.md,
+  TESTING_LICENSE.md, stale error.log; caches (ruff/pytest/pycache) cleaned.
+- MANIFEST.md rebuilt to current state (v1.29.x tree, 99 migrations numbered
+  to 138, 16-service inventory incl. HA control pair, live-terminal, mail
+  relay, backup-sync; verified test counts).
+- README/docs/README/INDEX synced (dead links removed, docs.md surfaced,
+  EA_CLIENT_GUIDE linked, migration counts corrected).
+- Test-infrastructure repairs found by the verification run: device-auth spec
+  updated to the JWT access_token contract (14 suites/174 green); research
+  pytest pythonpath=['src'] fixed (152 pass, 2 skip via uv).
+
 ## v1.17.4 (29–30 August 2026) — weekend hardening: payment verification, weekend liveness, mail plane, installer self-healing
 
 ### Weekend liveness (MT4/MT5 go dark when market closed) — FIXED

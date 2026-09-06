@@ -233,20 +233,20 @@ Located in `realtime/`. Key packages:
 ## Documentation
 
 - [SCOPE_OF_WORK.md](realtime/SCOPE_OF_WORK.md) — Full project scope and specifications
-- [CHANGELOG.md](realtime/CHANGELOG.md) — Version history v1.0-v1.17.2
-- [DOCKER_COMPOSE_REFERENCE.md](realtime/DOCKER_COMPOSE_REFERENCE.md) — Docker architecture
+- [CHANGELOG.md](realtime/CHANGELOG.md) — Version history v1.0-v1.29.x
+- [docs.md](docs.md) — Full pipeline, indicator maths, all 7 strategies in plain words (from live engine source)
 - [PRODUCTION_READINESS_AUDIT.md](realtime/PRODUCTION_READINESS_AUDIT.md) — Audit: 100/100
 - [docs/](docs/) — Architecture, strategy playbooks, indicators, gates, API, database
 - [Docker Deployment Guide](docs/operations/DOCKER_DEPLOYMENT.md) — Step-by-step Docker Compose (14 steps)
 - [Host Deployment Guide](docs/operations/HOST_DEPLOYMENT.md) — Step-by-step bare-metal/VPS (14 steps)
 - [Admin Guide](docs/guides/ADMIN_GUIDE.md) — System administration
 - [User Guide](docs/guides/USER_GUIDE.md) — Dashboard, strategies, MT4/MT5 setup
+- [EA Client Guide](docs/guides/EA_CLIENT_GUIDE.md) — Option B EA-direct transport: install, licensing, troubleshooting
 
 ## Canonical Project Files
 
-- [AGENTS.md](AGENTS.md) — Authoritative agent/Codex operational instructions (read first).
-- [SKILLS.md](SKILLS.md) — Skill library index (`.hermes/skills/*/SKILL.md`).
-- [MANIFEST.md](MANIFEST.md) — Project scope, structure, service inventory.
+- [AGENTS.md](AGENTS.md) — Authoritative agent operational instructions (read first).
+- [MANIFEST.md](MANIFEST.md) — Project scope, structure, service inventory (v1.29.x).
 - [realtime/SCOPE_OF_WORK.md](realtime/SCOPE_OF_WORK.md) — Full statement of work.
 
 ## Build & Test
@@ -257,10 +257,10 @@ make build && make test && make lint
 
 # Individual planes
 make go-build          # Go realtime engine
-make go-test           # Go tests (40 packages)
+make go-test           # Go tests (39 packages — host has no Go; container golang:1.25)
 make control-build     # NestJS control plane
 make frontend-build    # Next.js frontend
-make research-test     # Python tests (154: 153 pass, 1 skip)
+make research-test     # Python tests (154: 152 pass, 2 skip — uv-managed)
 
 # Docker (ALL commands MUST use --env-file infra/env/.env)
 docker compose --env-file infra/env/.env up -d --build

@@ -6,10 +6,11 @@
 - [Flow Diagrams](architecture/FLOW_DIAGRAMS.md) — Mermaid: system planes, tick→signal lifecycle, EXECUTION_ACK → fill reconciliation, auth/session, licensing, payments, update/rollback, backup/DR
 
 ### Strategy & Trading
-- [Strategy Playbooks](strategy/STRATEGY_PLAYBOOKS.md) — 5 engine configurations, per-strategy exit specs, micro profit-taking, quality grades, expectancy metrics
+- [Strategy Playbooks](strategy/STRATEGY_PLAYBOOKS.md) — 7 engines (display names), per-strategy exit specs, micro profit-taking, quality grades, expectancy metrics
 - [Indicators & Features](strategy/INDICATORS_AND_FEATURES.md) — 42 indicators, 13 evidence pillars, P2 features (all ACTIVE), broker time ORB
 - [Risk Gates](strategy/RISK_GATES.md) — 16 gates with per-(strategy, timeframe) isolation, 5% capital protection, operator edge-arming
 - [Capital-Tiered Signal Engine](strategy/CAPITAL_TIERS.md) — MICRO/STANDARD/PRO capital bands, per-tier signal viability + delivery, tier-aware sizing (v1.23)
+- [Full Pipeline & Maths (plain words)](../../docs.md) — docs.md: every formula the live engine computes, all 7 strategies with exact rules/weights/geometry
 
 ### API
 - [REST & WebSocket Reference](api/API_REFERENCE.md) — Full surface: both backends, all 16 control modules + realtime, signal schema, events, rate limits (64-path OpenAPI mirror)
@@ -19,7 +20,7 @@
 - [MT Client Connectivity & 502 Prevention](runbooks/mt-connectivity-502.md) — edge-poll 502 root cause, dual-control HA + nginx failover, connectivity watchdog, triage flow (2026-09-03)
 
 ### Database
-- [Database Architecture](database/DATABASE_ARCHITECTURE.md) — 16 schemas, 210+ tables live, 65 migrations (unique prefixes), hypertables + retention, money/time invariants
+- [Database Architecture](database/DATABASE_ARCHITECTURE.md) — 16 schemas, 210+ tables live, 99 migrations (unique prefixes, numbered to 138), hypertables + retention, money/time invariants
 - [ERD (mermaid)](database/DB_ERD.md) — entity relationships for IAM, licensing, commercial, finance, trading, market, audit + invariants
 
 ### Mail & Payments
