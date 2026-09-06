@@ -2248,7 +2248,7 @@ void PollFromCloud()
             if(licKey >= 0)
             {
                 int licStart = licKey + StringLen("\"license_status\":");
-                while(licStart < StringLen(payload) && StringGetChar(payload, licStart) == ' ')
+                while(licStart < StringLen(payload) && StringGetCharacter(payload, licStart) == ' ')
                     licStart++; // skip spaces before the '{'
                 string lic = PAT_ExtractJSONObject(payload, licStart);
                 if(StringLen(lic) > 0)
@@ -2279,7 +2279,7 @@ void PollFromCloud()
                 if(licKey >= 0)
                 {
                     int licStart = licKey + StringLen("\"license_status\":");
-                    while(licStart < StringLen(payload) && StringGetChar(payload, licStart) == ' ')
+                    while(licStart < StringLen(payload) && StringGetCharacter(payload, licStart) == ' ')
                         licStart++; // skip spaces before the '{'
                     string lic = PAT_ExtractJSONObject(payload, licStart);
                     if(StringLen(lic) > 0)
