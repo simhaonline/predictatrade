@@ -147,7 +147,7 @@ export default function UserMtClientPage() {
         "  FREE: Standard Scalping only",
         "  STANDARD: Standard Scalping + Standard Swing",
         "  PRO: All scalping + swing strategies",
-        "  ELITE: All strategies including Ultra Scalping and MARNIE_FIB",
+        "  ELITE: All strategies including Ultra Scalping and EQFE",
         "Signals are filtered server-side by your subscription plan — a FREE device never receives PRO/ELITE strategy signals.",
       ],
     },

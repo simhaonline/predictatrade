@@ -186,7 +186,7 @@ export default function PricingPage() {
         </div>
 
         <p style={{ textAlign: "center", color: "#6b7280", fontSize: 12, marginTop: 36, lineHeight: 1.6 }}>
-          Prices in USD. EQFE (MARNIE_FIB), ATEN and IMLR are proprietary engines available on all paid plans.
+          Prices in USD. EQFE, ATEN and IMLR are proprietary engines available on all paid plans.
           <br />
           Already a member? <Link href="/login" style={{ color: "#7aa2ff" }}>Sign in</Link> to manage your subscription.
         </p>

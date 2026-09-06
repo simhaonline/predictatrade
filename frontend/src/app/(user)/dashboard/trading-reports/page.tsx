@@ -503,7 +503,7 @@ export default function UserTradingReportsPage() {
             <tbody>
               {strategyStats.map((stat) => (
                 <tr key={stat.strategy} className="border-b border-pat-border/30 hover:bg-pat-bg-surface-secondary/20">
-                  <td className="py-2 px-3 text-pat-text-primary font-medium text-xs">{stat.strategy}</td>
+                  <td className="py-2 px-3 text-pat-text-primary font-medium text-xs">{strategyLabel(stat.strategy)}</td>
                   <td className="py-2 px-3 text-center text-pat-text-secondary tabular-nums">{stat.total}</td>
                   <td className="py-2 px-3 text-center text-pat-success tabular-nums">{stat.directional}</td>
                   <td className="py-2 px-3 text-center text-pat-text-muted tabular-nums">{stat.noTrade}</td>
