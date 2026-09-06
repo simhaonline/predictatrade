@@ -1485,6 +1485,15 @@ void OnTimer()
     // internally; no-op for non-candidate account types).
     CAccountTypeDetector::RolloverCheck();
 
+    // v1.29.2: poll from the watchdog too. The OnTick poll stalls whenever no
+    // market ticks arrive (weekend/closed market/holiday), which starved
+    // LICENSE_STATUS and SERVER_COMMAND delivery — the panel stayed
+    // PENDING()/UNKNOWN(-) and kill-switch commands were never seen until the
+    // market reopened. PollFromCloud self-throttles to PATPollMs, so adding
+    // this watchdog call only closes the no-tick gap.
+    if(g_connection == "CONNECTED")
+        PollFromCloud();
+
     // Control-plane heartbeat (HMAC) — every watchdog cycle (15s) keeps the
     // device liveness fresh in edge_device_state even when the engine ingest
     // is healthy but quiet (weekend).

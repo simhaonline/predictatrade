@@ -332,6 +332,23 @@ func queueCommandForDevice(agentID, command string, envelope map[string]interfac
 	deviceID := deviceIDForAgent(agentID, agentDevice[agentID])
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+
+	// v1.29.2 queue hygiene (the 2026-09-06 PENDING()/UNKNOWN(-) incident):
+	// LICENSE_CHECK runs every ingest, so pushLicenseStatus re-enqueued a fresh
+	// LICENSE_STATUS row every cycle. With no dedupe the FIFO edge-poll
+	// (ORDER BY created_at ASC LIMIT 10) filled with thousands of duplicate
+	// verdicts that drowned real signals and kept the EA's panel stale for
+	// hours. A device only needs ONE unacked copy of a command — replace any
+	// earlier pending/in-flight copy (fresh issued_at) instead of appending.
+	if _, err := globalPersister.GetDB().ExecContext(ctx, `
+		DELETE FROM licensing.edge_signal_queue
+		 WHERE device_id = $1::uuid AND signal_id = $2
+		   AND status IN ('PENDING','IN_FLIGHT')
+		   AND payload->>'command' = $2`,
+		deviceID, command); err != nil {
+		observability.Log.Warn().Err(err).Str("device_id", deviceID).Str("command", command).
+			Msg("device command dedupe delete failed (enqueuing anyway)")
+	}
 	if _, err := globalPersister.GetDB().ExecContext(ctx, `
 		INSERT INTO licensing.edge_signal_queue (device_id, signal_id, payload)
 		VALUES ($1::uuid, $2, $3::jsonb)

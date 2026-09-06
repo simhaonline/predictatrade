@@ -1600,6 +1600,15 @@ void OnTimer()
     // is healthy but quiet (weekend).
     PAT_EdgeHeartbeat();
 
+    // v1.29.2: poll from the watchdog too. The OnTick poll stalls whenever no
+    // market ticks arrive (weekend/closed market/holiday), which starved
+    // LICENSE_STATUS and SERVER_COMMAND delivery — the panel stayed
+    // UNKNOWN(-) and kill-switch commands were never seen until the market
+    // reopened. PollFromCloud self-throttles to PATPollMs, so this only
+    // closes the no-tick gap.
+    if(g_connection == "CONNECTED")
+        PollFromCloud();
+
     // v1.27: hourly Islamic/swap-free rollover confirmation (internally rate-
     // limited to once per hour; no-op for non-candidate account types).
     CAccountTypeDetector::RolloverCheck();
