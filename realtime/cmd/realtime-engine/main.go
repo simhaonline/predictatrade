@@ -6371,11 +6371,11 @@ func applyPlanCaps(daily *gates.DailyLossGate, profit *gates.ProfitTargetGate, r
 }
 
 // strategyLabelIMLR returns a human-friendly strategy name for off-platform
-// alerts (mirrors the frontend 'Arcanist (IMLR)' branding).
+// alerts (mirrors the frontend branding: IMLR, EQFE — check.md 2026-09-06).
 func strategyLabelIMLR(id string) string {
 	switch types.StrategyID(id) {
 	case types.StrategyArcanist:
-		return "Arcanist (IMLR)"
+		return "IMLR"
 	case types.StrategyID("MARNIE_FIB"):
 		return "EQFE"
 	case types.StrategyID("ATEN"):

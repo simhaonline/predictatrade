@@ -29,19 +29,19 @@ const PLAN_DISPLAY: Record<string, { title: string; blurb: string; highlight?: b
   },
   BASIC: {
     title: "Basic",
-    blurb: "Foundational strategies plus Arcanist (IMLR) — institutional liquidity reversals.",
+    blurb: "Foundational strategies plus IMLR — institutional liquidity reversals.",
   },
   STANDARD: {
     title: "Standard",
-    blurb: "Two core strategies plus Arcanist (IMLR) institutional liquidity reversals.",
+    blurb: "Two core strategies plus IMLR institutional liquidity reversals.",
   },
   PRO: {
     title: "Pro",
-    blurb: "All four core strategies plus Arcanist (IMLR) — our 7th engine.",
+    blurb: "All four core strategies plus IMLR — our 7th engine.",
   },
   ELITE: {
     title: "Elite Pro 499",
-    blurb: "Everything in Pro, plus EQFE, ATEN and Arcanist (IMLR) — our premium engines.",
+    blurb: "Everything in Pro, plus EQFE, ATEN and IMLR — our premium engines.",
     highlight: true,
   },
 };
@@ -186,7 +186,7 @@ export default function PricingPage() {
         </div>
 
         <p style={{ textAlign: "center", color: "#6b7280", fontSize: 12, marginTop: 36, lineHeight: 1.6 }}>
-          Prices in USD. EQFE (MARNIE_FIB), ATEN and Arcanist (IMLR) are proprietary engines available on all paid plans.
+          Prices in USD. EQFE (MARNIE_FIB), ATEN and IMLR are proprietary engines available on all paid plans.
           <br />
           Already a member? <Link href="/login" style={{ color: "#7aa2ff" }}>Sign in</Link> to manage your subscription.
         </p>

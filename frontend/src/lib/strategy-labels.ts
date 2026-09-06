@@ -7,7 +7,7 @@ export const STRATEGY_DISPLAY_NAMES: Record<string, string> = {
   TREND_SWING: "Trend Swing",
   MARNIE_FIB: "EQFE",
   ATEN: "ATEN",  // Aetherial Technical Engine Node
-  ARCANIST: "Arcanist (IMLR)", // Institutional MSNR Liquidity Reversal Model
+  ARCANIST: "IMLR", // Institutional MSNR Liquidity Reversal Model (check.md 2026-09-06: rebranded Arcanist (IMLR) → IMLR)
 };
 
 export function strategyLabel(id: string | undefined | null): string {
