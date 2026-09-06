@@ -113,7 +113,7 @@ The platform enforces strict boundaries between five operational planes:
 | 2 | Ultra Scalping | M1 | 60 | 5 min | Ultra-fast, low exposure |
 | 3 | Standard Swing | M15/H1 | 68 | 30 min | Medium-term structure plays |
 | 4 | Trend Swing | H1/H4 | 70 | 60 min | Long-term trend following |
-| 5 | EQFE (MARNIE_FIB) | H1 | 70 | 60 min | Fibonacci confluence (SHADOW) |
+| 5 | EQFE | H1 | 70 | 60 min | Fibonacci confluence (SHADOW) |
 
 ### 3.2 Evidence Scoring Architecture
 

@@ -14,7 +14,7 @@
 | 2 | Ultra Scalping | ULTRA_SCALPING | M1 | 60 | 5m | LIVE |
 | 3 | Standard Swing | STANDARD_SWING | M15/H1 | 68 | 30m | LIVE |
 | 4 | Trend Swing | TREND_SWING | H1/H4 | 70 | 60m | LIVE (PRO+ELITE, v1.26 8370d62) |
-| 5 | MARNIE_FIB | MARNIE_FIB | H1 | 70 | 60m | SHADOW |
+| 5 | EQFE | MARNIE_FIB | H1 | 70 | 60m | SHADOW |
 
 ### Per-Strategy Exit Specifications (v1.16.x)
 
@@ -26,7 +26,7 @@ Each strategy now has its own exit profile with defined TP1/TP2/TP3 levels and m
 | Ultra Scalping | 0.75x | 1.5x | — | Configurable | Configurable |
 | Standard Swing | 1.5x | 3.0x | — | Configurable | Configurable |
 | Trend Swing | 2.0x | 4.0x | — | Configurable | Configurable |
-| MARNIE_FIB | Per fib level | Per fib level | — | — | — |
+| EQFE | Per fib level | Per fib level | — | — | — |
 
 ### Standard Scalping (M1/M5) — v1.26 REBUILD (2026-09-03, ba83784)
 - Personality: Quick scalping, high-frequency, low-exposure
@@ -60,7 +60,7 @@ Each strategy now has its own exit profile with defined TP1/TP2/TP3 levels and m
 - Min ATR: 12 pips, Max spread: 3.5 pips
 - SL buffer: 2.5x ATR, TP1: 2.0x, TP2: 4.0x
 
-### MARNIE_FIB (H1) — SHADOW
+### EQFE (H1) — SHADOW
 - Personality: Fibonacci confluence trader
 - Fibonacci levels: 38.2%, 50%, 61.8%, 78.6%
 - Requires BOS/CHoCH + 2+ fib confluences

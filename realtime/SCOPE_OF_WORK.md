@@ -26,7 +26,7 @@
 | Ultra Scalping | ULTRA_SCALPING | M1 | 60 | 5 min | LIVE |
 | Standard Swing | STANDARD_SWING | M15/H1 | 68 | 30 min | LIVE |
 | Trend Swing | TREND_SWING | H1/H4 | 70 | 60 min | LIVE |
-| MARNIE_FIB | MARNIE_FIB | H1 | 70 | 60 min | SHADOW |
+| EQFE | MARNIE_FIB | H1 | 70 | 60 min | SHADOW |
 
 ### 4. EVIDENCE SCORING ARCHITECTURE
 

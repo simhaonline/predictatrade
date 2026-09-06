@@ -32,7 +32,7 @@
 | Ultra Scalping | ✅ | ✅ | >100 | READY |
 | Standard Swing | ✅ | ✅ | >50 | READY |
 | Trend Swing | ✅ | ✅ | >50 | READY |
-| MARNIE_FIB | ✅ | ✅ | <30 | SHADOW |
+| EQFE | ✅ | ✅ | <30 | SHADOW |
 
 ### Current Status
 - 28/28 Go test packages PASS

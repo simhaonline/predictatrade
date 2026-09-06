@@ -418,7 +418,7 @@ Eclipse / contamination → MANDATORY_NO_TRADE (hard override)
 - **Easy words**: the slow celestial tide — used to *tilt* the other engines'
   conclusions, with a hard off-switch during eclipse windows.
 
-### 3.7 ARCANIST — institutional killzone model (strictest strategy)
+### 3.7 IMLR — institutional killzone model (strictest strategy)
 Nine ordered checks; ANY failure = NO-TRADE with a reason code:
 1. **Hard stop after 17:00 UTC** (thin liquidity).
 2. **News risk** must not be BLOCKED.

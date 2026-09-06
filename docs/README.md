@@ -35,7 +35,7 @@ Welcome to the official documentation for Predict-A-Trade — a production-grade
 
 | Metric | Value |
 |--------|-------|
-| Strategy Engines | 7 (STANDARD_SCALPING, ULTRA_SCALPING, STANDARD_SWING, TREND_SWING, MARNIE_FIB, ATEN, ARCANIST) |
+| Strategy Engines | 7 (Standard Scalping, Ultra Scalping, Standard Swing, Trend Swing, EQFE, ATEN, IMLR) |
 | Technical Indicators | 42 (35 live, 7 warming) |
 | Evidence Pillars | 13 |
 | Risk Gates | 16 (per-strategy/timeframe isolated) |

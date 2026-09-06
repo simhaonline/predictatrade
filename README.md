@@ -80,7 +80,7 @@ MT4/MT5 (Client Node — exec)  ◀────signals/commands───┤
 | Trend Swing | TREND_SWING | H1/H4 | 70 | 60m | LIVE |
 | EQFE | MARNIE_FIB | H1 | 70 | 60m | LIVE |
 | ATEN | ATEN | H1/H4 | 70 | 60m | LIVE |
-| IMLR (ARCANIST) | M5/M15 | 70 | 180m | ADVISORY |
+| IMLR | M5/M15 | 70 | 180m | ADVISORY |
 
 > `MARNIE_FIB` is the internal strategy ID and is displayed to users as **EQFE**. The seven strategies are gated by plan entitlement: FREE → STANDARD_SCALPING only (max 5 signals/day); STANDARD → STANDARD_SCALPING + STANDARD_SWING; PRO → all 4 core; ELITE → all 7 (incl. EQFE, ATEN, IMLR). IMLR is delivered ADVISORY-only (not operator-armed for execution) until it completes validation/backtesting. Signal visibility is server-enforced.
 
@@ -120,7 +120,7 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 - **Capital-protection sizing:** SuggestedLot, RiskDollars, RiskPctOfEquity, SLDistancePoints displayed in expandable rows
 - **Calibrated probability:** Shows "Pending" until calibration model is validated (§16, §36)
 - **Signal Class:** ADVISORY vs EXECUTABLE classification with color coding
-- **Multi-tab strategy filtering:** All 7 strategy engines (including MARNIE_FIB/EQFE, ATEN and IMLR) with directional sub-filters
+- **Multi-tab strategy filtering:** All 7 strategy engines (including EQFE, ATEN and IMLR) with directional sub-filters
 
 ## v1.17.3 Features (29 August 2026)
 
