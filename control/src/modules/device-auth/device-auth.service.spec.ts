@@ -79,8 +79,11 @@ describe('DeviceAuthService', () => {
       expect(result.session_id).toBeDefined();
       expect(result.device_secret).toHaveLength(43); // 32 bytes base64url
       expect(result.refresh_token).toHaveLength(64); // 48 bytes base64url
-      expect(result.access_token).toHaveLength(43);
-      expect(result.access_token_expires_in).toBe(600);
+      // access_token is a REAL JWT (mintWsToken via JwtService.sign) — it is
+      // sent as the POST /ingest/agent Bearer, which the engine verifies
+      // locally as a 3-part token (2026-09-02 feed-stale incident fix).
+      expect(result.access_token).toBe('mock.jwt.token');
+      expect(result.access_token.split('.')).toHaveLength(3);
       expect(result.token_family).toBeDefined();
       expect(result.fingerprint_match_score).toBe(100);
     });
