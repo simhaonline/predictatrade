@@ -1609,6 +1609,11 @@ void OnTimer()
     if(g_connection == "CONNECTED")
         PollFromCloud();
 
+    // v1.29.2: repaint from the watchdog as well — with no OnTick (closed
+    // market) a verdict applied in memory never reached the chart panel and
+    // it kept showing UNKNOWN(-).
+    UpdatePanel();
+
     // v1.27: hourly Islamic/swap-free rollover confirmation (internally rate-
     // limited to once per hour; no-op for non-candidate account types).
     CAccountTypeDetector::RolloverCheck();
@@ -2239,10 +2244,12 @@ void PollFromCloud()
             // Envelope: {"type":"LICENSE_STATUS","license_status":{...},"device_id":"…"}
             // The verdict is a nested JSON OBJECT (not a string) — extract it
             // specifically, falling back to the innermost object only if absent.
-            int licKey = StringFind(payload, "\"license_status\":{");
+            int licKey = StringFind(payload, "\"license_status\":"); // space-tolerant: Go marshals ": {" but compact JSON is ":{"
             if(licKey >= 0)
             {
                 int licStart = licKey + StringLen("\"license_status\":");
+                while(licStart < StringLen(payload) && StringGetChar(payload, licStart) == ' ')
+                    licStart++; // skip spaces before the '{'
                 string lic = PAT_ExtractJSONObject(payload, licStart);
                 if(StringLen(lic) > 0)
                     HandleLicenseResponse(lic);
@@ -2268,10 +2275,12 @@ void PollFromCloud()
                 // not as a top-level LICENSE_STATUS item — the old dispatcher
                 // only logged the command name and acked, so the panel stayed
                 // UNKNOWN(-) forever. Extract the nested verdict object.
-                int licKey = StringFind(payload, "\"license_status\":{");
+                int licKey = StringFind(payload, "\"license_status\":"); // space-tolerant: Go marshals ": {" but compact JSON is ":{"
                 if(licKey >= 0)
                 {
                     int licStart = licKey + StringLen("\"license_status\":");
+                    while(licStart < StringLen(payload) && StringGetChar(payload, licStart) == ' ')
+                        licStart++; // skip spaces before the '{'
                     string lic = PAT_ExtractJSONObject(payload, licStart);
                     if(StringLen(lic) > 0)
                         HandleLicenseResponse(lic);
