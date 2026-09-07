@@ -54,6 +54,16 @@ export default function AdminLicensesPage() {
     mgmtMutation.mutate({ action, fn });
   };
 
+  // v1.29.3: Manage opens a real per-license dialog (previously it only set
+  // `selected`, whose only feedback was a subtle text change in the toolbar —
+  // read as "the button does nothing").
+  const [showManage, setShowManage] = useState(false);
+  const openManage = (lic: License) => {
+    setSelected(lic);
+    setHistory(null);
+    setShowManage(true);
+  };
+
   const viewHistory = async (lic: License) => {
     try {
       const data = await fetchLicenseActivations(lic.id) as { items?: Activation[]; activations?: Activation[] } | Activation[];
@@ -74,7 +84,7 @@ export default function AdminLicensesPage() {
     { key: "activated_at", header: "Issued", cell: (row) => <span className="text-xs text-pat-text-muted">{row.activated_at ? format(new Date(row.activated_at), "MMM d, yyyy") : "—"}</span> },
     { key: "expires_at", header: "Expires", cell: (row) => <span className="text-xs text-pat-text-muted">{row.expires_at ? format(new Date(row.expires_at), "MMM d, yyyy") : "—"}</span> },
     { key: "actions", header: "Manage", cell: (row) => (
-      <button onClick={() => { setSelected(row); }} className="text-xs bg-pat-bg-surface-secondary text-pat-text-primary px-2 py-1 rounded hover:bg-pat-bg-surface-secondary transition-colors">
+      <button onClick={() => openManage(row)} className="text-xs bg-pat-bg-surface-secondary text-pat-text-primary px-2 py-1 rounded hover:bg-pat-bg-surface-secondary transition-colors">
         Manage
       </button>
     )},
@@ -168,6 +178,32 @@ export default function AdminLicensesPage() {
             )}
             <div className="flex justify-end mt-4">
               <button onClick={() => setHistory(null)} className="px-3 py-1.5 text-xs border border-pat-border-strong rounded-md text-pat-text-secondary hover:bg-pat-bg-surface-secondary transition-colors">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showManage && selected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowManage(false)}>
+          <div className="bg-pat-bg-surface border border-pat-border rounded-lg shadow-xl max-w-lg w-full mx-4 p-5" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-pat-text-primary mb-1">Manage License</h3>
+            <p className="text-xs text-pat-text-muted font-mono mb-3">{selected.key}</p>
+            <div className="grid grid-cols-2 gap-2 text-xs mb-4">
+              <div className="rounded-md bg-pat-bg-surface-secondary px-3 py-2"><span className="text-pat-text-muted">User</span><div className="text-pat-text-primary">{selected.user_email || "—"}</div></div>
+              <div className="rounded-md bg-pat-bg-surface-secondary px-3 py-2"><span className="text-pat-text-muted">Plan</span><div className="text-pat-text-primary">{selected.plan_name || "—"}</div></div>
+              <div className="rounded-md bg-pat-bg-surface-secondary px-3 py-2"><span className="text-pat-text-muted">Status</span><div><StatusBadge status={selected.status} /></div></div>
+              <div className="rounded-md bg-pat-bg-surface-secondary px-3 py-2"><span className="text-pat-text-muted">Expires</span><div className="text-pat-text-primary">{selected.expires_at ? format(new Date(selected.expires_at), "MMM d, yyyy") : "—"}</div></div>
+            </div>
+            <div className="flex flex-wrap gap-2 mb-4">
+              <button onClick={() => doAction(`Suspend ${selected.user_email}`, () => suspendLicense(selected.id, "admin"))} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors">Suspend</button>
+              <button onClick={() => doAction(`Revoke ${selected.user_email}`, () => revokeLicense(selected.id, "admin"))} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors">Revoke</button>
+              <button onClick={() => doAction(`Renew ${selected.user_email}`, () => renewLicense(selected.id))} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors">Renew</button>
+              <button onClick={() => doAction(`Reset ${selected.user_email}`, () => resetLicense(selected.id))} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors">Reset</button>
+              <button onClick={() => doAction(`Force logout ${selected.user_email}`, () => forceLogoutLicense(selected.id))} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors">Force Logout</button>
+              <button onClick={() => viewHistory(selected)} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors flex items-center gap-1"><IconHistory size={12} /> History</button>
+            </div>
+            <div className="flex justify-end">
+              <button onClick={() => setShowManage(false)} className="px-3 py-1.5 text-xs border border-pat-border-strong rounded-md text-pat-text-secondary hover:bg-pat-bg-surface-secondary transition-colors">Close</button>
             </div>
           </div>
         </div>
