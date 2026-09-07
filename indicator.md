@@ -499,6 +499,254 @@ evaluations for replay.
 
 ---
 
+# Part II — Plain-English Guide (how to actually understand all of this)
+
+Part I is the precise reference. Part II explains the same system in plain
+language, with a worked example and answers to the questions that come up
+when reading live output.
+
+---
+
+## 14. The mental model: indicators are witnesses, not judges
+
+The easiest way to understand the engine:
+
+- **Every indicator is a witness.** EMA says "momentum is up." VWAP says
+  "price is above the day's average." Structure says "the last swing high
+  just broke." Each witness states its opinion with a **direction** (BUY /
+  SELL / nothing) and a **strength** (its contribution weight).
+- **The strategy is the prosecutor.** It collects all witness statements
+  (evidence), adds them up per side (LongScore vs ShortScore), and applies
+  the house rules (thresholds, dominance, conflict penalties).
+- **The gates are the judge.** Even with a strong verdict, the trade only
+  happens if every legal check passes (spread, margin, news, licence,
+  capital protection…). One veto = no trade. Fail closed.
+
+So a high score does not mean "good trade" — it means *many independent
+witnesses agree*. The gates then decide whether acting on that agreement is
+currently *safe and affordable*.
+
+### Why scores are 0–100 and what a "good" number is
+
+Contributions are small decimals (0.03–0.18 each); the engine multiplies the
+sum by 100 to give a familiar 0–100 scale. Practical reading:
+
+| Score | Meaning |
+|---|---|
+| 0–9 | noise — no direction worth reporting |
+| 10–24 (below candidate bar in TREND: 10) | weak lean, usually NO-TRADE |
+| 25–44 | qualified for gate evaluation in TREND (trade bar 25) |
+| 45–65 | solid agreement; most of the evidence budget used |
+| 65–80+ | near the theoretical maximum for the strategy+regime |
+
+Do not compare scores across strategies or regimes: a 40 in RANGE
+(max ~47, trade bar 45) is a *stronger* read than a 30 in TREND
+(max ~80, trade bar 25), because the RANGE evidence budget is much smaller.
+
+### Why the same threshold is different per regime
+
+Evidence is a budget. In a strong TREND, trend indicators (EMA, ADX, MACD,
+BOS, MTF) all point the same way, so the maximum reachable score is ~75–90.
+In a RANGE, evidence splits between directions and family caps limit stacking,
+so the maximum is only ~47–60. Fixed thresholds would either be unreachable
+in RANGE or trivially easy in TREND — so thresholds are per strategy+regime
+(e.g. StandardScalping: TREND candidate 10 / trade 25, RANGE candidate 15 /
+trade 45). This is budget-matching, not a frequency dial.
+
+---
+
+## 15. Worked example — one M5 candle through the whole pipeline
+
+Situation: XAUUSD, broker time 10:35 (London session), regime
+TRENDING_BULLISH, price 2415.50, ATR14 (M5) = 3.20, spread 0.25.
+
+**1) Candle closes.** M5 bar: O 2412.10, H 2416.80, L 2411.90, C 2415.50.
+Body = 3.40, range = 4.90, body/range = 0.69. Range/ATR = 1.53 → not
+displacement (needs > 2×ATR), not compression. Bullish close above the
+previous bar's high → breakout flag. A confirmed swing low at 2409.80 was
+broken two bars ago → bullish BOS event is the current last-structure event.
+
+**2) Indicator snapshot (M5):** EMA9 2414.2 > EMA21 2412.9 > EMA50 2411.1;
+price above session VWAP (2413.0); MACD line > signal, OsMA +0.8; RSI 58;
+ADX 27 with +DI 28 > −DI 14; MTF score +40 (H1 and H4 also bullish);
+price above daily pivot (2408.6). Last liquidity event: sell-side sweep of
+2406.00 forty minutes ago (bullish fuel, already consumed by the rally).
+
+**3) Evidence collected by STANDARD_SCALPING:**
+
+| Witness | Direction | Contribution |
+|---|---|---|
+| EMA9 above EMA21 (TREND) | BUY | 0.12 |
+| BOS bullish (STRUCTURE) | BUY | 0.14 |
+| Above VWAP | BUY | 0.08 |
+| Bullish rejection wick this bar (CANDLE) | BUY | 0.08 |
+| MACD bullish (MOMENTUM) | BUY | 0.06 |
+| OsMA positive (MOMENTUM) | BUY | 0.05 |
+| RSI 50–70 mid-range (MOMENTUM) | BUY | 0.05 |
+| ADX>20 with +DI>−DI (TREND) | BUY | 0.07 |
+| MTF alignment bullish | BUY | 0.02 |
+| Above daily pivot (STRUCTURE) | BUY | 0.04 |
+
+No SELL evidence fired — nothing is split. Family caps do not bite
+(TREND total 0.19 < cap 0.35, MOMENTUM 0.16 < 0.30, STRUCTURE 0.18 < 0.25).
+
+**4) Scoring.** LongScore = 0.71 × 100 = **71**. ShortScore = 0. Dominance =
+71 (far above the minimum margin — no conflict). Regime TRENDING_BULLISH
+thresholds: candidate 10, trade 25. 71 ≥ 25 → **BUY (executable class)**.
+HTF filter: price (2415.50) above H1 close (2413.90) → BUY allowed.
+
+**5) Geometry.** Effective ATR = 3.20 × 2.0 (feed-compensation scale) = 6.40.
+Spread check: SL must be ≥ 3 × spread = 0.75 → 0.8 × 6.40 = 5.12 ≥ 0.75 ✓.
+Entry 2415.50 (broker digits, 2 dp):
+- SL = 2415.50 − 5.12 = **2410.38**
+- TP1 = +1.2 × 6.40 = 2423.18, TP2 = +2.0 × 6.40 = 2428.30,
+  TP3 = +3.5 × 6.40 = 2437.90
+- GrossRR(TP1) = 7.68 / 5.12 = **1.5** (≥ MinRR 1.0 ✓)
+
+**6) Gates run in order.** DataQuality ok (fresh candles, ATR present);
+Session LONDON ok; News NONE; Spread 0.25 ≤ 2.5-pip budget and 0.25/6.40 =
+0.04 ≤ 0.50 ✓; TotalCost ok; MinATR: raw ATR 3.20 ≥ 2.0 ✓; StopHunt:
+distance to structural high/low ≥ 1.5 × ATR ✓; Exposure/Margin/RR/
+Profitability/Entitlement/License/ExecutionPermit ok; capital gates ok —
+RiskOversize computes the safe lot for 1.5% risk and may size **down**.
+
+**7) Signal out.** BUY, Executable=true, RawScore 71, entry/SL/TPs above,
+suggested lot = the safe (possibly reduced) lot, expiry 10 min, evidence
+list attached, 15-min hard expiry on the signal record. It goes to the
+dashboard immediately and to the Windows Agent → EA only because every gate
+passed. If instead the RiskOversize gate had vetoed (e.g. margin thin), the
+signal would still exist with direction BUY but `Executable=false` and the
+reason code attached — visible on the dashboard as "why it was blocked",
+never sent to the EA.
+
+**The same bar on a quiet day:** if regime were RANGE and the same
+indicators gave LongScore 38 → below the RANGE trade bar (45) but above the
+candidate bar (15) → BUY_CANDIDATE (advisory) — shown, not executed. If
+EMA9 ≈ EMA21 (no direction) and RSI 49 → almost no evidence → NO-TRADE with
+`INSUFFICIENT_SCORE`. All three outcomes are correct behaviour.
+
+---
+
+## 16. Why NO-TRADE is the most common (and most valuable) output
+
+A scalping engine evaluates many bars per hour but should trade rarely.
+Most NO-TRADEs are the system working as designed. The common reason codes,
+translated:
+
+| Reason code | Plain meaning |
+|---|---|
+| NTInsufficientScore | Not enough witnesses agreed (score below the candidate bar) |
+| NTConflictingDirection | Long and short evidence nearly equal — the market is arguing with itself |
+| NTConflictingTimeframes | Your timeframe says go, H1/H4 says stop — too much conflict (penalty > 40 → WAIT) |
+| NTRegimeMismatch | This strategy does not trade this market state (e.g. TrendSwing in RANGE) |
+| NTSessionUnsuitable | Outside the strategy's allowed sessions |
+| NTHighNewsRisk | Big news window — standing aside on purpose |
+| NTUnclearStructure | Mandatory structure/liquidity pillar missing or unclear |
+| NTATRNotReady | No reliable volatility estimate yet — cannot size risk, so no trade |
+| NTHTFBearishVeto / NTHTFBullishVeto | Tried to buy below the H1 close / sell above it — against the higher-timeframe tape |
+| NTMarketClosed | Market closed — nothing is generated at all |
+| NTGateDegraded / gate reason codes | A hard gate refused (spread too wide, margin, daily loss cap, proven-negative edge, licence…) |
+| NTNoTrendTransition | RANGE regime and no transition building yet |
+
+Rule of thumb: if you see NO-TRADE, look at the reason codes — they name the
+exact witness or gate that refused, and that is the answer, not a malfunction.
+
+---
+
+## 17. Candidate vs executable (the two-lane output)
+
+- **Executable BUY/SELL** — passed thresholds AND every gate. Delivered to
+  the EA.
+- **BUY_CANDIDATE / SELL_CANDIDATE** — the market read is directional but
+  either the score sits between the candidate and trade bars, or only
+  non-critical (degraded) gates complained. Advisory: shown on the dashboard
+  so you can watch the idea, never executed. Candidates still pass the
+  capital-protection gates — a proven-losing strategy cannot emit even an
+  advisory candidate.
+- **TREND_TRANSITION candidate** — TrendSwing's special advisory while the
+  market is ranging: it detected a possible transition building (ADX rising
+  through 18–30, EMA slope, BB/ATR expansion, BOS) but will not trade until
+  the regime itself confirms.
+
+This lane split is why the dashboard can show a steady flow of "reads"
+without the EA over-trading: candidates are the watchlist; executable
+signals are the tradeable subset.
+
+---
+
+## 18. Glossary
+
+| Term | Meaning in this system |
+|---|---|
+| Evidence / contribution | One indicator's directional opinion + its numeric weight |
+| Pillar | Evidence family (TREND, MOMENTUM, STRUCTURE, CANDLE, LIQUIDITY, SMC, MTF, VWAP, ML, …) with a cap per family |
+| Family cap | Max total contribution a pillar may add (stops correlated indicators double-counting) |
+| LongScore / ShortScore | Sum of BUY / SELL contributions × 100 |
+| Dominance | |Long − Short|; too small = conflicting direction = NO-TRADE |
+| Candidate / trade threshold | Advisory bar / executable bar for the current strategy+regime |
+| Regime | Market state classification (TRENDING_BULL/BEAR, RANGE, MEAN_REVERSION, BREAKOUT, HIGH_VOLATILITY) with anti-flicker hysteresis |
+| BOS | Break of Structure — close beyond the last confirmed swing → continuation |
+| CHoCH / MSS | Change of Character / Market Structure Shift — first break against the trend → early reversal flag |
+| Swing high/low | Fractal extreme confirmed by 2 bars each side (no look-ahead) |
+| Liquidity pool | Equal highs/lows cluster — resting stop cluster |
+| Sweep | Wick through a pool that closes back — stop hunt; reversal fuel for the opposite side |
+| FVG | Fair Value Gap — 3-candle imbalance zone; unfilled gaps act as magnets |
+| Order block | Last opposite-colour candle before a displacement move; unmitigated OBs act as support/resistance |
+| Displacement | Body > 2×ATR — one-sided institutional candle |
+| Compression / expansion | Range < 0.5×ATR (squeeze) / > 2×ATR (burst) |
+| VWAP | Session volume-weighted average price — intraday fair value; above = buyers in control |
+| MTF score | Weighted cross-timeframe direction (−100…+100; H1 weighs most) |
+| MicroTP / PartialClosePct | First small profit target + the fraction closed there (micro profit-taking to cover costs) |
+| GrossRR / NetRR | Reward:risk on TP1, without / with round-trip cost |
+| Safe lot | Risk-gate-approved lot (may be smaller than requested) |
+| Executable | true = deliverable to the EA; false = display-only |
+| Fail closed | On any doubt, do not trade; uncertainty can only block, never enable |
+| VolatilityScale | ATR multiplier (2.0) compensating an understated broker feed; scales SL and TP together so R:R is preserved |
+| MinSLSpreadMult | Guarantees the stop is ≥ 3× spread so costs can never be the thing that stops you out |
+
+---
+
+## 19. FAQ
+
+**Q: A signal appeared on the dashboard but the EA did nothing. Why?**
+It was a candidate/advisory (not executable) or it was gate-vetoed
+(`Executable=false`). The signal's reason codes and gate results on the
+dashboard name the blocker. Only Executable=true is delivered to the agent.
+
+**Q: The suggested lot is smaller than I asked for. Why?**
+RiskOversize or margin gates sized it down to the safe lot for your equity,
+risk-per-trade cap and lot step. It is a protection, not a bug.
+
+**Q: Why is my score 40 and still NO-TRADE in a range, but 25 traded in a trend?**
+Thresholds follow the evidence budget per regime (Section 14). RANGE's
+trade bar is 45; TREND's is 25.
+
+**Q: Is RSI 70 a sell signal?**
+Not by itself. The regime engine treats RSI>70 as mean-reversion only when
+ADX<25 (no trend). In a strong trend, RSI>70 is read as momentum. The same
+applies at RSI<30. Indicators are witnesses in context — never single judges.
+
+**Q: Why does the engine sometimes prefer locally computed ATR over the agent's?**
+The broker data agent has intermittently reported ATR ≈ price (a feed
+defect). Candle-derived ATR is authoritative; the agent snapshot is a
+fallback only (Section 1).
+
+**Q: What makes a signal expire?**
+Strategy expiry (3–240 min by strategy) and a hard 15-minute signal TTL on
+the engine side. Stale prices never generate signals — market-closed bars
+short-circuit to a single honest NO-TRADE.
+
+**Q: Can volume-based indicators be trusted?**
+Only tick volume is available from the broker. OBV, tick-volume z-score and
+VWAP use it knowingly; Volume Profile and Cumulative Delta are marked
+UNAVAILABLE and never faked (Section 12).
+
+**Q: Where do I look first when a trade I expected didn't happen?**
+In order: (1) reason codes on the dashboard signal row, (2) gate evaluation
+list, (3) regime + session at that minute, (4) whether the bar closed on the
+strategy's decision timeframe. Nine times out of ten the answer is in (1).
+---
+
 *Maintainer note: keep this file in sync with the code. Source of truth is
 always `realtime/internal/features/*` and `realtime/internal/strategy/*` —
 when indicator formulas, weights, thresholds, or gates change, update this
