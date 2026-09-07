@@ -1554,6 +1554,13 @@ string MasterJSONEscape(string s)
     return outp;
 }
 
+//--- MasterClearState: truncate the device state file (re-activation reset)
+void MasterClearState(string filename)
+{
+    int h = FileOpen(filename, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+    if(h != -1) FileClose(h);
+}
+
 //--- MasterDeviceFingerprint: stable per-terminal identity
 string MasterDeviceFingerprint()
 {
@@ -1637,8 +1644,18 @@ bool MasterEnsureAccessToken()
     int status = MasterHTTPPost(PATCloudURL + "/api/v1/devices/refresh", body, response);
     if(status != 200)
     {
+        // v1.29.2 production self-heal (parity with client EAs): a refresh
+        // 401 means the stored token family is revoked (admin license reset,
+        // reuse detection, device revocation). The old behavior returned
+        // false and let the Master 401-loop forever with a dead feed — the
+        // data node is the single source of market truth, so it MUST
+        // self-recover. Clear ALL state and re-activate from MasterLicenseKey
+        // on the next cycle.
         if(!g_masterNetShown)
-            Print("[MASTER_NODE] Token refresh failed: HTTP ", status);
+            Print("[MASTER_NODE] Token refresh failed: HTTP ", status, " — clearing device state and re-activating.");
+        g_deviceId = ""; g_deviceSecret = ""; g_refreshToken = ""; g_accessToken = ""; g_tokenExpiry = 0;
+        MasterClearState(PAT_MASTER_DEVICE_FILE);
+        MasterEnsureDevice();
         return false;
     }
     g_accessToken  = MasterJSONString(response, "access_token");
