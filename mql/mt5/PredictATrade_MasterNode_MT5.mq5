@@ -1804,13 +1804,6 @@ string MasterJSONString(string json, string key)
     return StringSubstr(json, p, e - p);
 }
 
-//--- MasterClearState: truncate the device state file (re-activation reset)
-void MasterClearState(string filename)
-{
-    int h = FileOpen(filename, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
-    if(h != -1) FileClose(h);
-}
-
 //--- MasterDeviceFingerprint: stable per-terminal identity
 string MasterDeviceFingerprint()
 {
