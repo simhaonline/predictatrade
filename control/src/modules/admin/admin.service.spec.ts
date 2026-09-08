@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AdminService } from './admin.service';
 import { DB_POOL } from '../../common/database.module';
+import { LicensingService } from '../licensing/licensing.service';
 import { CommissionsService } from '../commissions/commissions.service';
 import { Pool } from 'pg';
 import { jest } from '@jest/globals';
@@ -42,6 +43,7 @@ describe('AdminService', () => {
         AdminService,
         { provide: DB_POOL, useValue: pool },
         { provide: CommissionsService, useValue: { getSummary: jest.fn() } },
+        { provide: LicensingService, useValue: { ensureActiveLicenseForSubscription: jest.fn().mockResolvedValue(null) } },
       ],
     }).compile();
     service = module.get<AdminService>(AdminService);

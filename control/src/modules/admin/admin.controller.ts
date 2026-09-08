@@ -139,6 +139,22 @@ export class AdminController {
     return this.adminService.assignLicense(id, body.planId, actorId, body.licenseKey);
   }
 
+  @Get('users-without-subscription')
+  async listUsersWithoutSubscription() {
+    return this.adminService.listUsersWithoutSubscription();
+  }
+
+  @Post('users/:id/start-subscription')
+  @RequirePermissions(Permission.USER_MANAGE)
+  async startSubscription(
+    @Param('id') id: string,
+    @Body() body: { planId: string; billingInterval?: 'MONTHLY' | 'ANNUAL' },
+    @CurrentUser('sub') actorId: string,
+  ) {
+    const interval = body?.billingInterval === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY';
+    return this.adminService.startSubscriptionForUser(id, body.planId, interval, actorId);
+  }
+
   @Get('trading-reports')
   async tradingReports() {
     return this.adminService.getTradingReport();

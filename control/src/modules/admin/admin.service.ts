@@ -1,6 +1,7 @@
 import { Injectable, Inject, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Pool } from 'pg';
 import { DB_POOL } from '../../common/database.module';
+import { LicensingService } from '../licensing/licensing.service';
 
 export interface HealthServiceStatus {
   service: string;
@@ -17,6 +18,7 @@ export class AdminService {
 
   constructor(
     @Inject(DB_POOL) private pool: Pool,
+    private licensingService: LicensingService,
   ) {}
 
   /** System overview with real statistics from the database. */
@@ -110,6 +112,77 @@ export class AdminService {
       this.logger.warn('Failed to write audit event for user status change');
     }
     return r.rows[0];
+  }
+
+  /**
+   * Users WITHOUT any subscription row — the coverage-gap list for the
+   * Subscription Management "All users" view. Includes their license state
+   * so the admin can see the full commercial picture per person.
+   */
+  async listUsersWithoutSubscription() {
+    const r = await this.pool.query(
+      `SELECT u.id, u.email, u.full_name, u.status, u.created_at,
+              (SELECT l.status FROM licensing.licenses l
+                WHERE l.user_id = u.id
+                ORDER BY (l.status='ACTIVE') DESC, l.issued_at DESC LIMIT 1) as license_status
+         FROM iam.users u
+        WHERE u.deleted_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM billing.subscriptions s WHERE s.user_id = u.id)
+        ORDER BY u.created_at DESC`,
+    );
+    return { items: r.rows, total: r.rowCount };
+  }
+
+  /**
+   * Admin-starts a subscription for a user (manual reconciliation / offline
+   * payment). Creates an ACTIVE subscription for the plan and auto-issues
+   * the matching license via the same idempotent path used by payment
+   * webhooks, so no paying/manual customer is ever left without a license.
+   */
+  async startSubscriptionForUser(userId: string, planId: string, billingInterval: 'MONTHLY' | 'ANNUAL', actorId: string) {
+    const user = await this.pool.query(`SELECT id, email FROM iam.users WHERE id = $1 AND deleted_at IS NULL`, [userId]);
+    if (!user.rows[0]) throw new NotFoundException('User not found');
+    const plan = await this.pool.query(`SELECT id, code FROM control.plans WHERE id = $1 AND status = 'ACTIVE'`, [planId]);
+    if (!plan.rows[0]) throw new NotFoundException('Active plan not found');
+    const dup = await this.pool.query(
+      `SELECT id FROM billing.subscriptions WHERE user_id = $1 AND plan_id = $2 AND status IN ('ACTIVE','TRIALING','PAST_DUE','INCOMPLETE') LIMIT 1`,
+      [userId, planId],
+    );
+    if (dup.rows[0]) throw new BadRequestException('User already has an active/incomplete subscription on this plan');
+
+    const interval = billingInterval === 'ANNUAL' ? '1 year' : '1 month';
+    const r = await this.pool.query(
+      `INSERT INTO billing.subscriptions
+         (id, user_id, plan_id, status, billing_interval, billing_period_start, billing_period_end, created_at, updated_at)
+       VALUES (gen_random_uuid(), $1, $2, 'ACTIVE', $3, now(), now() + interval '${interval}', now(), now())
+       RETURNING *`,
+      [userId, planId, billingInterval],
+    );
+    try {
+      await this.pool.query(
+        `INSERT INTO billing.subscription_events (subscription_id, event_type, metadata, actor_id, created_at)
+         VALUES ($1, 'ACTIVATED', $2::jsonb, $3, now())`,
+        [r.rows[0].id, JSON.stringify({ provider: 'admin_manual', plan: plan.rows[0].code }), actorId],
+      );
+    } catch { /* event table optional */ }
+    try {
+      await this.pool.query(
+        `INSERT INTO audit.audit_events (actor_type, actor_id, action, entity_type, entity_id, new_value, reason)
+         VALUES ('admin', $1, 'SUBSCRIPTION_STARTED', 'subscription', $2, $3, $4)`,
+        [actorId, r.rows[0].id, JSON.stringify(r.rows[0]), `Admin started ${plan.rows[0].code} subscription for ${user.rows[0].email}`],
+      );
+    } catch (e) {
+      this.logger.warn(`audit insert failed for SUBSCRIPTION_STARTED: ${e instanceof Error ? e.message : e}`);
+    }
+    // Auto-issue/activate the matching license (same path as payment settlement)
+    let licenseAction = 'skipped';
+    try {
+      const lic = await this.licensingService.ensureActiveLicenseForSubscription(r.rows[0].id);
+      if (lic) licenseAction = lic.action;
+    } catch (e) {
+      this.logger.error(`license auto-provision failed for manual sub ${r.rows[0].id}: ${e instanceof Error ? e.message : e}`);
+    }
+    return { subscription: r.rows[0], license_action: licenseAction };
   }
 
   /** List all subscriptions (admin only). Uses LEFT JOIN for plan (plan is NOT NULL but LEFT JOIN for safety). */

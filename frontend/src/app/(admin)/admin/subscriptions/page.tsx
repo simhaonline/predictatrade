@@ -25,6 +25,15 @@ interface Subscription {
   created_at: string;
 }
 
+interface UserNoSub {
+  id: string;
+  email: string;
+  full_name: string;
+  status: string;
+  created_at: string;
+  license_status: string | null;
+}
+
 interface PaymentRow {
   id: string;
   user_id: string;
@@ -81,6 +90,9 @@ export default function AdminSubscriptionsPage() {
   const [page, setPage] = useState(1);
   const [tab, setTab] = useState<Tab>("subscriptions");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [showAllUsers, setShowAllUsers] = useState(false);
+  const [planPick, setPlanPick] = useState<Record<string, string>>({});
+  const [intervalPick, setIntervalPick] = useState<Record<string, "MONTHLY" | "ANNUAL">>({});
 
   const completeSub = async (id: string) => {
     if (typeof window !== "undefined" && !window.confirm("Complete this INCOMPLETE subscription? This marks it ACTIVE (provisioning/entitlement confirmed) and is recorded in the audit log.")) return;
@@ -103,6 +115,38 @@ export default function AdminSubscriptionsPage() {
     },
     enabled: tab === "subscriptions",
   });
+
+  const noSubQ = useQuery<{ items: UserNoSub[]; total: number }>({
+    queryKey: ["admin-users-without-sub"],
+    queryFn: async () => {
+      const res = await customInstance.get("/admin/users-without-subscription");
+      return res.data as { items: UserNoSub[]; total: number };
+    },
+    enabled: tab === "subscriptions" && showAllUsers,
+  });
+
+  const plansQ = useQuery<{ id: string; name: string; monthly_price: string; currency: string }[]>({
+    queryKey: ["admin-sub-plans"],
+    queryFn: async () => {
+      const res = await customInstance.get("/plans");
+      return res.data as { id: string; name: string; monthly_price: string; currency: string }[];
+    },
+  });
+
+  const startSub = async (userId: string, email: string) => {
+    const planId = planPick[userId];
+    if (!planId) { if (typeof window !== "undefined") window.alert("Pick a plan first"); return; }
+    if (typeof window !== "undefined" && !window.confirm(`Start a ${intervalPick[userId] || "MONTHLY"} subscription on this plan for ${email}? Use only when payment was confirmed out-of-band (bank transfer, in-person).`)) return;
+    setBusyId(userId);
+    try {
+      await customInstance.post(`/admin/users/${userId}/start-subscription`, { planId, billingInterval: intervalPick[userId] || "MONTHLY" });
+      noSubQ.refetch(); subsQ.refetch();
+    } catch (e) {
+      if (typeof window !== "undefined") window.alert("Failed to start subscription: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const paymentsQ = useQuery<{ items: PaymentRow[] }>({
     queryKey: ["admin-sub-payments"],
@@ -200,7 +244,74 @@ export default function AdminSubscriptionsPage() {
               <strong>INCOMPLETE</strong> means provisioning/billing-webhook did not complete (e.g. payment confirmed out-of-band or entitlement already granted via an ACTIVE license). Use <em>Complete</em> to reconcile it to ACTIVE — this is recorded in the audit log and never rewrites history.
             </DegradedNote>
           )}
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <label className="flex items-center gap-2 text-xs text-pat-text-secondary cursor-pointer select-none">
+              <input type="checkbox" checked={showAllUsers} onChange={(e) => setShowAllUsers(e.target.checked)} className="accent-pat-primary" />
+              Show all users without a subscription ({noSubQ.data?.total ?? "…"})
+            </label>
+            <span className="text-xs text-pat-text-muted">Subscriptions: {subsQ.data?.total ?? "…"}</span>
+          </div>
           <DataTable data={subsQ.data?.items || []} pageSize={20} hidePager columns={subsCols} loading={subsQ.isLoading} error={subsQ.error as Error | null} onRetry={() => subsQ.refetch()} />
+
+          {showAllUsers && (
+            <div className="space-y-2">
+              <div className="text-xs text-pat-text-muted">
+                Registered users who never started a plan. Start a subscription only after payment was confirmed out-of-band — it activates immediately and auto-issues the plan&apos;s license.
+              </div>
+              <DataTable
+                data={noSubQ.data?.items || []}
+                pageSize={20}
+                hidePager
+                columns={[
+                  { key: "email", header: "User", cell: (row: UserNoSub) => (
+                    <div>
+                      <div className="text-sm text-pat-text-primary">{row.email}</div>
+                      {row.full_name && <div className="text-xs text-pat-text-muted">{row.full_name}</div>}
+                    </div>
+                  )},
+                  { key: "status", header: "Account", cell: (row: UserNoSub) => <StatusBadge status={row.status} /> },
+                  { key: "license_status", header: "License", cell: (row: UserNoSub) => row.license_status
+                      ? <StatusBadge status={row.license_status} />
+                      : <span className="text-xs text-pat-warning">none</span> },
+                  { key: "created_at", header: "Registered", cell: (row: UserNoSub) => <span className="text-xs text-pat-text-muted">{format(new Date(row.created_at), "MMM d, yyyy")}</span> },
+                  { key: "plan", header: "Plan", cell: (row: UserNoSub) => (
+                    <select
+                      value={planPick[row.id] || ""}
+                      onChange={(e) => setPlanPick((m) => ({ ...m, [row.id]: e.target.value }))}
+                      className="px-2 py-1 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded border border-pat-border"
+                    >
+                      <option value="">Pick plan…</option>
+                      {(plansQ.data || []).filter((p) => p.monthly_price !== undefined).map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  )},
+                  { key: "interval", header: "Cycle", cell: (row: UserNoSub) => (
+                    <select
+                      value={intervalPick[row.id] || "MONTHLY"}
+                      onChange={(e) => setIntervalPick((m) => ({ ...m, [row.id]: e.target.value as "MONTHLY" | "ANNUAL" }))}
+                      className="px-2 py-1 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded border border-pat-border"
+                    >
+                      <option value="MONTHLY">Monthly</option>
+                      <option value="ANNUAL">Annual</option>
+                    </select>
+                  )},
+                  { key: "action", header: "Action", cell: (row: UserNoSub) => (
+                    <button
+                      onClick={() => startSub(row.id, row.email)}
+                      disabled={busyId === row.id || !planPick[row.id]}
+                      className="text-xs px-2 py-1 rounded bg-pat-success/20 text-pat-success hover:bg-pat-success/30 disabled:opacity-40"
+                    >
+                      {busyId === row.id ? "Working…" : "Start Subscription"}
+                    </button>
+                  )},
+                ] as never}
+                loading={noSubQ.isLoading}
+                error={noSubQ.error as Error | null}
+                onRetry={() => noSubQ.refetch()}
+              />
+            </div>
+          )}
         </>
       )}
 
