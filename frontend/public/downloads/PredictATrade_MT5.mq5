@@ -38,6 +38,10 @@
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
 #property version   "1.31"
+// v1.31.1: single source of truth for the wire-version reported in telemetry
+// and activation (INIT/ACCOUNT_INFO hardcoded strings drifted from the
+// #property value across releases — server could not verify the client build).
+#define PAT_EA_VERSION "1.31"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -2101,7 +2105,7 @@ void SendInitMessage()
     if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
        Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
 
-    string msg = "INIT|{\"ea_version\":\"1.26\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
+    string msg = "INIT|{\"ea_version\":\"" + PAT_EA_VERSION + "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                 "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
                 "\",\"license_key\":\"" + g_licenseKey +
                 "\",\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) +
@@ -2135,7 +2139,7 @@ void SendAccountInfo()
     // bound account id does not match, so telemetry is never silently wrong.
     if(g_accountID != "" && IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) != g_accountID)
        Print("WARNING: EA bound to account ", g_accountID, " but terminal is logged into ", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
-    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.26\",\"account\":\"" + g_accountID +
+    string msg = "ACCOUNT_INFO|{\"ea_version\":\"" + PAT_EA_VERSION + "\",\"account\":\"" + g_accountID +
                 "\",\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) +
                 "\",\"symbol\":\"" + g_symbol +
                 "\",\"currency\":\"" + AccountInfoString(ACCOUNT_CURRENCY) +
@@ -4311,7 +4315,9 @@ bool PAT_EnsureDevice()
     string fp = PAT_DeviceFingerprint();
     string body = "{\"license_key\":\"" + LicenseKey + "\",\"client_type\":\"MT5\",\"role\":\"exec\","
                   "\"fingerprint\":{\"machine_guid\":\"" + fp + "\",\"os\":\"Windows-MT5\"},"
-                  "\"terminal\":{\"name\":\"" + AccountInfoString(ACCOUNT_COMPANY) + "\"},"
+                  "\"terminal\":{\"name\":\"" + AccountInfoString(ACCOUNT_COMPANY) + "\","
+                  "\"build\":\"" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD)) + "\","
+                  "\"ea_version\":\"" + PAT_EA_VERSION + "\"},"
                   "\"mt_account\":{\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) + "\","
                   "\"server\":\"" + AccountInfoString(ACCOUNT_SERVER) + "\","
                   "\"login\":\"" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "\"}}";

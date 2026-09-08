@@ -31,6 +31,10 @@
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
 #property version   "1.31"
+// v1.31.1: single source of truth for the wire-version reported in telemetry
+// and activation (INIT/ACCOUNT_INFO hardcoded strings drifted from the
+// #property value across releases — server could not verify the client build).
+#define PAT_EA_VERSION "1.31"
 #property strict
 
 // v1.27 account-type detection (additive; MT4 build of CAccountTypeDetector)
@@ -2213,7 +2217,7 @@ void SendInitMessage()
             else if(OrderType() == OP_SELL) { sellCount++; totalLots += OrderLots(); }
         }
     }
-    string msg = "INIT|{\"ea_version\":\"1.27\",\"broker\":\"" + AccountCompany() +
+    string msg = "INIT|{\"ea_version\":\"" + PAT_EA_VERSION + "\",\"broker\":\"" + AccountCompany() +
                  "\",\"account\":\"" + g_accountID + "\",\"symbol\":\"" + g_symbol +
                  "\",\"license_key\":\"" + LicenseKey +
                  "\",\"balance\":" + DoubleToString(AccountBalance(), 2) +
@@ -2237,7 +2241,7 @@ void SendInitMessage()
 //+------------------------------------------------------------------+
 void SendAccountInfo()
 {
-    string msg = "ACCOUNT_INFO|{\"ea_version\":\"1.27\",\"account\":\"" + g_accountID +
+    string msg = "ACCOUNT_INFO|{\"ea_version\":\"" + PAT_EA_VERSION + "\",\"account\":\"" + g_accountID +
                  "\",\"broker\":\"" + AccountCompany() +
                  "\",\"symbol\":\"" + g_symbol +
                  "\",\"currency\":\"" + AccountCurrency() +
@@ -4174,7 +4178,8 @@ bool PAT_EnsureDevice()
     string fp = PAT_DeviceFingerprint();
     string body = "{\"license_key\":\"" + LicenseKey + "\",\"client_type\":\"MT4\",\"role\":\"exec\","
                   "\"fingerprint\":{\"machine_guid\":\"" + fp + "\",\"os\":\"Windows-MT4\"},"
-                  "\"terminal\":{\"name\":\"" + PAT_JSONEscape(AccountCompany()) + "\"},"
+                  "\"terminal\":{\"name\":\"" + PAT_JSONEscape(AccountCompany()) + "\","
+                  "\"ea_version\":\"" + PAT_EA_VERSION + "\"},"
                   "\"mt_account\":{\"broker\":\"" + PAT_JSONEscape(AccountCompany()) + "\","
                   "\"server\":\"" + PAT_JSONEscape(AccountServer()) + "\","
                   "\"login\":\"" + IntegerToString(AccountNumber()) + "\"}}";
