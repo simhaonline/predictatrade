@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import { fetchSubscriptionPayments, fetchSubscriptionRefunds, fetchSubscriptionChargebacks, fetchSubscriptionCoupons, fetchSubscriptionProvider } from "@/lib/admin-api";
+import { approveEntitlement } from "@/lib/admin-commercial-api";
 import DataTable, { DataTableColumn } from "@/components/ui/data-table";
 import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
@@ -107,6 +108,26 @@ export default function AdminSubscriptionsPage() {
     }
   };
 
+  // v1.31 unified manual approval — Approve (payment received out-of-band)
+  // / Reject (cancel) for INCOMPLETE subscriptions, with a reason prompt.
+  const approveSub = async (id: string, decision: "approve" | "reject") => {
+    const what = decision === "approve"
+      ? "APPROVE this subscription? Only click if payment was RECEIVED out-of-band (bank/USDT). It becomes ACTIVE, the billing period starts now, and the license is ensured."
+      : "REJECT this subscription? It becomes CANCELLED (terminal). The user keeps their account.";
+    const reason = typeof window !== "undefined" ? window.prompt(`${what}\n\nReason (recorded in the audit log):`, decision === "approve" ? "Payment received out-of-band" : "Payment not received / request refused") : null;
+    if (reason === null) return;
+    setBusyId(id);
+    try {
+      await approveEntitlement("subscription", id, decision, reason);
+      subsQ.refetch();
+      if (typeof window !== "undefined") window.alert(`Subscription ${decision}d successfully.`);
+    } catch (e) {
+      if (typeof window !== "undefined") window.alert("Approval failed: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const subsQ = useQuery<{ items: Subscription[]; total: number; page: number; limit: number }>({
     queryKey: ["admin-subscriptions", page],
     queryFn: async () => {
@@ -187,11 +208,22 @@ export default function AdminSubscriptionsPage() {
     { key: "current_period_start", header: "Period Start", cell: (row) => <span className="text-xs text-pat-text-muted">{row.current_period_start ? format(new Date(row.current_period_start), "MMM d, yyyy") : "—"}</span> },
     { key: "current_period_end", header: "Period End", cell: (row) => <span className="text-xs text-pat-text-muted">{row.current_period_end ? format(new Date(row.current_period_end), "MMM d, yyyy") : "—"}</span> },
     { key: "auto_renew", header: "Auto-Renew", cell: (row) => <span className={`text-xs ${row.auto_renew ? "text-pat-success" : "text-pat-text-muted"}`}>{row.auto_renew ? "Yes" : "No"}</span> },
-    { key: "action", header: "Action", cell: (row) => row.status === "INCOMPLETE" ? (
-      <button onClick={() => completeSub(row.id)} disabled={busyId === row.id}
-        className="text-xs px-2 py-1 rounded bg-pat-success/20 text-pat-success hover:bg-pat-success/30 disabled:opacity-40">
-        {busyId === row.id ? "Working…" : "Complete"}
-      </button>
+    { key: "action", header: "Approval", cell: (row) => ["INCOMPLETE", "FAILED", "PAST_DUE"].includes(row.status) ? (
+      <div className="flex items-center gap-1">
+        <button onClick={() => approveSub(row.id, "approve")} disabled={busyId === row.id}
+          className="text-xs px-2 py-1 rounded bg-pat-success/20 text-pat-success hover:bg-pat-success/30 disabled:opacity-40 font-medium">
+          {busyId === row.id ? "…" : "Approve"}
+        </button>
+        <button onClick={() => approveSub(row.id, "reject")} disabled={busyId === row.id}
+          className="text-xs px-2 py-1 rounded bg-pat-danger/10 text-pat-danger hover:bg-pat-danger/20 disabled:opacity-40">
+          Reject
+        </button>
+        <button onClick={() => completeSub(row.id)} disabled={busyId === row.id}
+          className="text-xs px-2 py-1 rounded bg-pat-bg-surface-secondary text-pat-text-secondary hover:bg-pat-bg-surface disabled:opacity-40"
+          title="Legacy: mark ACTIVE without license sync">
+          Complete
+        </button>
+      </div>
     ) : <span className="text-xs text-pat-text-muted">—</span> },
   ];
 

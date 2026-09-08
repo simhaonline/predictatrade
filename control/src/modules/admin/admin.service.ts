@@ -317,6 +317,137 @@ export class AdminService {
     return r.rows[0];
   }
 
+  /**
+   * v1.31 UNIFIED MANUAL APPROVAL — one admin gate across all entitlements.
+   *
+   * entityType: 'subscription' | 'license' | 'user'
+   * decision:   'approve' | 'reject'
+   *
+   * Side effects per entity:
+   *  - subscription approve: INCOMPLETE/FAILED → ACTIVE + billing period set;
+   *    license ensured via the idempotent ensureActiveLicenseForSubscription
+   *  - subscription reject:  → CANCELLED (terminal; user keeps account)
+   *  - license approve:      SUSPENDED/REVOKED → ACTIVE + bound devices
+   *    un-revoked (same path as the manual Activate button)
+   *  - license reject:       → REVOKED (terminal; bound devices force-logged-out)
+   *  - user approve:         status → ACTIVE (unlocks login)
+   *  - user reject:          status → SUSPENDED (login blocked, data kept)
+   * Every transition is audited to audit.audit_events with the admin reason.
+   */
+  async approveEntitlement(
+    entityType: 'subscription' | 'license' | 'user',
+    entityId: string,
+    decision: 'approve' | 'reject',
+    actorId: string,
+    reason: string,
+  ) {
+    const reasonText = (reason || '').trim() || `Admin ${decision} (manual approval)`;
+    let result: Record<string, unknown>;
+    let auditAction: string;
+
+    if (entityType === 'subscription') {
+      const cur = await this.pool.query(
+        `SELECT s.id, s.status, s.billing_interval, u.email AS user_email
+           FROM billing.subscriptions s JOIN iam.users u ON s.user_id = u.id
+          WHERE s.id = $1`, [entityId]);
+      if (!cur.rows[0]) throw new NotFoundException('Subscription not found');
+      const status = cur.rows[0].status;
+
+      if (decision === 'approve') {
+        if (!['INCOMPLETE', 'FAILED', 'PAST_DUE'].includes(status)) {
+          throw new BadRequestException(`Subscription is '${status}' — only INCOMPLETE/FAILED/PAST_DUE subscriptions need approval`);
+        }
+        const interval = cur.rows[0].billing_interval === 'ANNUAL' ? '1 year' : '1 month';
+        const r = await this.pool.query(
+          `UPDATE billing.subscriptions
+              SET status='ACTIVE', billing_period_start=now(),
+                  billing_period_end = now() + interval '${interval}', updated_at=now()
+            WHERE id=$1 RETURNING *`, [entityId]);
+        // Entitlement side effect: ensure the license exists & matches (idempotent)
+        const ownerRow = await this.pool.query('SELECT user_id FROM billing.subscriptions WHERE id=$1', [entityId]);
+        await this.licensingService.ensureActiveLicenseForSubscription(ownerRow.rows[0].user_id).catch((e) =>
+          this.logger.warn(`approve(subscription): license sync failed: ${e instanceof Error ? e.message : e}`));
+        auditAction = 'SUBSCRIPTION_APPROVED';
+        result = { ...r.rows[0], user_email: cur.rows[0].user_email };
+      } else {
+        if (status === 'CANCELED' || status === 'CANCELLED') {
+          throw new BadRequestException('Subscription is already cancelled');
+        }
+        const r = await this.pool.query(
+          `UPDATE billing.subscriptions SET status='CANCELLED', updated_at=now() WHERE id=$1 RETURNING *`, [entityId]);
+        auditAction = 'SUBSCRIPTION_REJECTED';
+        result = { ...r.rows[0], user_email: cur.rows[0].user_email };
+      }
+    } else if (entityType === 'license') {
+      const cur = await this.pool.query(
+        `SELECT l.id, l.status, l.user_id, u.email AS user_email
+           FROM licensing.licenses l JOIN iam.users u ON l.user_id = u.id
+          WHERE l.id = $1`, [entityId]);
+      if (!cur.rows[0]) throw new NotFoundException('License not found');
+      const status = cur.rows[0].status;
+
+      if (decision === 'approve') {
+        if (status === 'ACTIVE') throw new BadRequestException('License is already ACTIVE');
+        const r = await this.pool.query(
+          `UPDATE licensing.licenses
+              SET status='ACTIVE',
+                  expires_at = GREATEST(COALESCE(expires_at, to_timestamp(0)), now() + interval '30 days'),
+                  updated_at = now()
+            WHERE id=$1 RETURNING *`, [entityId]);
+        // Un-revoke bound devices (same as the manual Activate path) so
+        // edge-poll entitlement checks pass immediately.
+        await this.pool.query(
+          `UPDATE licensing.devices
+              SET revoked_at=NULL, revoked_reason=NULL, connection_status='OFFLINE', updated_at=now()
+            WHERE bound_license_id=$1 AND revoked_at IS NOT NULL`, [entityId]);
+        auditAction = 'LICENSE_APPROVED';
+        result = { ...r.rows[0], user_email: cur.rows[0].user_email };
+      } else {
+        if (status === 'REVOKED') throw new BadRequestException('License is already REVOKED');
+        const r = await this.pool.query(
+          `UPDATE licensing.licenses SET status='REVOKED', updated_at=now() WHERE id=$1 RETURNING *`, [entityId]);
+        await this.pool.query(
+          `UPDATE licensing.devices SET revoked_at=now(), revoked_reason=$2, updated_at=now()
+            WHERE bound_license_id=$1 AND revoked_at IS NULL`, [entityId, `License rejected by admin: ${reasonText}`]);
+        auditAction = 'LICENSE_REJECTED';
+        result = { ...r.rows[0], user_email: cur.rows[0].user_email };
+      }
+    } else {
+      // user
+      const cur = await this.pool.query(
+        `SELECT id, email, status FROM iam.users WHERE id=$1 AND deleted_at IS NULL`, [entityId]);
+      if (!cur.rows[0]) throw new NotFoundException('User not found');
+      const status = cur.rows[0].status;
+
+      if (decision === 'approve') {
+        if (status === 'ACTIVE') throw new BadRequestException('User is already ACTIVE');
+        const r = await this.pool.query(
+          `UPDATE iam.users SET status='ACTIVE', failed_login_count=0, locked_until=NULL, updated_at=now()
+            WHERE id=$1 RETURNING id, email, status`, [entityId]);
+        auditAction = 'USER_APPROVED';
+        result = r.rows[0];
+      } else {
+        if (status === 'SUSPENDED') throw new BadRequestException('User is already SUSPENDED');
+        if (status === 'DELETED') throw new BadRequestException('User is DELETED');
+        const r = await this.pool.query(
+          `UPDATE iam.users SET status='SUSPENDED', updated_at=now() WHERE id=$1 RETURNING id, email, status`, [entityId]);
+        auditAction = 'USER_REJECTED';
+        result = r.rows[0];
+      }
+    }
+
+    try {
+      await this.pool.query(
+        `INSERT INTO audit.audit_events (actor_type, actor_id, action, entity_type, entity_id, reason, new_value)
+         VALUES ('admin', $1, $2, $3, $4, $5, $6)`,
+        [actorId, auditAction, entityType, String(result.id ?? entityId), reasonText, JSON.stringify({ decision, ...result })],
+      );
+    } catch (e) {
+      this.logger.warn(`audit insert failed for ${auditAction}: ${e instanceof Error ? e.message : e}`);
+    }
+    return { entityType, decision, action: auditAction, reason: reasonText, result };
+  }
+
   /** List all commissions (admin only). */
   async listAllCommissions(page = 1, limit = 20) {
     const offset = (page - 1) * limit;

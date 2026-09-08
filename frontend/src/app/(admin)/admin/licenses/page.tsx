@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
-import { createLicense, suspendLicense, revokeLicense, renewLicense, resetLicense, forceLogoutLicense, fetchLicenseActivations, changeLicensePlan, activateLicense, deactivateLicense } from "@/lib/admin-commercial-api";
+import { createLicense, suspendLicense, revokeLicense, renewLicense, resetLicense, forceLogoutLicense, fetchLicenseActivations, changeLicensePlan, activateLicense, deactivateLicense, approveEntitlement } from "@/lib/admin-commercial-api";
 import DataTable, { DataTableColumn } from "@/components/ui/data-table";
 import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
@@ -200,6 +200,28 @@ export default function AdminLicensesPage() {
               <div className="rounded-md bg-pat-bg-surface-secondary px-3 py-2"><span className="text-pat-text-muted">Expires</span><div className="text-pat-text-primary">{selected.expires_at ? format(new Date(selected.expires_at), "MMM d, yyyy") : "—"}</div></div>
             </div>
             <div className="flex flex-wrap gap-2 mb-4">
+              <button onClick={async () => {
+                const reason = window.prompt(`APPROVE license for ${selected.user_email}? It becomes ACTIVE (min 30-day floor) and bound devices are un-revoked.\n\nReason (audit log):`, "Payment confirmed / manual approval");
+                if (reason === null) return;
+                try {
+                  await approveEntitlement("license", selected.id, "approve", reason);
+                  toast.success("License approved — ACTIVE, devices un-revoked");
+                  doAction(`Refresh ${selected.user_email}`, async () => undefined);
+                } catch (e) {
+                  toast.error("Approval failed: " + (e instanceof Error ? e.message : String(e)));
+                }
+              }} className="px-3 py-1.5 text-xs bg-pat-success/20 text-pat-success font-medium rounded hover:bg-pat-success/30 transition-colors">Approve</button>
+              <button onClick={async () => {
+                const reason = window.prompt(`REJECT license for ${selected.user_email}? It becomes REVOKED (terminal) and bound devices are force-logged-out.\n\nReason (audit log):`, "Access not approved");
+                if (reason === null) return;
+                try {
+                  await approveEntitlement("license", selected.id, "reject", reason);
+                  toast.success("License rejected — REVOKED");
+                  doAction(`Refresh ${selected.user_email}`, async () => undefined);
+                } catch (e) {
+                  toast.error("Rejection failed: " + (e instanceof Error ? e.message : String(e)));
+                }
+              }} className="px-3 py-1.5 text-xs bg-pat-danger/10 text-pat-danger rounded hover:bg-pat-danger/20 transition-colors">Reject</button>
               <button onClick={() => doAction(`Suspend ${selected.user_email}`, () => suspendLicense(selected.id, "admin"))} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors">Suspend</button>
               <button onClick={() => doAction(`Activate ${selected.user_email}`, () => activateLicense(selected.id))} className="px-3 py-1.5 text-xs bg-pat-success/15 text-pat-success rounded hover:bg-pat-success/25 transition-colors">Activate</button>
               <button onClick={() => doAction(`Deactivate ${selected.user_email}`, () => deactivateLicense(selected.id))} className="px-3 py-1.5 text-xs bg-pat-warning/15 text-pat-warning rounded hover:bg-pat-warning/25 transition-colors">Deactivate</button>

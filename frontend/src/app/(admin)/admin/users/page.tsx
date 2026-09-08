@@ -7,6 +7,7 @@ import StatusBadge from "@/components/ui/status-badge";
 import ConfirmDialog from "@/components/admin/confirm-dialog";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { approveEntitlement } from "@/lib/admin-commercial-api";
 import { IconEye, IconKey, IconDownload } from "@tabler/icons-react";
 
 interface User {
@@ -263,6 +264,44 @@ export default function AdminUsersPage() {
                   {resetLinkMutation.isPending ? "Generating..." : "Send Reset Link (email + copy)"}
                 </button>
                 <p className="text-[10px] text-pat-text-muted mt-1">Single-use link, valid 2 hours. Also unlocks a locked account.</p>
+
+                {/* v1.31 unified manual approval — account activation */}
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={async () => {
+                      const reason = typeof window !== "undefined" ? window.prompt(`APPROVE account ${selectedUser.email}? It becomes ACTIVE (login allowed, unlock included).\n\nReason (audit log):`, "Admin account activation") : null;
+                      if (reason === null) return;
+                      try {
+                        await approveEntitlement("user", selectedUser.id, "approve", reason);
+                        toast.success("Account approved — user is ACTIVE");
+                        queryClient.invalidateQueries({ queryKey: ["admin-user-detail"] });
+                        queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+                      } catch (e) {
+                        toast.error("Approval failed: " + (e instanceof Error ? e.message : String(e)));
+                      }
+                    }}
+                    disabled={selectedUser.status === "ACTIVE"}
+                    className="flex-1 px-2 py-1.5 text-xs font-medium bg-pat-success/20 text-pat-success rounded-md hover:bg-pat-success/30 disabled:opacity-40">
+                    Approve Account
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const reason = typeof window !== "undefined" ? window.prompt(`REJECT account ${selectedUser.email}? It becomes SUSPENDED (login blocked, data kept).\n\nReason (audit log):`, "Registration not approved") : null;
+                      if (reason === null) return;
+                      try {
+                        await approveEntitlement("user", selectedUser.id, "reject", reason);
+                        toast.success("Account rejected — user is SUSPENDED");
+                        queryClient.invalidateQueries({ queryKey: ["admin-user-detail"] });
+                        queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+                      } catch (e) {
+                        toast.error("Rejection failed: " + (e instanceof Error ? e.message : String(e)));
+                      }
+                    }}
+                    disabled={selectedUser.status !== "ACTIVE"}
+                    className="flex-1 px-2 py-1.5 text-xs font-medium bg-pat-danger/10 text-pat-danger rounded-md hover:bg-pat-danger/20 disabled:opacity-40">
+                    Suspend Account
+                  </button>
+                </div>
               </div>
             )}
 

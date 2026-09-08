@@ -155,6 +155,25 @@ export class AdminController {
     return this.adminService.generatePasswordResetLink(id, actorId, body?.reason ?? '');
   }
 
+  /**
+   * v1.31 unified manual approval — one admin gate covering subscriptions,
+   * licenses, and user account activation. See AdminService.approveEntitlement
+   * for the per-entity side effects. Audited.
+   */
+  @Post('approve')
+  @RequirePermissions(Permission.USER_MANAGE)
+  async approveEntitlement(
+    @Body() body: { entityType: 'subscription' | 'license' | 'user'; entityId: string; decision: 'approve' | 'reject'; reason?: string },
+    @CurrentUser('sub') actorId: string,
+  ) {
+    if (!body?.entityType || !body?.entityId || !['approve', 'reject'].includes(body?.decision)) {
+      throw new BadRequestException('entityType (subscription|license|user), entityId and decision (approve|reject) are required');
+    }
+    return this.adminService.approveEntitlement(
+      body.entityType, body.entityId, body.decision, actorId, body?.reason ?? '',
+    );
+  }
+
   @Get('users-without-subscription')
   async listUsersWithoutSubscription() {
     return this.adminService.listUsersWithoutSubscription();

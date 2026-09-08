@@ -129,6 +129,20 @@ export async function deactivateLicense(id: string) {
   const res = await customInstance.post(`/licensing/licenses/${id}/deactivate`, {});
   return res.data;
 }
+/**
+ * v1.31 unified manual approval — one admin gate across subscriptions,
+ * licenses, and user activation. Backend applies the per-entity side effects
+ * (license sync, device un-revoke / revoke, account unlock) and audits.
+ */
+export async function approveEntitlement(
+  entityType: "subscription" | "license" | "user",
+  entityId: string,
+  decision: "approve" | "reject",
+  reason?: string,
+) {
+  const res = await customInstance.post(`/admin/approve`, { entityType, entityId, decision, reason: reason ?? "" });
+  return res.data;
+}
 export async function changeLicensePlan(
   id: string,
   payload: { plan_id: string; max_devices?: number; max_mt_accounts?: number; reason?: string },
