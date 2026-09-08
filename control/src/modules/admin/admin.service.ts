@@ -58,7 +58,16 @@ export class AdminService {
     const [data, count] = await Promise.all([
       this.pool.query(
         `SELECT u.id, u.email, u.full_name, u.status, u.created_at, u.last_login_at,
-                COALESCE(r.name, 'USER') as role
+                COALESCE(r.name, 'USER') as role,
+                (SELECT p.code FROM billing.subscriptions s
+                  JOIN control.plans p ON p.id = s.plan_id
+                 WHERE s.user_id = u.id AND s.status NOT IN ('CANCELLED','EXPIRED')
+                 ORDER BY s.created_at DESC LIMIT 1) as subscription_plan,
+                (SELECT l.status FROM licensing.licenses l
+                  WHERE l.user_id = u.id
+                  ORDER BY (l.status='ACTIVE') DESC, l.issued_at DESC LIMIT 1) as license_status,
+                EXISTS (SELECT 1 FROM licensing.licenses l2
+                         WHERE l2.user_id = u.id AND l2.status IN ('ACTIVE','SUSPENDED','PENDING')) as has_license
          FROM iam.users u
          LEFT JOIN iam.memberships m ON m.user_id = u.id
          LEFT JOIN iam.roles r ON m.role_id = r.id

@@ -17,6 +17,9 @@ interface User {
   role: string;
   created_at: string;
   last_login_at: string | null;
+  subscription_plan?: string | null;
+  license_status?: string | null;
+  has_license?: boolean;
 }
 
 interface UsersResponse {
@@ -94,6 +97,12 @@ export default function AdminUsersPage() {
       ),
     },
     { key: "role", header: "Role", sortable: true, cell: (row) => <span className="text-xs font-medium text-pat-text-secondary">{row.role}</span> },
+    { key: "subscription_plan", header: "Plan", sortable: true, cell: (row) => row.subscription_plan
+        ? <span className="text-xs font-medium text-pat-text-primary">{row.subscription_plan}</span>
+        : <span className="text-xs text-pat-text-muted">no subscription</span> },
+    { key: "license_status", header: "License", sortable: true, cell: (row) => row.license_status
+        ? <StatusBadge status={row.license_status} />
+        : <span className="text-xs text-pat-warning">none</span> },
     { key: "status", header: "Status", sortable: true, cell: (row) => <StatusBadge status={row.status} /> },
     { key: "created_at", header: "Registered", sortable: true, cell: (row) => <span className="text-xs text-pat-text-muted">{row.created_at ? format(new Date(row.created_at), "MMM d, yyyy") : "—"}</span> },
     { key: "last_login_at", header: "Last Login", cell: (row) => <span className="text-xs text-pat-text-muted">{row.last_login_at ? format(new Date(row.last_login_at), "MMM d, yyyy HH:mm") : "Never"}</span> },
@@ -137,6 +146,20 @@ export default function AdminUsersPage() {
           <p className="text-sm text-pat-text-secondary mt-1">Manage user accounts, approvals, and status.</p>
         </div>
         <div className="text-sm text-pat-text-muted">Total: <span className="font-semibold text-pat-text-primary">{total}</span> users</div>
+      </div>
+
+      {/* Sync-coverage banner: explains why totals differ across the three admin pages */}
+      <div className="rounded-lg border border-pat-border bg-pat-bg-surface p-4 text-xs text-pat-text-muted leading-relaxed">
+        These three pages count different things, so the numbers are <span className="font-semibold text-pat-text-primary">not supposed to match</span>:
+        <span className="text-pat-text-primary"> Users</span> = every registered account;
+        <span className="text-pat-text-primary"> Subscriptions</span> = only accounts that started a plan;
+        <span className="text-pat-text-primary"> Licenses</span> = issued keys (incl. revoked).
+        {(() => {
+          const noLicense = (users || []).filter((u) => !u.has_license).length;
+          const totalUsers = users?.length ?? 0;
+          if (noLicense === 0) return <span> On this page: all {totalUsers} listed users have a license.</span>;
+          return <span> <span className="text-pat-warning font-medium">{noLicense} of {totalUsers} users on this page have no active license</span> — issue one from a user row (View → Assign License) or check License Management.</span>;
+        })()}
       </div>
 
       <DataTable data={users} columns={columns} loading={isLoading} error={error as Error | null} onRetry={refetch} pageSize={limit} hidePager />
