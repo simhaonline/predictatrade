@@ -30,7 +30,7 @@
 //| SERVER - no EA recompile required.                               |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.28"
+#property version   "1.29"
 #property strict
 
 // v1.27 account-type detection (additive; MT4 build of CAccountTypeDetector)
@@ -1417,8 +1417,8 @@ int OnInit()
         Print("Also add ", PATCloudURL, " to Tools→Options→Expert Advisors→WebRequest allowlist.");
     }
 
-    UpdatePanel();
     PAT_ATD_InitDetect(); // v1.27: account-type detection (fail-safe; never blocks init)
+    PATUI_OnInit(); // v1.29.4: terminal dashboard (object panel)
     return(INIT_SUCCEEDED);
 }
 
@@ -1426,6 +1426,7 @@ void OnDeinit(const int reason)
 {
     EventKillTimer();
     PAT_Send("DEINIT|{}");
+    PATUI_OnDeinit(); // v1.29.4: remove dashboard objects
     Comment("");
 }
 
@@ -1460,7 +1461,7 @@ void OnTick()
     // Exit reporting (covers broker-side closes and partial chunks)
     PAT_HistoryPoll();
 
-    UpdatePanel();
+    PATUI_DashUpdate(false); // v1.29.4: object dashboard (self-throttled)
 }
 
 //+------------------------------------------------------------------+
@@ -1494,9 +1495,9 @@ void OnTimer()
     if(g_connection == "CONNECTED")
         PollFromCloud();
 
-    // v1.29.2: repaint from the watchdog as well — with no OnTick (closed
-    // market) a verdict applied in memory never reached the chart panel.
-    UpdatePanel();
+    // v1.29.4: repaint the dashboard from the watchdog as well — with no
+    // OnTick (closed market) a verdict applied in memory never reached the
+    // panel and it kept showing UNKNOWN(-).
 
     // Control-plane heartbeat (HMAC) — every watchdog cycle (15s) keeps the
     // device liveness fresh in edge_device_state even when the engine ingest
@@ -2622,6 +2623,8 @@ void HandleSignal(string json)
     if(driftBuy && !PAT_EntryDriftOK(g_signalStrategy, true))  { g_signalsFiltered++; return; }
     if(driftSell && !PAT_EntryDriftOK(g_signalStrategy, false)) { g_signalsFiltered++; return; }
 
+    if(!PATUI_ExecAllowed()) { g_signalsFiltered++; return; } // v1.29.4: panel/F-key pause
+
     if(AutoExecute && g_signalDirection == "BUY")
         ExecuteBuy();
     else if(AutoExecute && g_signalDirection == "SELL")
@@ -2990,58 +2993,776 @@ string PAT_StrategyDisplayName(string strategyID)
 }
 
 //+------------------------------------------------------------------+
-void UpdatePanel()
-{
-    string p = "=== Predict-A-Trade v1.00 ===\n";
-    p += "Agent:    " + g_connection + "\n";
-    p += "License:  " + g_licenseStatus + " (" + g_licensePlan + ")\n";
-    p += "Lic.Key:  " + (g_licenseKey == "" ? "NOT SET" : StringSubstr(g_licenseKey, 0, 12) + "...") + "\n";
-    p += "Account:  " + g_accountID + "\n";
-    p += "Symbol:   " + g_symbol + "\n";
-    p += "Mode:     " + (AutoExecute ? "AUTO EXECUTE" : "SIGNAL ONLY") + "\n";
-    p += "Open Pos: " + IntegerToString(PAT_CountPatPositions()) + "\n";
-    p += "-----------------------------\n";
-    p += "Signals:  " + IntegerToString(g_signalsReceived) + " recv, " + IntegerToString(g_signalsDisplayed) + " shown, " + IntegerToString(g_signalsFiltered) + " filtered\n";
-    p += "Strats:   ";
-    if(StringFind("," + g_allowedStrategies + ",", ",STANDARD_SCALPING,") >= 0) p += "SS ";
-    if(StringFind("," + g_allowedStrategies + ",", ",ULTRA_SCALPING,") >= 0) p += "US ";
-    if(StringFind("," + g_allowedStrategies + ",", ",STANDARD_SWING,") >= 0) p += "SW ";
-    if(StringFind("," + g_allowedStrategies + ",", ",TREND_SWING,") >= 0) p += "TW\n";
-    p += "-----------------------------\n";
-    p += "Signal:   " + g_signalDirection + "\n";
-    if(g_signalDirection != "NONE" && g_signalDirection != "EXPIRED")
-    {
-        p += "Strategy: " + PAT_StrategyDisplayName(g_signalStrategy) + "\n";
-        p += "Grade:    " + g_signalGrade + "\n";
-        p += "Class:    " + g_signalClass + "\n";
-        p += "Score:    " + DoubleToString(g_rawScore, 1) + "\n";
-        p += "Prob:     " + (g_calibProb > 0 ? DoubleToString(g_calibProb * 100, 1) + "%" : "Pending") + "\n";
-        p += "Entry:    " + DoubleToString(g_entry, 2) + "\n";
-        p += "SL:       " + DoubleToString(g_sl, 2) + "\n";
-        p += "TP1:      " + DoubleToString(g_tp1, 2) + "\n";
-        p += "TP2:      " + DoubleToString(g_tp2, 2) + "\n";
-        p += "TP3:      " + DoubleToString(g_tp3, 2) + "\n";
-    }
-    p += "-----------------------------\n";
-    p += "Ticks:    " + IntegerToString(g_tickCount) + "\n";
-    p += "Time:     " + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\n";
-    p += "Slip rejects: " + IntegerToString(g_slippageRejects) + "\n";
-    p += "Daily P&L: " + DoubleToString(g_dailyPnL, 2) + "\n";
-    p += "Trades today: " + IntegerToString(g_dayTradeCount) + " / " + IntegerToString(MaxTradesPerDay) + " (local cap)\n";  // v1.28
-    if(FloatingDDProtection) p += "FloatDD: " + DoubleToString(MathMax(0.0, AccountBalance() - AccountEquity()), 2) + " (breaker " + DoubleToString(FloatingDD_MaxPct, 1) + "%)\n";  // v1.28
-    if(g_fddHalted) p += "*** HALTED: FLOATING-DD BREAKER (this broker day) ***\n";  // v1.28
-    if(BypassDailyLossBlock) p += "DailyLoss guard: BYPASSED (client override)\n";
-    if(g_tradingBlocked) p += "*** TRADING BLOCKED (daily loss) ***\n";
-    if(g_equityHalted)   p += "*** HALTED: EQUITY FLOOR ***\n";
-    if(AvoidSwapCharges)
-    {
-        p += "Swap cutoff: " + IntegerToString(SwapCutoffHour) + ":00 (-" + IntegerToString(SwapCutoffBuffer) + "min)\n";
-        if(IsNearSwapTime()) p += "*** SWAP CUTOFF ACTIVE ***\n";
-        if(IsTripleSwapDay()) p += "*** TRIPLE SWAP DAY ***\n";
-    }
-    Comment(p);
+//| TERMINAL DASHBOARD v2 — object-based two-column control panel     |
+//| (design reference: MQL-REF.md flow layout; content adapted to the |
+//| thin executor: cloud link, license, live signal, capital guards,  |
+//| exposure, activity + DST-aware 24h session map)                   |
+//|                                                                   |
+//| Overlap-proof by construction: rows are drawn with a running Y    |
+//| cursor, every string is width-clipped with TextGetSize, and the   |
+//| panel height is derived from the fixed row counts below (single   |
+//| source of truth). Objects are fully cleared each frame — ghost    |
+//| panels are impossible.                                            |
+//|                                                                   |
+//| Controls: drag header to move (persisted per symbol) · click      |
+//| header to collapse · [PAUSE] button or F key toggles execution.   |
+//+------------------------------------------------------------------+
+#define PATUI_PREFIX "PATUI_"
+
+//--- execution-pause state (toggled from the panel / F key; enforced in HandleSignal)
+bool   PAT_panelPaused = false;
+string PATUI_pauseReason = "";
+
+// Terminal dashboard inputs
+input bool   PAT_ShowDashboard  = true;   // show the terminal dashboard
+input int    PAT_DashFontSize   = 8;      // dashboard font 6..12 (8 recommended)
+input int    PAT_DashRefreshMs  = 400;    // dashboard repaint throttle ms (CPU friendly)
+input int    PAT_DashX          = 430;    // initial panel X (drag to move; persisted)
+input int    PAT_DashY          = 30;     // initial panel Y (drag to move; persisted)
+
+//--- colour system: deep navy base, high-contrast text, semantic status
+color PATUI_BG      = C'0,0,0';
+color PATUI_PANEL   = C'6,8,12';
+color PATUI_BG2     = C'10,12,16';
+color PATUI_SECTION = C'16,24,40';
+color PATUI_SECTXT  = C'120,220,255';
+color PATUI_TXT     = C'255,255,255';
+color PATUI_TXT2    = C'208,216,232';
+color PATUI_DIM     = C'150,160,180';
+color PATUI_GRAY    = C'110,120,140';
+color PATUI_GRID    = C'40,48,64';
+color PATUI_HDR     = C'12,18,30';
+color PATUI_ACCENT  = C'0,160,255';
+color PATUI_BORDER  = C'70,80,100';
+color PATUI_UP      = C'0,255,140';
+color PATUI_DN      = C'255,110,110';
+color PATUI_WARN    = C'255,224,102';
+color PATUI_GOLD    = C'255,215,64';
+color PATUI_SYD     = C'0,176,255';
+color PATUI_TOK     = C'155,89,255';
+color PATUI_LON     = C'255,145,0';
+color PATUI_NY      = C'0,230,118';
+color PATUI_SYD_DIM = C'20,60,90';
+color PATUI_TOK_DIM = C'50,32,90';
+color PATUI_LON_DIM = C'90,54,0';
+color PATUI_NY_DIM  = C'20,80,50';
+
+//--- geometry (recomputed from PAT_DashFontSize each frame)
+// Row counts are the single source of truth for the panel height:
+//   left column:  3 sections + up to 19 rows (signal live + pause note)
+//   right column: 3 sections + 12 rows + button clearance (2 rows)
+int    PATUI_font = 8, PATUI_fontPx = 10, PATUI_dpi = 96;
+double PATUI_dpiScale = 1.0;
+int    PATUI_rh = 16, PATUI_hdrH = 30, PATUI_colW = 320, PATUI_pad = 12, PATUI_gap = 14, PATUI_panelW = 0;
+int    PATUI_bodyTop = 0, PATUI_tlH = 0, PATUI_panelH = 0;
+int    PATUI_x = 8, PATUI_y = 24;                 // live panel origin (draggable, persisted)
+bool   PATUI_collapsed = false;
+uint   PATUI_lastMs = 0, PATUI_lastDragMs = 0;
+bool   PATUI_dragging = false, PATUI_maybeClick = false;
+int    PATUI_dragOffX = 0, PATUI_dragOffY = 0, PATUI_dragStartX = 0, PATUI_dragStartY = 0;
+
+int PATUI_SX(int v) { return (int)MathRound(v * PATUI_font / 9.0 * PATUI_dpiScale); }
+int PATUI_FontOut(int fs) { return (int)MathMax(6, MathRound(fs / PATUI_dpiScale)); }
+
+//--- account access guarded per platform (thin executor runs on both)
+double PATUI_Equity()     {
+#ifdef __MQL5__
+   return AccountInfoDouble(ACCOUNT_EQUITY);
+#else
+   return AccountEquity();
+#endif
+}
+double PATUI_Balance()    {
+#ifdef __MQL5__
+   return AccountInfoDouble(ACCOUNT_BALANCE);
+#else
+   return AccountBalance();
+#endif
+}
+double PATUI_Margin()     {
+#ifdef __MQL5__
+   return AccountInfoDouble(ACCOUNT_MARGIN);
+#else
+   return AccountMargin();
+#endif
+}
+double PATUI_FreeMargin() {
+#ifdef __MQL5__
+   return AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+#else
+   return AccountFreeMargin();
+#endif
+}
+long PATUI_Leverage()     {
+#ifdef __MQL5__
+   return AccountInfoInteger(ACCOUNT_LEVERAGE);
+#else
+   return (long)AccountLeverage();
+#endif
+}
+long PATUI_TradeMode()    {
+#ifdef __MQL5__
+   return AccountInfoInteger(ACCOUNT_TRADE_MODE);
+#else
+   return AccountInfoInteger(ACCOUNT_TRADE_MODE); // MT4 build 600+
+#endif
+}
+string PATUI_Currency()   {
+#ifdef __MQL5__
+   return AccountInfoString(ACCOUNT_CURRENCY);
+#else
+   return AccountCurrency();
+#endif
 }
 
+//--- clip a string to maxW px, appending "…" when it does not fit
+string PATUI_Clip(string s, int maxW, int fs)
+{
+    if(maxW <= 12) return (StringLen(s) == 0 ? s : "");
+    if(StringLen(s) == 0) return s;
+    TextSetFont("Consolas", PATUI_FontOut(fs), FW_DONTCARE, 0);
+    uint w = 0, h = 0;
+    if(!TextGetSize(s, w, h)) return s;
+    if((int)w <= maxW) return s;
+    while(StringLen(s) > 1)
+    {
+        s = StringSubstr(s, 0, StringLen(s) - 1);
+        string t = s + "…";
+        if(TextGetSize(t, w, h) && (int)w <= maxW) return t;
+    }
+    return "";
+}
+
+void PATUI_Recompute()
+{
+    PATUI_font = MathMax(6, MathMin(12, PAT_DashFontSize));
+    long dpi = TerminalInfoInteger(TERMINAL_SCREEN_DPI);
+    if(dpi < 96) dpi = 96;
+    if(dpi > 480) dpi = 480;
+    PATUI_dpi = (int)dpi;
+    PATUI_dpiScale = (double)PATUI_dpi / 96.0;
+    PATUI_fontPx = (int)MathRound(PATUI_font * PATUI_dpiScale);
+    PATUI_rh = (int)MathRound((PATUI_font + 7) * PATUI_dpiScale);
+    PATUI_hdrH = (int)MathRound((PATUI_font + 19) * PATUI_dpiScale);
+    PATUI_colW = PATUI_SX(330);
+    PATUI_pad = MathMax(8, PATUI_SX(12));
+    PATUI_gap = MathMax(8, PATUI_SX(14));
+    PATUI_panelW = PATUI_pad * 2 + PATUI_colW * 2 + PATUI_gap;
+    PATUI_bodyTop = PATUI_hdrH + 6;
+    PATUI_tlH = PATUI_SX(13) + 2 + 4 * PATUI_rh + PATUI_SX(14);
+    int colHL = 3 * (PATUI_SX(20) + 2) + 19 * PATUI_rh + PATUI_SX(8);
+    int colHR = 3 * (PATUI_SX(20) + 2) + 14 * PATUI_rh + PATUI_SX(8);
+    int tlTop = PATUI_bodyTop + MathMax(colHL, colHR) + PATUI_SX(6);
+    PATUI_panelH = tlTop + PATUI_tlH + 2 * PATUI_rh + PATUI_pad;
+}
+
+void PATUI_Rect(string n, int x, int y, int w, int h, color bg)
+{
+    string id = PATUI_PREFIX + n;
+    if(ObjectFind(0, id) < 0) ObjectCreate(0, id, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+    ObjectSetInteger(0, id, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    ObjectSetInteger(0, id, OBJPROP_XDISTANCE, x);
+    ObjectSetInteger(0, id, OBJPROP_YDISTANCE, y);
+    ObjectSetInteger(0, id, OBJPROP_XSIZE, MathMax(1, w));
+    ObjectSetInteger(0, id, OBJPROP_YSIZE, MathMax(1, h));
+    ObjectSetInteger(0, id, OBJPROP_BGCOLOR, bg);
+    ObjectSetInteger(0, id, OBJPROP_COLOR, bg);
+    ObjectSetInteger(0, id, OBJPROP_WIDTH, 1);
+    ObjectSetInteger(0, id, OBJPROP_BACK, false);
+    ObjectSetInteger(0, id, OBJPROP_HIDDEN, true);
+    ObjectSetInteger(0, id, OBJPROP_SELECTABLE, false);
+}
+
+void PATUI_Label(string n, int x, int y, string txt, color c, int sz = -1)
+{
+    int req = (sz > 0 ? sz : PATUI_font);
+    int fs = PATUI_FontOut(req);
+    string id = PATUI_PREFIX + n;
+    if(ObjectFind(0, id) < 0) ObjectCreate(0, id, OBJ_LABEL, 0, 0, 0);
+    ObjectSetInteger(0, id, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    ObjectSetInteger(0, id, OBJPROP_XDISTANCE, x);
+    ObjectSetInteger(0, id, OBJPROP_YDISTANCE, y);
+    ObjectSetInteger(0, id, OBJPROP_COLOR, c);
+    ObjectSetInteger(0, id, OBJPROP_FONTSIZE, fs);
+    ObjectSetString(0, id, OBJPROP_FONT, "Consolas");  // TextGetSize metrics == rendered metrics
+    ObjectSetString(0, id, OBJPROP_TEXT, txt);
+    ObjectSetInteger(0, id, OBJPROP_HIDDEN, true);
+    ObjectSetInteger(0, id, OBJPROP_SELECTABLE, false);
+}
+
+//--- section bar at the current Y cursor
+void PATUI_Section(string n, int col, int &y, string title)
+{
+    int x = PATUI_x + PATUI_pad + col * (PATUI_colW + PATUI_gap);
+    PATUI_Rect("SB_" + n, x, y, PATUI_colW, PATUI_SX(20) - 3, PATUI_SECTION);
+    PATUI_Rect("SL_" + n, x, y, 3, PATUI_SX(20) - 3, PATUI_ACCENT);
+    PATUI_Label("ST_" + n, x + 8, y + ((PATUI_SX(20) - 3 - MathMax(6, PATUI_font - 1)) / 2),
+                PATUI_Clip(PATUI_Upper(title), PATUI_colW - 14, MathMax(6, PATUI_font - 1)), PATUI_SECTXT, MathMax(6, PATUI_font - 1));
+    y += PATUI_SX(20) + 2;
+}
+
+//--- one flowing row; text is clipped to the column so it can never bleed
+void PATUI_Row(string n, int col, int &y, string txt, color c)
+{
+    int x = PATUI_x + PATUI_pad + col * (PATUI_colW + PATUI_gap) + 6;
+    PATUI_Label("R_" + n, x, y + MathMax(0, (PATUI_rh - PATUI_fontPx) / 2), PATUI_Clip(txt, PATUI_colW - 12, PATUI_font), c, PATUI_font);
+    y += PATUI_rh;
+}
+
+//--- two labels on one row (value left, status right-aligned in-column)
+void PATUI_RowSplit(string n, int col, int &y, string left, string right, color cl, color cr)
+{
+    int x = PATUI_x + PATUI_pad + col * (PATUI_colW + PATUI_gap) + 6;
+    PATUI_Label("R_" + n, x, y + MathMax(0, (PATUI_rh - PATUI_fontPx) / 2), PATUI_Clip(left, PATUI_colW - 100, PATUI_font), cl, PATUI_font);
+    uint w = 0, h = 0;
+    string r = PATUI_Clip(right, PATUI_SX(96), PATUI_font);
+    TextSetFont("Consolas", PATUI_FontOut(PATUI_font), FW_DONTCARE, 0);
+    TextGetSize(r, w, h);
+    PATUI_Label("R_" + n + "b", x + PATUI_colW - 12 - PATUI_SX(4) - (int)w, y + MathMax(0, (PATUI_rh - PATUI_fontPx) / 2), r, cr, PATUI_font);
+    y += PATUI_rh;
+}
+
+//--- one filled 24h segment (handles ranges that wrap past midnight)
+void PATUI_Seg(string n, int bx, int by, int bw, int openMin, int closeMin, color col)
+{
+    int x1 = bx + (int)MathRound(openMin * bw / 1440.0);
+    int x2 = bx + (int)MathRound(closeMin * bw / 1440.0);
+    if(closeMin > openMin) PATUI_Rect(n, x1, by, MathMax(2, x2 - x1), 9, col);
+    else { PATUI_Rect(n + "a", x1, by, MathMax(2, bx + bw - x1), 9, col); PATUI_Rect(n + "b", bx, by, MathMax(2, x2 - bx), 9, col); }
+}
+
+string PATUI_Upper(string s) { string t = s; StringToUpper(t); return t; }
+string PATUI_FmtMoney(double v) { return (v >= 0 ? "+" : "") + DoubleToString(v, 2); }
+
+string PATUI_AccTypeName(long m)
+{
+    if(m == 0) return "DEMO";         // ACCOUNT_TRADE_MODE_DEMO
+    if(m == 1) return "CONTEST";      // ACCOUNT_TRADE_MODE_CONTEST
+    if(m == 2) return "REAL";         // ACCOUNT_TRADE_MODE_REAL
+    return "UNKNOWN";
+}
+
+//===================== SESSION MAP (UTC, DST-aware) =====================
+bool PATUI_IsLeap(int y) { return ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0); }
+int PATUI_DaysInMonth(int y, int m)
+{
+    int d[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    if(m == 2 && PATUI_IsLeap(y)) return 29;
+    return d[m - 1];
+}
+datetime PATUI_MakeDT(int y, int mon, int day, int hour, int minute = 0, int sec = 0)
+{
+    MqlDateTime x;
+    x.year = y; x.mon = mon; x.day = day; x.hour = hour; x.min = minute; x.sec = sec;
+    x.day_of_week = 0; x.day_of_year = 0;
+    return StructToTime(x);
+}
+int PATUI_DayOfWeekUTC(int y, int mon, int day)
+{
+    MqlDateTime x; TimeToStruct(PATUI_MakeDT(y, mon, day, 12), x); return x.day_of_week;
+}
+int PATUI_NthSunday(int y, int mon, int nth)
+{
+    int dow = PATUI_DayOfWeekUTC(y, mon, 1);
+    int first = 1 + ((7 - dow) % 7);
+    return first + (nth - 1) * 7;
+}
+int PATUI_LastSunday(int y, int mon)
+{
+    int last = PATUI_DaysInMonth(y, mon);
+    int dow = PATUI_DayOfWeekUTC(y, mon, last);
+    return last - dow;
+}
+bool PATUI_LondonDST(datetime utc)
+{
+    MqlDateTime d; TimeToStruct(utc, d);
+    datetime start = PATUI_MakeDT(d.year, 3, PATUI_LastSunday(d.year, 3), 1);
+    datetime stop  = PATUI_MakeDT(d.year, 10, PATUI_LastSunday(d.year, 10), 1);
+    return (utc >= start && utc < stop);
+}
+bool PATUI_NewYorkDST(datetime utc)
+{
+    MqlDateTime d; TimeToStruct(utc, d);
+    datetime start = PATUI_MakeDT(d.year, 3, PATUI_NthSunday(d.year, 3, 2), 7);
+    datetime stop  = PATUI_MakeDT(d.year, 11, PATUI_NthSunday(d.year, 11, 1), 6);
+    return (utc >= start && utc < stop);
+}
+// Australia/Sydney: first Sunday of October 02:00 AEST → first Sunday of April 03:00 AEDT
+bool PATUI_SydneyDST(datetime utc)
+{
+    MqlDateTime d; TimeToStruct(utc, d);
+    datetime octStartThis = PATUI_MakeDT(d.year, 10, PATUI_NthSunday(d.year, 10, 1), 2) - 10 * 3600;
+    datetime aprEndThis   = PATUI_MakeDT(d.year, 4, PATUI_NthSunday(d.year, 4, 1), 3) - 11 * 3600;
+    if(d.mon <= 4)
+    {
+        datetime octPrev = PATUI_MakeDT(d.year - 1, 10, PATUI_NthSunday(d.year - 1, 10, 1), 2) - 10 * 3600;
+        return (utc >= octPrev && utc < aprEndThis);
+    }
+    if(d.mon >= 10)
+    {
+        datetime aprNext = PATUI_MakeDT(d.year + 1, 4, PATUI_NthSunday(d.year + 1, 4, 1), 3) - 11 * 3600;
+        return (utc >= octStartThis && utc < aprNext);
+    }
+    return (utc >= octStartThis && utc < aprEndThis);
+}
+int PATUI_MinuteOfDay(datetime t) { MqlDateTime d; TimeToStruct(t, d); return d.hour * 60 + d.min; }
+int PATUI_WrapMin(int m) { m %= 1440; if(m < 0) m += 1440; return m; }
+bool PATUI_InWindow(int x, int a, int b) { if(a <= b) return (x >= a && x < b); return (x >= a || x < b); }
+string PATUI_FmtHHMM(int m) { m = PATUI_WrapMin(m); return StringFormat("%02d:%02d", m / 60, m % 60); }
+
+// Session UTC bounds (DST-aware: Sydney UTC+10/+11, Tokyo +9, London 0/+1, NY -5/-4)
+void PATUI_SessionBounds(datetime utc, int &sydO, int &sydC, int &tokO, int &tokC, int &lonO, int &lonC, int &nyO, int &nyC)
+{
+    int sydOff = (PATUI_SydneyDST(utc) ? 11 * 60 : 10 * 60);
+    sydO = PATUI_WrapMin(8 * 60 - sydOff);          sydC = PATUI_WrapMin(17 * 60 - sydOff);
+    tokO = PATUI_WrapMin(9 * 60 - 9 * 60);          tokC = PATUI_WrapMin(18 * 60 - 9 * 60);
+    int lonOff = (PATUI_LondonDST(utc) ? 60 : 0);
+    lonO = PATUI_WrapMin(8 * 60 - lonOff);          lonC = PATUI_WrapMin((16 * 60 + 30) - lonOff);
+    int nyOff = (PATUI_NewYorkDST(utc) ? 4 * 60 : 5 * 60);
+    nyO  = PATUI_WrapMin(8 * 60 + nyOff);           nyC  = PATUI_WrapMin(17 * 60 + nyOff);
+}
+
+color PATUI_SessionColor(int i, bool active)
+{
+    if(i == 0) return (active ? PATUI_SYD : PATUI_SYD_DIM);
+    if(i == 1) return (active ? PATUI_TOK : PATUI_TOK_DIM);
+    if(i == 2) return (active ? PATUI_LON : PATUI_LON_DIM);
+    return (active ? PATUI_NY : PATUI_NY_DIM);
+}
+
+//===================== EXECUTOR STATE HELPERS =====================
+// Sum of open PAT lots on this symbol (MT5 positions / MT4 orders).
+double PATUI_OpenLots()
+{
+    double lots = 0;
+#ifdef __MQL5__
+    int total = PositionsTotal();
+    for(int i = 0; i < total; i++)
+    {
+        ulong ticket = PositionGetTicket(i);
+        if(ticket == 0) continue;
+        if(PositionGetString(POSITION_SYMBOL) != g_symbol) continue;
+        if(!PAT_IsPatMagic(PositionGetInteger(POSITION_MAGIC))) continue;
+        lots += PositionGetDouble(POSITION_VOLUME);
+    }
+#else
+    int total = OrdersTotal();
+    for(int i = 0; i < total; i++)
+    {
+        if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+        if(OrderSymbol() != g_symbol) continue;
+        if(!PAT_IsPatMagic(OrderMagicNumber())) continue;
+        lots += OrderLots();
+    }
+#endif
+    return lots;
+}
+
+// Floating P/L of open PAT positions (account currency).
+double PATUI_FloatingPL()
+{
+    double pl = 0;
+#ifdef __MQL5__
+    int total = PositionsTotal();
+    for(int i = 0; i < total; i++)
+    {
+        ulong ticket = PositionGetTicket(i);
+        if(ticket == 0) continue;
+        if(PositionGetString(POSITION_SYMBOL) != g_symbol) continue;
+        if(!PAT_IsPatMagic(PositionGetInteger(POSITION_MAGIC))) continue;
+        pl += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+    }
+#else
+    int total = OrdersTotal();
+    for(int i = 0; i < total; i++)
+    {
+        if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+        if(OrderSymbol() != g_symbol) continue;
+        if(!PAT_IsPatMagic(OrderMagicNumber())) continue;
+        pl += OrderProfit() + OrderSwap();
+    }
+#endif
+    return pl;
+}
+
+// Signal age string ("12s", "4m07s"); ageSec < 0 = no signal.
+string PATUI_SignalAge(int &ageSec)
+{
+    ageSec = (g_signalTime > 0 ? (int)(TimeCurrent() - g_signalTime) : -1);
+    if(ageSec < 0) return "—";
+    if(ageSec < 60) return IntegerToString(ageSec) + "s";
+    return IntegerToString(ageSec / 60) + "m" + StringFormat("%02d", ageSec % 60) + "s";
+}
+
+// Short allowed-strategy tag list: SS US SW TW EQ AT IM (display names)
+string PATUI_StrategiesShort()
+{
+    if(!g_strategiesEnforced) return "ALL (server list pending)";
+    if(StringLen(g_allowedStrategies) == 0) return "none";
+    string s = "";
+    if(StringFind("," + g_allowedStrategies + ",", ",STANDARD_SCALPING,") >= 0) s += "SS ";
+    if(StringFind("," + g_allowedStrategies + ",", ",ULTRA_SCALPING,") >= 0) s += "US ";
+    if(StringFind("," + g_allowedStrategies + ",", ",STANDARD_SWING,") >= 0) s += "SW ";
+    if(StringFind("," + g_allowedStrategies + ",", ",TREND_SWING,") >= 0) s += "TW ";
+    if(StringFind("," + g_allowedStrategies + ",", ",MARNIE_FIB,") >= 0) s += "EQ ";
+    if(StringFind("," + g_allowedStrategies + ",", ",ATEN,") >= 0) s += "AT ";
+    if(StringFind("," + g_allowedStrategies + ",", ",ARCANIST,") >= 0) s += "IM ";
+    return s;
+}
+
+// Local/server halt summary.
+bool PATUI_AnyHalt() { return (g_tradingBlocked || g_fddHalted || g_equityHalted); }
+string PATUI_HaltReason()
+{
+    if(g_equityHalted)   return "EQUITY FLOOR";
+    if(g_fddHalted)      return "FLOATING-DD BREAKER";
+    if(g_tradingBlocked) return "DAILY LOSS LIMIT";
+    return "";
+}
+
+//===================== DASHBOARD RENDER =====================
+void PATUI_DashDestroy() { ObjectsDeleteAll(0, PATUI_PREFIX, 0, -1); }
+
+void PATUI_OnDeinit() { PATUI_DashDestroy(); }
+
+void PATUI_DashUpdate(bool force = false)
+{
+    if(!PAT_ShowDashboard) return;
+    uint ms = GetTickCount();
+    if(!force && PATUI_lastMs > 0 && ms - PATUI_lastMs < (uint)MathMax(100, PAT_DashRefreshMs)) return;
+    PATUI_lastMs = ms;
+    PATUI_Recompute();
+    // Full clear every frame (reference pattern): stale objects from any
+    // earlier layout can never linger, so ghost panels are impossible.
+    ObjectsDeleteAll(0, PATUI_PREFIX, 0, -1);
+
+    int x = PATUI_x, y = PATUI_y;
+
+    //---- header (collapsed mode = single bar)
+    if(PATUI_collapsed)
+    {
+        PATUI_Rect("BG", x, y, PATUI_panelW, PATUI_hdrH, PATUI_BG);
+        PATUI_Rect("HDR", x, y, PATUI_panelW, PATUI_hdrH, PATUI_HDR);
+        PATUI_Rect("HL", x, y, 3, PATUI_hdrH, PATUI_ACCENT);
+        PATUI_Label("T", x + 10, y + ((PATUI_hdrH - PATUI_font - 2) / 2),
+                    PATUI_Clip(PATUI_Upper("PREDICT-A-TRADE") + " [" + g_symbol + "]", PATUI_panelW - PATUI_SX(120), PATUI_font + 2), clrWhite, PATUI_font + 2);
+        PATUI_Label("CS", x + PATUI_panelW - PATUI_SX(90), y + ((PATUI_hdrH - PATUI_font) / 2),
+                    (g_connection == "CONNECTED" ? "ONLINE" : "OFFLINE"),
+                    (g_connection == "CONNECTED" ? PATUI_UP : PATUI_DN), PATUI_font);
+        PATUI_Label("CH", x + PATUI_panelW - PATUI_SX(18), y + ((PATUI_hdrH - PATUI_font) / 2), "+", PATUI_TXT, PATUI_font);
+        ChartRedraw();
+        return;
+    }
+
+    PATUI_Rect("BG", x, y, PATUI_panelW, PATUI_panelH, PATUI_BG);
+    PATUI_Rect("HDR", x, y, PATUI_panelW, PATUI_hdrH, PATUI_HDR);
+    PATUI_Rect("HL", x, y, 3, PATUI_hdrH, PATUI_ACCENT);
+    PATUI_Label("T", x + 10, y + ((PATUI_hdrH - PATUI_font - 2) / 2),
+                PATUI_Clip(PATUI_Upper("PREDICT-A-TRADE") + "  [" + g_symbol + " " + ChartTimeframe + "]", PATUI_panelW - PATUI_SX(220), PATUI_font + 2), clrWhite, PATUI_font + 2);
+
+    //---- header status chips (right-aligned, fixed slots)
+    int chipX = x + PATUI_panelW - PATUI_SX(8);
+    PATUI_Label("CH_COLL", chipX - PATUI_SX(20), y + ((PATUI_hdrH - PATUI_font) / 2), "[-]", PATUI_TXT2, PATUI_font);
+    chipX -= PATUI_SX(28);
+    PATUI_Label("CH_LIC", chipX - PATUI_SX(64), y + ((PATUI_hdrH - PATUI_font) / 2),
+                g_licenseStatus,
+                (g_licenseStatus == "ACTIVE" ? PATUI_UP : (g_licenseStatus == "PENDING" ? PATUI_WARN : PATUI_DN)), PATUI_font);
+    chipX -= PATUI_SX(72);
+    bool halted = PATUI_AnyHalt();
+    string eng = (halted ? "HALTED" : (PAT_panelPaused ? "PAUSED" : (g_connection == "CONNECTED" ? "LIVE" : "OFFLINE")));
+    color engC = (halted ? PATUI_DN : (PAT_panelPaused ? PATUI_WARN : (g_connection == "CONNECTED" ? PATUI_UP : PATUI_DIM)));
+    PATUI_Label("CH_STATE", chipX - PATUI_SX(60), y + ((PATUI_hdrH - PATUI_font) / 2), eng, engC, PATUI_font);
+
+    //---- derived values
+    double eq = PATUI_Equity(), bal = PATUI_Balance();
+    double margin = PATUI_Margin(), freeM = PATUI_FreeMargin();
+    double dayLossPct = (g_dayStartBalance > 0 ? MathMax(0.0, -g_dailyPnL) / g_dayStartBalance * 100.0 : 0);
+    double floatPL = PATUI_FloatingPL();
+    double floatDDPct = (bal > 0 ? MathMax(0.0, bal - eq) / bal * 100.0 : 0);
+    double point = SymbolInfoDouble(g_symbol, SYMBOL_POINT);
+    double spread = 0;
+#ifdef __MQL5__
+    spread = (point > 0 ? (SymbolInfoDouble(g_symbol, SYMBOL_ASK) - SymbolInfoDouble(g_symbol, SYMBOL_BID)) / point : 0);
+#else
+    spread = MarketInfo(g_symbol, MODE_SPREAD);
+#endif
+    double lots = PATUI_OpenLots();
+    int posCount = PAT_CountPatPositions();
+    double marginPct = (eq > 0 ? margin / eq * 100.0 : 0);
+    string haltReason = PATUI_HaltReason();
+    int sigAge = 0; string sigAgeS = PATUI_SignalAge(sigAge);
+    bool sigLive = (g_signalDirection != "NONE" && g_signalDirection != "EXPIRED" && sigAge >= 0 && sigAge < MaxSignalAgeSeconds);
+    MqlDateTime dtS; TimeToStruct(TimeCurrent(), dtS);
+    string srvHM = StringFormat("%02d:%02d", dtS.hour, dtS.min);
+    datetime utc = TimeGMT();
+    int um = PATUI_MinuteOfDay(utc);
+    int so, sc, to, tc, lo, lc, no, nc;
+    PATUI_SessionBounds(utc, so, sc, to, tc, lo, lc, no, nc);
+    string accType = (StringLen(g_accountType) > 0 ? g_accountType : "Standard");
+
+    //================ LEFT COLUMN (flow) ==================
+    int yL = PATUI_bodyTop;
+    PATUI_Section("LS", 0, yL, "cloud / license");
+    PATUI_RowSplit("L_LINK", 0, yL, "Link " + g_connection,
+                   "poll " + IntegerToString(g_pollOkCount) + "ok/" + IntegerToString(g_pollErrCount) + "err",
+                   (g_connection == "CONNECTED" ? PATUI_UP : PATUI_DN),
+                   (g_pollErrCount > g_pollOkCount ? PATUI_WARN : PATUI_DIM));
+    PATUI_RowSplit("L_LIC", 0, yL, "License " + g_licenseStatus,
+                   "plan " + (g_licensePlan == "" ? "—" : g_licensePlan),
+                   (g_licenseStatus == "ACTIVE" ? PATUI_UP : (g_licenseStatus == "PENDING" ? PATUI_WARN : PATUI_DN)), PATUI_GOLD);
+    PATUI_Row("L_KEY", 0, yL, "Key " + (g_licenseKey == "" ? "NOT SET" : StringSubstr(g_licenseKey, 0, MathMin(18, StringLen(g_licenseKey))) + "…"), PATUI_DIM);
+    PATUI_RowSplit("L_ACC", 0, yL, "Account " + g_accountID, accType, PATUI_TXT2, PATUI_SECTXT);
+    PATUI_RowSplit("L_MODE", 0, yL, "Mode " + (AutoExecute ? "AUTO-EXECUTE" : "SIGNAL-ONLY"),
+                   (ExecuteCandidates ? "cand ON" : "cand OFF"),
+                   (AutoExecute ? PATUI_GOLD : PATUI_TXT2), PATUI_DIM);
+    PATUI_Row("L_STRAT", 0, yL, "Strats " + PATUI_StrategiesShort(), PATUI_TXT);
+    PATUI_Row("L_SYM", 0, yL, "Symbol " + g_symbol + "   Ticks " + IntegerToString((long)g_tickCount), PATUI_DIM);
+
+    PATUI_Section("LG", 0, yL, "current signal");
+    if(sigLive)
+    {
+        string dirTag = (StringFind(g_signalDirection, "BUY") == 0 ? "BUY" : (StringFind(g_signalDirection, "SELL") == 0 ? "SELL" : g_signalDirection));
+        color dirC = (dirTag == "BUY" ? PATUI_UP : (dirTag == "SELL" ? PATUI_DN : PATUI_TXT2));
+        PATUI_RowSplit("G_DIR", 0, yL, dirTag + " " + PAT_StrategyDisplayName(g_signalStrategy),
+                       g_signalGrade + " · " + g_signalClass, dirC,
+                       (g_signalClass == "EXECUTABLE" ? PATUI_GOLD : PATUI_DIM));
+        PATUI_RowSplit("G_SCORE", 0, yL, "Score " + DoubleToString(g_rawScore, 1),
+                       "prob " + (g_calibProb > 0 ? DoubleToString(g_calibProb * 100, 1) + "%" : "—"), PATUI_TXT, PATUI_TXT2);
+        PATUI_Row("G_ESL", 0, yL, "Entry " + DoubleToString(g_entry, 2) + "   SL " + DoubleToString(g_sl, 2), PATUI_TXT);
+        PATUI_Row("G_TP", 0, yL, "TP1 " + DoubleToString(g_tp1, 2) + "  TP2 " + DoubleToString(g_tp2, 2) + "  TP3 " + DoubleToString(g_tp3, 2), PATUI_TXT2);
+        PATUI_RowSplit("G_LOT", 0, yL, "Lot " + (g_suggestedLot > 0 ? DoubleToString(g_suggestedLot, 2) : "server"),
+                       "age " + sigAgeS, PATUI_TXT2, (sigAge > MaxSignalAgeSeconds / 2 ? PATUI_WARN : PATUI_DIM));
+        PATUI_Row("G_FRESH", 0, yL, "TTL " + (PAT_SignalFresh() ? "fresh" : "expired"), (PAT_SignalFresh() ? PATUI_UP : PATUI_DN));
+    }
+    else
+    {
+        PATUI_Row("G_NONE", 0, yL, "No active signal" + (g_signalDirection == "EXPIRED" ? " (last expired)" : ""), PATUI_DIM);
+        PATUI_Row("G_CNT", 0, yL, "Recv " + IntegerToString(g_signalsReceived) + "  shown " + IntegerToString(g_signalsDisplayed) + "  filtered " + IntegerToString(g_signalsFiltered), PATUI_GRAY);
+    }
+
+    PATUI_Section("LM", 0, yL, "capital guards");
+    string guard1, guard2, guard3;
+    color gc1 = PATUI_UP, gc2 = PATUI_UP, gc3 = PATUI_UP;
+    if(haltReason == "DAILY LOSS LIMIT") { guard1 = "Daily loss: HALTED"; gc1 = PATUI_DN; }
+    else if(dayLossPct >= WarningLossPct) { guard1 = "Daily loss: WARNING " + DoubleToString(dayLossPct, 1) + "%"; gc1 = PATUI_WARN; }
+    else { guard1 = "Daily loss: ok " + DoubleToString(dayLossPct, 1) + "%/" + DoubleToString(MaxDailyLossPct, 1) + "%"; }
+    if(haltReason == "FLOATING-DD BREAKER") { guard2 = "Floating DD: HALTED"; gc2 = PATUI_DN; }
+    else if(floatDDPct >= FloatingDD_MaxPct * 0.7) { guard2 = "Floating DD: " + DoubleToString(floatDDPct, 1) + "%/" + DoubleToString(FloatingDD_MaxPct, 1) + "%"; gc2 = PATUI_WARN; }
+    else { guard2 = "Floating DD: ok " + DoubleToString(floatDDPct, 1) + "%/" + DoubleToString(FloatingDD_MaxPct, 1) + "%"; }
+    guard3 = "Day P&L " + PATUI_FmtMoney(g_dailyPnL) + " " + PATUI_Currency();
+    if(haltReason == "EQUITY FLOOR") { guard3 = "Equity floor: HALTED"; gc3 = PATUI_DN; }
+    else if(g_dailyPnL < 0) gc3 = PATUI_DN;
+    PATUI_Row("M_LOSS", 0, yL, guard1, gc1);
+    PATUI_Row("M_FDD", 0, yL, guard2, gc2);
+    PATUI_Row("M_EQ", 0, yL, guard3, gc3);
+    PATUI_Row("M_CAP", 0, yL, "Trade cap " + IntegerToString(g_dayTradeCount) + "/" + IntegerToString(MaxTradesPerDay) + "  slip-rej " + IntegerToString(g_slippageRejects),
+              (g_dayTradeCount >= MaxTradesPerDay ? PATUI_WARN : PATUI_TXT2));
+    bool windowBlocked = (PAT_InRolloverWindow() || (AvoidSwapCharges && IsNearSwapTime()) || IsTripleSwapDay());
+    PATUI_Row("M_WIN", 0, yL, "Rollover " + (PAT_InRolloverWindow() ? "ACTIVE" : "clear") + "  Swap " + (AvoidSwapCharges && IsNearSwapTime() ? "AVOID" : (IsTripleSwapDay() ? "TRIPLE-DAY" : "clear")),
+              (windowBlocked ? PATUI_WARN : PATUI_TXT2));
+    if(PAT_panelPaused) PATUI_Row("M_PAUSE", 0, yL, "Panel pause: execution OFF", PATUI_WARN);
+
+    //================ RIGHT COLUMN (flow) ==================
+    int yR = PATUI_bodyTop;
+    PATUI_Section("RA", 1, yR, "account / money");
+    PATUI_Row("A_EQ", 1, yR, "Equity " + DoubleToString(eq, 2) + "  Bal " + DoubleToString(bal, 2) + " " + PATUI_Currency(), PATUI_TXT);
+    PATUI_Row("A_FLT", 1, yR, "Floating " + PATUI_FmtMoney(floatPL) + " " + PATUI_Currency(), (floatPL >= 0 ? PATUI_UP : PATUI_DN));
+    PATUI_RowSplit("A_MRG", 1, yR, "Margin " + DoubleToString(margin, 2) + " (" + DoubleToString(marginPct, 1) + "%)",
+                   "free " + DoubleToString(freeM, 2), (marginPct > 50 ? PATUI_WARN : PATUI_TXT2), PATUI_DIM);
+    PATUI_Row("A_LEV", 1, yR, "Leverage 1:" + IntegerToString(PATUI_Leverage()) + "  " + PATUI_AccTypeName(PATUI_TradeMode()), PATUI_TXT2);
+
+    PATUI_Section("RE", 1, yR, "exposure / market");
+    PATUI_Row("E_POS", 1, yR, "Open " + IntegerToString(posCount) + " PAT positions   Lots " + DoubleToString(lots, 2), (posCount > 0 ? PATUI_GOLD : PATUI_TXT2));
+    PATUI_Row("E_SPR", 1, yR, "Spread " + DoubleToString(spread, 1) + " pts   Server " + srvHM, PATUI_TXT2);
+    string sessNow = "none";
+    if(PATUI_InWindow(um, lo, lc) && PATUI_InWindow(um, no, nc)) sessNow = "LONDON/NY";
+    else if(PATUI_InWindow(um, lo, lc)) sessNow = "LONDON";
+    else if(PATUI_InWindow(um, no, nc)) sessNow = "NEW YORK";
+    else if(PATUI_InWindow(um, to, tc)) sessNow = "TOKYO";
+    else if(PATUI_InWindow(um, so, sc)) sessNow = "SYDNEY";
+    string ovl = "";
+    if(PATUI_InWindow(um, so, sc) && PATUI_InWindow(um, to, tc)) ovl = "SYD+TOK";
+    else if(PATUI_InWindow(um, to, tc) && PATUI_InWindow(um, lo, lc)) ovl = "TOK+LDN";
+    else if(PATUI_InWindow(um, lo, lc) && PATUI_InWindow(um, no, nc)) ovl = "LDN+NY";
+    PATUI_RowSplit("E_SES", 1, yR, "Session " + sessNow, "UTC " + PATUI_FmtHHMM(um),
+                   (StringFind(sessNow, "/") >= 0 ? PATUI_GOLD : (sessNow != "none" ? PATUI_UP : PATUI_GRAY)), PATUI_DIM);
+    PATUI_Row("E_OVL", 1, yR, "Overlap " + (ovl == "" ? "--" : ovl), (ovl == "" ? PATUI_GRAY : PATUI_GOLD));
+
+    PATUI_Section("RX", 1, yR, "activity");
+    PATUI_RowSplit("X_RECV", 1, yR, "Signals received " + IntegerToString(g_signalsReceived),
+                   "filtered " + IntegerToString(g_signalsFiltered), PATUI_TXT2, PATUI_GRAY);
+    PATUI_RowSplit("X_EXEC", 1, yR, "Executed today " + IntegerToString(g_dayTradeCount), "cap " + IntegerToString(MaxTradesPerDay),
+                   (g_dayTradeCount >= MaxTradesPerDay ? PATUI_WARN : PATUI_TXT2), PATUI_GRAY);
+    PATUI_RowSplit("X_POLL", 1, yR, "Edge-poll " + IntegerToString(g_pollOkCount) + " ok", IntegerToString(g_pollErrCount) + " err",
+                   PATUI_UP, (g_pollErrCount > 0 ? PATUI_WARN : PATUI_GRAY));
+    PATUI_Row("X_TIME", 1, yR, "Now " + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS), PATUI_GRAY);
+
+    // PAUSE / RESUME button (right column, below activity)
+    if(true)
+    {
+        int bx = PATUI_x + PATUI_pad + PATUI_colW + PATUI_gap + 6, by = yR + 2;
+        string bn = PATUI_PREFIX + "BTN_P";
+        if(ObjectFind(0, bn) < 0) ObjectCreate(0, bn, OBJ_BUTTON, 0, 0, 0);
+        ObjectSetInteger(0, bn, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+        ObjectSetInteger(0, bn, OBJPROP_XDISTANCE, bx);
+        ObjectSetInteger(0, bn, OBJPROP_YDISTANCE, by);
+        ObjectSetInteger(0, bn, OBJPROP_XSIZE, PATUI_SX(150));
+        ObjectSetInteger(0, bn, OBJPROP_YSIZE, PATUI_rh);
+        ObjectSetString(0, bn, OBJPROP_TEXT, (PAT_panelPaused ? "RESUME EXECUTION" : "PAUSE EXECUTION"));
+        ObjectSetString(0, bn, OBJPROP_FONT, "Consolas");
+        ObjectSetInteger(0, bn, OBJPROP_FONTSIZE, PATUI_FontOut(PATUI_font));
+        ObjectSetInteger(0, bn, OBJPROP_COLOR, (PAT_panelPaused ? PATUI_UP : PATUI_WARN));
+        ObjectSetInteger(0, bn, OBJPROP_BGCOLOR, (PAT_panelPaused ? C'35,80,45' : C'120,40,40'));
+        ObjectSetInteger(0, bn, OBJPROP_BORDER_COLOR, PATUI_BORDER);
+        ObjectSetInteger(0, bn, OBJPROP_STATE, false);
+        ObjectSetInteger(0, bn, OBJPROP_HIDDEN, true);
+        ObjectSetInteger(0, bn, OBJPROP_SELECTABLE, false);
+        ObjectSetInteger(0, bn, OBJPROP_ZORDER, 10);
+    }
+    yR += PATUI_rh * 2 + PATUI_SX(4);
+
+    //================ 24H UTC SESSION TIMELINE (flow) =====================
+    int tlTop = MathMax(yL, yR) + PATUI_SX(6);
+    int labW = PATUI_SX(34);
+    int barX = x + PATUI_pad + labW, barW = PATUI_panelW - PATUI_pad * 2 - labW;
+    PATUI_Rect("TL_BG", x + PATUI_pad, tlTop, PATUI_panelW - PATUI_pad * 2, PATUI_tlH, PATUI_BG2);
+    PATUI_Label("TL_H", x + PATUI_pad + 4, tlTop + 2, "SESSION MAP (UTC, DST-AWARE)", PATUI_SECTXT, MathMax(6, PATUI_font - 1));
+    int openM[4], closeM[4];
+    openM[0] = so; closeM[0] = sc; openM[1] = to; closeM[1] = tc; openM[2] = lo; closeM[2] = lc; openM[3] = no; closeM[3] = nc;
+    string names[4] = {"SYD", "TOK", "LDN", "NY"};
+    int byT = tlTop + PATUI_SX(15);
+    for(int i = 0; i < 4; i++)
+    {
+        int rowY = byT + i * PATUI_rh;
+        bool act = PATUI_InWindow(um, openM[i], closeM[i]);
+        PATUI_Label("TL_N" + IntegerToString(i), x + PATUI_pad + 4, rowY + ((PATUI_rh - MathMax(6, PATUI_font - 1)) / 2),
+                    names[i], (act ? PATUI_SessionColor(i, true) : PATUI_TXT2), MathMax(6, PATUI_font - 1));
+        PATUI_Rect("TL_T" + IntegerToString(i), barX, rowY + ((PATUI_rh - 9) / 2), barW, 9, PATUI_PANEL);
+        for(int hh = 3; hh < 24; hh += 3)
+            PATUI_Rect("TL_G" + IntegerToString(i) + "_" + IntegerToString(hh), barX + (int)MathRound(hh * barW / 24.0), rowY + ((PATUI_rh - 9) / 2), 1, 9, PATUI_GRID);
+        PATUI_Seg("TL_S" + IntegerToString(i), barX, rowY + ((PATUI_rh - 9) / 2), barW, openM[i], closeM[i], PATUI_SessionColor(i, act));
+    }
+    int nowX = barX + (int)MathRound(um * barW / 1440.0);
+    PATUI_Rect("TL_NOW", nowX, byT - 2, 2, 4 * PATUI_rh, clrWhite);
+    PATUI_Label("TL_NOWL", MathMax(barX, MathMin(nowX - PATUI_SX(30), barX + barW - PATUI_SX(70))), tlTop + PATUI_tlH - PATUI_SX(13),
+                "NOW " + PATUI_FmtHHMM(um) + " UTC", clrWhite, MathMax(6, PATUI_font - 1));
+
+    //================ FOOTER ==============================
+    int fy = tlTop + PATUI_tlH + PATUI_SX(2);
+    string foot = (halted ? ("HALTED: " + haltReason + "   ") : "")
+                + (PAT_panelPaused ? "EXECUTION PAUSED   " : "")
+                + "drag header = move   click = collapse   F / PAUSE = toggle execution";
+    PATUI_Label("FT", x + PATUI_pad + 4, fy, PATUI_Clip(foot, PATUI_panelW - PATUI_pad * 2 - 8, MathMax(6, PATUI_font - 1)),
+                (halted ? PATUI_DN : (PAT_panelPaused ? PATUI_WARN : PATUI_GRAY)), MathMax(6, PATUI_font - 1));
+    ChartRedraw();
+}
+
+//===================== LIFECYCLE + EVENT HOOKS =====================
+void PATUI_OnInit()
+{
+    PATUI_x = MathMax(0, PAT_DashX);
+    PATUI_y = MathMax(0, PAT_DashY);
+    // restore last dragged position (persisted per symbol, like the reference)
+    string gvx = "PATUI_X_" + g_symbol, gvy = "PATUI_Y_" + g_symbol;
+    if(GlobalVariableCheck(gvx) && GlobalVariableCheck(gvy))
+    {
+        int sx = (int)GlobalVariableGet(gvx), sy = (int)GlobalVariableGet(gvy);
+        if(sx >= 0 && sy >= 0) { PATUI_x = sx; PATUI_y = sy; }
+    }
+    ChartSetInteger(0, CHART_EVENT_MOUSE_MOVE, true);
+    PATUI_Recompute();
+    PATUI_DashUpdate(true);
+}
+
+//--- execution-pause gate: wired into HandleSignal before any order
+bool PATUI_ExecAllowed()
+{
+    if(PAT_panelPaused) { PATUI_pauseReason = "manual (panel/F)"; return false; }
+    PATUI_pauseReason = "";
+    return true;
+}
+
+void PATUI_TogglePause(string via)
+{
+    PAT_panelPaused = !PAT_panelPaused;
+    PAT_LogLine("Execution " + (PAT_panelPaused ? "PAUSED" : "RESUMED") + " by operator (" + via + ")");
+    PATUI_DashUpdate(true);
+}
+
+void PATUI_OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
+{
+    if(!PAT_ShowDashboard) return;
+
+    //--- PAUSE button (OBJ_BUTTON)
+    if(id == CHARTEVENT_OBJECT_CLICK && sparam == PATUI_PREFIX + "BTN_P")
+    {
+        PATUI_TogglePause("panel button");
+        return;
+    }
+
+    //--- header click = collapse / expand (if the press did not become a drag)
+    if(id == CHARTEVENT_CLICK && PATUI_maybeClick)
+    {
+        int mx = (int)lparam, my = (int)dparam;
+        PATUI_maybeClick = false;
+        if(!PATUI_dragging && PATUI_panelW > 0 && mx >= PATUI_x && mx <= PATUI_x + PATUI_panelW && my >= PATUI_y && my <= PATUI_y + PATUI_hdrH)
+        {
+            PATUI_collapsed = !PATUI_collapsed;
+            PATUI_DashUpdate(true);
+        }
+        return;
+    }
+
+    //--- F key toggles execution pause (chart focused)
+    if(id == CHARTEVENT_KEYDOWN && lparam == 70)   // 'F'
+    {
+        PATUI_TogglePause("F key");
+        return;
+    }
+
+    //--- header drag (persisted)
+    if(id == CHARTEVENT_MOUSE_MOVE)
+    {
+        int mx = (int)lparam, my = (int)dparam;
+        int flags = (int)StringToInteger(sparam);
+        bool lmb = ((flags & 1) != 0);
+        uint now = GetTickCount();
+
+        if(lmb && !PATUI_dragging)
+        {
+            if(mx >= PATUI_x && mx <= PATUI_x + PATUI_panelW && my >= PATUI_y && my <= PATUI_y + PATUI_hdrH)
+            {
+                PATUI_maybeClick = true;
+                PATUI_dragging = true;
+                PATUI_dragOffX = mx - PATUI_x; PATUI_dragOffY = my - PATUI_y;
+                PATUI_dragStartX = mx; PATUI_dragStartY = my;
+            }
+        }
+        else if(PATUI_dragging && lmb)
+        {
+            if(MathAbs(mx - PATUI_dragStartX) > 4 || MathAbs(my - PATUI_dragStartY) > 4) PATUI_maybeClick = false;
+            int nx = mx - PATUI_dragOffX, ny = my - PATUI_dragOffY;
+            int cw = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS);
+            int ch = (int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS);
+            if(nx < 0) nx = 0;
+            if(ny < 0) ny = 0;
+            if(nx + PATUI_panelW > cw) nx = MathMax(0, cw - PATUI_panelW);
+            if(ny + PATUI_hdrH > ch) ny = MathMax(0, ch - PATUI_hdrH);
+            if(nx != PATUI_x || ny != PATUI_y)
+            {
+                PATUI_x = nx; PATUI_y = ny;
+                GlobalVariableSet("PATUI_X_" + g_symbol, PATUI_x);
+                GlobalVariableSet("PATUI_Y_" + g_symbol, PATUI_y);
+                if(now - PATUI_lastDragMs >= (uint)MathMax(30, PAT_DashRefreshMs / 4)) { PATUI_lastDragMs = now; PATUI_DashUpdate(true); }
+            }
+        }
+        else if(PATUI_dragging && !lmb)
+        {
+            PATUI_dragging = false;
+            PATUI_DashUpdate(true);
+        }
+    }
+}
 //+------------------------------------------------------------------+
 //| JSON helpers                                                      |
 //+------------------------------------------------------------------+
@@ -3874,4 +4595,12 @@ void PollFromCloud()
 {
     Print("[Predict-A-Trade] ", msg);
     PAT_WriteFile(PAT_ERROR_LOG, PAT_ReadFile(PAT_ERROR_LOG) + "[Predict-A-Trade] " + msg + "\n");
+}
+
+//+------------------------------------------------------------------+
+//| CHART EVENTS — dashboard drag / collapse / pause (v1.29.4)        |
+//+------------------------------------------------------------------+
+void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
+{
+    PATUI_OnChartEvent(id, lparam, dparam, sparam);
 }
