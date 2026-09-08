@@ -4,6 +4,7 @@ import { customInstance } from "@/lib/axios-instance";
 import { getGlobalWs, type WsMessage, type ConnectionState } from "@/lib/websocket";
 import { fetchEnginesStatus } from "@/lib/engines-api";
 import AdminEngineCards from "@/components/admin/engine-cards";
+import ConnectivityCard from "@/components/backtest/connectivity-card";
 import { IconUsers, IconReceipt, IconCoin, IconChartBar, IconShield, IconDeviceDesktop, IconActivity, IconBolt, IconServer, IconDatabase, IconBroadcast, IconKey } from "@tabler/icons-react";
 import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
@@ -336,6 +337,9 @@ export default function AdminDashboardPage() {
 
       {/* Four Strategy Engine Cards (prompt.md Section 44) */}
       <AdminEngineCards />
+
+      {/* MT Client Connectivity — fleet liveness gate for every downstream page */}
+      <ConnectivityCard />
 
       {/* Platform Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
