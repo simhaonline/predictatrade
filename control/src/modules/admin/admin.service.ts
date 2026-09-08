@@ -438,7 +438,7 @@ export class AdminService {
   }
 
   /** List all device activations (admin only). */
-  async listAllActivations(page = 1, limit = 20, scope: 'live' | 'history' = 'live') {
+  async listAllActivations(page = 1, limit = 20, scope: 'live' | 'recent' | 'history' = 'live') {
     const offset = (page - 1) * limit;
     // scope=live   -> one row per device terminal currently running (polled
     //                 within the last 5 minutes) — the "who is on now" view.
@@ -455,6 +455,16 @@ export class AdminService {
           d.revoked_at IS NULL
           AND d.deleted_at IS NULL
           AND GREATEST(d.last_seen_at, COALESCE(st.last_poll_at, to_timestamp(0))) > now() - interval '5 minutes'`;
+    // scope=recent -> devices with activity in the last 24h (regardless of the
+    // 5-min window): clients whose terminals were closed minutes/hours ago stay
+    // visible with their last-poll age instead of vanishing between refreshes.
+    const isRecent = scope === 'recent';
+    const whereRecent = `
+          d.revoked_at IS NULL
+          AND d.deleted_at IS NULL
+          AND GREATEST(d.last_seen_at, COALESCE(st.last_poll_at, to_timestamp(0))) > now() - interval '24 hours'
+          AND GREATEST(d.last_seen_at, COALESCE(st.last_poll_at, to_timestamp(0))) <= now() - interval '5 minutes'`;
+    const where = isLive ? whereLive : isRecent ? whereRecent : '';
     const [data, count] = await Promise.all([
       this.pool.query(
         `SELECT da.id, da.license_id, l.license_key, da.device_id,
@@ -482,15 +492,15 @@ export class AdminService {
          ) da ON true
          JOIN licensing.licenses l ON d.bound_license_id = l.id
          JOIN iam.users u ON l.user_id = u.id
-         ${isLive ? `WHERE ${whereLive}` : ''}
-         ORDER BY ${isLive ? 'last_seen_at DESC' : 'da.activated_at DESC'} LIMIT $1 OFFSET $2`,
+         ${where ? `WHERE ${where}` : ''}
+         ORDER BY ${scope !== 'history' ? 'last_seen_at DESC' : 'da.activated_at DESC'} LIMIT $1 OFFSET $2`,
         [limit, offset],
       ),
       this.pool.query(
-        isLive
+        scope !== 'history'
           ? `SELECT count(*) as total FROM licensing.devices d
              LEFT JOIN licensing.edge_device_state st ON st.device_id = d.id
-             WHERE ${whereLive}`
+             WHERE ${where}`
           : 'SELECT count(*) as total FROM licensing.device_activations',
       ),
     ]);

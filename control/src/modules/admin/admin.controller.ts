@@ -120,7 +120,7 @@ export class AdminController {
     return this.adminService.listAllActivations(
       page ? parseInt(page, 10) : 1,
       limit ? parseInt(limit, 10) : 20,
-      scope === 'history' ? 'history' : 'live',
+      scope === 'history' ? 'history' : scope === 'recent' ? 'recent' : 'live',
     );
   }
 

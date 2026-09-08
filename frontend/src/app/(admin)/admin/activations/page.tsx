@@ -31,7 +31,7 @@ interface Activation {
   hostname: string | null;
 }
 
-type Scope = "live" | "history";
+type Scope = "live" | "recent" | "history";
 
 export default function AdminActivationsPage() {
   const queryClient = useQueryClient();
@@ -45,7 +45,7 @@ export default function AdminActivationsPage() {
       const res = await customInstance.get(`/admin/activations?page=${page}&limit=${limit}&scope=${scope}`);
       return res.data as { items: Activation[]; total: number; page: number; limit: number; scope: string };
     },
-    refetchInterval: scope === "live" ? 15000 : false,
+    refetchInterval: scope === "live" ? 15000 : scope === "recent" ? 60000 : false,
   });
 
   const revokeMutation = useMutation({
@@ -89,9 +89,18 @@ export default function AdminActivationsPage() {
             return <span className="text-xs text-pat-text-muted">{label}</span>;
           } },
         ]
-      : [
-          { key: "connection_status", header: "Connection", cell: (row: Activation) => <StatusBadge status={row.connection_status} /> },
-        ]),
+      : scope === "recent"
+        ? [
+            { key: "status", header: "Last Poll", sortable: true, cell: (row: Activation) => {
+              const seen = row.last_seen_at ? new Date(row.last_seen_at).getTime() : 0;
+              const mins = Math.floor((Date.now() - seen) / 60000);
+              const label = mins < 60 ? `${mins}m ago` : `${Math.floor(mins / 60)}h ${mins % 60}m ago`;
+              return <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-pat-warning/10 text-pat-warning border border-pat-warning/20">{label}</span>;
+            } },
+          ]
+        : [
+            { key: "connection_status", header: "Connection", cell: (row: Activation) => <StatusBadge status={row.connection_status} /> },
+          ]),
     { key: "activated_at", header: scope === "live" ? "Since" : "Activated", cell: (row) => <span className="text-xs text-pat-text-muted">{row.activated_at ? format(new Date(row.activated_at), "MMM d, yyyy HH:mm") : "—"}</span> },
   ];
 
@@ -104,7 +113,9 @@ export default function AdminActivationsPage() {
         <p className="text-sm text-pat-text-secondary mt-1">
           {scope === "live"
             ? "Terminals currently running (polled within 5 min) — one row per terminal, auto-refreshed every 15s. IDLE = open but not polling (market closed / no ticks)."
-            : "Full activation history — every connect and disconnect event, newest first. Rows are never deleted."}
+            : scope === "recent"
+              ? "Terminals active in the last 24 hours but not polling right now — clients whose MT terminal is closed or idle, with how long ago they were last seen."
+              : "Full activation history — every connect and disconnect event, newest first. Rows are never deleted."}
         </p>
       </div>
 
@@ -119,6 +130,16 @@ export default function AdminActivationsPage() {
           }`}
         >
           <IconActivity size={14} /> Live Connections {data?.scope === "live" && data.total > 0 && <span className="px-1.5 py-0.5 rounded bg-pat-success/20">{data.total}</span>}
+        </button>
+        <button
+          onClick={() => { setScope("recent"); setPage(1); }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+            scope === "recent"
+              ? "bg-pat-warning/10 text-pat-warning border-pat-warning/30 font-medium"
+              : "bg-pat-bg-surface-secondary text-pat-text-secondary border-pat-border hover:text-pat-text-primary"
+          }`}
+        >
+          Recent (24h)
         </button>
         <button
           onClick={() => { setScope("history"); setPage(1); }}
