@@ -30,7 +30,7 @@
 //| SERVER - no EA recompile required.                               |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.29"
+#property version   "1.30"
 #property strict
 
 // v1.27 account-type detection (additive; MT4 build of CAccountTypeDetector)
@@ -4155,7 +4155,10 @@ bool PAT_EnsureDevice()
     string fp = PAT_DeviceFingerprint();
     string body = "{\"license_key\":\"" + LicenseKey + "\",\"client_type\":\"MT4\",\"role\":\"exec\","
                   "\"fingerprint\":{\"machine_guid\":\"" + fp + "\",\"os\":\"Windows-MT4\"},"
-                  "\"terminal\":{\"name\":\"" + PAT_JSONEscape(AccountCompany()) + "\"}}";
+                  "\"terminal\":{\"name\":\"" + PAT_JSONEscape(AccountCompany()) + "\"},"
+                  "\"mt_account\":{\"broker\":\"" + PAT_JSONEscape(AccountCompany()) + "\","
+                  "\"server\":\"" + PAT_JSONEscape(AccountServer()) + "\","
+                  "\"login\":\"" + IntegerToString(AccountNumber()) + "\"}}";
     string response = "";
     int status = PAT_HTTPPost(PATCloudURL + "/api/v1/devices/activate", body, response);
     if(status != 200)
@@ -4457,6 +4460,8 @@ void PAT_EdgeHeartbeat()
     // the device's capital tier (MICRO/STANDARD/PRO) and deliver signals
     // suitable for the account size. Equity is account currency.
     string body = "{\"terminal\":\"MT4\",\"account\":\"" + g_accountID + "\","
+                  "\"broker\":\"" + PAT_JSONEscape(AccountCompany()) + "\","
+                  "\"server\":\"" + PAT_JSONEscape(AccountServer()) + "\","
                   "\"symbol\":\"" + g_symbol + "\",\"build\":" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD)) + ","
                   "\"equity\":" + DoubleToString(AccountEquity(), 2) +
                   ",\"account_type\":\"" + g_accountType + "\"" +

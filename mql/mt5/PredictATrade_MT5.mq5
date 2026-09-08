@@ -37,7 +37,7 @@
 //| SERVER - no EA recompile required.                               |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.29"
+#property version   "1.30"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -4269,7 +4269,10 @@ bool PAT_EnsureDevice()
     string fp = PAT_DeviceFingerprint();
     string body = "{\"license_key\":\"" + LicenseKey + "\",\"client_type\":\"MT5\",\"role\":\"exec\","
                   "\"fingerprint\":{\"machine_guid\":\"" + fp + "\",\"os\":\"Windows-MT5\"},"
-                  "\"terminal\":{\"name\":\"" + AccountInfoString(ACCOUNT_COMPANY) + "\"}}";
+                  "\"terminal\":{\"name\":\"" + AccountInfoString(ACCOUNT_COMPANY) + "\"},"
+                  "\"mt_account\":{\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) + "\","
+                  "\"server\":\"" + AccountInfoString(ACCOUNT_SERVER) + "\","
+                  "\"login\":\"" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "\"}}";
     string response = "";
     int status = PAT_HTTPPost(PATCloudURL + "/api/v1/devices/activate", body, response);
     if(status != 200)
@@ -4392,6 +4395,8 @@ void PAT_EdgeHeartbeat()
     // the device's capital tier (MICRO/STANDARD/PRO) and deliver signals
     // suitable for the account size. Equity is account currency.
     string body = "{\"terminal\":\"MT5\",\"account\":\"" + g_accountID + "\","
+                  "\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) + "\","
+                  "\"server\":\"" + AccountInfoString(ACCOUNT_SERVER) + "\","
                   "\"symbol\":\"" + g_symbol + "\",\"build\":" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD)) + ","
                   "\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) +
                   ",\"account_type\":\"" + g_accountType + "\"" +

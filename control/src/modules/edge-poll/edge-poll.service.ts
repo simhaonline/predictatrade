@@ -183,6 +183,23 @@ export class EdgePollService {
       ).catch(() => {});
     }
 
+    // v1.29: broker identity — the EA now streams broker/server with every
+    // heartbeat. Persist onto the device row AND the latest activation row so
+    // admin dashboards (Activations page) show broker details for BOTH
+    // terminal types. Fail-open: bad/absent values are skipped.
+    const brokerName = typeof body?.broker === 'string' ? body.broker.trim().slice(0, 200) : '';
+    const brokerServer = typeof body?.server === 'string' ? body.server.trim().slice(0, 200) : '';
+    if (brokerName.length > 0 || brokerServer.length > 0) {
+      await this.pool.query(
+        `UPDATE licensing.device_activations
+            SET broker_name = COALESCE(NULLIF($2, ''), broker_name),
+                broker_server = COALESCE(NULLIF($3, ''), broker_server)
+          WHERE id = (SELECT id FROM licensing.device_activations
+                       WHERE device_id = $1::uuid ORDER BY created_at DESC LIMIT 1)`,
+        [deviceId, brokerName, brokerServer],
+      ).catch(() => {});
+    }
+
     // v1.23 capital-tier tracking: the EA streams equity in the heartbeat
     // (same telemetry the realtime engine ingests via ACCOUNT_INFO). Persist
     // it + the classified tier so signal fan-out can serve each customer's
