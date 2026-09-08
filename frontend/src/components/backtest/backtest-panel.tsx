@@ -10,6 +10,7 @@ import {
   fetchAvailableData, fetchRuns, runBacktest, downloadCSV, fetchRunDetails, fetchJob, fetchJobs,
   type DataSummary, type BacktestRun, type RunBacktestResponse, type BacktestJob
 } from "@/lib/backtest-api";
+import { strategyLabel } from "@/lib/strategy-labels";
 
 const STRATEGIES = [
   { id: "STANDARD_SCALPING", label: "Standard Scalping", desc: "M5 scalping, tight SL/TP" },
@@ -336,7 +337,7 @@ export default function BacktestPanel({ isAdmin }: { isAdmin?: boolean }) {
                 {runs.map(r => (
                   <tr key={r.run_id} className="border-b border-pat-border/50 hover:bg-pat-bg-surface-secondary">
                     <td className="py-2 px-2 text-pat-text-muted font-mono">{r.run_id}</td>
-                    <td className="py-2 px-2 text-pat-text-primary">{r.strategy_id}</td>
+                    <td className="py-2 px-2 text-pat-text-primary">{strategyLabel(r.strategy_id)}</td>
                     <td className="py-2 px-2 text-pat-text-secondary">{r.start_date}→{r.end_date}</td>
                     <td className={`py-2 px-2 text-right font-medium ${parseFloat(r.total_return_pct) >= 0 ? "text-pat-success" : "text-pat-danger"}`}>{fmt(r.total_return_pct)}%</td>
                     <td className="py-2 px-2 text-right text-pat-text-secondary">{fmt(r.win_rate)}%</td>

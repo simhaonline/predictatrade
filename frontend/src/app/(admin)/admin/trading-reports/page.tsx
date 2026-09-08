@@ -2,6 +2,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import { IconUsers, IconReceipt, IconChartBar, IconActivity, IconTrendingUp, IconTrendingDown, IconMinus, IconBan } from "@tabler/icons-react";
+import { strategyLabel } from "@/lib/strategy-labels";
 
 interface TradingReport {
   summary: {
@@ -208,7 +209,7 @@ export default function AdminTradingReportsPage() {
               <tbody>
                 {report?.by_strategy?.map((row, i) => (
                   <tr key={i} className="border-b border-pat-border/50 hover:bg-pat-bg-page/50">
-                    <td className="py-2 px-3 text-pat-text-primary font-medium">{row.strategy_id}</td>
+                    <td className="py-2 px-3 text-pat-text-primary font-medium">{strategyLabel(row.strategy_id)}</td>
                     <td className="py-2 px-3">
                       <span className={dirColor(row.direction)}>{row.direction}</span>
                     </td>
@@ -296,7 +297,7 @@ export default function AdminTradingReportsPage() {
                     <td className="py-1.5 px-2 text-pat-text-muted">
                       {sig.created_at ? new Date(sig.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : "—"}
                     </td>
-                    <td className="py-1.5 px-2 text-pat-text-secondary">{sig.strategy_id?.replace("_", " ")}</td>
+                    <td className="py-1.5 px-2 text-pat-text-secondary">{strategyLabel(sig.strategy_id)}</td>
                     <td className="py-1.5 px-2">
                       <span className={`font-medium ${dirColor(sig.direction)}`}>{sig.direction}</span>
                     </td>

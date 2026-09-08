@@ -2,6 +2,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import StatusBadge from "@/components/ui/status-badge";
+import { strategyLabel } from "@/lib/strategy-labels";
 
 // Capital-Tiered Signal Engine (v1.23) — one engine serving MICRO <$500 /
 // STANDARD $500–5k / PRO ≥$5k customers with tradeable, suitably-sized
@@ -241,7 +242,7 @@ export default function AdminSignalEnginePage() {
                   <td className="py-2 pr-4 whitespace-nowrap">
                     {new Date(s.created_at).toLocaleTimeString()}
                   </td>
-                  <td className="py-2 pr-4 font-medium text-pat-text-primary">{s.strategy_id}</td>
+                  <td className="py-2 pr-4 font-medium text-pat-text-primary">{strategyLabel(s.strategy_id)}</td>
                   <td className="py-2 pr-4">
                     <StatusBadge status={s.direction === "BUY" ? "buy" : "sell"} size="sm" />
                   </td>

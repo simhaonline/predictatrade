@@ -62,7 +62,7 @@ export function PerformanceMatrix({ performance, marketClosed }: { performance: 
               {sorted.filter(m => m.tradeCount > 0).map((m, i) => (
                 <tr key={`${m.indicatorKey}-${m.strategy}-${i}`} className="border-b border-pat-border/50 hover:bg-pat-bg-surface-secondary/30">
                   <td className="py-2 px-3 text-pat-text-primary">{m.indicatorKey}</td>
-                  <td className="py-2 px-3 text-xs text-pat-text-secondary">{m.strategy}</td>
+                  <td className="py-2 px-3 text-xs text-pat-text-secondary">{strategyLabel(m.strategy)}</td>
                   <td className="py-2 px-3 text-right font-mono text-xs">{m.hitRate !== null ? `${m.hitRate.toFixed(1)}%` : "—"}</td>
                   <td className="py-2 px-3 text-right font-mono text-xs">{m.avgRMultiple !== null ? m.avgRMultiple.toFixed(2) : "—"}</td>
                   <td className="py-2 px-3 text-right font-mono text-xs">{m.contributionScore !== null ? m.contributionScore.toFixed(2) : "—"}</td>
@@ -121,7 +121,7 @@ function RankingList({ metrics }: { metrics: PerformanceMetric[] }) {
     <div className="space-y-2">
       {metrics.map((m, i) => (
         <div key={i} className="flex items-center justify-between text-xs">
-          <span className="text-pat-text-secondary">{m.indicatorKey} · {m.strategy}</span>
+          <span className="text-pat-text-secondary">{m.indicatorKey} · {strategyLabel(m.strategy)}</span>
           <span className={`font-mono ${getPerformanceColor(m.performanceLevel)}`}>
             {(m.hitRate ?? 0).toFixed(0)}% / {(m.avgRMultiple ?? 0).toFixed(2)}R
           </span>
@@ -161,10 +161,10 @@ function NeedsAttention({ performance, marketClosed }: { performance: Performanc
   // 2. Indicators with poor performance (low hit rate where we have data)
   for (const m of performance) {
     if (m.tradeCount > 0 && m.hitRate !== null && m.hitRate < 40) {
-      items.push(`${m.indicatorKey} on ${m.strategy}: ${m.hitRate.toFixed(0)}% hit rate over ${m.tradeCount} trades`);
+      items.push(`${m.indicatorKey} on ${strategyLabel(m.strategy)}: ${m.hitRate.toFixed(0)}% hit rate over ${m.tradeCount} trades`);
     }
     if (m.tradeCount > 0 && m.avgRMultiple !== null && m.avgRMultiple < 0) {
-      items.push(`${m.indicatorKey} on ${m.strategy}: negative avg R (${m.avgRMultiple.toFixed(2)}) over ${m.tradeCount} trades`);
+      items.push(`${m.indicatorKey} on ${strategyLabel(m.strategy)}: negative avg R (${m.avgRMultiple.toFixed(2)}) over ${m.tradeCount} trades`);
     }
   }
 
@@ -174,7 +174,7 @@ function NeedsAttention({ performance, marketClosed }: { performance: Performanc
     .sort((a, b) => (a.avgRMultiple ?? 0) - (b.avgRMultiple ?? 0));
   for (const m of withProjectedRR.slice(0, 3)) {
     if (m.avgRMultiple !== null && m.avgRMultiple < 0.5 && m.avgRMultiple > 0) {
-      items.push(`${m.indicatorKey} on ${m.strategy}: projected R:R only ${m.avgRMultiple.toFixed(2)}`);
+      items.push(`${m.indicatorKey} on ${strategyLabel(m.strategy)}: projected R:R only ${m.avgRMultiple.toFixed(2)}`);
     }
   }
 
