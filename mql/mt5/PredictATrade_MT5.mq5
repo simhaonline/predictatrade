@@ -37,7 +37,7 @@
 //| SERVER - no EA recompile required.                               |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.29.4"
+#property version   "1.29"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -3696,6 +3696,8 @@ string PATUI_HaltReason()
 //===================== DASHBOARD RENDER =====================
 void PATUI_DashDestroy() { ObjectsDeleteAll(0, PATUI_PREFIX, 0, -1); }
 
+void PATUI_OnDeinit() { PATUI_DashDestroy(); }
+
 void PATUI_DashUpdate(bool force = false)
 {
     if(!PAT_ShowDashboard) return;
@@ -3794,7 +3796,7 @@ void PATUI_DashUpdate(bool force = false)
     {
         string dirTag = (StringFind(g_signalDirection, "BUY") == 0 ? "BUY" : (StringFind(g_signalDirection, "SELL") == 0 ? "SELL" : g_signalDirection));
         color dirC = (dirTag == "BUY" ? PATUI_UP : (dirTag == "SELL" ? PATUI_DN : PATUI_TXT2));
-        PATUI_RowSplit("G_DIR", 0, yL, dirTag + " " + PATUI_StrategyDisplayName(g_signalStrategy),
+        PATUI_RowSplit("G_DIR", 0, yL, dirTag + " " + PAT_StrategyDisplayName(g_signalStrategy),
                        g_signalGrade + " · " + g_signalClass, dirC,
                        (g_signalClass == "EXECUTABLE" ? PATUI_GOLD : PATUI_DIM));
         PATUI_RowSplit("G_SCORE", 0, yL, "Score " + DoubleToString(g_rawScore, 1),
