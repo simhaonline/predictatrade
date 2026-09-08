@@ -276,6 +276,8 @@ export class ConnectivityWatchdogService implements OnModuleInit, OnModuleDestro
        FROM licensing.devices d
        JOIN iam.users u ON u.id = d.user_id
        WHERE d.revoked_at IS NULL
+         AND d.deleted_at IS NULL
+         AND d.last_seen_at > now() - interval '24 hours'
        ORDER BY d.last_seen_at DESC
        LIMIT 50`,
     );
