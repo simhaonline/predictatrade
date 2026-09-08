@@ -23,7 +23,7 @@ Predict-A-Trade generates XAUUSD trading signals using 7 strategy engines, 42 te
 | PRO | $199/mo | All 4 core strategies (scalping & swing, ultra & trend) | Unlimited | + Backtesting, priority support, ML insights |
 | ELITE | $499/mo | All 6 strategies incl. EQFE + ATEN | Unlimited | + Personal account manager, API access, custom strategies |
 
-> Strategy codes map to display names: STANDARD_SCALPING, ULTRA_SCALPING, STANDARD_SWING, TREND_SWING, MARNIE_FIB (shown as **EQFE**), ATEN (Aetherial Technical Engine Node).
+> Strategy codes map to display names: Standard Scalping, Ultra Scalping, Standard Swing, Trend Swing, EQFE, ATEN (Aetherial Technical Engine Node), IMLR (Institutional MSNR Liquidity Reversal Model). Internal strategy IDs (e.g. EQFE's `MARNIE_FIB`) appear only in machine contexts — the dashboard, panel, and logs always show the display names.
 > Signal visibility is **server-enforced** by plan entitlement — you only ever receive signals for strategies your plan permits, and Free is capped at 5 signals/day.
 
 ---

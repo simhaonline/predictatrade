@@ -30,7 +30,7 @@
 //| SERVER - no EA recompile required.                               |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.30"
+#property version   "1.31"
 #property strict
 
 // v1.27 account-type detection (additive; MT4 build of CAccountTypeDetector)
@@ -855,7 +855,7 @@ bool PAT_EntryDriftOK(string strategyName, bool isBuy)
     int budget = PAT_GetMaxEntryDrift(strategyName);
     if(driftPts > budget)
     {
-        Print("SIGNAL REJECTED (entry drift): strategy=", strategyName,
+        Print("SIGNAL REJECTED (entry drift): strategy=", PAT_StrategyDisplayName(strategyName),
               " dir=", (isBuy ? "BUY" : "SELL"),
               " signal_entry=", DoubleToString(g_entry, Digits),
               " market=", DoubleToString(price, Digits),
@@ -2469,7 +2469,7 @@ bool IsStrategyEnabled(string strategyID)
         if(g_licenseStatus == "REVOKED" || g_licenseStatus == "SUSPENDED" ||
            g_licenseStatus == "EXPIRED" || g_licenseStatus == "DENIED")
         {
-            Print("Strategy check: license ", g_licenseStatus, " — blocking ", strategyID);
+            Print("Strategy check: license ", g_licenseStatus, " — blocking ", PAT_StrategyDisplayName(strategyID));
             return false;
         }
         return true;
@@ -2479,7 +2479,7 @@ bool IsStrategyEnabled(string strategyID)
     // (fail closed) — never fall through to allow-all.
     if(StringLen(g_allowedStrategies) == 0)
     {
-        Print("Strategy check: empty allowed list (deny-all) — blocking ", strategyID);
+        Print("Strategy check: empty allowed list (deny-all) — blocking ", PAT_StrategyDisplayName(strategyID));
         return false;
     }
 
@@ -2487,7 +2487,7 @@ bool IsStrategyEnabled(string strategyID)
     string list = "," + g_allowedStrategies + ",";
     if(StringFind(list, search) >= 0)
         return true;
-    Print("Strategy check: ", strategyID, " NOT allowed (", g_allowedStrategies, ")");
+    Print("Strategy check: ", PAT_StrategyDisplayName(strategyID), " NOT allowed (", PAT_StrategyListDisplayName(g_allowedStrategies), ")");
     return false;
 }
 
@@ -2525,7 +2525,7 @@ void HandleSignal(string json)
     else if(logType == "SELL_CANDIDATE") logType = "SELL";
     string logPrice = (g_entry > 0) ? DoubleToString(g_entry, 2) : "—";
     string logLot = (g_suggestedLot > 0) ? DoubleToString(g_suggestedLot, 2) : "—";
-    PAT_LogLine("SIGNAL RECEIVED | Symbol: " + g_symbol + " | Type: " + logType + " | Price: " + logPrice + " | Lot: " + logLot);
+    PAT_LogLine("SIGNAL RECEIVED | Strategy: " + PAT_StrategyDisplayName(g_signalStrategy) + " | Symbol: " + g_symbol + " | Type: " + logType + " | Price: " + logPrice + " | Lot: " + logLot);
 
     if(g_signalID == g_lastExecutedSignalID)
         return;
@@ -2550,14 +2550,14 @@ void HandleSignal(string json)
 
     if(AvoidSwapCharges && IsNearSwapTime())
     {
-        Print("SWAP AVOIDANCE: skipping signal near swap cutoff — ", g_signalDirection, " ", g_signalStrategy);
+        Print("SWAP AVOIDANCE: skipping signal near swap cutoff — ", g_signalDirection, " ", PAT_StrategyDisplayName(g_signalStrategy));
         g_signalsFiltered++;
         return;
     }
 
     if(IsTripleSwapDay())
     {
-        Print("TRIPLE SWAP DAY: skipping signal — ", g_signalDirection, " ", g_signalStrategy);
+        Print("TRIPLE SWAP DAY: skipping signal — ", g_signalDirection, " ", PAT_StrategyDisplayName(g_signalStrategy));
         g_signalsFiltered++;
         return;
     }
@@ -2761,7 +2761,7 @@ void ExecuteBuy()
     int magicBase = PAT_StrategyMagicBase(g_signalStrategy);
     if(magicBase == 0)
     {
-        Print("REJECTED unknown_strategy: ", g_signalStrategy);
+        Print("REJECTED unknown_strategy: ", PAT_StrategyDisplayName(g_signalStrategy));
         return;
     }
     int magic = PAT_NextMagic(magicBase);
@@ -2859,7 +2859,7 @@ void ExecuteSell()
     int magicBase = PAT_StrategyMagicBase(g_signalStrategy);
     if(magicBase == 0)
     {
-        Print("REJECTED unknown_strategy: ", g_signalStrategy);
+        Print("REJECTED unknown_strategy: ", PAT_StrategyDisplayName(g_signalStrategy));
         return;
     }
     int magic = PAT_NextMagic(magicBase);
@@ -2990,6 +2990,25 @@ string PAT_StrategyDisplayName(string strategyID)
     if(strategyID == "MARNIE_FIB")  return "EQFE";
     if(strategyID == "ARCANIST")    return "IMLR";
     return strategyID;
+}
+
+// v1.31: translate a comma-separated INTERNAL strategy list into display
+// names for LOG output only (matching stays raw — see MT5 twin).
+string PAT_StrategyListDisplayName(string commaList)
+{
+    string out = "";
+    string rest = commaList;
+    while(StringLen(rest) > 0)
+    {
+        int comma = StringFind(rest, ",");
+        string item = (comma >= 0) ? StringSubstr(rest, 0, comma) : rest;
+        if(comma >= 0) rest = StringSubstr(rest, comma + 1);
+        else           rest = "";
+        if(StringLen(item) == 0) continue;
+        if(StringLen(out) > 0) out += ",";
+        out += PAT_StrategyDisplayName(item);
+    }
+    return out;
 }
 
 //+------------------------------------------------------------------+

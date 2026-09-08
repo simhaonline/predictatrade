@@ -171,7 +171,7 @@ expiry already enforced at poll time in edge-poll before claim):
    | STANDARD_SCALPING | 25 | 10m TTL |
    | STANDARD_SWING | 60 | 60m TTL zone strategy |
    | TREND_SWING | 80 | 60m TTL, wider targets |
-   | MARNIE_FIB / ATEN | 80 | zone/swing class |
+   | EQFE / ATEN | 80 | zone/swing class |
    | unknown strategy | 60 | conservative default |
 
    Budgets sit above per-strategy slippage (5/10/20/30) so normal

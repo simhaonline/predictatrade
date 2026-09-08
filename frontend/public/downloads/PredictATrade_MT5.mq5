@@ -923,7 +923,7 @@ bool PAT_EntryDriftOK(string strategyName, bool isBuy)
     int budget = PAT_GetMaxEntryDrift(strategyName);
     if(driftPts > budget)
     {
-        Print("SIGNAL REJECTED (entry drift): strategy=", strategyName,
+        Print("SIGNAL REJECTED (entry drift): strategy=", PAT_StrategyDisplayName(strategyName),
               " dir=", (isBuy ? "BUY" : "SELL"),
               " signal_entry=", DoubleToString(g_entry, _Digits),
               " market=", DoubleToString(price, _Digits),
@@ -2494,7 +2494,7 @@ bool IsStrategyEnabled(string strategyID)
         if(g_licenseStatus == "REVOKED" || g_licenseStatus == "SUSPENDED" ||
            g_licenseStatus == "EXPIRED" || g_licenseStatus == "DENIED")
         {
-            Print("Strategy check: license ", g_licenseStatus, " — blocking ", strategyID);
+            Print("Strategy check: license ", g_licenseStatus, " — blocking ", PAT_StrategyDisplayName(strategyID));
             return false;
         }
         return true;
@@ -2504,7 +2504,7 @@ bool IsStrategyEnabled(string strategyID)
     // allowed (fail closed) — never fall through to allow-all.
     if(StringLen(g_allowedStrategies) == 0)
     {
-        Print("Strategy check: empty allowed list (deny-all) — blocking ", strategyID);
+        Print("Strategy check: empty allowed list (deny-all) — blocking ", PAT_StrategyDisplayName(strategyID));
         return false;
     }
 
@@ -2514,7 +2514,10 @@ bool IsStrategyEnabled(string strategyID)
     if(StringFind(list, search) >= 0)
         return true;
 
-    Print("Strategy check: ", strategyID, " NOT in allowed list (", g_allowedStrategies, ")");
+    // v1.31: log shows DISPLAY names (EQFE/IMLR) — the trader never reads
+    // internal IDs. Matching itself still uses the raw list above.
+    Print("Strategy check: ", PAT_StrategyDisplayName(strategyID),
+          " NOT in allowed list (", PAT_StrategyListDisplayName(g_allowedStrategies), ")");
     return false;
 }
 
@@ -2551,7 +2554,7 @@ void HandleSignal(string json)
     else if(logType == "SELL_CANDIDATE") logType = "SELL";
     string logPrice = (g_entry > 0) ? DoubleToString(g_entry, 2) : "—";
     string logLot = (g_suggestedLot > 0) ? DoubleToString(g_suggestedLot, 2) : "—";
-    PAT_LogLine("SIGNAL RECEIVED | Symbol: " + g_symbol + " | Type: " + logType + " | Price: " + logPrice + " | Lot: " + logLot);
+    PAT_LogLine("SIGNAL RECEIVED | Strategy: " + PAT_StrategyDisplayName(g_signalStrategy) + " | Symbol: " + g_symbol + " | Type: " + logType + " | Price: " + logPrice + " | Lot: " + logLot);
 
     if(g_signalID == g_lastExecutedSignalID)
     {
@@ -2771,7 +2774,7 @@ void ExecuteBuy()
     int magicBase = PAT_StrategyMagicBase(g_signalStrategy);
     if(magicBase == 0)
     {
-        Print("REJECTED unknown_strategy: ", g_signalStrategy);
+        Print("REJECTED unknown_strategy: ", PAT_StrategyDisplayName(g_signalStrategy));
         return;
     }
     ulong magic = PAT_NextMagic(magicBase);
@@ -2907,7 +2910,7 @@ void ExecuteSell()
     int magicBase = PAT_StrategyMagicBase(g_signalStrategy);
     if(magicBase == 0)
     {
-        Print("REJECTED unknown_strategy: ", g_signalStrategy);
+        Print("REJECTED unknown_strategy: ", PAT_StrategyDisplayName(g_signalStrategy));
         return;
     }
     ulong magic = PAT_NextMagic(magicBase);
@@ -3276,6 +3279,28 @@ string PAT_StrategyDisplayName(string strategyID)
     if(strategyID == "MARNIE_FIB")  return "EQFE";
     if(strategyID == "ARCANIST")    return "IMLR";
     return strategyID;
+}
+
+// v1.31: translate a comma-separated INTERNAL strategy list into display
+// names for LOG output only. The entitlement list stored in
+// g_allowedStrategies stays internal (matching + wire protocol unchanged) —
+// but everything the TRADER reads in the Experts log must show EQFE / IMLR,
+// never the internal IDs.
+string PAT_StrategyListDisplayName(string commaList)
+{
+    string out = "";
+    string rest = commaList;
+    while(StringLen(rest) > 0)
+    {
+        int comma = StringFind(rest, ",");
+        string item = (comma >= 0) ? StringSubstr(rest, 0, comma) : rest;
+        if(comma >= 0) rest = StringSubstr(rest, comma + 1);
+        else           rest = "";
+        if(StringLen(item) == 0) continue;
+        if(StringLen(out) > 0) out += ",";
+        out += PAT_StrategyDisplayName(item);
+    }
+    return out;
 }
 
 //+------------------------------------------------------------------+
