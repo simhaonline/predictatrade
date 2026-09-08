@@ -5,9 +5,22 @@ import { SignalAccuracyPublicController } from './signal-accuracy.public.control
 import { DatabaseModule } from '../../common/database.module';
 import { CommissionsModule } from '../commissions/commissions.module';
 import { LicensingModule } from '../licensing/licensing.module';
+import { JwtModule } from '@nestjs/jwt';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { MailModule } from '../../common/mail/mail.module';
 
 @Module({
-  imports: [DatabaseModule, CommissionsModule, LicensingModule],
+  imports: [
+    DatabaseModule,
+    CommissionsModule,
+    LicensingModule,
+    MailModule,
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      useFactory: (config: ConfigService) => ({ secret: config.get<string>('JWT_SECRET') }),
+      inject: [ConfigService],
+    }),
+  ],
   controllers: [AdminController, SignalAccuracyPublicController],
   providers: [AdminService],
 })

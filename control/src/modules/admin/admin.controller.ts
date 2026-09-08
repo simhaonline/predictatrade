@@ -139,6 +139,22 @@ export class AdminController {
     return this.adminService.assignLicense(id, body.planId, actorId, body.licenseKey);
   }
 
+  /**
+   * Admin-initiated password reset: mints the same one-time password_reset
+   * JWT the email flow uses, attempts email delivery, and ALWAYS returns the
+   * reset URL so the admin can hand it over out-of-band (chat/phone) when
+   * email delivery is unavailable. Audited.
+   */
+  @Post('users/:id/send-reset-link')
+  @RequirePermissions(Permission.USER_MANAGE)
+  async sendResetLink(
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+    @CurrentUser('sub') actorId: string,
+  ) {
+    return this.adminService.generatePasswordResetLink(id, actorId, body?.reason ?? '');
+  }
+
   @Get('users-without-subscription')
   async listUsersWithoutSubscription() {
     return this.adminService.listUsersWithoutSubscription();

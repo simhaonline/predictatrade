@@ -86,6 +86,32 @@ export default function AdminUsersPage() {
     onError: () => toast.error("Failed to assign license"),
   });
 
+  // v1.31: admin-initiated password reset — generates a one-time reset link,
+  // emails it when delivery works, and ALWAYS shows the link for out-of-band
+  // delivery (email delivery may be down, e.g. Gmail IP blocks).
+  const resetLinkMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const res = await customInstance.post(`/admin/users/${userId}/send-reset-link`, {});
+      return res.data as { resetUrl: string; emailSent: boolean; expiresAt: string; message: string };
+    },
+    onSuccess: (data) => {
+      void navigator.clipboard?.writeText(data.resetUrl).catch(() => undefined);
+      if (data.emailSent) {
+        toast.success("Reset link emailed to the user — link also copied to your clipboard", { duration: 8000 });
+      } else {
+        toast.error("Email delivery failed — link COPIED to clipboard, send it to the user via chat/phone", { duration: 12000 });
+      }
+      // Always surface the link itself so the admin can copy it again.
+      setTimeout(() => {
+        if (typeof window !== "undefined") {
+          window.prompt("Password reset link (also copied to clipboard). Valid 2 hours, single use:", data.resetUrl);
+        }
+      }, 300);
+      queryClient.invalidateQueries({ queryKey: ["admin-user-detail"] });
+    },
+    onError: () => toast.error("Failed to generate reset link"),
+  });
+
   const columns: DataTableColumn<User>[] = [
     {
       key: "name", header: "Name", sortable: true,
@@ -220,6 +246,23 @@ export default function AdminUsersPage() {
                 ) : (
                   <div className="text-xs text-pat-text-muted">No subscription found</div>
                 )}
+              </div>
+            )}
+
+            {/* Account Access — admin password reset (v1.31) */}
+            {userDetail && (
+              <div className="mt-4 pt-4 border-t border-pat-border">
+                <h3 className="text-xs font-semibold text-pat-text-primary mb-2">Account Access</h3>
+                <button
+                  onClick={() => {
+                    if (typeof window !== "undefined" && !window.confirm(`Generate a password reset link for ${selectedUser.email}? The account will also be unlocked. The link is emailed when delivery works — otherwise copy it from the prompt and send it to the user directly.`)) return;
+                    resetLinkMutation.mutate(selectedUser.id);
+                  }}
+                  disabled={resetLinkMutation.isPending}
+                  className="w-full px-3 py-1.5 text-xs font-medium bg-pat-bg-surface-secondary text-pat-text-primary border border-pat-border rounded-md hover:bg-pat-bg-surface hover:border-pat-primary disabled:opacity-50">
+                  {resetLinkMutation.isPending ? "Generating..." : "Send Reset Link (email + copy)"}
+                </button>
+                <p className="text-[10px] text-pat-text-muted mt-1">Single-use link, valid 2 hours. Also unlocks a locked account.</p>
               </div>
             )}
 

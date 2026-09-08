@@ -2,6 +2,11 @@ import { Injectable, Inject, Logger, NotFoundException, BadRequestException } fr
 import { Pool } from 'pg';
 import { DB_POOL } from '../../common/database.module';
 import { LicensingService } from '../licensing/licensing.service';
+import { JwtService } from '@nestjs/jwt';
+import { EMAIL_SERVICE, EmailService } from '../../common/mail/email.service';
+import * as crypto from 'crypto';
+
+const ADMIN_RESET_TOKEN_EXPIRY_MIN = 120;
 
 export interface HealthServiceStatus {
   service: string;
@@ -19,7 +24,71 @@ export class AdminService {
   constructor(
     @Inject(DB_POOL) private pool: Pool,
     private licensingService: LicensingService,
+    private jwtService: JwtService,
+    @Inject(EMAIL_SERVICE) private emailService: EmailService,
   ) {}
+
+  /**
+   * Admin-initiated password reset (v1.31): mints the same one-time
+   * password_reset JWT the self-service email flow uses, attempts email
+   * delivery, and ALWAYS returns the reset URL so the admin can hand it over
+   * out-of-band (chat/phone) when email delivery is unavailable. The token is
+   * consumed by POST /auth/reset exactly like an emailed one. Audited.
+   */
+  async generatePasswordResetLink(userId: string, actorId: string, reason: string) {
+    const u = await this.pool.query(
+      `SELECT id, email, status, locked_until, failed_login_count FROM iam.users WHERE id = $1 AND deleted_at IS NULL`,
+      [userId],
+    );
+    if (u.rows.length === 0) throw new NotFoundException('User not found');
+    const user = u.rows[0];
+
+    // Auto-unlock: a reset request for a locked account clears the lock and
+    // the failure counter — the admin is already authenticated and verified
+    // the identity out-of-band.
+    await this.pool.query(
+      `UPDATE iam.users SET failed_login_count = 0, locked_until = NULL WHERE id = $1`,
+      [userId],
+    );
+
+    const jti = crypto.randomUUID();
+    const token = this.jwtService.sign(
+      { sub: user.id, purpose: 'password_reset', jti },
+      { expiresIn: `${ADMIN_RESET_TOKEN_EXPIRY_MIN}m` },
+    );
+    const frontendUrl = process.env.APP_FRONTEND_URL || process.env.FRONTEND_URL || 'https://platform.predictatrade.com';
+    const resetUrl = `${frontendUrl}/reset-password?token=${encodeURIComponent(token)}`;
+    const expiresAt = new Date(Date.now() + ADMIN_RESET_TOKEN_EXPIRY_MIN * 60_000);
+
+    let emailSent = false;
+    try {
+      await this.emailService.sendPasswordResetEmail({ to: user.email, resetUrl, expiresAt });
+      emailSent = true;
+    } catch (err) {
+      this.logger.warn(`Reset email to ${user.email} failed (admin flow): ${err instanceof Error ? err.message : 'unknown'}`);
+    }
+
+    try {
+      await this.pool.query(
+        `INSERT INTO audit.audit_events (actor_type, actor_id, action, entity_type, entity_id, reason, new_value)
+         VALUES ('ADMIN', $1, 'ADMIN_PASSWORD_RESET_LINK', 'user', $2, $3, $4)`,
+        [actorId, userId, reason || 'admin-initiated password reset', JSON.stringify({ email: user.email, emailSent, expiryMinutes: ADMIN_RESET_TOKEN_EXPIRY_MIN })],
+      );
+    } catch {
+      this.logger.warn('Failed to write audit event for admin password-reset link');
+    }
+
+    return {
+      resetUrl,
+      emailSent,
+      expiresAt: expiresAt.toISOString(),
+      email: user.email,
+      unlocked: true,
+      message: emailSent
+        ? 'Reset link generated and emailed to the user. The link is also shown here for out-of-band delivery.'
+        : 'Reset link generated. Email delivery FAILED — copy the link below and send it to the user via chat/phone.',
+    };
+  }
 
   /** System overview with real statistics from the database. */
   async getOverview() {
