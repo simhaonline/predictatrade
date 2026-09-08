@@ -247,7 +247,11 @@ export class BacktestService implements OnModuleInit, OnModuleDestroy {
         // data load for 2.1M candles + higher TFs); the synchronous HTTP
         // path stays at 5 min (nginx backtest location allows 330s).
         timeout: jobId ? 900000 : 300000,
-        maxBuffer: 1024 * 1024 * 10,
+        // 64MB per stream: the engine's error/progress output stays well under
+        // this now that per-eval [PCT_SLTP] logs are gated behind
+        // PAT_BACKTEST_VERBOSE (v1.30), but a generous ceiling prevents the
+        // "stderr maxBuffer length exceeded" child kill on long runs.
+        maxBuffer: 1024 * 1024 * 64,
         env: childEnv,
       });
 

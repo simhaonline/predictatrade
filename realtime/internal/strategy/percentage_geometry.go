@@ -5,12 +5,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/predictatrade/realtime/internal/types"
 	"github.com/shopspring/decimal"
 )
+
+// pctSLTPVerbose gates the per-evaluation [PCT_SLTP] logs. The strategy
+// evaluator calls computePercentageSLTP for every candidate on every candle —
+// over a full-history M1 backtest (2.1M+ candles) that is millions of log
+// lines on stderr, which overflows the Node maxBuffer and kills the engine
+// ("stderr maxBuffer length exceeded"). Default OFF; enable only when
+// debugging SL/TP geometry via PAT_BACKTEST_VERBOSE=1.
+var pctSLTPVerbose = os.Getenv("PAT_BACKTEST_VERBOSE") == "1"
 
 // ─── Percentage-based SL/TP configuration (database-driven) ───
 
@@ -109,12 +118,16 @@ func computePercentageSLTP(
 ) (sl, tp1, tp2, tp3 decimal.Decimal) {
 
 	if entry.IsZero() || cfg == nil {
-		log.Printf("[PCT_SLTP] entry=0 or cfg=nil — returning zeros")
+		if pctSLTPVerbose {
+			log.Printf("[PCT_SLTP] entry=0 or cfg=nil — returning zeros")
+		}
 		return decimal.Zero, decimal.Zero, decimal.Zero, decimal.Zero
 	}
 
-	log.Printf("[PCT_SLTP] called: entry=%.2f mode=%s stop_pct=%.6f tp1_pct=%.6f min_atr=%.2f",
-		entry.InexactFloat64(), cfg.CalculationMode, cfg.StopPct, cfg.TP1Pct, cfg.MinStopATRMult)
+	if pctSLTPVerbose {
+		log.Printf("[PCT_SLTP] called: entry=%.2f mode=%s stop_pct=%.6f tp1_pct=%.6f min_atr=%.2f",
+			entry.InexactFloat64(), cfg.CalculationMode, cfg.StopPct, cfg.TP1Pct, cfg.MinStopATRMult)
+	}
 
 	if cfg.CalculationMode == "ATR" {
 		// Legacy ATR mode — use the old ATR multiplier approach
@@ -200,10 +213,12 @@ func computePercentageSLTP(
 		tp3 = entry.Sub(tp3Dist)
 	}
 
-	log.Printf("[PCT_SLTP] result: SL=%.2f TP1=%.2f SL_dist=%.2f TP1_dist=%.2f RR=%.2f",
-		sl.InexactFloat64(), tp1.InexactFloat64(),
-		slDist.InexactFloat64(), tp1Dist.InexactFloat64(),
-		tp1Dist.Div(slDist).InexactFloat64())
+	if pctSLTPVerbose {
+		log.Printf("[PCT_SLTP] result: SL=%.2f TP1=%.2f SL_dist=%.2f TP1_dist=%.2f RR=%.2f",
+			sl.InexactFloat64(), tp1.InexactFloat64(),
+			slDist.InexactFloat64(), tp1Dist.InexactFloat64(),
+			tp1Dist.Div(slDist).InexactFloat64())
+	}
 
 	return sl, tp1, tp2, tp3
 }
