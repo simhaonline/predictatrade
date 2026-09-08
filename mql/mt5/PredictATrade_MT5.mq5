@@ -37,7 +37,7 @@
 //| SERVER - no EA recompile required.                               |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.30"
+#property version   "1.31"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -710,6 +710,7 @@ ulong         g_tickCount    = 0;
 int           g_signalsReceived = 0;
 int           g_signalsDisplayed = 0;
 int           g_signalsFiltered = 0;
+int           g_canaryCount = 0;   // v1.30.1: pipeline probe counter (not a signal)
 double        g_dailyPnL       = 0;
 double        g_dayStartBalance = 0;
 datetime      g_currentDay    = 0;
@@ -2237,8 +2238,23 @@ void PollFromCloud()
         if(StringLen(msgType) == 0 && ExtractJSONString(payload, "ID") != "")
             msgType = "SIGNAL";
 
-        if(msgType == "SIGNAL" || ExtractJSONString(payload, "ID") != "")
+        // v1.30.1 FIX: only a genuine SIGNAL (explicit type, or type-less with
+        // an ID) reaches HandleSignal. The old OR condition dispatched ANY
+        // item carrying an "ID" key — CANARY probes carry ID but no
+        // StrategyID, so every ~2-10min canary ping logged
+        // "Strategy check:  NOT in allowed list (…)" with an empty strategy
+        // and incremented g_signalsFiltered on client terminals (the
+        // "Elite strategy-check failure" of 2026-09-08). CANARY items are
+        // acked silently below.
+        bool isCanary = (msgType == "CANARY" || StringFind(ExtractJSONString(payload, "ID"), "CANARY-") == 0);
+        if(!isCanary && (msgType == "SIGNAL" || (StringLen(msgType) == 0 && ExtractJSONString(payload, "ID") != "")))
             HandleSignal(payload);
+        else if(msgType == "CANARY" || isCanary)
+        {
+            // v1.30.1: canary pipeline probes are platform health checks —
+            // process quietly (panel heartbeat counts them, not the signal log).
+            g_canaryCount++;
+        }
         else if(msgType == "LICENSE_STATUS")
         {
             // Envelope: {"type":"LICENSE_STATUS","license_status":{...},"device_id":"…"}
@@ -2301,7 +2317,8 @@ void PollFromCloud()
         // Always ACK so the item leaves the queue permanently.
         string ackResult = "{\"status\":\"PROCESSED\",\"type\":\"" + msgType + "\"}";
         PAT_EdgeAck(queueId, ackResult);
-        g_signalsReceived++;
+        if(!isCanary)
+            g_signalsReceived++;   // v1.30.1: canary probes are not signals
     }
 }
 
