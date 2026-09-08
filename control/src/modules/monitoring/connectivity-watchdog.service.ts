@@ -193,7 +193,11 @@ export class ConnectivityWatchdogService implements OnModuleInit, OnModuleDestro
       staleKeys.add(`DEVICE:${d.id}`);
       await this.raiseAlert({
         alertKey: `DEVICE:${d.id}`,
-        severity: 'WARNING',
+        // v1.30.1: INFO, not WARNING. A closed MT terminal is a normal client
+        // behaviour (market quiet, lunch break, terminal shut for the day) —
+        // it must not paint the admin dashboard red. CRITICAL stays reserved
+        // for real signal-loss (delivery backlogs).
+        severity: 'INFO',
         scope: 'DEVICE',
         deviceId: d.id,
         message: `Device "${d.device_name}" (${d.email}) has not polled for ${mins} min — it is missing trade signals. Last seen ${new Date(d.last_seen_at).toISOString().slice(0, 16)}Z.`,
@@ -282,7 +286,9 @@ export class ConnectivityWatchdogService implements OnModuleInit, OnModuleDestro
        LIMIT 50`,
     );
     return {
-      healthy: open.rows.length === 0,
+      // v1.30.1: INFO (closed terminals) never counts as unhealthy — only
+      // WARNING/CRITICAL open alerts do.
+      healthy: !open.rows.some((r: Record<string, unknown>) => r.severity === 'WARNING' || r.severity === 'CRITICAL'),
       openAlerts: open.rows.map((r: Record<string, unknown>) => ({
         alertKey: r.alert_key,
         severity: r.severity,

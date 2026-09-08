@@ -81,29 +81,33 @@ export default function ConnectivityCard() {
   const critical = snap.openAlerts.filter((a) => a.severity === "CRITICAL");
   const warnings = snap.openAlerts.filter((a) => a.severity === "WARNING");
 
+  // v1.30.1: closed terminals are normal client behaviour — they surface as
+  // INFO in the per-device table below, never as red WARNING banners.
+  void warnings;
+
   return (
     <div className="rounded-lg border border-pat-border bg-pat-card p-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-pat-text-primary">MT Client Connectivity</h3>
         <span
           className={`inline-flex items-center gap-1.5 text-xs font-medium ${
-            snap.healthy ? "text-emerald-500" : critical.length > 0 ? "text-red-500" : "text-amber-500"
+            snap.healthy ? "text-emerald-500" : critical.length > 0 ? "text-red-500" : "text-emerald-500"
           }`}
         >
           <span
             className={`h-2 w-2 rounded-full ${
-              snap.healthy ? "bg-emerald-500" : critical.length > 0 ? "bg-red-500" : "bg-amber-500"
+              snap.healthy ? "bg-emerald-500" : critical.length > 0 ? "bg-red-500" : "bg-emerald-500"
             }`}
           />
-          {snap.healthy ? "All clients connected" : critical.length > 0 ? "Signal flow at risk" : "Attention needed"}
+          {snap.healthy ? "All clients connected" : critical.length > 0 ? "Signal flow at risk" : "Connected"}
         </span>
       </div>
 
-      {(critical.length > 0 || warnings.length > 0) && (
+      {(critical.length > 0) && (
         <ul className="mt-3 space-y-1.5">
-          {[...critical, ...warnings].map((a) => (
+          {critical.map((a) => (
             <li key={a.alertKey} className="text-xs text-pat-text-secondary">
-              <span className={a.severity === "CRITICAL" ? "text-red-500 font-semibold" : "text-amber-500 font-semibold"}>
+              <span className="text-red-500 font-semibold">
                 [{a.severity}]
               </span>{" "}
               {a.message}
