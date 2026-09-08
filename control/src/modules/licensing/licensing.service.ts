@@ -414,6 +414,94 @@ export class LicensingService {
     return r.rows[0];
   }
 
+  /**
+   * Ensure a user has an ACTIVE license for their plan.
+   * Called when a subscription activates (payment settled) so no paying
+   * customer is ever without a usable license. Idempotent:
+   *  - an existing ACTIVE license is re-pointed to the current plan if stale
+   *    (same key/devices kept — the change-plan semantics),
+   *  - a REVOKED/SUSPENDED/EXPIRED license is re-activated only when its user
+   *    just paid (subscription-backed), never unconditionally,
+   *  - no license at all -> issue one bound to the subscription.
+   * Returns the license row plus what happened (for logs/audit).
+   */
+  async ensureActiveLicenseForSubscription(subscriptionId: string): Promise<{ license: any; action: string } | null> {
+    const sub = await this.pool.query(
+      `SELECT s.id, s.user_id, s.plan_id, p.code as plan_code
+         FROM billing.subscriptions s JOIN control.plans p ON p.id = s.plan_id
+        WHERE s.id = $1`,
+      [subscriptionId],
+    );
+    if (!sub.rows[0]) return null;
+    const { user_id: userId, plan_id: planId, plan_code: planCode } = sub.rows[0];
+
+    const plan = await this.pool.query(
+      `SELECT id, name, allowed_strategies, max_devices, max_mt_accounts
+         FROM control.plans WHERE id = $1`, [planId]);
+    const p = plan.rows[0];
+    if (!p) return null;
+
+    const existing = await this.pool.query(
+      `SELECT * FROM licensing.licenses WHERE user_id = $1
+         ORDER BY (status = 'ACTIVE') DESC, issued_at DESC LIMIT 1`,
+      [userId],
+    );
+
+    // Case 1: active license already exists — follow the plan if it drifted
+    if (existing.rows[0] && existing.rows[0].status === 'ACTIVE') {
+      const lic = existing.rows[0];
+      if (lic.plan_id !== planId) {
+        const r = await this.pool.query(
+          `UPDATE licensing.licenses
+              SET plan_id = $2, allowed_strategies = $3,
+                  subscription_id = $4, updated_at = now()
+            WHERE id = $1 RETURNING *`,
+          [lic.id, planId, JSON.stringify(p.allowed_strategies || []), subscriptionId],
+        );
+        await this.logLicenseEvent(lic.id, 'PLAN_CHANGED', `auto-synced to active subscription plan ${planCode}`);
+        return { license: r.rows[0], action: 'plan_synced' };
+      }
+      if (lic.subscription_id !== subscriptionId) {
+        await this.pool.query(`UPDATE licensing.licenses SET subscription_id = $2, updated_at = now() WHERE id = $1`, [lic.id, subscriptionId]);
+      }
+      return { license: lic, action: 'already_active' };
+    }
+
+    // Case 2: existing but not active (REVOKED/SUSPENDED/EXPIRED) — reactivate on payment
+    if (existing.rows[0]) {
+      const r = await this.pool.query(
+        `UPDATE licensing.licenses
+            SET status = 'ACTIVE', plan_id = $2,
+                allowed_strategies = $3,
+                subscription_id = $4,
+                revoked_at = NULL, revocation_reason = NULL,
+                expires_at = GREATEST(expires_at, now() + interval '30 days'),
+                updated_at = now()
+          WHERE id = $1 RETURNING *`,
+        [existing.rows[0].id, planId, JSON.stringify(p.allowed_strategies || []), subscriptionId],
+      );
+      await this.logLicenseEvent(existing.rows[0].id, 'ACTIVATED', `auto-reactivated: subscription ${planCode} payment settled`);
+      return { license: r.rows[0], action: 'reactivated' };
+    }
+
+    // Case 3: first license — issue bound to the subscription
+    const licenseKey = `PAT-${crypto.randomUUID().replace(/-/g, '')}`;
+    const id = crypto.randomUUID();
+    const r = await this.pool.query(
+      `INSERT INTO licensing.licenses
+        (id, user_id, plan_id, license_key, status, subscription_id, issued_at, valid_from, expires_at,
+         max_devices, max_mt_accounts, allowed_strategies)
+       VALUES ($1, $2, $3, $4, 'ACTIVE', $5, now(), now(), now() + interval '30 days',
+               $6, $7, $8)
+       RETURNING *`,
+      [id, userId, planId, licenseKey, subscriptionId,
+       p.max_devices ?? 1, p.max_mt_accounts ?? 1,
+       JSON.stringify(p.allowed_strategies || [])],
+    );
+    await this.logLicenseEvent(id, 'ISSUED', `auto-issued on ${planCode} subscription activation`);
+    return { license: r.rows[0], action: 'issued' };
+  }
+
   /** Suspend a license (admin). Soft state; reversible. */
   async suspendLicense(id: string, reason: string) {
     const r = await this.pool.query(
@@ -447,6 +535,56 @@ export class LicensingService {
       throw new NotFoundException('License not found');
     }
     await this.logLicenseEvent(id, 'REVOKED', reason);
+    return r.rows[0];
+  }
+
+  /**
+   * Activate a license (admin). Reverses SUSPENDED/REVOKED/EXPIRED -> ACTIVE.
+   * Refreshes entitlements from the license's plan and clears revocation
+   * markers, so activation is a clean re-enable (not just a status flip).
+   */
+  async activateLicense(id: string, reason: string) {
+    const cur = await this.pool.query(
+      `SELECT l.plan_id, p.allowed_strategies
+         FROM licensing.licenses l LEFT JOIN control.plans p ON p.id = l.plan_id
+        WHERE l.id = $1`,
+      [id],
+    );
+    if (cur.rows.length === 0) throw new NotFoundException('License not found');
+    const r = await this.pool.query(
+      `UPDATE licensing.licenses
+       SET status = 'ACTIVE',
+           suspended_at = NULL,
+           revoked_at = NULL,
+           revocation_reason = NULL,
+           allowed_strategies = COALESCE($2, allowed_strategies),
+           expires_at = GREATEST(COALESCE(expires_at, now()), now() + interval '30 days'),
+           updated_at = now()
+       WHERE id = $1
+       RETURNING *`,
+      [id,
+       cur.rows[0].allowed_strategies ? JSON.stringify(cur.rows[0].allowed_strategies) : null],
+    );
+    await this.logLicenseEvent(id, 'ACTIVATED', reason || 'Admin activated');
+    return r.rows[0];
+  }
+
+  /**
+   * Deactivate a license (admin). Soft-off: SUSPENDED, fully reversible with
+   * activateLicense. Use revokeLicense for terminal/irreversible removal.
+   */
+  async deactivateLicense(id: string, reason: string) {
+    const r = await this.pool.query(
+      `UPDATE licensing.licenses
+       SET status = 'SUSPENDED', suspended_at = now(), updated_at = now()
+       WHERE id = $1
+       RETURNING *`,
+      [id],
+    );
+    if (r.rows.length === 0) {
+      throw new NotFoundException('License not found');
+    }
+    await this.logLicenseEvent(id, 'DEACTIVATED', reason || 'Admin deactivated');
     return r.rows[0];
   }
 

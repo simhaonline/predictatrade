@@ -10,6 +10,7 @@ import {
 import { Pool } from 'pg';
 import { DB_POOL } from '../../common/database.module';
 import { BillingService } from './billing.service';
+import { LicensingService } from '../licensing/licensing.service';
 import { Decimal } from 'decimal.js';
 import * as crypto from 'crypto';
 
@@ -45,6 +46,7 @@ export class StripeService {
   constructor(
     @Inject(DB_POOL) private pool: Pool,
     private billingService: BillingService,
+    private licensingService: LicensingService,
   ) {}
 
   async createCheckoutSession(dto: StripeCheckoutDto): Promise<{ url: string; sessionId: string }> {
@@ -281,6 +283,16 @@ export class StripeService {
       throw e;
     } finally {
       client.release();
+    }
+
+    // Auto-issue/activate the license AFTER the settlement transaction commits:
+    // a paying customer must never end up without a usable license. Never fails
+    // the settlement — provisioning problems are logged for admin follow-up.
+    try {
+      const res = await this.licensingService.ensureActiveLicenseForSubscription(subscriptionId);
+      if (res) this.logger.log(`License auto-provision (${res.action}) for subscription ${subscriptionId}`);
+    } catch (e) {
+      this.logger.error(`License auto-provision failed for ${subscriptionId}: ${e instanceof Error ? e.message : e}`);
     }
   }
 }

@@ -121,6 +121,14 @@ export async function renewLicense(id: string) {
   const res = await customInstance.post(`/licensing/licenses/${id}/renew`, {});
   return res.data;
 }
+export async function activateLicense(id: string) {
+  const res = await customInstance.post(`/licensing/licenses/${id}/activate`, {});
+  return res.data;
+}
+export async function deactivateLicense(id: string) {
+  const res = await customInstance.post(`/licensing/licenses/${id}/deactivate`, {});
+  return res.data;
+}
 export async function changeLicensePlan(
   id: string,
   payload: { plan_id: string; max_devices?: number; max_mt_accounts?: number; reason?: string },

@@ -10,6 +10,7 @@ import {
 import { Pool } from 'pg';
 import { DB_POOL } from '../../common/database.module';
 import { BillingService } from './billing.service';
+import { LicensingService } from '../licensing/licensing.service';
 import { CommissionsService } from '../commissions/commissions.service';
 import * as crypto from 'crypto';
 import Decimal from 'decimal.js';
@@ -43,6 +44,7 @@ export class NowPaymentsService {
     @Inject(DB_POOL) private pool: Pool,
     private billingService: BillingService,
     private commissionsService: CommissionsService,
+    private licensingService: LicensingService,
   ) {}
 
   async createInvoice(
@@ -365,6 +367,21 @@ export class NowPaymentsService {
           this.logger.error(
             `Referral commission credit failed for settled payment ${commissionCredit.paymentId}: ${e instanceof Error ? e.message : e}`,
           );
+        }
+      }
+
+      // Auto-issue/activate the license for the subscribing user (after COMMIT):
+      // a paying customer must never end up without a usable license. Fail-safe:
+      // provisioning problems are logged for admin follow-up, never fail the IPN.
+      const settledSubId = paymentRow?.subscription_id || paymentRow?.sub_plan_id
+        ? paymentRow.subscription_id
+        : null;
+      if (settledSubId && status === 'COMPLETED') {
+        try {
+          const res = await this.licensingService.ensureActiveLicenseForSubscription(String(settledSubId));
+          if (res) this.logger.log(`License auto-provision (${res.action}) for subscription ${settledSubId}`);
+        } catch (e) {
+          this.logger.error(`License auto-provision failed for ${settledSubId}: ${e instanceof Error ? e.message : e}`);
         }
       }
 

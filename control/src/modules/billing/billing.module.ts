@@ -6,9 +6,10 @@ import { BillingController } from './billing.controller';
 import { StripeController } from './stripe.controller';
 import { DatabaseModule } from '../../common/database.module';
 import { CommissionsModule } from '../commissions/commissions.module';
+import { LicensingModule } from '../licensing/licensing.module';
 
 @Module({
-  imports: [DatabaseModule, CommissionsModule],
+  imports: [DatabaseModule, CommissionsModule, LicensingModule],
   controllers: [BillingController, StripeController],
   providers: [BillingService, NowPaymentsService, StripeService],
   exports: [BillingService, NowPaymentsService, StripeService],

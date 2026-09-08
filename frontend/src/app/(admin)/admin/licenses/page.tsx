@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
-import { createLicense, suspendLicense, revokeLicense, renewLicense, resetLicense, forceLogoutLicense, fetchLicenseActivations, changeLicensePlan } from "@/lib/admin-commercial-api";
+import { createLicense, suspendLicense, revokeLicense, renewLicense, resetLicense, forceLogoutLicense, fetchLicenseActivations, changeLicensePlan, activateLicense, deactivateLicense } from "@/lib/admin-commercial-api";
 import DataTable, { DataTableColumn } from "@/components/ui/data-table";
 import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
@@ -144,6 +144,8 @@ export default function AdminLicensesPage() {
           </span>
         )}
         <button onClick={() => selected ? doAction(`Suspend ${selected.user_email}`, () => suspendLicense(selected.id, "admin")) : toast.error("Select a license first")} disabled={!selected} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors disabled:opacity-40">Suspend</button>
+        <button onClick={() => selected ? doAction(`Activate ${selected.user_email}`, () => activateLicense(selected.id)) : toast.error("Select a license first")} disabled={!selected} className="px-3 py-1.5 text-xs bg-pat-success/15 text-pat-success rounded hover:bg-pat-success/25 transition-colors disabled:opacity-40">Activate</button>
+        <button onClick={() => selected ? doAction(`Deactivate ${selected.user_email}`, () => deactivateLicense(selected.id)) : toast.error("Select a license first")} disabled={!selected} className="px-3 py-1.5 text-xs bg-pat-warning/15 text-pat-warning rounded hover:bg-pat-warning/25 transition-colors disabled:opacity-40">Deactivate</button>
         <button onClick={() => selected ? doAction(`Revoke ${selected.user_email}`, () => revokeLicense(selected.id, "admin")) : toast.error("Select a license first")} disabled={!selected} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors disabled:opacity-40">Revoke</button>
         <button onClick={() => selected ? doAction(`Renew ${selected.user_email}`, () => renewLicense(selected.id)) : toast.error("Select a license first")} disabled={!selected} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors disabled:opacity-40">Renew</button>
         <button onClick={() => selected ? doAction(`Reset ${selected.user_email}`, () => resetLicense(selected.id)) : toast.error("Select a license first")} disabled={!selected} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors disabled:opacity-40">Reset</button>
@@ -199,6 +201,8 @@ export default function AdminLicensesPage() {
             </div>
             <div className="flex flex-wrap gap-2 mb-4">
               <button onClick={() => doAction(`Suspend ${selected.user_email}`, () => suspendLicense(selected.id, "admin"))} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors">Suspend</button>
+              <button onClick={() => doAction(`Activate ${selected.user_email}`, () => activateLicense(selected.id))} className="px-3 py-1.5 text-xs bg-pat-success/15 text-pat-success rounded hover:bg-pat-success/25 transition-colors">Activate</button>
+              <button onClick={() => doAction(`Deactivate ${selected.user_email}`, () => deactivateLicense(selected.id))} className="px-3 py-1.5 text-xs bg-pat-warning/15 text-pat-warning rounded hover:bg-pat-warning/25 transition-colors">Deactivate</button>
               <button onClick={() => doAction(`Revoke ${selected.user_email}`, () => revokeLicense(selected.id, "admin"))} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors">Revoke</button>
               <button onClick={() => doAction(`Renew ${selected.user_email}`, () => renewLicense(selected.id))} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors">Renew</button>
               <button onClick={() => doAction(`Reset ${selected.user_email}`, () => resetLicense(selected.id))} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors">Reset</button>

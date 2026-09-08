@@ -7,5 +7,6 @@ import { DatabaseModule } from '../../common/database.module';
   imports: [DatabaseModule],
   controllers: [LicensingController],
   providers: [LicensingService],
+  exports: [LicensingService],
 })
 export class LicensingModule {}

@@ -109,6 +109,22 @@ export class LicensingController {
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @RequirePermissions(Permission.LICENSE_MANAGE)
+  @Post('licenses/:id/activate')
+  async activateLicense(@Param('id') id: string, @Body() body: { reason?: string }) {
+    return this.licensingService.activateLicense(id, body?.reason || 'Admin activated');
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionGuard)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions(Permission.LICENSE_MANAGE)
+  @Post('licenses/:id/deactivate')
+  async deactivateLicense(@Param('id') id: string, @Body() body: { reason?: string }) {
+    return this.licensingService.deactivateLicense(id, body?.reason || 'Admin deactivated');
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionGuard)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions(Permission.LICENSE_MANAGE)
   @Post('licenses/:id/revoke')
   async revokeLicense(@Param('id') id: string, @Body() body: { reason?: string }) {
     return this.licensingService.revokeLicense(id, body?.reason || 'Admin revoked');
