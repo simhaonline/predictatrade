@@ -440,21 +440,21 @@ export class AdminService {
   /** List all device activations (admin only). */
   async listAllActivations(page = 1, limit = 20, scope: 'live' | 'history' = 'live') {
     const offset = (page - 1) * limit;
-    // scope=live   -> one row per device that is currently a live terminal
-    //                 (activation row with terminal_connected, device not
-    //                 revoked/deleted, heartbeat fresh) — the "who is on now" view.
+    // scope=live   -> one row per device terminal currently running (polled
+    //                 within the last 5 minutes) — the "who is on now" view.
     // scope=history-> the append-only activation/disconnection trail, newest first.
     const isLive = scope !== 'history';
-    // "Live" is anchored on the DEVICE row: connection_status=ONLINE with a
-    // fresh last_seen_at (edge-poll heartbeats every ~3s keep it fresh). The
-    // terminal_connected flag on activation rows is NOT reliable for this —
-    // heartbeats only update the row matching the mt_account_login, so the
-    // newest activation can be stale even while the device polls happily.
+    // Live heartbeat = the freshest of the two liveness signals:
+    //   devices.last_seen_at        — agent heartbeat / device auth
+    //   edge_device_state.last_poll_at — client EA edge-poll (~3s cadence)
+    // Client EA-only terminals never touch the agent heartbeat, and MT
+    // terminals idle legally (no ticks at weekends/market close), so a 5-minute
+    // window distinguishes "terminal running" from "terminal closed" without
+    // the 90-second cutoff hiding genuinely connected clients.
     const whereLive = `
           d.revoked_at IS NULL
           AND d.deleted_at IS NULL
-          AND d.connection_status = 'ONLINE'
-          AND d.last_seen_at > now() - interval '90 seconds'`;
+          AND GREATEST(d.last_seen_at, COALESCE(st.last_poll_at, to_timestamp(0))) > now() - interval '5 minutes'`;
     const [data, count] = await Promise.all([
       this.pool.query(
         `SELECT da.id, da.license_id, l.license_key, da.device_id,
@@ -467,11 +467,14 @@ export class AdminService {
                 COALESCE(da.mt_account_login, (SELECT da2.mt_account_login FROM licensing.device_activations da2 WHERE da2.device_id = d.id ORDER BY da2.created_at DESC LIMIT 1)) as mt_account_login,
                 COALESCE(da.installation_id, d.installation_id) as installation_id,
                 da.activated_at, da.created_at,
-                d.connection_status, d.last_seen_at,
+                d.connection_status,
+                GREATEST(d.last_seen_at, COALESCE(st.last_poll_at, to_timestamp(0))) as last_seen_at,
+                st.last_poll_at,
                 true as terminal_connected,
                 (SELECT da2.last_account_update FROM licensing.device_activations da2 WHERE da2.device_id = d.id ORDER BY da2.created_at DESC LIMIT 1) as last_account_update,
                 d.hostname
          FROM licensing.devices d
+         LEFT JOIN licensing.edge_device_state st ON st.device_id = d.id
          LEFT JOIN LATERAL (
            SELECT * FROM licensing.device_activations da3
             WHERE da3.device_id = d.id
@@ -480,12 +483,13 @@ export class AdminService {
          JOIN licensing.licenses l ON d.bound_license_id = l.id
          JOIN iam.users u ON l.user_id = u.id
          ${isLive ? `WHERE ${whereLive}` : ''}
-         ORDER BY ${isLive ? 'd.last_seen_at DESC' : 'da.activated_at DESC'} LIMIT $1 OFFSET $2`,
+         ORDER BY ${isLive ? 'last_seen_at DESC' : 'da.activated_at DESC'} LIMIT $1 OFFSET $2`,
         [limit, offset],
       ),
       this.pool.query(
         isLive
           ? `SELECT count(*) as total FROM licensing.devices d
+             LEFT JOIN licensing.edge_device_state st ON st.device_id = d.id
              WHERE ${whereLive}`
           : 'SELECT count(*) as total FROM licensing.device_activations',
       ),

@@ -167,6 +167,7 @@ export class ConnectivityWatchdogService implements OnModuleInit, OnModuleDestro
        FROM licensing.devices d
        JOIN iam.users u ON u.id = d.user_id
        WHERE d.revoked_at IS NULL
+         AND d.connection_status = 'ONLINE'
          AND EXISTS (
            SELECT 1 FROM licensing.licenses l
            WHERE l.id = d.bound_license_id AND l.status IN ('ACTIVE','TRIALING')
@@ -175,6 +176,17 @@ export class ConnectivityWatchdogService implements OnModuleInit, OnModuleDestro
          AND d.last_seen_at > now() - interval '30 days'`,
       [String(DEVICE_STALE_MS)],
     );
+    // Truthful connection state: a device that stopped polling is OFFLINE.
+    // Nothing else flips this flag (heartbeat only sets ONLINE), so without
+    // this the admin dashboards show stale ONLINE rows forever.
+    if (res.rows.length > 0) {
+      const ids = res.rows.map((r) => r.id as string);
+      await this.pool.query(
+        `UPDATE licensing.devices SET connection_status = 'OFFLINE', updated_at = now()
+          WHERE id = ANY($1::uuid[]) AND connection_status = 'ONLINE'`,
+        [ids],
+      ).catch(() => undefined);
+    }
     const staleKeys = new Set<string>();
     for (const d of res.rows) {
       const mins = Math.max(1, Math.round((Date.now() - new Date(d.last_seen_at).getTime()) / 60000));

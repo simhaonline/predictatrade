@@ -76,17 +76,23 @@ export default function AdminActivationsPage() {
     ...(scope === "live"
       ? [
           { key: "status", header: "Status", sortable: true, cell: (row: Activation) => {
-            const stale = row.last_seen_at ? (Date.now() - new Date(row.last_seen_at).getTime()) > 90000 : true;
-            return stale
-              ? <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-pat-warning/10 text-pat-warning border border-pat-warning/20">STALE</span>
-              : <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-pat-success/10 text-pat-success border border-pat-success/20"><span className="inline-block h-1.5 w-1.5 rounded-full bg-pat-success animate-pulse" />LIVE</span>;
+            const seen = row.last_seen_at ? new Date(row.last_seen_at).getTime() : 0;
+            const mins = Math.floor((Date.now() - seen) / 60000);
+            if (mins < 5) return <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-pat-success/10 text-pat-success border border-pat-success/20"><span className="inline-block h-1.5 w-1.5 rounded-full bg-pat-success animate-pulse" />LIVE</span>;
+            if (mins < 60) return <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-pat-warning/10 text-pat-warning border border-pat-warning/20">IDLE {mins}m</span>;
+            return <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-pat-badge-neutral-bg/10 text-pat-badge-neutral-text border border-pat-border">OFFLINE</span>;
+          } },
+          { key: "last_seen_at", header: "Last Poll", cell: (row: Activation) => {
+            const seen = row.last_seen_at ? new Date(row.last_seen_at).getTime() : 0;
+            const mins = Math.floor((Date.now() - seen) / 60000);
+            const label = mins < 1 ? "just now" : mins < 60 ? `${mins}m ago` : `${Math.floor(mins / 60)}h ${mins % 60}m ago`;
+            return <span className="text-xs text-pat-text-muted">{label}</span>;
           } },
         ]
       : [
           { key: "connection_status", header: "Connection", cell: (row: Activation) => <StatusBadge status={row.connection_status} /> },
         ]),
     { key: "activated_at", header: scope === "live" ? "Since" : "Activated", cell: (row) => <span className="text-xs text-pat-text-muted">{row.activated_at ? format(new Date(row.activated_at), "MMM d, yyyy HH:mm") : "—"}</span> },
-    { key: "last_seen_at", header: "Last Seen", cell: (row) => <span className="text-xs text-pat-text-muted">{row.last_seen_at ? format(new Date(row.last_seen_at), "MMM d, yyyy HH:mm") : "—"}</span> },
   ];
 
   const totalPages = data?.total ? Math.ceil(data.total / limit) : 1;
@@ -97,7 +103,7 @@ export default function AdminActivationsPage() {
         <h1 className="text-xl font-bold text-pat-text-primary">Activations</h1>
         <p className="text-sm text-pat-text-secondary mt-1">
           {scope === "live"
-            ? "Terminals connected right now — one row per live terminal, auto-refreshed every 15s."
+            ? "Terminals currently running (polled within 5 min) — one row per terminal, auto-refreshed every 15s. IDLE = open but not polling (market closed / no ticks)."
             : "Full activation history — every connect and disconnect event, newest first. Rows are never deleted."}
         </p>
       </div>
