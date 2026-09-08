@@ -93,6 +93,45 @@ func BuildTradeGeometry(state *features.MarketState, direction types.Direction, 
 	// Restore original ATR
 	state.Indicators.ATR = originalATR
 
+	// v1.30.2: tighten-swing clamp (migration 128 design intent).
+	// When an ACTIVE PERCENTAGE exit profile exists, the structural stop is
+	// CLAMPED to the profile stop distance whenever the structural level is
+	// FARTHER than the profile allows. Rationale (2026-09-03 runbook):
+	// swing strategies were documented to carry profile-stop geometry
+	// (TREND_SWING 0.30% ≈ 13.5pts at $4,500) so STANDARD/MICRO tier math
+	// admits them — but the structural-low path silently bypassed the
+	// profile whenever a swing low existed, producing 30–70pt PRO-only
+	// signals while every paying client sat in MICRO/STANDARD. The profile
+	// only ever TIGHTENS (never widens) the structural stop, and TPs keep
+	// the structural levels (structure respected, risk capped).
+	if exitProfileClamp := LoadExitProfile(string(cfg.StrategyID)); exitProfileClamp != nil && exitProfileClamp.CalculationMode == "PERCENTAGE" && !sl.IsZero() {
+		clampDist := geo.Entry.Mul(decimal.NewFromFloat(exitProfileClamp.StopPct))
+		structDist := geo.Entry.Sub(sl).Abs()
+		if structDist.GreaterThan(clampDist) {
+			if direction == types.DirectionBuy {
+				sl = geo.Entry.Sub(clampDist)
+				// TPs re-anchor from the clamped risk to preserve the
+				// profile R:R shape (TP distances scale with SL distance).
+				structTP1 := tp1.Sub(geo.Entry).Abs()
+				structTP2 := tp2.Sub(geo.Entry).Abs()
+				structTP3 := tp3.Sub(geo.Entry).Abs()
+				ratio := clampDist.Div(structDist)
+				tp1 = geo.Entry.Add(structTP1.Mul(ratio))
+				tp2 = geo.Entry.Add(structTP2.Mul(ratio))
+				tp3 = geo.Entry.Add(structTP3.Mul(ratio))
+			} else {
+				sl = geo.Entry.Add(clampDist)
+				structTP1 := geo.Entry.Sub(tp1).Abs()
+				structTP2 := geo.Entry.Sub(tp2).Abs()
+				structTP3 := geo.Entry.Sub(tp3).Abs()
+				ratio := clampDist.Div(structDist)
+				tp1 = geo.Entry.Sub(structTP1.Mul(ratio))
+				tp2 = geo.Entry.Sub(structTP2.Mul(ratio))
+				tp3 = geo.Entry.Sub(structTP3.Mul(ratio))
+			}
+		}
+	}
+
 	// If structural SL failed, check exit profile FIRST, then ATR fallback
 	if sl.IsZero() {
 		exitProfile := LoadExitProfile(string(cfg.StrategyID))
