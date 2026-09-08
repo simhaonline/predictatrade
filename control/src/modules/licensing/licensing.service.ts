@@ -476,6 +476,79 @@ export class LicensingService {
     return r.rows[0];
   }
 
+  /**
+   * Change a license's plan (admin). In-place: keeps the same license key,
+   * devices and activations; updates plan_id, allowed_strategies and
+   * allowed_execution_modes from the target plan. Optional overrides for
+   * device/MT-account slots (plan rows do not carry them — they live on the
+   * license). Transactional + audited (PLAN_CHANGED). Entitlement changes
+   * take effect at the device's next edge-poll — no reactivation needed.
+   */
+  async changeLicensePlan(
+    id: string,
+    body: { plan_id: string; max_devices?: number; max_mt_accounts?: number; reason?: string },
+  ) {
+    if (!body?.plan_id) {
+      throw new BadRequestException('plan_id is required');
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const cur = await client.query(
+        `SELECT id, plan_id, status, revoked_at FROM licensing.licenses WHERE id = $1 FOR UPDATE`,
+        [id],
+      );
+      if (cur.rows.length === 0) {
+        throw new NotFoundException('License not found');
+      }
+      const license = cur.rows[0];
+      if (license.revoked_at) {
+        throw new BadRequestException('License is revoked — reissue a new license instead');
+      }
+      if (license.plan_id === body.plan_id) {
+        throw new BadRequestException('License is already on that plan');
+      }
+      const plan = await client.query(
+        `SELECT id, code, name, allowed_strategies FROM control.plans WHERE id = $1`,
+        [body.plan_id],
+      );
+      if (plan.rows.length === 0) {
+        throw new BadRequestException('plan_id does not exist');
+      }
+      const target = plan.rows[0];
+      const maxDevices = Number.isFinite(body.max_devices) && body.max_devices! > 0
+        ? Math.floor(body.max_devices!)
+        : null;
+      const maxMtAccounts = Number.isFinite(body.max_mt_accounts) && body.max_mt_accounts! > 0
+        ? Math.floor(body.max_mt_accounts!)
+        : null;
+      const r = await client.query(
+        `UPDATE licensing.licenses
+         SET plan_id = $2,
+             allowed_strategies = $3::jsonb,
+             allowed_execution_modes = COALESCE(allowed_execution_modes, '[]'::jsonb),
+             max_devices = COALESCE($4, max_devices),
+             max_mt_accounts = COALESCE($5, max_mt_accounts),
+             updated_at = now()
+         WHERE id = $1
+         RETURNING id, license_key, plan_id, allowed_strategies, max_devices, max_mt_accounts, status`,
+        [id, body.plan_id, JSON.stringify(target.allowed_strategies ?? []), maxDevices, maxMtAccounts],
+      );
+      await client.query(
+        `INSERT INTO licensing.license_events (license_id, event_type, reason, created_at)
+         VALUES ($1, 'PLAN_CHANGED', $2, now())`,
+        [id, body.reason || `plan → ${target.code}`],
+      );
+      await client.query('COMMIT');
+      return { ...r.rows[0], plan_code: target.code, plan_name: target.name };
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
   /** Reset a license (admin). Soft-deactivate activations and clear device bindings; reversible. */
   async resetLicense(id: string) {
     const lic = await this.pool.query(`SELECT id FROM licensing.licenses WHERE id = $1`, [id]);

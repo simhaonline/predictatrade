@@ -125,6 +125,17 @@ export class LicensingController {
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @RequirePermissions(Permission.LICENSE_MANAGE)
+  @Post('licenses/:id/change-plan')
+  async changeLicensePlan(
+    @Param('id') id: string,
+    @Body() body: { plan_id: string; max_devices?: number; max_mt_accounts?: number; reason?: string },
+  ) {
+    return this.licensingService.changeLicensePlan(id, body);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionGuard)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermissions(Permission.LICENSE_MANAGE)
   @Post('licenses/:id/reset')
   async resetLicense(@Param('id') id: string) {
     return this.licensingService.resetLicense(id);

@@ -2,14 +2,14 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
-import { createLicense, suspendLicense, revokeLicense, renewLicense, resetLicense, forceLogoutLicense, fetchLicenseActivations } from "@/lib/admin-commercial-api";
+import { createLicense, suspendLicense, revokeLicense, renewLicense, resetLicense, forceLogoutLicense, fetchLicenseActivations, changeLicensePlan } from "@/lib/admin-commercial-api";
 import DataTable, { DataTableColumn } from "@/components/ui/data-table";
 import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { IconAlertTriangle, IconHistory } from "@tabler/icons-react";
 
-interface License { id: string; user_id: string; user_email: string; key: string; plan_name: string; status: string; activated_at: string | null; expires_at: string | null; max_devices: number; max_mt_accounts: number; subscription_status: string | null; }
+interface License { id: string; user_id: string; user_email: string; key: string; plan_name: string; plan_id?: string; status: string; activated_at: string | null; expires_at: string | null; max_devices: number; max_mt_accounts: number; subscription_status: string | null; }
 interface Activation { id?: string; device_name?: string; activated_at?: string; ip?: string; [key: string]: unknown; }
 
 export default function AdminLicensesPage() {
@@ -17,6 +17,9 @@ export default function AdminLicensesPage() {
   const [selected, setSelected] = useState<License | null>(null);
   const [history, setHistory] = useState<Activation[] | null>(null);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
+  const [changePlanId, setChangePlanId] = useState("");
+  const [changeDevices, setChangeDevices] = useState("");
+  const [changeMtAccounts, setChangeMtAccounts] = useState("");
   const queryClient = useQueryClient();
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -201,6 +204,61 @@ export default function AdminLicensesPage() {
               <button onClick={() => doAction(`Reset ${selected.user_email}`, () => resetLicense(selected.id))} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors">Reset</button>
               <button onClick={() => doAction(`Force logout ${selected.user_email}`, () => forceLogoutLicense(selected.id))} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors">Force Logout</button>
               <button onClick={() => viewHistory(selected)} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors flex items-center gap-1"><IconHistory size={12} /> History</button>
+            </div>
+            {/* Change Plan (v1.29.4): in-place plan switch — keeps the same license
+                key, devices and activations; entitlements follow the target plan.
+                Devices pick up the new entitlement at their next edge-poll. */}
+            <div className="rounded-md border border-pat-border bg-pat-bg-surface-secondary/50 p-3 mb-4">
+              <div className="text-xs font-medium text-pat-text-primary mb-2">Change Plan</div>
+              <div className="flex flex-wrap gap-2 items-center">
+                <select
+                  value={changePlanId}
+                  onChange={(e) => setChangePlanId(e.target.value)}
+                  className="px-2 py-1.5 text-xs bg-pat-bg-surface text-pat-text-primary rounded border border-pat-border"
+                >
+                  <option value="">Target plan…</option>
+                  {(plans ?? []).filter((p) => p.id !== selected.plan_id).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.currency} {p.monthly_price}/mo)
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min={1}
+                  placeholder="Devices (optional)"
+                  value={changeDevices}
+                  onChange={(e) => setChangeDevices(e.target.value)}
+                  className="w-36 px-2 py-1.5 text-xs bg-pat-bg-surface text-pat-text-primary rounded border border-pat-border placeholder:text-pat-text-muted"
+                />
+                <input
+                  type="number"
+                  min={1}
+                  placeholder="MT accounts (optional)"
+                  value={changeMtAccounts}
+                  onChange={(e) => setChangeMtAccounts(e.target.value)}
+                  className="w-40 px-2 py-1.5 text-xs bg-pat-bg-surface text-pat-text-primary rounded border border-pat-border placeholder:text-pat-text-muted"
+                />
+                <button
+                  onClick={() => {
+                    if (!changePlanId) { toast.error("Pick the target plan first"); return; }
+                    doAction(`Change plan ${selected.user_email} → ${plans?.find(p => p.id === changePlanId)?.name ?? changePlanId}`, async () => {
+                      const maxDevices = changeDevices ? Math.max(1, parseInt(changeDevices, 10)) : undefined;
+                      const maxMt = changeMtAccounts ? Math.max(1, parseInt(changeMtAccounts, 10)) : undefined;
+                      await changeLicensePlan(selected.id, { plan_id: changePlanId, max_devices: maxDevices, max_mt_accounts: maxMt });
+                      setChangePlanId("");
+                      setChangeDevices("");
+                      setChangeMtAccounts("");
+                    });
+                  }}
+                  className="px-3 py-1.5 text-xs bg-pat-primary text-pat-primary-foreground rounded hover:bg-pat-primary-hover transition-colors"
+                >
+                  Apply Plan Change
+                </button>
+              </div>
+              <p className="text-[11px] text-pat-text-muted mt-2">
+                Same license key is kept — devices and activations stay untouched. Strategy entitlements switch to the target plan immediately; running devices adopt them at the next poll.
+              </p>
             </div>
             <div className="flex justify-end">
               <button onClick={() => setShowManage(false)} className="px-3 py-1.5 text-xs border border-pat-border-strong rounded-md text-pat-text-secondary hover:bg-pat-bg-surface-secondary transition-colors">Close</button>
