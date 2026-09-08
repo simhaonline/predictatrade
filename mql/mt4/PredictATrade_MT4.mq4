@@ -1417,7 +1417,6 @@ int OnInit()
         Print("Also add ", PATCloudURL, " to Tools→Options→Expert Advisors→WebRequest allowlist.");
     }
 
-    UpdatePanel();
     PAT_ATD_InitDetect(); // v1.27: account-type detection (fail-safe; never blocks init)
     PATUI_OnInit(); // v1.29.4: terminal dashboard (object panel)
     return(INIT_SUCCEEDED);
@@ -1462,7 +1461,6 @@ void OnTick()
     // Exit reporting (covers broker-side closes and partial chunks)
     PAT_HistoryPoll();
 
-    UpdatePanel();
     PATUI_DashUpdate(false); // v1.29.4: object dashboard (self-throttled)
 }
 
@@ -1497,10 +1495,9 @@ void OnTimer()
     if(g_connection == "CONNECTED")
         PollFromCloud();
 
-    // v1.29.2: repaint from the watchdog as well — with no OnTick (closed
-    // market) a verdict applied in memory never reached the chart panel.
-    UpdatePanel();
-    PATUI_DashUpdate(true); // v1.29.4: dashboard repaint from the watchdog too
+    // v1.29.4: repaint the dashboard from the watchdog as well — with no
+    // OnTick (closed market) a verdict applied in memory never reached the
+    // panel and it kept showing UNKNOWN(-).
 
     // Control-plane heartbeat (HMAC) — every watchdog cycle (15s) keeps the
     // device liveness fresh in edge_device_state even when the engine ingest
@@ -3766,63 +3763,6 @@ void PATUI_OnChartEvent(const int id, const long &lparam, const double &dparam, 
         }
     }
 }
-//+------------------------------------------------------------------+
-//| Legacy text panel — replaced by the object dashboard (kept for    |
-//| Journal/debug parity; dashboard renders above it).                |
-//+------------------------------------------------------------------+
-//+------------------------------------------------------------------+
-void UpdatePanel()
-{
-    string p = "=== Predict-A-Trade v1.00 ===\n";
-    p += "Agent:    " + g_connection + "\n";
-    p += "License:  " + g_licenseStatus + " (" + g_licensePlan + ")\n";
-    p += "Lic.Key:  " + (g_licenseKey == "" ? "NOT SET" : StringSubstr(g_licenseKey, 0, 12) + "...") + "\n";
-    p += "Account:  " + g_accountID + "\n";
-    p += "Symbol:   " + g_symbol + "\n";
-    p += "Mode:     " + (AutoExecute ? "AUTO EXECUTE" : "SIGNAL ONLY") + "\n";
-    p += "Open Pos: " + IntegerToString(PAT_CountPatPositions()) + "\n";
-    p += "-----------------------------\n";
-    p += "Signals:  " + IntegerToString(g_signalsReceived) + " recv, " + IntegerToString(g_signalsDisplayed) + " shown, " + IntegerToString(g_signalsFiltered) + " filtered\n";
-    p += "Strats:   ";
-    if(StringFind("," + g_allowedStrategies + ",", ",STANDARD_SCALPING,") >= 0) p += "SS ";
-    if(StringFind("," + g_allowedStrategies + ",", ",ULTRA_SCALPING,") >= 0) p += "US ";
-    if(StringFind("," + g_allowedStrategies + ",", ",STANDARD_SWING,") >= 0) p += "SW ";
-    if(StringFind("," + g_allowedStrategies + ",", ",TREND_SWING,") >= 0) p += "TW\n";
-    p += "-----------------------------\n";
-    p += "Signal:   " + g_signalDirection + "\n";
-    if(g_signalDirection != "NONE" && g_signalDirection != "EXPIRED")
-    {
-        p += "Strategy: " + PAT_StrategyDisplayName(g_signalStrategy) + "\n";
-        p += "Grade:    " + g_signalGrade + "\n";
-        p += "Class:    " + g_signalClass + "\n";
-        p += "Score:    " + DoubleToString(g_rawScore, 1) + "\n";
-        p += "Prob:     " + (g_calibProb > 0 ? DoubleToString(g_calibProb * 100, 1) + "%" : "Pending") + "\n";
-        p += "Entry:    " + DoubleToString(g_entry, 2) + "\n";
-        p += "SL:       " + DoubleToString(g_sl, 2) + "\n";
-        p += "TP1:      " + DoubleToString(g_tp1, 2) + "\n";
-        p += "TP2:      " + DoubleToString(g_tp2, 2) + "\n";
-        p += "TP3:      " + DoubleToString(g_tp3, 2) + "\n";
-    }
-    p += "-----------------------------\n";
-    p += "Ticks:    " + IntegerToString(g_tickCount) + "\n";
-    p += "Time:     " + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + "\n";
-    p += "Slip rejects: " + IntegerToString(g_slippageRejects) + "\n";
-    p += "Daily P&L: " + DoubleToString(g_dailyPnL, 2) + "\n";
-    p += "Trades today: " + IntegerToString(g_dayTradeCount) + " / " + IntegerToString(MaxTradesPerDay) + " (local cap)\n";  // v1.28
-    if(FloatingDDProtection) p += "FloatDD: " + DoubleToString(MathMax(0.0, AccountBalance() - AccountEquity()), 2) + " (breaker " + DoubleToString(FloatingDD_MaxPct, 1) + "%)\n";  // v1.28
-    if(g_fddHalted) p += "*** HALTED: FLOATING-DD BREAKER (this broker day) ***\n";  // v1.28
-    if(BypassDailyLossBlock) p += "DailyLoss guard: BYPASSED (client override)\n";
-    if(g_tradingBlocked) p += "*** TRADING BLOCKED (daily loss) ***\n";
-    if(g_equityHalted)   p += "*** HALTED: EQUITY FLOOR ***\n";
-    if(AvoidSwapCharges)
-    {
-        p += "Swap cutoff: " + IntegerToString(SwapCutoffHour) + ":00 (-" + IntegerToString(SwapCutoffBuffer) + "min)\n";
-        if(IsNearSwapTime()) p += "*** SWAP CUTOFF ACTIVE ***\n";
-        if(IsTripleSwapDay()) p += "*** TRIPLE SWAP DAY ***\n";
-    }
-    Comment(p);
-}
-
 //+------------------------------------------------------------------+
 //| JSON helpers                                                      |
 //+------------------------------------------------------------------+
