@@ -112,10 +112,15 @@ export class AdminController {
   }
 
   @Get('activations')
-  async listActivations(@Query('page') page?: string, @Query('limit') limit?: string) {
+  async listActivations(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('scope') scope?: string,
+  ) {
     return this.adminService.listAllActivations(
       page ? parseInt(page, 10) : 1,
       limit ? parseInt(limit, 10) : 20,
+      scope === 'history' ? 'history' : 'live',
     );
   }
 

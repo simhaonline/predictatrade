@@ -1,10 +1,12 @@
 "use client";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import DataTable, { DataTableColumn } from "@/components/ui/data-table";
 import StatusBadge from "@/components/ui/status-badge";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { IconActivity, IconHistory } from "@tabler/icons-react";
 
 interface Activation {
   id: string;
@@ -24,18 +26,26 @@ interface Activation {
   created_at: string;
   connection_status: string;
   last_seen_at: string | null;
+  terminal_connected?: boolean;
+  last_account_update?: string | null;
   hostname: string | null;
 }
 
+type Scope = "live" | "history";
+
 export default function AdminActivationsPage() {
   const queryClient = useQueryClient();
+  const [scope, setScope] = useState<Scope>("live");
+  const [page, setPage] = useState(1);
+  const limit = 20;
 
-  const { data, isLoading, error, refetch } = useQuery<{ items: Activation[]; total: number; page: number; limit: number }>({
-    queryKey: ["admin-activations"],
+  const { data, isLoading, error, refetch } = useQuery<{ items: Activation[]; total: number; page: number; limit: number; scope: string }>({
+    queryKey: ["admin-activations", scope, page],
     queryFn: async () => {
-      const res = await customInstance.get("/admin/activations?page=1&limit=20");
-      return res.data as { items: Activation[]; total: number; page: number; limit: number };
+      const res = await customInstance.get(`/admin/activations?page=${page}&limit=${limit}&scope=${scope}`);
+      return res.data as { items: Activation[]; total: number; page: number; limit: number; scope: string };
     },
+    refetchInterval: scope === "live" ? 15000 : false,
   });
 
   const revokeMutation = useMutation({
@@ -63,18 +73,77 @@ export default function AdminActivationsPage() {
     )},
     { key: "broker_name", header: "Broker", cell: (row) => <span className="text-xs text-pat-text-secondary">{row.broker_name || "—"}</span> },
     { key: "mt_account_login", header: "Account", cell: (row) => <span className="text-xs text-pat-text-muted font-mono">{row.mt_account_login || "—"}</span> },
-    { key: "connection_status", header: "Connection", cell: (row) => <StatusBadge status={row.connection_status} /> },
-    { key: "activated_at", header: "Activated", cell: (row) => <span className="text-xs text-pat-text-muted">{row.activated_at ? format(new Date(row.activated_at), "MMM d, yyyy HH:mm") : "—"}</span> },
+    ...(scope === "live"
+      ? [
+          { key: "status", header: "Status", sortable: true, cell: (row: Activation) => {
+            const stale = row.last_seen_at ? (Date.now() - new Date(row.last_seen_at).getTime()) > 90000 : true;
+            return stale
+              ? <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-pat-warning/10 text-pat-warning border border-pat-warning/20">STALE</span>
+              : <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-pat-success/10 text-pat-success border border-pat-success/20"><span className="inline-block h-1.5 w-1.5 rounded-full bg-pat-success animate-pulse" />LIVE</span>;
+          } },
+        ]
+      : [
+          { key: "connection_status", header: "Connection", cell: (row: Activation) => <StatusBadge status={row.connection_status} /> },
+        ]),
+    { key: "activated_at", header: scope === "live" ? "Since" : "Activated", cell: (row) => <span className="text-xs text-pat-text-muted">{row.activated_at ? format(new Date(row.activated_at), "MMM d, yyyy HH:mm") : "—"}</span> },
     { key: "last_seen_at", header: "Last Seen", cell: (row) => <span className="text-xs text-pat-text-muted">{row.last_seen_at ? format(new Date(row.last_seen_at), "MMM d, yyyy HH:mm") : "—"}</span> },
   ];
+
+  const totalPages = data?.total ? Math.ceil(data.total / limit) : 1;
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-bold text-pat-text-primary">Activations</h1>
-        <p className="text-sm text-pat-text-secondary mt-1">Active device sessions and activation management.</p>
+        <p className="text-sm text-pat-text-secondary mt-1">
+          {scope === "live"
+            ? "Terminals connected right now — one row per live terminal, auto-refreshed every 15s."
+            : "Full activation history — every connect and disconnect event, newest first. Rows are never deleted."}
+        </p>
       </div>
-      <DataTable data={data?.items || []} pageSize={20} hidePager columns={columns} loading={isLoading} error={error as Error | null} onRetry={refetch} />
+
+      {/* Scope tabs */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => { setScope("live"); setPage(1); }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+            scope === "live"
+              ? "bg-pat-success/10 text-pat-success border-pat-success/30 font-medium"
+              : "bg-pat-bg-surface-secondary text-pat-text-secondary border-pat-border hover:text-pat-text-primary"
+          }`}
+        >
+          <IconActivity size={14} /> Live Connections {data?.scope === "live" && data.total > 0 && <span className="px-1.5 py-0.5 rounded bg-pat-success/20">{data.total}</span>}
+        </button>
+        <button
+          onClick={() => { setScope("history"); setPage(1); }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+            scope === "history"
+              ? "bg-pat-info/10 text-pat-info border-pat-info/30 font-medium"
+              : "bg-pat-bg-surface-secondary text-pat-text-secondary border-pat-border hover:text-pat-text-primary"
+          }`}
+        >
+          <IconHistory size={14} /> Connection History
+        </button>
+      </div>
+
+      <DataTable
+        key={scope}
+        data={data?.items || []}
+        columns={columns}
+        loading={isLoading}
+        error={error as Error | null}
+        onRetry={refetch}
+        pageSize={limit}
+        hidePager
+      />
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 pt-2">
+          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary hover:bg-pat-bg-surface-secondary rounded border border-pat-border disabled:opacity-30">Previous</button>
+          <span className="text-xs text-pat-text-muted">Page {page} of {totalPages}</span>
+          <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary hover:bg-pat-bg-surface-secondary rounded border border-pat-border disabled:opacity-30">Next</button>
+        </div>
+      )}
     </div>
   );
 }

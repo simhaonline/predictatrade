@@ -365,27 +365,59 @@ export class AdminService {
   }
 
   /** List all device activations (admin only). */
-  async listAllActivations(page = 1, limit = 20) {
+  async listAllActivations(page = 1, limit = 20, scope: 'live' | 'history' = 'live') {
     const offset = (page - 1) * limit;
+    // scope=live   -> one row per device that is currently a live terminal
+    //                 (activation row with terminal_connected, device not
+    //                 revoked/deleted, heartbeat fresh) — the "who is on now" view.
+    // scope=history-> the append-only activation/disconnection trail, newest first.
+    const isLive = scope !== 'history';
+    // "Live" is anchored on the DEVICE row: connection_status=ONLINE with a
+    // fresh last_seen_at (edge-poll heartbeats every ~3s keep it fresh). The
+    // terminal_connected flag on activation rows is NOT reliable for this —
+    // heartbeats only update the row matching the mt_account_login, so the
+    // newest activation can be stale even while the device polls happily.
+    const whereLive = `
+          d.revoked_at IS NULL
+          AND d.deleted_at IS NULL
+          AND d.connection_status = 'ONLINE'
+          AND d.last_seen_at > now() - interval '90 seconds'`;
     const [data, count] = await Promise.all([
       this.pool.query(
         `SELECT da.id, da.license_id, l.license_key, da.device_id,
                 u.email as user_email, d.device_name,
-                da.client_type, da.terminal_build, da.ea_version,
-                da.broker_name, da.broker_server, da.mt_account_login,
-                da.installation_id, da.activated_at, da.created_at,
+                COALESCE(da.client_type, (SELECT da2.client_type FROM licensing.device_activations da2 WHERE da2.device_id = d.id ORDER BY da2.created_at DESC LIMIT 1)) as client_type,
+                COALESCE(da.terminal_build, (SELECT da2.terminal_build FROM licensing.device_activations da2 WHERE da2.device_id = d.id ORDER BY da2.created_at DESC LIMIT 1)) as terminal_build,
+                COALESCE(da.ea_version, (SELECT da2.ea_version FROM licensing.device_activations da2 WHERE da2.device_id = d.id ORDER BY da2.created_at DESC LIMIT 1)) as ea_version,
+                COALESCE(da.broker_name, (SELECT da2.broker_name FROM licensing.device_activations da2 WHERE da2.device_id = d.id ORDER BY da2.created_at DESC LIMIT 1)) as broker_name,
+                COALESCE(da.broker_server, (SELECT da2.broker_server FROM licensing.device_activations da2 WHERE da2.device_id = d.id ORDER BY da2.created_at DESC LIMIT 1)) as broker_server,
+                COALESCE(da.mt_account_login, (SELECT da2.mt_account_login FROM licensing.device_activations da2 WHERE da2.device_id = d.id ORDER BY da2.created_at DESC LIMIT 1)) as mt_account_login,
+                COALESCE(da.installation_id, d.installation_id) as installation_id,
+                da.activated_at, da.created_at,
                 d.connection_status, d.last_seen_at,
+                true as terminal_connected,
+                (SELECT da2.last_account_update FROM licensing.device_activations da2 WHERE da2.device_id = d.id ORDER BY da2.created_at DESC LIMIT 1) as last_account_update,
                 d.hostname
-         FROM licensing.device_activations da
-         JOIN licensing.licenses l ON da.license_id = l.id
-         JOIN licensing.devices d ON da.device_id = d.id
+         FROM licensing.devices d
+         LEFT JOIN LATERAL (
+           SELECT * FROM licensing.device_activations da3
+            WHERE da3.device_id = d.id
+            ORDER BY da3.created_at DESC LIMIT 1
+         ) da ON true
+         JOIN licensing.licenses l ON d.bound_license_id = l.id
          JOIN iam.users u ON l.user_id = u.id
-         ORDER BY da.activated_at DESC LIMIT $1 OFFSET $2`,
+         ${isLive ? `WHERE ${whereLive}` : ''}
+         ORDER BY ${isLive ? 'd.last_seen_at DESC' : 'da.activated_at DESC'} LIMIT $1 OFFSET $2`,
         [limit, offset],
       ),
-      this.pool.query('SELECT count(*) as total FROM licensing.device_activations'),
+      this.pool.query(
+        isLive
+          ? `SELECT count(*) as total FROM licensing.devices d
+             WHERE ${whereLive}`
+          : 'SELECT count(*) as total FROM licensing.device_activations',
+      ),
     ]);
-    return { items: data.rows, total: parseInt(count.rows[0].total, 10), page, limit };
+    return { items: data.rows, total: parseInt(count.rows[0].total, 10), page, limit, scope };
   }
 
   /** Assign/create a license for a user (admin only). */
