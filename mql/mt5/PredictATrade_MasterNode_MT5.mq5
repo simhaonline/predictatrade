@@ -2438,6 +2438,8 @@ string PATUI_DataToggles()
 //===================== DASHBOARD RENDER =====================
 void PATUI_DashDestroy() { ObjectsDeleteAll(0, PATUI_PREFIX, 0, -1); }
 
+void PATUI_OnDeinit() { PATUI_DashDestroy(); }
+
 void PATUI_DashUpdate(bool force = false)
 {
     if(!PAT_ShowDashboard) return;
