@@ -100,11 +100,11 @@ export default function UserMtClientPage() {
     }
   };
 
+  // Ready-to-run compiled EAs only — no source distribution. The .ex4/.ex5
+  // binaries are built and published per release (mql/compiled_executable).
   const downloadFiles = [
-    { name: "MT5 Expert Advisor — Source (.mq5)", file: "https://downloads.predictatrade.com/mql/mt5/PredictATrade_MT5.mq5", desc: "Client EA for MetaTrader 5 — compile in MetaEditor (F7), or grab the pre-compiled binary below when available", size: "~120 KB", icon: IconTerminal2, type: "mq5", primary: true },
-    { name: "MT4 Expert Advisor — Source (.mq4)", file: "https://downloads.predictatrade.com/mql/mt4/PredictATrade_MT4.mq4", desc: "Client EA for MetaTrader 4 — compile in MetaEditor (F7), or use the pre-compiled binary below", size: "~110 KB", icon: IconTerminal2, type: "mq4" },
-    { name: "MT5 Master Data Node — Source (.mq5)", file: "https://downloads.predictatrade.com/mql/mt5/PredictATrade_MasterNode_MT5.mq5", desc: "Optional data node for MetaTrader 5 — streams live XAUUSD ticks/snapshots to the engine (no trading)", size: "~50 KB", icon: IconTerminal2, type: "mq5" },
-    { name: "MT4 Master Data Node — Source (.mq4)", file: "https://downloads.predictatrade.com/mql/mt4/PredictATrade_MasterNode_MT4.mq4", desc: "Optional data node for MetaTrader 4 — streams live XAUUSD ticks/snapshots to the engine (no trading)", size: "~105 KB", icon: IconTerminal2, type: "mq4" },
+    { name: "MT5 Expert Advisor — Ready to Run (.ex5)", file: "https://downloads.predictatrade.com/downloads/Predict-A-Trade.ex5", desc: "Compiled client EA for MetaTrader 5 — drop it in, no compiler needed", size: "~260 KB", icon: IconTerminal2, type: "EX5", primary: true },
+    { name: "MT4 Expert Advisor — Ready to Run (.ex4)", file: "https://downloads.predictatrade.com/downloads/Predict-A-Trade.ex4", desc: "Compiled client EA for MetaTrader 4 — drop it in, no compiler needed", size: "~290 KB", icon: IconTerminal2, type: "EX4" },
   ];
 
   const installSteps: { id: InstallStep; label: string }[] = [
@@ -119,13 +119,12 @@ export default function UserMtClientPage() {
   // Full installation steps shown inline on the dashboard (no toggling required).
   const guideSteps: Record<InstallStep, { title: string; steps: string[] }> = {
     download: {
-      title: "Download the Expert Advisors",
+      title: "Download the Expert Advisors (ready-to-run binaries)",
       steps: [
-        "No Windows Agent needed — the EA talks to the Predict-A-Trade cloud directly over HTTPS (v1.19).",
-        "Download the EA for your platform: PredictATrade_MT5.mq5 (MT5) or PredictATrade_MT4.mq4 (MT4).",
-        "If a pre-compiled .ex5/.ex4 is available above, you can skip MetaEditor entirely.",
-        "To compile yourself: open the .mq5/.mq4 in MetaEditor (F4 from the terminal) and press F7 — it must show 0 errors.",
-        "Master data node is optional — run it on one terminal to feed live market data to the engine.",
+        "No Windows Agent needed — the EA talks to the Predict-A-Trade cloud directly over HTTPS.",
+        "Download the compiled EA above: Predict-A-Trade.ex5 (MT5) or Predict-A-Trade.ex4 (MT4). No MetaEditor, no compiling — the file runs as-is.",
+        "Check the version chip on the download card before installing — always use the latest published build.",
+        "Only one of MT4/MT5 is required; install on every terminal you want signals delivered to (each terminal = 1 device slot).",
       ],
     },
     allowlist: {
@@ -155,10 +154,10 @@ export default function UserMtClientPage() {
       title: "Install MT4 Expert Advisor",
       steps: [
         "Open MetaTrader 4 → File → Open Data Folder → MQL4 → Experts.",
-        "Copy PredictATrade_MT4.mq4 into the Experts folder (or the compiled .ex4 if you downloaded it).",
-        "In MetaEditor, compile the EA (F7) if you downloaded the source — confirm 0 errors.",
+        "Copy Predict-A-Trade.ex4 into the Experts folder.",
+        "Delete any older PredictATrade .ex4/.mq4 files from Experts first — leaving both causes two panels on the chart.",
         "In MT4, open Navigator (Ctrl+N) → Right-click 'Expert Advisors' → 'Refresh'.",
-        "Drag 'PredictATrade_MT4' onto an XAUUSD chart.",
+        "Drag 'Predict-A-Trade' onto an XAUUSD chart (M1–H1 as instructed for your plan).",
         "In the EA inputs, paste your License Key into the LicenseKey field.",
         "Check 'Allow live trading' → OK.",
         "Enable the 'AutoTrading' button at the top (should turn green).",
@@ -169,10 +168,10 @@ export default function UserMtClientPage() {
       title: "Install MT5 Expert Advisor",
       steps: [
         "Open MetaTrader 5 → File → Open Data Folder → MQL5 → Experts.",
-        "Copy PredictATrade_MT5.mq5 into the Experts folder.",
-        "In MetaEditor (F4), compile the EA (F7) — it must show 0 errors.",
+        "Copy Predict-A-Trade.ex5 into the Experts folder.",
+        "Delete any older PredictATrade .ex5/.mq5 files from Experts first — avoids loading a stale build.",
         "In MT5, open Navigator → Right-click 'Expert Advisors' → 'Refresh'.",
-        "Drag 'PredictATrade' onto an XAUUSD chart.",
+        "Drag 'Predict-A-Trade' onto an XAUUSD chart (M1–H1 as instructed for your plan).",
         "In the EA inputs, paste your License Key into the LicenseKey field.",
         "Check 'Allow Algo Trading' → OK.",
         "Enable the 'Algo Trading' button at the top (should turn green).",
@@ -183,12 +182,12 @@ export default function UserMtClientPage() {
       title: "Verify Your Connection",
       steps: [
         "In MT4/MT5, check the Experts tab — should show 'Device activated: …' followed by 'License validated — ACTIVE'.",
-        "In MT4/MT5, check the Journal/Experts tab — should show 'License strategies from server: ...'.",
+        "On the chart you should see the Predict-A-Trade dashboard panel (two-column status board with a session map).",
         "This dashboard lists your device under 'Your Registered Devices' with status Online within ~15 seconds.",
-        "Signals appear on the XAUUSD chart panel and in the Experts log when the engine publishes them.",
+        "Signals appear on the chart panel and in the Experts log when the engine publishes them.",
         "The EA will only execute strategies allowed by your license plan.",
         "Stop-loss is enforced by the server — trades without SL are automatically closed.",
-        "To update: replace the EA file, recompile, and reload it on the chart — credentials persist in the terminal.",
+        "To update: download the new .ex4/.ex5, replace the old file in Experts, then remove and re-attach the EA on the chart.",
       ],
     },
   };
@@ -198,7 +197,7 @@ export default function UserMtClientPage() {
       <div>
         <h1 className="text-xl font-bold text-pat-text-primary">MetaTrader Client</h1>
         <p className="text-sm text-pat-text-secondary mt-1">
-          Install the EA directly in MetaTrader 4/5 — no Windows Agent required. The EA connects to the Predict-A-Trade cloud over HTTPS, validates your license, and receives only the signals your subscription plan allows.
+          Install the ready-to-run EA directly in MetaTrader 4/5 — no Windows Agent, no compiler. The EA connects to the Predict-A-Trade cloud over HTTPS, validates your license, and receives only the signals your subscription plan allows.
         </p>
       </div>
 
@@ -352,9 +351,12 @@ export default function UserMtClientPage() {
         </div>
       </div>
 
-      {/* Download section */}
+      {/* Download section — compiled binaries only */}
       <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-5">
-        <h2 className="text-sm font-semibold text-pat-text-primary mb-4">Download Files</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-pat-text-primary">Download Files</h2>
+          <span className="text-[10px] px-2 py-1 rounded-lg bg-pat-success/10 text-pat-success border border-pat-success/20 font-medium">NO COMPILING NEEDED</span>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {downloadFiles.map((file) => (
             <a key={file.file} href={file.file} download className={`flex items-center gap-3 rounded-lg border p-4 transition-all hover:border-pat-border/80 ${file.primary ? "border-pat-success/30 bg-pat-success/5" : "border-pat-border/60 bg-pat-bg-surface-secondary/30"}`}>
@@ -373,6 +375,11 @@ export default function UserMtClientPage() {
             </a>
           ))}
         </div>
+{/*
+        <div className="mt-3 text-[11px] text-pat-text-muted">
+          Master Data Node: if your account was provisioned with a data-feed role, its compiled binaries are available on request — contact support.
+        </div>
+*/}
       </div>
 
       {/* Installation guide — always visible step list */}
@@ -403,6 +410,45 @@ export default function UserMtClientPage() {
         </ol>
       </div>
 
+      {/* EA configuration reference */}
+      <div className="rounded-xl border border-pat-border bg-pat-bg-surface p-5">
+        <h2 className="text-sm font-semibold text-pat-text-primary mb-4">EA Configuration Reference (v1.29)</h2>
+        <div className="space-y-4 text-xs">
+          <div>
+            <div className="text-pat-text-primary font-semibold mb-1.5">Required input</div>
+            <ul className="space-y-1">
+              <li className="flex items-start gap-2 text-pat-text-secondary"><span className="mt-1.5 w-1 h-1 rounded-full bg-pat-text-muted shrink-0" /><span><span className="font-mono text-pat-text-primary">LicenseKey</span> — paste your license key exactly as shown above. Everything else works on defaults.</span></li>
+            </ul>
+          </div>
+          <div>
+            <div className="text-pat-text-primary font-semibold mb-1.5">Execution</div>
+            <ul className="space-y-1">
+              <li className="flex items-start gap-2 text-pat-text-secondary"><span className="mt-1.5 w-1 h-1 rounded-full bg-pat-text-muted shrink-0" /><span><span className="font-mono text-pat-text-primary">AutoExecute</span> (default false = display-only) — set true to auto-trade EXECUTABLE signals. This is the main on/off switch.</span></li>
+              <li className="flex items-start gap-2 text-pat-text-secondary"><span className="mt-1.5 w-1 h-1 rounded-full bg-pat-text-muted shrink-0" /><span><span className="font-mono text-pat-text-primary">ExecuteCandidates</span> (default false) — also execute BUY_CANDIDATE/SELL_CANDIDATE signals. Keep off unless advised.</span></li>
+              <li className="flex items-start gap-2 text-pat-text-secondary"><span className="mt-1.5 w-1 h-1 rounded-full bg-pat-text-muted shrink-0" /><span><span className="font-mono text-pat-text-primary">ChartTimeframe</span> (default "M1") — the timeframe this EA instance trades; used for chart identity and session reporting.</span></li>
+              <li className="flex items-start gap-2 text-pat-text-secondary"><span className="mt-1.5 w-1 h-1 rounded-full bg-pat-text-muted shrink-0" /><span><span className="font-mono text-pat-text-primary">PATPollMs</span> (3000) — signal poll interval; keep 3000 (ULTRA scalping TTL is 3 minutes).</span></li>
+              <li className="flex items-start gap-2 text-pat-text-secondary"><span className="mt-1.5 w-1 h-1 rounded-full bg-pat-text-muted shrink-0" /><span>Signal TTL: signals older than the server expiry are never executed (fail-closed, ~300s default).</span></li>
+            </ul>
+          </div>
+          <div>
+            <div className="text-pat-text-primary font-semibold mb-1.5">Risk &amp; session protection</div>
+            <ul className="space-y-1">
+              <li className="flex items-start gap-2 text-pat-text-secondary"><span className="mt-1.5 w-1 h-1 rounded-full bg-pat-text-muted shrink-0" /><span>Daily loss limit 6% (warning at 3%), floating-drawdown breaker 5%, equity floor — all terminal-local, server gates apply on top.</span></li>
+              <li className="flex items-start gap-2 text-pat-text-secondary"><span className="mt-1.5 w-1 h-1 rounded-full bg-pat-text-muted shrink-0" /><span><span className="font-mono text-pat-text-primary">AvoidSwapCharges</span> / <span className="font-mono text-pat-text-primary">AvoidRolloverWindow</span> (default on) — skip entries in the swap-cutoff / broker-rollover windows; <span className="font-mono text-pat-text-primary">AvoidTripleSwapDay</span> skips the triple-swap weekday.</span></li>
+              <li className="flex items-start gap-2 text-pat-text-secondary"><span className="mt-1.5 w-1 h-1 rounded-full bg-pat-text-muted shrink-0" /><span><span className="font-mono text-pat-text-primary">MaxTradesPerDay</span> (50) and per-strategy position caps guard against runaway execution.</span></li>
+            </ul>
+          </div>
+          <div>
+            <div className="text-pat-text-primary font-semibold mb-1.5">Dashboard panel</div>
+            <ul className="space-y-1">
+              <li className="flex items-start gap-2 text-pat-text-secondary"><span className="mt-1.5 w-1 h-1 rounded-full bg-pat-text-muted shrink-0" /><span><span className="font-mono text-pat-text-primary">PAT_ShowDashboard</span> (default true) — show the on-chart status panel.</span></li>
+              <li className="flex items-start gap-2 text-pat-text-secondary"><span className="mt-1.5 w-1 h-1 rounded-full bg-pat-text-muted shrink-0" /><span><span className="font-mono text-pat-text-primary">PAT_DashFontSize</span> (8, range 6–12) and <span className="font-mono text-pat-text-primary">PAT_DashRefreshMs</span> (400) — panel readability / CPU trade-off.</span></li>
+              <li className="flex items-start gap-2 text-pat-text-secondary"><span className="mt-1.5 w-1 h-1 rounded-full bg-pat-text-muted shrink-0" /><span>Panel controls: drag the header to move (position is remembered), click the header to collapse, press <span className="font-mono text-pat-text-primary">F</span> or the PAUSE button to halt/resume execution. The server keeps enforcing your plan either way.</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
       {/* Risk protection info */}
       <div className="rounded-xl border border-pat-warning/20 bg-pat-warning/5 p-5">
         <h2 className="text-sm font-semibold text-pat-text-primary mb-2 flex items-center gap-2">
@@ -412,8 +458,8 @@ export default function UserMtClientPage() {
           <div>• Your EA authenticates with a per-device credential set derived from your license key — one device = one binding.</div>
           <div>• Signals are delivered ONLY for strategies your subscription plan allows (enforced server-side at enqueue and again at poll time).</div>
           <div>• Non-executable signals (advisory, gate-blocked) are never delivered to your EA — fail-closed delivery.</div>
-          <div>• Capital protection: 5% daily loss limit, 1% per-trade risk, partial TP (50/30/20), server-enforced stop-loss.</div>
-          <div>• Swap and slippage protection per strategy.</div>
+          <div>• Capital protection: daily loss limits, per-trade risk cap, partial TP ladder, server-enforced stop-loss.</div>
+          <div>• Swap, slippage and rollover protection per strategy.</div>
         </div>
       </div>
     </div>
