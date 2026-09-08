@@ -481,6 +481,13 @@ export class LicensingService {
         [existing.rows[0].id, planId, JSON.stringify(p.allowed_strategies || []), subscriptionId],
       );
       await this.logLicenseEvent(existing.rows[0].id, 'ACTIVATED', `auto-reactivated: subscription ${planCode} payment settled`);
+      await this.pool.query(
+        `UPDATE licensing.devices
+            SET revoked_at = NULL, revocation_reason = NULL,
+                connection_status = 'OFFLINE', updated_at = now()
+          WHERE bound_license_id = $1 AND revoked_at IS NOT NULL`,
+        [existing.rows[0].id],
+      );
       return { license: r.rows[0], action: 'reactivated' };
     }
 
@@ -566,6 +573,17 @@ export class LicensingService {
        cur.rows[0].allowed_strategies ? JSON.stringify(cur.rows[0].allowed_strategies) : null],
     );
     await this.logLicenseEvent(id, 'ACTIVATED', reason || 'Admin activated');
+    // Un-revoke devices bound to this license: license activation is a clean
+    // re-enable, so revoked devices (e.g. from an earlier force-logout) must
+    // not keep blocking edge-poll entitlement checks. Devices re-authenticate
+    // on the EA's next poll/activation.
+    await this.pool.query(
+      `UPDATE licensing.devices
+          SET revoked_at = NULL, revocation_reason = NULL,
+              connection_status = 'OFFLINE', updated_at = now()
+        WHERE bound_license_id = $1 AND revoked_at IS NOT NULL`,
+      [id],
+    );
     return r.rows[0];
   }
 
