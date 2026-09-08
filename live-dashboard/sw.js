@@ -1,5 +1,5 @@
 // Predict-A-Trade Service Worker v14 — cache-busting fix
-var CACHE_NAME = 'pat-dashboard-v36';
+var CACHE_NAME = 'pat-dashboard-v37';
 var STATIC_ASSETS = [
   '/echarts.min.js',
   '/manifest.json',
@@ -45,6 +45,8 @@ self.addEventListener('fetch', function(e) {
   
   // Skip WebSocket
   if (e.request.url.indexOf('ws://') === 0 || e.request.url.indexOf('wss://') === 0) return;
+  // Skip the service worker script itself (iOS/Safari fails registration when intercepted)
+  if (url.pathname === '/sw.js') return;
   
   // Skip API requests — always go to network
   if (url.pathname.indexOf('/api/') === 0) return;

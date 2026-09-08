@@ -611,7 +611,10 @@ canvas{max-width:100%;height:auto !important}
     <div class="live-pill pill-off" id="livePill">● OFFLINE</div>
     <div class="preview-pill hidden" id="previewPill" style="display:none">FREE LIVE PREVIEW · --:--</div>
     <button class="theme-toggle" id="themeToggle" title="Toggle Light / Dark Theme">🌙</button>
+    <button class="theme-toggle" id="pwaInstallBtn" title="Install app on your phone" style="display:none">⤓ Install</button>
+    <a href="https://platform.predictatrade.com/register?source=LIVE_TERMINAL_NAV&redirect=live" target="_blank" rel="noopener" style="color:#e8b873;text-decoration:none;font:700 11px/1 var(--sans);border:1px solid rgba(232,184,115,.3);padding:7px 11px;border-radius:999px;white-space:nowrap">Start free</a>
   </header>
+  <div id="iosHint" class="hidden" style="display:none;position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:2147483000;background:#131a28;border:1px solid #2a3548;color:#c5cad6;font:600 12px/1.4 var(--sans);padding:10px 14px;border-radius:12px;max-width:88vw;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.5)">Install this terminal: tap <b>Share</b> <span style="opacity:.7">⎋</span> then <b>Add to Home Screen</b>. <button onclick="document.getElementById('iosHint').style.display='none'" style="margin-left:8px;background:none;border:none;color:#e8b873;font:700 12px var(--sans);cursor:pointer">Got it</button></div>
 
   <div id="newsStrip">
     <span class="news-label">NEWS:</span>
@@ -2206,6 +2209,30 @@ window.addEventListener("resize", () => {
 new ResizeObserver(() => chart.resize()).observe($("priceChart"));
 
 /* ── PWA service worker registration ── */
+/* ── PWA install (Android/desktop Chrome: native prompt; iOS: hint banner) ── */
+(function(){
+  var deferred = null, btn = document.getElementById("pwaInstallBtn"), hint = document.getElementById("iosHint");
+  var isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  var standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  if (standalone) return; // already installed
+  window.addEventListener("beforeinstallprompt", function(e){
+    e.preventDefault(); deferred = e;
+    if (btn) btn.style.display = "";
+  });
+  if (btn) btn.addEventListener("click", function(){
+    if (!deferred) return;
+    deferred.prompt();
+    deferred.userChoice.finally(function(){ deferred = null; btn.style.display = "none"; });
+  });
+  // iOS: no beforeinstallprompt — show the Add-to-Home-Screen hint once
+  if (isIOS && hint) {
+    try {
+      if (!localStorage.getItem("pat_ios_hint_seen")) {
+        setTimeout(function(){ hint.style.display = "block"; localStorage.setItem("pat_ios_hint_seen","1"); }, 4000);
+      }
+    } catch(e) { setTimeout(function(){ hint.style.display = "block"; }, 4000); }
+  }
+})();
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
