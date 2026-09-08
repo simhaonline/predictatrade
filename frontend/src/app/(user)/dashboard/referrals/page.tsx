@@ -46,7 +46,10 @@ export default function UserReferralsPage() {
   });
 
   const referralCode = referralData?.code || "";
-  const signupUrl = referralCode ? `https://predictatrade.com/register?ref=${referralCode}` : "";
+  // The app (with the /register route that reads ?ref=) lives on the platform
+  // subdomain. predictatrade.com is the Plesk-hosted marketing site and has
+  // no /register route — linking there 404s (user-reported referral 404).
+  const signupUrl = referralCode ? `https://platform.predictatrade.com/register?ref=${referralCode}` : "";
 
   const copyCode = () => {
     if (!referralCode) return;
