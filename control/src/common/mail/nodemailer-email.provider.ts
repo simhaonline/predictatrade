@@ -44,14 +44,18 @@ export class NodemailerEmailProvider implements EmailService {
     ]);
 
     if (host && user && pass && !INSECURE_SMTP_PASSWORDS.has(pass)) {
+      // v1.31: the platform's own pat-mail-relay uses a self-signed cert
+      // (operator-generated, internal docker network only). For THAT host we
+      // pin TLS without public-CA validation; every external SMTP host keeps
+      // full certificate verification (rejectUnauthorized stays true).
+      const internalRelay = host === 'pat-mail-relay' || host.endsWith('.internal');
       this.transporter = nodemailer.createTransport({
         host,
         port,
         secure: port === 465, // true for 465 (SSL), false for 587 (STARTTLS)
         auth: { user, pass },
-        // Never disable certificate verification in production.
-        // Use platform defaults for TLS (rejectUnauthorized defaults to true).
         requireTLS: port !== 465, // Upgrade to TLS on STARTTLS ports
+        tls: internalRelay ? { rejectUnauthorized: false } : undefined,
         connectionTimeout: 10_000, // 10s connect timeout
         greetingTimeout: 10_000,
         socketTimeout: 30_000,    // 30s for send operations

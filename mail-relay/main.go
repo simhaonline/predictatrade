@@ -95,7 +95,13 @@ func loadConfig() Config {
 	}
 }
 
-func envOr(k, def string) string { return strings.TrimSpace(os.Getenv(k)) }
+func envOr(k, def string) string {
+	v := strings.TrimSpace(os.Getenv(k))
+	if v == "" {
+		return def
+	}
+	return v
+}
 
 type Message struct {
 	ID        int64
@@ -169,7 +175,22 @@ func main() {
 	if err != nil {
 		log.Fatalf("spool: %v", err)
 	}
-	srv := &Server{cfg: cfg, store: store}
+	// v1.1: STARTTLS on the submission port. Cert/key default to the mounted
+	// /etc/pat-mail/tls.{crt,key} (self-signed by the operator). Without a
+	// cert the relay cannot offer STARTTLS, and modern clients configured
+	// with requireTLS (the control plane's nodemailer) fail every send with
+	// "502 command not implemented" — which silently killed all
+	// password-reset email since 2026-08-29.
+	var tlsCfg *tls.Config
+	certPath := envOr("PAT_MAIL_CERT", "/etc/pat-mail/tls.crt")
+	keyPath := envOr("PAT_MAIL_KEY", "/etc/pat-mail/tls.key")
+	if cert, err := tls.LoadX509KeyPair(certPath, keyPath); err == nil {
+		tlsCfg = &tls.Config{Certificates: []tls.Certificate{cert}}
+		log.Printf("pat-mail: STARTTLS enabled (cert %s)", certPath)
+	} else {
+		log.Printf("pat-mail: WARNING no TLS cert (%v) — STARTTLS disabled, AUTH PLAIN sent in clear text", err)
+	}
+	srv := &Server{cfg: cfg, store: store, tlsConfig: tlsCfg}
 	log.Printf("pat-mail: domain=%s listening submission=%s tls=%s allowed_from=%v",
 		cfg.MailDomain, cfg.Listen, cfg.TLSListen, cfg.AllowedFrom)
 	// Outbound delivery worker
@@ -189,8 +210,9 @@ func main() {
 }
 
 type Server struct {
-	cfg   Config
-	store *Store
+	cfg        Config
+	store      *Store
+	tlsConfig  *tls.Config // non-nil → STARTTLS advertised on submission port
 }
 
 // ---------------------------------------------------------------------------
@@ -303,11 +325,19 @@ func (sv *Server) deliveryLoop() {
 // STARTTLS advertised when a cert is present (PAT_MAIL_CERT/PAT_MAIL_KEY).
 // ---------------------------------------------------------------------------
 func (sv *Server) handleSubmission(conn net.Conn, implicitTLS bool) {
+	sv.handleSubmissionConn(conn, implicitTLS, true)
+}
+
+// sessionStarted: after STARTTLS the session continues on the TLS connection
+// WITHOUT a new 220 greeting (RFC 3207) — only the initial connection greets.
+func (sv *Server) handleSubmissionConn(conn net.Conn, implicitTLS bool, sendGreeting bool) {
 	defer conn.Close()
 	w := func(format string, args ...interface{}) {
 		fmt.Fprintf(conn, format+"\r\n", args...)
 	}
-	w("220 %s ESMTP pat-mail ready", sv.cfg.MailDomain)
+	if sendGreeting {
+		w("220 %s ESMTP pat-mail ready", sv.cfg.MailDomain)
+	}
 
 	var (
 		authed string
@@ -385,7 +415,24 @@ func (sv *Server) handleSubmission(conn net.Conn, implicitTLS bool) {
 			w("250-%s greets you", sv.cfg.MailDomain)
 			w("250-AUTH PLAIN LOGIN")
 			w("250-SIZE 10485760")
+			if sv.tlsConfig != nil {
+				w("250-STARTTLS")
+			}
 			w("250 8BITMIME")
+		case strings.HasPrefix(cmd, "STARTTLS"):
+			if sv.tlsConfig == nil {
+				w("502 command not implemented")
+				continue
+			}
+			w("220 Ready to start TLS")
+			tlsConn := tls.Server(conn, sv.tlsConfig)
+			if err := tlsConn.Handshake(); err != nil {
+				return
+			}
+			// RFC 3207: reset ALL state (from, rcpts, buf, authed) and continue
+			// the session on the TLS connection — no new greeting.
+			sv.handleSubmissionConn(tlsConn, implicitTLS, false)
+			return
 		case strings.HasPrefix(cmd, "AUTH "):
 			parts := strings.Fields(cmd)
 			if len(parts) < 2 {
