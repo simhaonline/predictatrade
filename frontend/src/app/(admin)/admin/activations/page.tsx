@@ -74,7 +74,7 @@ export default function AdminActivationsPage() {
         <h1 className="text-xl font-bold text-pat-text-primary">Activations</h1>
         <p className="text-sm text-pat-text-secondary mt-1">Active device sessions and activation management.</p>
       </div>
-      <DataTable data={data?.items || []} columns={columns} loading={isLoading} error={error as Error | null} onRetry={refetch} />
+      <DataTable data={data?.items || []} pageSize={20} hidePager columns={columns} loading={isLoading} error={error as Error | null} onRetry={refetch} />
     </div>
   );
 }

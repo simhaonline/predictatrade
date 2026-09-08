@@ -139,7 +139,7 @@ export default function AdminUsersPage() {
         <div className="text-sm text-pat-text-muted">Total: <span className="font-semibold text-pat-text-primary">{total}</span> users</div>
       </div>
 
-      <DataTable data={users} columns={columns} loading={isLoading} error={error as Error | null} onRetry={refetch} />
+      <DataTable data={users} columns={columns} loading={isLoading} error={error as Error | null} onRetry={refetch} pageSize={limit} hidePager />
 
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2 pt-2">

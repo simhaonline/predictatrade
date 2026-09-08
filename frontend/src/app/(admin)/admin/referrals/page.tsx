@@ -175,7 +175,7 @@ export default function AdminReferralsPage() {
 
       {tab === "commissions" && (
         <>
-          <DataTable data={commissionsQ.data?.items ?? []} columns={commissionCols} loading={commissionsQ.isLoading} error={commissionsQ.error as Error | null} onRetry={() => commissionsQ.refetch()} />
+          <DataTable data={commissionsQ.data?.items ?? []} pageSize={20} hidePager columns={commissionCols} loading={commissionsQ.isLoading} error={commissionsQ.error as Error | null} onRetry={() => commissionsQ.refetch()} />
           {totalPages > 20 && (
             <div className="flex items-center justify-center gap-2 pt-2">
               <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary hover:bg-pat-bg-surface-secondary rounded disabled:opacity-30">Previous</button>
@@ -188,7 +188,7 @@ export default function AdminReferralsPage() {
 
       {tab === "payouts" && (
         <>
-          <DataTable data={payoutsQ.data?.items ?? []} columns={payoutCols} loading={payoutsQ.isLoading} error={payoutsQ.error as Error | null} onRetry={() => payoutsQ.refetch()} />
+          <DataTable data={payoutsQ.data?.items ?? []} pageSize={20} hidePager columns={payoutCols} loading={payoutsQ.isLoading} error={payoutsQ.error as Error | null} onRetry={() => payoutsQ.refetch()} />
           {totalPages > 20 && (
             <div className="flex items-center justify-center gap-2 pt-2">
               <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary hover:bg-pat-bg-surface-secondary rounded disabled:opacity-30">Previous</button>

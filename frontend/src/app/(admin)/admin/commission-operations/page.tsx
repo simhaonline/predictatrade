@@ -180,7 +180,7 @@ export default function AdminCommissionOperationsPage() {
         </p>
       </div>
 
-      <DataTable data={ledgerQ.data?.items ?? []} columns={cols} loading={ledgerQ.isLoading} error={ledgerQ.error as Error | null} onRetry={() => ledgerQ.refetch()} />
+      <DataTable data={ledgerQ.data?.items ?? []} pageSize={20} hidePager columns={cols} loading={ledgerQ.isLoading} error={ledgerQ.error as Error | null} onRetry={() => ledgerQ.refetch()} />
 
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2 pt-2">

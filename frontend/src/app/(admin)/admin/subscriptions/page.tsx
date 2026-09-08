@@ -200,7 +200,7 @@ export default function AdminSubscriptionsPage() {
               <strong>INCOMPLETE</strong> means provisioning/billing-webhook did not complete (e.g. payment confirmed out-of-band or entitlement already granted via an ACTIVE license). Use <em>Complete</em> to reconcile it to ACTIVE — this is recorded in the audit log and never rewrites history.
             </DegradedNote>
           )}
-          <DataTable data={subsQ.data?.items || []} columns={subsCols} loading={subsQ.isLoading} error={subsQ.error as Error | null} onRetry={() => subsQ.refetch()} />
+          <DataTable data={subsQ.data?.items || []} pageSize={20} hidePager columns={subsCols} loading={subsQ.isLoading} error={subsQ.error as Error | null} onRetry={() => subsQ.refetch()} />
         </>
       )}
 
@@ -219,7 +219,7 @@ export default function AdminSubscriptionsPage() {
         ) : (paymentsQ.data?.items?.length ?? 0) === 0 ? (
           <DegradedNote>No payments recorded.</DegradedNote>
         ) : (
-          <DataTable data={paymentsQ.data?.items || []} columns={paymentsCols} loading={false} error={null} onRetry={() => paymentsQ.refetch()} />
+          <DataTable data={paymentsQ.data?.items || []} pageSize={20} hidePager columns={paymentsCols} loading={false} error={null} onRetry={() => paymentsQ.refetch()} />
         )
       )}
 

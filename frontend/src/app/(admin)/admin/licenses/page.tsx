@@ -154,7 +154,7 @@ export default function AdminLicensesPage() {
         {selected && <span className="text-xs text-pat-text-muted self-center">Selected: {selected.user_email}</span>}
       </div>
 
-      <DataTable data={data?.items || []} columns={columns} loading={isLoading} error={error as Error|null} onRetry={refetch} />
+      <DataTable data={data?.items || []} pageSize={20} hidePager columns={columns} loading={isLoading} error={error as Error|null} onRetry={refetch} />
 
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2 pt-2">

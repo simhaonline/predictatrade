@@ -94,7 +94,7 @@ export default function AdminLogsPage() {
       </div>
       <p className="text-[11px] text-pat-text-muted">Client-side filtering over the currently loaded page. Server-side search/filter is pending backend support — full-history search is not yet available.</p>
 
-      <DataTable data={filtered} columns={columns} loading={isLoading} error={error as Error|null} onRetry={refetch} />
+      <DataTable data={filtered} pageSize={20} columns={columns} loading={isLoading} error={error as Error|null} onRetry={refetch} />
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2 pt-2">
           <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary rounded disabled:opacity-30">Previous</button>

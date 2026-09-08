@@ -1,14 +1,15 @@
-"use client";
-
-import { IconChevronLeft, IconChevronRight, IconChevronsLeft, IconChevronsRight, IconChevronUp, IconChevronDown, IconArrowsUpDown } from "@tabler/icons-react";
 import React from "react";
+import {
+  IconArrowsUpDown, IconChevronDown, IconChevronUp,
+  IconChevronLeft, IconChevronRight, IconChevronsLeft, IconChevronsRight,
+} from "@tabler/icons-react";
 
 export interface DataTableColumn<T> {
   key: string;
-  header: string;
-  cell: (row: T) => React.ReactNode;
+  header: React.ReactNode;
   sortable?: boolean;
   sortFn?: (a: T, b: T) => number;
+  cell: (row: T) => React.ReactNode;
 }
 
 interface DataTableProps<T> {
@@ -17,13 +18,25 @@ interface DataTableProps<T> {
   loading?: boolean;
   error?: Error | null;
   onRetry?: () => void;
+  /** Rows per table page. When the parent feeds a server-paginated slice,
+   *  set this to the server limit so the footer reflects the real page.
+   *  Default 10 for client-side tables. */
+  pageSize?: number;
+  /** Hide the built-in pager when the parent renders its own server pager. */
+  hidePager?: boolean;
 }
 
-export default function DataTable<T>({ data, columns, loading, error, onRetry }: DataTableProps<T>) {
+export default function DataTable<T>({ data, columns, loading, error, onRetry, pageSize = 10, hidePager = false }: DataTableProps<T>) {
   const [page, setPage] = React.useState(0);
   const [sortKey, setSortKey] = React.useState<string | null>(null);
   const [sortDir, setSortDir] = React.useState<"asc" | "desc">("desc");
-  const pageSize = 10;
+
+  // Keep the internal page in range when the data slice shrinks (e.g. the
+  // parent's server page changed) — otherwise the table can render empty.
+  React.useEffect(() => {
+    const maxPage = Math.max(0, Math.ceil((data?.length ?? 0) / pageSize) - 1);
+    if (page > maxPage) setPage(maxPage);
+  }, [data, pageSize, page]);
 
   const sorted = React.useMemo(() => {
     if (!sortKey || !data) return data || [];
@@ -72,10 +85,9 @@ export default function DataTable<T>({ data, columns, loading, error, onRetry }:
   if (error) {
     return (
       <div className="text-center py-12 border border-pat-table-border rounded-lg bg-pat-bg-surface/50">
-        <div className="text-pat-danger text-sm mb-2">Failed to load data</div>
-        <div className="text-pat-text-muted text-xs mb-4">{error.message}</div>
+        <div className="text-sm text-pat-danger mb-2">Failed to load data</div>
         {onRetry && (
-          <button onClick={onRetry} className="text-xs bg-pat-bg-surface-secondary hover:bg-pat-bg-surface-secondary px-3 py-1.5 rounded transition-colors">
+          <button onClick={onRetry} className="text-xs px-3 py-1.5 rounded border border-pat-border bg-pat-bg-surface-secondary hover:bg-pat-bg-surface transition-colors text-pat-text-secondary">
             Retry
           </button>
         )}
@@ -83,16 +95,8 @@ export default function DataTable<T>({ data, columns, loading, error, onRetry }:
     );
   }
 
-  if (!data?.length) {
-    return (
-      <div className="text-center py-12 border border-pat-table-border rounded-lg bg-pat-bg-surface/50">
-        <div className="text-pat-text-muted text-sm">No data found</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="overflow-x-auto border border-pat-table-border rounded-lg">
         <table className="w-full text-sm text-left">
           <thead className="bg-pat-bg-surface text-pat-text-secondary uppercase text-xs">
@@ -138,28 +142,30 @@ export default function DataTable<T>({ data, columns, loading, error, onRetry }:
         </table>
       </div>
 
-      <div className="flex items-center justify-between text-xs text-pat-text-secondary">
-        <div>
-          Showing {Math.min(sorted.length, page * pageSize + 1)} to{" "}
-          {Math.min((page + 1) * pageSize, sorted.length)} of{" "}
-          {sorted.length} entries
+      {!hidePager && (
+        <div className="flex items-center justify-between text-xs text-pat-text-secondary">
+          <div>
+            Showing {Math.min(sorted.length, page * pageSize + 1)} to{" "}
+            {Math.min((page + 1) * pageSize, sorted.length)} of{" "}
+            {sorted.length} entries
+          </div>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setPage(0)} disabled={page <= 0} className="p-1 rounded hover:bg-pat-bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed">
+              <IconChevronsLeft size={16} />
+            </button>
+            <button onClick={() => setPage(p => p - 1)} disabled={page <= 0} className="p-1 rounded hover:bg-pat-bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed">
+              <IconChevronLeft size={16} />
+            </button>
+            <span className="px-2">Page {page + 1} of {totalPages}</span>
+            <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1} className="p-1 rounded hover:bg-pat-bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed">
+              <IconChevronRight size={16} />
+            </button>
+            <button onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} className="p-1 rounded hover:bg-pat-bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed">
+              <IconChevronsRight size={16} />
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
-          <button onClick={() => setPage(0)} disabled={page <= 0} className="p-1 rounded hover:bg-pat-bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed">
-            <IconChevronsLeft size={16} />
-          </button>
-          <button onClick={() => setPage(p => p - 1)} disabled={page <= 0} className="p-1 rounded hover:bg-pat-bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed">
-            <IconChevronLeft size={16} />
-          </button>
-          <span className="px-2">Page {page + 1} of {totalPages}</span>
-          <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1} className="p-1 rounded hover:bg-pat-bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed">
-            <IconChevronRight size={16} />
-          </button>
-          <button onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} className="p-1 rounded hover:bg-pat-bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed">
-            <IconChevronsRight size={16} />
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
