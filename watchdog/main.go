@@ -63,7 +63,18 @@ type Config struct {
 	CrashLoopMax       int64         // RestartCount delta within window considered crash-loop
 	StoppedGrace       time.Duration // a container may be restarting/exited briefly; grace before acting
 	TickDegradeGrace   time.Duration // allow grace outside market hours before acting on staleness
+	DiskMaxUsedPct     int           // alert when any monitored volume exceeds this usage
+	DiskProbes         []diskProbe   // container:path pairs — df runs inside the container
+	RunbookBase        string        // base URL for runbook links in alert bodies
 	dockerCli          string
+}
+
+// diskProbe names where to measure usage: df runs INSIDE the named container
+// at the given path, so the numbers reflect the host filesystem backing the
+// container's volume mount.
+type diskProbe struct {
+	Container string
+	Path      string
 }
 
 func loadConfig() *Config {
@@ -87,6 +98,9 @@ func loadConfig() *Config {
 		CrashLoopMax:      int64(intInt(getenv("CRASHLOOP_MAX", "3"))),
 		StoppedGrace:      dur(getenv("STOPPED_GRACE", "20s")),
 		TickDegradeGrace:  dur(getenv("TICK_DEGRADE_GRACE", "120s")),
+		DiskMaxUsedPct:    intInt(getenv("DISK_MAX_USED_PCT", "85")),
+		DiskProbes:        parseDiskProbes(getenv("DISK_PROBES", "pat-postgres:/var/lib/postgresql/data pat-backup-sync:/pgbackups xauusd-nginx-1:/var/log/nginx xauusd-nginx-1:/etc/letsencrypt")),
+		RunbookBase:       getenv("RUNBOOK_BASE", "https://docs.predictatrade.com/runbooks"),
 		Services: strings.Fields(getenv(
 			"SUPERVISED_SERVICES",
 			"postgres valkey realtime control control-b frontend live-terminal mail-relay backtest nats ntfy prometheus grafana status backup-sync nginx")),
@@ -277,7 +291,69 @@ func supervise(cfg *Config, state *watchState) []Finding {
 			}
 		}
 	}
+
+	// L5: disk usage on data-critical volumes (skill: disk >85% = warning).
+	// df runs INSIDE the probed container, so it measures the host filesystem
+	// backing that container's volume — correct even though the watchdog
+	// itself has no mounts on those volumes.
+	for _, dp := range cfg.DiskProbes {
+		if !svcRunning(cfg, svcFromCname(dp.Container)) {
+			continue // container down: L1 already covers it
+		}
+		pct, err := diskUsedPct(cfg, dp)
+		if err != nil {
+			log.Printf("[watchdog] disk probe %s:%s failed: %v", dp.Container, dp.Path, err)
+			continue
+		}
+		if pct >= cfg.DiskMaxUsedPct {
+			findings = append(findings, Finding{Kind: "DISK_HIGH", Service: "disk",
+				Detail: fmt.Sprintf("%s:%s at %d%% used (threshold %d%%)", dp.Container, dp.Path, pct, cfg.DiskMaxUsedPct)})
+		}
+	}
 	return findings
+}
+
+// svcFromCname maps a container name back to its compose service key.
+func svcFromCname(cname string) string {
+	if cname == "xauusd-nginx-1" {
+		return "nginx"
+	}
+	return strings.TrimPrefix(cname, "pat-")
+}
+
+// parseDiskProbes parses "container:path container:path ..." pairs.
+func parseDiskProbes(s string) []diskProbe {
+	var probes []diskProbe
+	for _, tok := range strings.Fields(s) {
+		parts := strings.SplitN(tok, ":", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			continue
+		}
+		probes = append(probes, diskProbe{Container: parts[0], Path: parts[1]})
+	}
+	return probes
+}
+
+// diskUsedPct returns used-percent for the filesystem containing dp.Path,
+// measured inside dp.Container with `df -P` (POSIX, unambiguous columns).
+func diskUsedPct(cfg *Config, dp diskProbe) (int, error) {
+	out, err := docker("exec", dp.Container, "df", "-P", dp.Path)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %s", err, strings.TrimSpace(out))
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) < 2 {
+		return 0, fmt.Errorf("df output %q", strings.TrimSpace(out))
+	}
+	fields := strings.Fields(lines[len(lines)-1])
+	if len(fields) < 5 {
+		return 0, fmt.Errorf("df fields %q", lines[len(lines)-1])
+	}
+	var pct int
+	if _, err := fmt.Sscanf(fields[4], "%d%%", &pct); err != nil {
+		return 0, fmt.Errorf("df use%% %q", fields[4])
+	}
+	return pct, nil
 }
 
 func pgRunning(cfg *Config) bool {
@@ -460,67 +536,89 @@ func runOnce(cfg *Config, state *watchState) {
 	findings := supervise(cfg, state)
 
 	var actions []string
-	var alerts []string
+	var alerts []string // formatted per alerting-notifications skill
 	for _, f := range findings {
 		line := fmt.Sprintf("[%s] %s: %s", f.Kind, f.Service, f.Detail)
 		log.Println(line)
+		summary := f.Service + " - " + f.Detail
+		runbook := runbookFor(cfg, f)
+		body := fmt.Sprintf("timestamp: %s\nmetric: %s\nthreshold: see detail\naction: %s\nrunbook: %s",
+			now.Format(time.RFC3339), f.Kind, remediationFor(f), runbook)
 		switch f.Kind {
 		case "OK":
 			state.consecRest[f.Service] = 0
 			continue
 		case "CRASHLOOP":
-			alerts = append(alerts, "critical | "+line+" | auto-restart suppressed (restart policy churning) — manual intervention required")
-		case "CONTAINER_DOWN":
+			alerts = append(alerts, fmt.Sprintf("[CRITICAL] %s\n%s", summary, body))
+		case "CONTAINER_DOWN", "UNHEALTHY", "TICKS_STALE":
 			if res, manual := remediate(cfg, f, state, now); res != "" {
 				if manual {
-					alerts = append(alerts, "critical | "+line+" | "+res)
+					alerts = append(alerts, fmt.Sprintf("[CRITICAL] %s\n%s", summary, body))
 				} else {
 					actions = append(actions, line+" → "+res)
 				}
+			} else if f.Kind == "TICKS_STALE" {
+				// Cooldown-suppressed staleness is still worth a warning.
+				alerts = append(alerts, fmt.Sprintf("[WARNING] %s\n%s", summary, body))
 			}
-		case "UNHEALTHY":
-			if res, manual := remediate(cfg, f, state, now); res != "" {
-				if manual {
-					alerts = append(alerts, "critical | "+line+" | "+res)
-				} else {
-					actions = append(actions, line+" → "+res)
-				}
-			}
-		case "TICKS_STALE":
-			if res, manual := remediate(cfg, f, state, now); res != "" {
-				if manual {
-					alerts = append(alerts, "critical | "+line+" | "+res)
-				} else {
-					actions = append(actions, line+" → "+res)
-				}
-			} else {
-				// Even when suppressed by cooldown, staleness is worth a warning.
-				alerts = append(alerts, "warning | "+line)
-			}
-		case "HEALTH_DEGRADED":
-			alerts = append(alerts, "warning | "+line)
+		case "DISK_HIGH", "HEALTH_DEGRADED":
+			alerts = append(alerts, fmt.Sprintf("[WARNING] %s\n%s", summary, body))
 		}
 	}
 
 	if len(actions) > 0 {
 		sort.Strings(actions)
 		log.Printf("[watchdog] REMEDIATION: %s", strings.Join(actions, " ;; "))
-		notify(cfg, "high", "PAT self-healing action taken", strings.Join(actions, "\n"))
+		notify(cfg, "high", "[HIGH] Watchdog - Self-healing action taken",
+			fmt.Sprintf("timestamp: %s\naction: %s\nrunbook: %s/stack-restart",
+				now.Format(time.RFC3339), strings.Join(actions, "\n"), cfg.RunbookBase))
 	}
 	if len(alerts) > 0 {
 		sort.Strings(alerts)
 		log.Printf("[watchdog] ALERT: %s", strings.Join(alerts, " ;; "))
 		sev := "high"
 		for _, a := range alerts {
-			if strings.HasPrefix(a, "critical") {
+			if strings.HasPrefix(a, "[CRITICAL]") {
 				sev = "urgent"
 				break
 			}
 		}
-		notify(cfg, sev, "PAT stack needs attention", strings.Join(alerts, "\n"))
+		notify(cfg, sev, "[SEVERITY] Stack - Needs attention", strings.Join(alerts, "\n\n"))
 	}
 	if len(findings) == 0 {
 		log.Printf("[watchdog] all %d services green", len(cfg.Services))
 	}
 	_ = sql.ErrNoRows // keep import if unused later
+}
+
+// remediationFor describes what the watchdog does (or did) for this finding.
+func remediationFor(f Finding) string {
+	switch f.Kind {
+	case "CONTAINER_DOWN":
+		return "docker start " + cnameFor(f.Service) + " (auto)"
+	case "UNHEALTHY", "TICKS_STALE":
+		return "docker restart " + cnameFor(f.Service) + " after cooldown (auto)"
+	case "CRASHLOOP":
+		return "manual intervention required — restart policy churning"
+	case "DISK_HIGH":
+		return "free space or extend volume; check backup-sync retention"
+	default:
+		return "monitor; escalate if persistent"
+	}
+}
+
+// runbookFor maps findings to runbook docs (docs/runbooks/*).
+func runbookFor(cfg *Config, f Finding) string {
+	switch f.Kind {
+	case "CONTAINER_DOWN", "CRASHLOOP":
+		return cfg.RunbookBase + "/stack-restart"
+	case "TICKS_STALE":
+		return cfg.RunbookBase + "/mt-connectivity-502"
+	case "UNHEALTHY":
+		return cfg.RunbookBase + "/edge-poll-429"
+	case "DISK_HIGH":
+		return cfg.RunbookBase + "/disk-pressure"
+	default:
+		return cfg.RunbookBase
+	}
 }
