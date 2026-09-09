@@ -5,9 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
+	"strings"
 	"time"
 )
+
+// escapeHTML escapes Telegram HTML special characters (&, <, > per Bot API).
+func escapeHTML(s string) string { return html.EscapeString(s) }
 
 // TelegramProvider sends notifications via Telegram Bot API.
 type TelegramProvider struct {
@@ -34,12 +39,13 @@ func (t *TelegramProvider) Send(ctx context.Context, n *Notification) error {
 		return fmt.Errorf("telegram provider not initialized")
 	}
 
-	text := fmt.Sprintf("🔔 *%s*\n\n%s\n\n`%s`", n.Title, n.Message, n.EventType)
+	text := fmt.Sprintf("🔔 <b>[%s] %s</b>\n\n%s\n\n<code>%s</code>", escapeHTML(strings.ToUpper(n.Severity)), escapeHTML(n.Title), escapeHTML(n.Message), escapeHTML(string(n.EventType)))
 
 	payload := map[string]interface{}{
-		"chat_id":    t.chatID,
-		"text":       text,
-		"parse_mode": "Markdown",
+		"chat_id":                t.chatID,
+		"text":                   text,
+		"parse_mode":             "HTML",
+		"disable_web_page_preview": true,
 	}
 	body, _ := json.Marshal(payload)
 

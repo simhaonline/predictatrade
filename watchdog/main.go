@@ -23,9 +23,11 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net/http"
@@ -35,6 +37,9 @@ import (
 	"strings"
 	"time"
 )
+
+// escapeHTML escapes Telegram HTML special characters (&, <, > per Bot API).
+func escapeHTML(s string) string { return html.EscapeString(s) }
 
 // ─── Configuration (env) ────────────────────────────────────────────────────
 
@@ -54,6 +59,12 @@ type Config struct {
 	NtfyURL    string // e.g. http://ntfy:80
 	NtfyTopic  string
 	NtfyToken  string
+
+	// Multi-channel alert mirrors (all optional — empty = disabled)
+	TelegramBotToken  string
+	TelegramChatID    string
+	DiscordWebhookURL string
+
 	SysLoadAvg bool // reserved
 
 	// Remediation tuning
@@ -92,6 +103,9 @@ func loadConfig() *Config {
 		NtfyURL:           getenv("NTFY_URL", "http://ntfy:80"),
 		NtfyTopic:         getenv("NTFY_TOPIC", "predictatrade-alerts"),
 		NtfyToken:         os.Getenv("NTFY_ACCESS_TOKEN"),
+		TelegramBotToken:  os.Getenv("TELEGRAM_BOT_TOKEN"),
+		TelegramChatID:    os.Getenv("TELEGRAM_CHAT_ID"),
+		DiscordWebhookURL: os.Getenv("DISCORD_WEBHOOK_URL"),
 		RestartCooldown:   dur(getenv("RESTART_COOLDOWN", "300s")),
 		MaxConsecRestarts: intInt(getenv("MAX_CONSEC_RESTARTS", "3")),
 		CrashLoopWindow:   dur(getenv("CRASHLOOP_WINDOW", "600s")),
@@ -472,11 +486,49 @@ func cnameFor(svc string) string {
 	return "pat-" + svc
 }
 
-// ─── Notification (ntfy) ────────────────────────────────────────────────────
+// ─── Notification fan-out (ntfy + Telegram + Discord) ──────────────────────
+// Mirrors every watchdog alert to all configured channels; a failure in one
+// channel never blocks the others (alerting must not have a SPOF).
+
+type telegramPayload struct {
+	ChatID                string `json:"chat_id"`
+	Text                  string `json:"text"`
+	ParseMode             string `json:"parse_mode"`
+	DisableWebPagePreview bool   `json:"disable_web_page_preview"`
+}
+
+type discordPayload struct {
+	Content string `json:"content"`
+}
+
+func postJSON(url string, token string, body interface{}) error {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest("POST", url, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
+	return nil
+}
 
 func notify(cfg *Config, sev, title, body string) {
+	// 1) ntfy (primary — mobile push)
 	go func() {
-		client := &http.Client{Timeout: 10 * time.Second}
 		payload, _ := json.Marshal(map[string]string{
 			"topic":    cfg.NtfyTopic,
 			"title":    title,
@@ -489,13 +541,36 @@ func notify(cfg *Config, sev, title, body string) {
 		if cfg.NtfyToken != "" {
 			req.Header.Set("Authorization", "Bearer "+cfg.NtfyToken)
 		}
-		resp, err := client.Do(req)
+		resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
 		if err != nil {
 			log.Printf("[watchdog] ntfy publish failed: %v", err)
 			return
 		}
 		resp.Body.Close()
 	}()
+	// 2) Telegram mirror (operational group chat)
+	if cfg.TelegramBotToken != "" && cfg.TelegramChatID != "" {
+		go func() {
+			text := fmt.Sprintf("🚨 <b>%s</b>\n\n<pre>%s</pre>", escapeHTML(title), escapeHTML(body))
+			if err := postJSON(
+				fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", cfg.TelegramBotToken),
+				"",
+				telegramPayload{ChatID: cfg.TelegramChatID, Text: text, ParseMode: "HTML", DisableWebPagePreview: true},
+			); err != nil {
+				log.Printf("[watchdog] telegram publish failed: %v", err)
+			}
+		}()
+	}
+	// 3) Discord mirror (ops webhook — no token, no bot needed)
+	if cfg.DiscordWebhookURL != "" {
+		go func() {
+			if err := postJSON(cfg.DiscordWebhookURL, "", discordPayload{
+				Content: fmt.Sprintf("**%s**\n```%s```", title, body),
+			}); err != nil {
+				log.Printf("[watchdog] discord publish failed: %v", err)
+			}
+		}()
+	}
 }
 
 func mapSevTag(sev string) string {

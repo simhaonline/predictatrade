@@ -1107,6 +1107,18 @@ func main() {
 				log.Info().Str("server", cfg.NtfyServerURL).Str("topic", cfg.NtfyTopic).Msg("ntfy push notifications enabled")
 			}
 		}
+		// Telegram mirror of operational alerts (same fan-out as ntfy).
+		// Flag-gated (NOTIFICATION_TELEGRAM_ENABLED) + credential-gated.
+		if cfg.NotifyTelegramEnabled && cfg.TelegramBotToken != "" && cfg.TelegramChatID != "" {
+			if notifMgr == nil {
+				notifMgr = notifications.NewManager(notifCfg)
+			}
+			notifCfg.TelegramEnabled = true
+			if p := notifications.NewTelegramProvider(cfg.TelegramBotToken, cfg.TelegramChatID); p != nil {
+				notifMgr.RegisterProvider(p)
+				log.Info().Msg("telegram operational notifications enabled")
+			}
+		}
 	}
 	enqueueNotification := func(eventType notifications.EventType, severity, title, message string) {
 		if notifMgr == nil {

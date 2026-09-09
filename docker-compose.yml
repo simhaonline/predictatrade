@@ -494,6 +494,10 @@ services:
       - STOPPED_GRACE=20s
       - TICK_DEGRADE_GRACE=120s
       - NTFY_URL=http://ntfy:80
+      # Multi-channel alert mirrors (optional — leave empty to disable)
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
     volumes:
       # Control the host Docker daemon (start/restart/compose on any container)
       - /var/run/docker.sock:/var/run/docker.sock
