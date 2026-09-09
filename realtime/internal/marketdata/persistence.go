@@ -38,7 +38,24 @@ func NewPersister(dbURL string) (*Persister, error) {
 func (p *Persister) Close() { p.db.Close() }
 
 // GetDB returns the underlying *sql.DB for direct queries (e.g. signal replay).
-func (p *Persister) GetDB() *sql.DB { return p.db }
+// Safe on a nil receiver: degraded (no-persistence) callers get a nil *sql.DB
+// instead of a nil-pointer panic. Consumers must already handle a nil DB
+// (DeliveryManager and the entitlement path do; fail-closed).
+func (p *Persister) GetDB() *sql.DB {
+	if p == nil {
+		return nil
+	}
+	return p.db
+}
+
+// GetDBOrNil is an explicit alias of GetDB documenting that a nil persister
+// yields a nil *sql.DB (kept as a named entry point for nil-safe call sites).
+func (p *Persister) GetDBOrNil() *sql.DB {
+	if p == nil {
+		return nil
+	}
+	return p.db
+}
 
 // SaveTick persists a tick to market.ticks table.
 func (p *Persister) SaveTick(ctx context.Context, tick *types.Tick) error {

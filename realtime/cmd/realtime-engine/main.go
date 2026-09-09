@@ -1150,11 +1150,30 @@ func main() {
 		}
 	}()
 
-	// Database
+	// P0 startup-race fix: `docker compose restart` (and daemon restarts with
+	// live-restore) do NOT honor depends_on/healthcheck ordering, so the engine
+	// can boot while postgres is still starting (observed 2026-09-09: two
+	// SIGSEGV panics at the delivery-manager bootstrap right after a restart).
+	// Retry the initial connect+ping with backoff (~90s budget) instead of
+	// immediately degrading. After the budget we degrade to no-persistence
+	// mode exactly as designed (fail-closed: signals become ADVISORY,
+	// /health reports db down).
 	var persister *marketdata.Persister
 	if cfg.DBURL != "" {
+		const dbConnectAttempts = 30
+		const dbConnectBackoff = 3 * time.Second
 		var err error
-		persister, err = marketdata.NewPersister(cfg.DBURL)
+		for attempt := 1; attempt <= dbConnectAttempts; attempt++ {
+			persister, err = marketdata.NewPersister(cfg.DBURL)
+			if err == nil {
+				break
+			}
+			if attempt < dbConnectAttempts {
+				log.Warn().Err(err).Int("attempt", attempt).Int("max_attempts", dbConnectAttempts).
+					Msg("DB not ready — retrying connect (postgres startup race)")
+				time.Sleep(dbConnectBackoff)
+			}
+		}
 		if err == nil && persister != nil {
 			// Use persister's DB pool for exit profile configuration
 			strategy.InitExitProfileDB(persister.GetDB())
@@ -2182,7 +2201,11 @@ func main() {
 	// agent below. Full replay-on-reconnect requires the Windows Agent to ACK
 	// signals with (signal_id, device_id) — a pending MQL protocol change — so
 	// true resume is currently dormant; expiry hygiene runs regardless.
-	globalDeliveryMgr = sigengine.NewDeliveryManager(persister.GetDB())
+	// Nil-guard FIX (P0): NewPersister can legitimately fail (postgres down /
+	// startup race) leaving persister=nil; DeliveryManager is nil-DB-safe, so
+	// hand it a nil *sql.DB instead of dereferencing a nil persister (this
+	// exact dereference SIGSEGV-crashed the engine after a compose restart).
+	globalDeliveryMgr = sigengine.NewDeliveryManager(persister.GetDBOrNil())
 	go func() {
 		t := time.NewTicker(5 * time.Minute)
 		defer t.Stop()
@@ -2204,6 +2227,14 @@ func main() {
 	// signal delivery is server-authoritative (P2-003 fail-closed). On lookup error we
 	// return nil → client stays unentitled (no signals) rather than leaking them.
 	wsHub.SetEntitlementsFn(func(userID string) []string {
+		// Nil-guard FIX (P0): in degraded (no-persistence) mode persister is nil;
+		// dereferencing it here crashed the engine the moment a WS dashboard
+		// client connected. Fail closed instead — client stays unentitled.
+		if persister == nil {
+			observability.Log.Warn().Str("user_id", userID).
+				Msg("entitlement lookup unavailable (no persistence) — client left unentitled (fail-closed)")
+			return nil
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		strs, err := persister.GetUserAllowedStrategies(ctx, userID)
