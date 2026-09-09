@@ -2047,7 +2047,18 @@ void MasterAppend(string content)
         g_ingestErrCount++;
         if(!g_masterNetShown)
         {
-            Print("[MASTER_NODE] ingest failed: HTTP ", status, " type=", msgType);
+            // status == -1 means WebRequest could not complete at all (no HTTP
+            // response): DNS failure, TLS handshake failure, blocked by the
+            // WebRequest allowlist (Tools→Options→Expert Advisors), no network
+            // route, or IPv6-only DNS on a terminal without IPv6. A 401/4xx/5xx
+            // would be a real server reply. Capture GetLastError() to tell them
+            // apart — 4011/4014 = allowlist/permissions, 6xxx = net/TLS.
+            int err = GetLastError();
+            if(status == -1)
+                Print("[MASTER_NODE] ingest failed: HTTP -1 (transport failure, NO server reply) err=", err,
+                      " url=", url, " — check WebRequest allowlist + DNS/TLS/IPv6 from the terminal host");
+            else
+                Print("[MASTER_NODE] ingest failed: HTTP ", status, " type=", msgType, " err=", err);
             g_masterNetShown = true;
         }
         return;
