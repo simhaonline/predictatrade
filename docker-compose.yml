@@ -462,6 +462,48 @@ services:
           sleep 60;
         done
 
+  # ─── Watchdog — independent monitoring + self-healing engine ───
+  # Supervises every service in this stack from OUTSIDE the dependency graph
+  # (docker.sock mounted). Detection: container liveness, docker healthchecks,
+  # realtime /health (status/db/cache), master-tick freshness in market.ticks,
+  # and crash-loop (RestartCount velocity). Remediation ladder: docker start →
+  # docker restart → compose up -d (stack reconcile), with per-service cooldown,
+  # consecutive-restart circuit breaker, and ntfy escalation. It intentionally
+  # has NO depends_on: a watchdog that dies with the stack it guards is useless.
+  watchdog:
+    build:
+      context: ./watchdog
+      dockerfile: Dockerfile
+    container_name: pat-watchdog
+    env_file:
+      - ./infra/env/realtime.env          # NTFY_* (alert topic + token)
+    environment:
+      - COMPOSE_FILE=/srv/predictatrade/xauusd/docker-compose.yml
+      - COMPOSE_ENV_FILE=/srv/predictatrade/xauusd/infra/env/.env
+      - COMPOSE_PROJECT=xauusd
+      - REALTIME_HEALTH_URL=http://realtime:13081/health
+      - PG_CONTAINER=pat-postgres
+      - PG_USER=pat_admin
+      - PG_DB=predictatrade
+      - TICK_MAX_AGE=180s                 # master-tick staleness threshold
+      - CHECK_EVERY=30s
+      - RESTART_COOLDOWN=300s             # per-service min gap between restarts
+      - MAX_CONSEC_RESTARTS=3             # then alert-only (circuit breaker)
+      - CRASHLOOP_WINDOW=600s
+      - CRASHLOOP_MAX=3
+      - STOPPED_GRACE=20s
+      - TICK_DEGRADE_GRACE=120s
+      - NTFY_URL=http://ntfy:80
+    volumes:
+      # Control the host Docker daemon (start/restart/compose on any container)
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Compose file + env for stack-level reconcile actions
+      - /srv/predictatrade/xauusd/docker-compose.yml:/srv/predictatrade/xauusd/docker-compose.yml:ro
+      - /srv/predictatrade/xauusd/infra/env/.env:/srv/predictatrade/xauusd/infra/env/.env:ro
+    networks:
+      - pat-net            # reach realtime /health and ntfy by service name
+    restart: always
+
 volumes:
   pat-mail-spool:
   # Docker-managed named volumes — created automatically on first `docker compose up`.
