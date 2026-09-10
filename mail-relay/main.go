@@ -406,6 +406,15 @@ func smtpDeliver(addr, from string, to []string, data []byte) error {
 		return err
 	}
 	defer c.Close()
+	// HELO identity: net/smtp defaults to "localhost", which Gmail treats as a
+	// bulk-sender smell (5.7.28 evidence). Announce our MAIL_DOMAIN instead.
+	hostname := os.Getenv("MAIL_DOMAIN")
+	if hostname == "" {
+		hostname = "pat.predictatrade.com"
+	}
+	if err = c.Hello(hostname); err != nil {
+		return fmt.Errorf("helo: %w", err)
+	}
 	// Opportunistic STARTTLS
 	if ok, _ := c.Extension("STARTTLS"); ok {
 		cfg := &tls.Config{ServerName: strings.SplitN(addr, ":", 2)[0]}
