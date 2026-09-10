@@ -373,10 +373,17 @@ export class NowPaymentsService {
       // Auto-issue/activate the license for the subscribing user (after COMMIT):
       // a paying customer must never end up without a usable license. Fail-safe:
       // provisioning problems are logged for admin follow-up, never fail the IPN.
-      const settledSubId = paymentRow?.subscription_id || paymentRow?.sub_plan_id
-        ? paymentRow.subscription_id
-        : null;
-      if (settledSubId && status === 'COMPLETED') {
+      //
+      // Settlement-bug fix (production, 2026-09-10): this used to gate on
+      // `status === 'COMPLETED'` — but `status` is the RAW GATEWAY payment
+      // status ('finished' | 'confirmed', see SETTLED_STATUSES), never
+      // 'COMPLETED' (that is billing.payments' INTERNAL status). The guard was
+      // therefore never true, so NOWPayments payers were left subscription-
+      // ACTIVE with NO license and a dead EA feed (Stripe path was unaffected —
+      // it always provisions). Gate on the settled-status set instead; the call
+      // itself is idempotent (already_active on replays).
+      const settledSubId = paymentRow?.subscription_id ?? null;
+      if (settledSubId && SETTLED_STATUSES.has(status)) {
         try {
           const res = await this.licensingService.ensureActiveLicenseForSubscription(String(settledSubId));
           if (res) this.logger.log(`License auto-provision (${res.action}) for subscription ${settledSubId}`);
@@ -389,6 +396,21 @@ export class NowPaymentsService {
     } catch (e) {
       await client.query('ROLLBACK').catch(() => undefined);
       this.logger.error(`IPN settlement failed: ${e instanceof Error ? e.message : e}`);
+      // At-least-once settlement: the payment_events row was inserted BEFORE the
+      // settlement transaction. If settlement failed (transient DB error, lock
+      // timeout, …), delete that row so the gateway's retry re-processes this
+      // delivery instead of being deduped into a permanently lost payment. The
+      // settlement itself is idempotent (status guard), so double-delivery is
+      // safe — silent loss is not.
+      try {
+        await this.pool.query(
+          `DELETE FROM billing.payment_events
+            WHERE provider = 'nowpayments' AND provider_event_id = $1`,
+          [providerEventId],
+        );
+      } catch (delErr) {
+        this.logger.error(`IPN event unmark failed: ${delErr instanceof Error ? delErr.message : delErr}`);
+      }
       throw e;
     } finally {
       client.release();

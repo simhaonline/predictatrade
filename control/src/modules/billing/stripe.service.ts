@@ -223,7 +223,24 @@ export class StripeService {
       const invoiceId = object?.metadata?.invoice_id;
 
       if (subscriptionId) {
-        await this.settle(subscriptionId, invoiceId, paymentId);
+        try {
+          await this.settle(subscriptionId, invoiceId, paymentId);
+        } catch (e) {
+          // At-least-once settlement: the payment_events row was inserted BEFORE
+          // settle(). On failure, delete it so Stripe's retry re-processes this
+          // delivery instead of being deduped into a permanently lost payment.
+          // settle() is idempotent (status guards), so double-delivery is safe.
+          try {
+            await this.pool.query(
+              `DELETE FROM billing.payment_events
+                WHERE provider = 'stripe' AND provider_event_id = $1`,
+              [providerEventId],
+            );
+          } catch (delErr) {
+            this.logger.error(`Stripe event unmark failed: ${delErr instanceof Error ? delErr.message : delErr}`);
+          }
+          throw e;
+        }
       }
     }
 
