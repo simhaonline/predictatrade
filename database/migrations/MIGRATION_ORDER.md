@@ -39,6 +39,15 @@ delete orphan rows. A rollback SQL is generated alongside it.
 file). The early section below documents migrations 096–099; the recent
 additions list (121+) covers the latest schema changes:
 
+### Sequence gaps (intentional)
+
+Prefixes **030–059** and **101–109** are absent on disk AND absent from
+`audit.migration_history` — verified 2026-09-10. They were never used (the
+001–029 run predates the SOW re-plan; 101–109 were skipped when numbering
+jumped from 100 straight to 110). Do NOT reuse these numbers casually: run
+`ls database/migrations/ | sort | tail -5` and take the next free number
+(140+) for new migrations, per the rules below.
+
 - `096_ai_providers.sql` — AI provider registry (ollama|openai|custom)
 - `097_playbook_exit_profiles.sql` — playbook exit profiles
 - `098_broker_account_types.sql` — broker account types

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { isAdminRole } from '@/lib/roles';
 
 const AUTH_ROUTES = ['/login', '/register', '/forgot-password', '/reset-password'];
 const PUBLIC_ROUTES = ['/terms', '/privacy', '/complaints', '/sitemap', '/cookies', '/forbidden', '/preview', '/unsubscribe'];
@@ -14,10 +15,6 @@ function getRoleFromToken(token: string | undefined): string | null {
     if (payload.exp && Date.now() >= payload.exp * 1000) return null;
     return payload.role || 'USER';
   } catch { return null; }
-}
-
-function isAdminRole(role: string | null): boolean {
-  return role === 'ADMIN' || role === 'SUPER_ADMIN';
 }
 
 function homeRouteForRole(role: string | null): string {
