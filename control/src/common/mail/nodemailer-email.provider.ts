@@ -303,4 +303,40 @@ export class NodemailerEmailProvider implements EmailService {
       throw err;
     }
   }
+
+  /**
+   * Generic raw send for admin campaigns (alerts / newsletters / marketing).
+   * Uses the same SMTP transport as transactional sends. The dev fallback
+   * logs instead of sending so local/dev runs never emit real campaign mail.
+   */
+  async sendRawEmail(input: {
+    to: string;
+    subject: string;
+    bodyHtml: string;
+    bodyText: string;
+    listUnsubscribe?: boolean;
+  }): Promise<void> {
+    if (this.isDevFallback) {
+      this.logger.log(`[DEV EMAIL] To: ${input.to} | Subject: ${input.subject}`);
+      return;
+    }
+    if (!this.transporter) {
+      throw new Error('Email transporter not initialized');
+    }
+    try {
+      await this.transporter.sendMail({
+        from: `"${this.fromName}" <${this.fromAddress}>`,
+        to: input.to,
+        subject: input.subject,
+        text: input.bodyText,
+        html: input.bodyHtml,
+        headers: input.listUnsubscribe
+          ? { 'List-Unsubscribe': '<https://platform.predictatrade.com/unsubscribe>' }
+          : undefined,
+      });
+    } catch (err) {
+      this.logger.error(`SMTP send failure (campaign to ${input.to}): ${err instanceof Error ? err.message : 'unknown error'}`);
+      throw err;
+    }
+  }
 }

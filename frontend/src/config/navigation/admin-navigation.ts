@@ -6,6 +6,7 @@ import {
   IconAlertTriangle, IconListCheck, IconAdjustments, IconWallet,
   IconReportMoney, IconBrain, IconBroadcast, IconWorld, IconRocket,
   IconDatabase, IconFlag, IconBuildingBank, IconServer, IconDroplet, IconSparkles,
+  IconMail,
 } from '@tabler/icons-react';
 
 export interface NavItem {
@@ -31,6 +32,7 @@ export const adminNavigation: NavItem[] = [
 
   // ── Signal Quality ──
   { label: 'Indicator Monitor', href: '/admin/indicator-monitor', icon: IconActivity, section: 'Signal Quality' },
+  { label: 'Email Notifications', href: '/admin/email-notifications', icon: IconMail, section: 'Signal Quality' },
   { label: 'Signal Accuracy', href: '/admin/signal-accuracy', icon: IconListCheck, section: 'Signal Quality' },
   { label: 'MT Client Connectivity', href: '/admin/mt-clients', icon: IconDeviceDesktop, section: 'Signal Quality' },
 

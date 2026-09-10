@@ -34,10 +34,22 @@ export interface WelcomeEmailInput {
   reviewUrl?: string;
 }
 
+/** Generic campaign email (admin alerts / newsletters / marketing). */
+export interface RawEmailInput {
+  to: string;
+  subject: string;
+  bodyHtml: string;
+  bodyText: string;
+  /** Adds List-Unsubscribe header when true (marketing compliance). */
+  listUnsubscribe?: boolean;
+}
+
 export const EMAIL_SERVICE = Symbol('EMAIL_SERVICE');
 
 export interface EmailService {
   sendPasswordResetEmail(input: PasswordResetEmailInput): Promise<void>;
   sendOtpEmail(input: OtpEmailInput): Promise<void>;
   sendWelcomeEmail(input: WelcomeEmailInput): Promise<void>;
+  /** Generic raw send for admin campaigns. Throws on transport failure. */
+  sendRawEmail?(input: RawEmailInput): Promise<void>;
 }
