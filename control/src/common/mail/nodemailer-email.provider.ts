@@ -17,6 +17,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EmailService, PasswordResetEmailInput, OtpEmailInput, WelcomeEmailInput } from './email.service';
+import { renderBrandedEmail, textFooter } from './email-template';
 import * as nodemailer from 'nodemailer';
 
 @Injectable()
@@ -102,7 +103,8 @@ export class NodemailerEmailProvider implements EmailService {
     const expiresStr = input.expiresAt.toLocaleString('en-US', {
       weekday: 'short', month: 'short', day: 'numeric',
       hour: '2-digit', minute: '2-digit',
-    });
+      timeZone: 'UTC',
+    }) + ' UTC';
 
     const textBody = [
       `Hello,`,
@@ -116,29 +118,28 @@ export class NodemailerEmailProvider implements EmailService {
       ``,
       `If you did not request a password reset, you can safely ignore this email.`,
       ``,
-      `— Predict-A-Trade`,
+      textFooter(),
     ].join('\n');
 
-    const htmlBody = `
-      <div style="font-family: Inter, -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-        <h2 style="color: #0F1114;">Reset your password</h2>
-        <p style="color: #5B616E; font-size: 14px; line-height: 1.6;">
-          A password reset was requested for your Predict-A-Trade account.
-        </p>
-        <p style="margin: 24px 0;">
+    const htmlBody = renderBrandedEmail({
+      preheader: 'A password reset was requested for your account. Link expires ' + expiresStr + '.',
+      title: 'Reset your password',
+      bodyHtml: `
+        <p style="margin:0 0 8px;">A password reset was requested for your Predict-A-Trade account.</p>
+        <p style="margin:0 0 24px;">Click the button below to choose a new password:</p>
+        <p style="margin:0 0 20px;">
           <a href="${input.resetUrl}"
-             style="display: inline-block; background: #145CFA; color: #fff; padding: 12px 32px;
-                    border-radius: 8px; text-decoration: none; font-weight: 500; font-size: 14px;">
+             style="display:inline-block;background:#2362EA;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">
             Reset password
           </a>
         </p>
-        <p style="color: #8A919E; font-size: 12px;">
-          This link expires at ${expiresStr}.
-          If you did not request a password reset, you can safely ignore this email.
-        </p>
-        <hr style="border: none; border-top: 1px solid #E4E7EC; margin: 24px 0;">
-        <p style="color: #8A919E; font-size: 12px;">© Predict-A-Trade</p>
-      </div>`;
+        <p style="margin:0;color:#77828F;font-size:12px;">
+          This link expires at ${expiresStr}. If you did not request a reset, you can safely ignore this email —
+          your password will not change.
+        </p>`,
+      bodyText: textBody,
+      footerNote: 'You received this email because a password reset was requested for this address.',
+    });
 
     if (this.isDevFallback) {
       // In dev, log a truncated summary — never the full reset URL with the token
@@ -172,7 +173,8 @@ export class NodemailerEmailProvider implements EmailService {
     const expiresStr = input.expiresAt.toLocaleString('en-US', {
       weekday: 'short', month: 'short', day: 'numeric',
       hour: '2-digit', minute: '2-digit',
-    });
+      timeZone: 'UTC',
+    }) + ' UTC';
 
     const textBody = [
       `Hello,`,
@@ -183,34 +185,27 @@ export class NodemailerEmailProvider implements EmailService {
       ``,
       `If you did not create an account, you can safely ignore this email.`,
       ``,
-      `Unsubscribe from marketing emails: ${input.unsubscribeUrl}`,
-      ``,
-      `— Predict-A-Trade`,
+      textFooter(input.unsubscribeUrl),
     ].join('\n');
 
-    const htmlBody = `
-      <div style="font-family: Inter, -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-        <h2 style="color: #0F1114;">Verify your email</h2>
-        <p style="color: #5B616E; font-size: 14px; line-height: 1.6;">
-          Use the code below to complete your registration:
-        </p>
-        <p style="margin: 24px 0; text-align: center;">
-          <span style="display: inline-block; background: #F2F4F7; color: #0F1114; padding: 16px 40px;
-                       border-radius: 10px; font-family: monospace; font-size: 28px; letter-spacing: 8px; font-weight: 700;">
+    const htmlBody = renderBrandedEmail({
+      preheader: `Your verification code is ${input.code}. Expires ${expiresStr}.`,
+      title: 'Verify your email',
+      bodyHtml: `
+        <p style="margin:0 0 20px;">Use the code below to complete your registration:</p>
+        <p style="margin:0 0 20px;text-align:center;">
+          <span style="display:inline-block;background:#0D1524;color:#F2F5F9;padding:16px 40px;
+                       border:1px solid #24375A;border-radius:10px;font-family:monospace;font-size:28px;
+                       letter-spacing:8px;font-weight:700;">
             ${input.code}
           </span>
         </p>
-        <p style="color: #8A919E; font-size: 12px;">
-          This code expires at ${expiresStr}.
-          If you did not create an account, you can safely ignore this email.
-        </p>
-        <hr style="border: none; border-top: 1px solid #E4E7EC; margin: 24px 0;">
-        <p style="color: #8A919E; font-size: 11px;">
-          Don't want marketing emails?
-          <a href="${input.unsubscribeUrl}" style="color: #145CFA;">Unsubscribe</a>.
-        </p>
-        <p style="color: #8A919E; font-size: 12px;">© Predict-A-Trade</p>
-      </div>`;
+        <p style="margin:0;color:#77828F;font-size:12px;">
+          This code expires at ${expiresStr}. If you did not create an account, you can safely ignore this email.
+        </p>`,
+      bodyText: textBody,
+      unsubscribeUrl: input.unsubscribeUrl,
+    });
 
     if (this.isDevFallback) {
       // In dev, log a truncated summary — never the full OTP code
@@ -240,9 +235,6 @@ export class NodemailerEmailProvider implements EmailService {
 
   async sendWelcomeEmail(input: WelcomeEmailInput): Promise<void> {
     const subject = 'Welcome to Predict-A-Trade';
-    const reviewLine = input.reviewUrl
-      ? `If you find the platform useful later, we'd appreciate a review on Google (no reward, no obligation): ${input.reviewUrl}`
-      : '';
 
     const textBody = [
       `Hello ${input.name},`,
@@ -250,36 +242,36 @@ export class NodemailerEmailProvider implements EmailService {
       `Welcome to Predict-A-Trade — your XAUUSD market monitoring dashboard is ready.`,
       ``,
       `You now have full access to live market data, signals, and the command center.`,
-      reviewLine,
+      input.reviewUrl ? `If you find the platform useful later, we'd appreciate a review on Google (no reward, no obligation): ${input.reviewUrl}` : '',
       ``,
-      `Unsubscribe from marketing emails: ${input.unsubscribeUrl}`,
-      ``,
-      `— Predict-A-Trade`,
+      textFooter(input.unsubscribeUrl),
     ].filter(Boolean).join('\n');
 
     const reviewHtml = input.reviewUrl
-      ? `<p style="color: #8A919E; font-size: 12px; margin-top: 16px;">
+      ? `<p style="margin:16px 0 0;color:#77828F;font-size:12px;">
            If you find the platform useful later, we'd appreciate a
-           <a href="${input.reviewUrl}" style="color: #145CFA;">review on Google</a>
+           <a href="${input.reviewUrl}" style="color:#2362EA;text-decoration:none;">review on Google</a>
            (no reward, no obligation).
          </p>`
       : '';
 
-    const htmlBody = `
-      <div style="font-family: Inter, -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-        <h2 style="color: #0F1114;">Welcome, ${input.name}!</h2>
-        <p style="color: #5B616E; font-size: 14px; line-height: 1.6;">
-          Your Predict-A-Trade XAUUSD market monitoring dashboard is ready.
-          You now have full access to live market data, signals, and the command center.
+    const htmlBody = renderBrandedEmail({
+      preheader: 'Your Predict-A-Trade dashboard is ready — live XAUUSD market data, signals and the command center await.',
+      title: `Welcome, ${input.name}!`,
+      bodyHtml: `
+        <p style="margin:0 0 8px;">Your Predict-A-Trade XAUUSD market monitoring dashboard is ready.</p>
+        <p style="margin:0 0 24px;">You now have full access to live market data, signals, and the command center.</p>
+        <p style="margin:0 0 8px;">
+          <a href="https://platform.predictatrade.com/dashboard/live"
+             style="display:inline-block;background:#2362EA;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">
+            Open Dashboard
+          </a>
         </p>
-        ${reviewHtml}
-        <hr style="border: none; border-top: 1px solid #E4E7EC; margin: 24px 0;">
-        <p style="color: #8A919E; font-size: 11px;">
-          Don't want marketing emails?
-          <a href="${input.unsubscribeUrl}" style="color: #145CFA;">Unsubscribe</a>.
-        </p>
-        <p style="color: #8A919E; font-size: 12px;">© Predict-A-Trade</p>
-      </div>`;
+        ${reviewHtml}`,
+      bodyText: textBody,
+      unsubscribeUrl: input.unsubscribeUrl,
+      footerNote: 'You received this email because an account was just created at platform.predictatrade.com.',
+    });
 
     if (this.isDevFallback) {
       this.logger.log(`[DEV EMAIL] To: ${input.to} | Subject: ${subject}`);
@@ -323,13 +315,25 @@ export class NodemailerEmailProvider implements EmailService {
     if (!this.transporter) {
       throw new Error('Email transporter not initialized');
     }
+    // Campaign HTML is wrapped in the branded shell (logo header, PAT dark
+    // card, footer with copyright + unsubscribe). Admin composes the INNER
+    // content only — the shell is not theirs to omit.
+    const html = renderBrandedEmail({
+      title: input.subject,
+      bodyHtml: input.bodyHtml,
+      bodyText: input.bodyText,
+      unsubscribeUrl: input.listUnsubscribe
+        ? 'https://platform.predictatrade.com/unsubscribe'
+        : undefined,
+    });
+    const text = `${input.bodyText}\n\n${textFooter(input.listUnsubscribe ? 'https://platform.predictatrade.com/unsubscribe' : undefined)}`;
     try {
       await this.transporter.sendMail({
         from: `"${this.fromName}" <${this.fromAddress}>`,
         to: input.to,
         subject: input.subject,
-        text: input.bodyText,
-        html: input.bodyHtml,
+        text,
+        html,
         headers: input.listUnsubscribe
           ? { 'List-Unsubscribe': '<https://platform.predictatrade.com/unsubscribe>' }
           : undefined,
