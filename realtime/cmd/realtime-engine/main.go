@@ -1993,16 +1993,32 @@ func main() {
 	}()
 
 	// ─── Devil Liquidity / Devil's Mark engine (prompt.md) ───
+	// Production default is confluence (live-contributing, bounded + fail-closed).
+	// Mode/Enabled are loaded from the devil_liquidity_config table when the
+	// store is available, falling back to DefaultConfig() (also confluence) if no
+	// row exists. Operators can downgrade to shadow/disabled at runtime.
 	devilStore, devilStoreErr := devilliquidity.NewStore(cfg.DBURL)
 	if devilStoreErr != nil {
 		log.Warn().Err(devilStoreErr).Msg("devil liquidity persistence disabled (non-fatal)")
 	}
-	devilEngine := devilliquidity.NewEngine(cfg.DBURL, devilliquidity.DefaultConfig())
+	devilCfg := devilliquidity.DefaultConfig()
+	if devilStore != nil {
+		if dbCfg, ok, lerr := devilStore.LoadConfig(); lerr != nil {
+			log.Warn().Err(lerr).Msg("devil liquidity config load failed; using defaults")
+		} else if ok {
+			devilCfg = dbCfg
+		}
+	}
+	devilEngine := devilliquidity.NewEngine(cfg.DBURL, devilCfg)
 	if devilStore != nil {
 		devilEngine.AttachStore(devilStore)
 	}
+	if devilCfg.MaxBonus != 0 || devilCfg.MaxPenalty != 0 {
+		devilEngine.SetContributionBounds(devilCfg.MaxBonus, devilCfg.MaxPenalty)
+	}
 	devilliquidity.SetGlobalEngine(devilEngine)
-	log.Info().Bool("store_enabled", devilStore != nil).Msg("devil liquidity engine initialized")
+	log.Info().Str("mode", devilCfg.Mode).Bool("enabled", devilCfg.Enabled).
+		Bool("store_enabled", devilStore != nil).Msg("devil liquidity engine initialized")
 
 	// Risk gates — seeded conservatively (fail-closed for safety-critical gates)
 	gateRegistry := gates.NewRegistry()
@@ -4140,6 +4156,43 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 					stratResult.LongScore = stratResult.LongScore.Add(adjustment)
 				} else if xmDir == crossmarket.DirBearish {
 					stratResult.ShortScore = stratResult.ShortScore.Add(adjustment)
+				}
+			}
+		}
+
+		// ─── Devil Liquidity / Devil's Mark — Production-Live contribution ───
+		// Mode is loaded from devil_liquidity_config at startup (default
+		// 'confluence'). Only in confluence mode does it contribute. The
+		// contribution is a BOUNDED, FAIL-CLOSED nudge to the existing signal
+		// score (within [MaxPenalty, MaxBonus]); it never generates a direction
+		// on its own and never overrides the risk gates. Evaluate() takes only an
+		// RLock and performs zero I/O, so it is safe on the hot path.
+		if de := devilliquidity.GlobalEngine(); de != nil && de.Mode() == devilliquidity.ModeConfluence {
+			dl := de.EvaluateSignalContribution(candle.Symbol, string(candle.Timeframe))
+			if dl.OK {
+				// Persist contribution as evidence for traceability.
+				stratResult.Evidence = append(stratResult.Evidence, types.EvidenceContribution{
+					Pillar:          "DEVIL_LIQUIDITY",
+					Feature:         "DEVILS_MARK",
+					RawValue:        decimal.NewFromFloat(dl.ScoreAdjustment),
+					NormalizedValue: decimal.NewFromFloat(dl.ScoreAdjustment),
+					Direction:       stratResult.Direction,
+					Weight:          decimal.NewFromFloat(1.0),
+					Contribution:    decimal.NewFromFloat(dl.ScoreAdjustment),
+					Quality:         types.QualityAuthoritative,
+					Source:          "devil_liquidity_engine",
+					Version:         "1.0.0",
+					ReasonCode:      dl.Reason,
+				})
+				if dl.ScoreAdjustment != 0 {
+					adj := decimal.NewFromFloat(dl.ScoreAdjustment)
+					stratResult.RawScore = stratResult.RawScore.Add(adj)
+					switch stratResult.Direction {
+					case types.DirectionBuy:
+						stratResult.LongScore = stratResult.LongScore.Add(adj)
+					case types.DirectionSell:
+						stratResult.ShortScore = stratResult.ShortScore.Add(adj)
+					}
 				}
 			}
 		}

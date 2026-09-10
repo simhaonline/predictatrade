@@ -1,6 +1,7 @@
 package devilliquidity
 
 import (
+	"strconv"
 	"sync"
 	"time"
 
@@ -147,6 +148,109 @@ func (e *Engine) SetEnabled(v bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.enabled = v
+}
+
+// Mode returns the engine's operational mode.
+func (e *Engine) Mode() string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.cfg.Mode
+}
+
+// SetMode changes the engine's operational mode at runtime (e.g. admin downgrade
+// to shadow/disabled, or upgrade to confluence). Safe to call concurrently.
+func (e *Engine) SetMode(mode string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if mode == "" {
+		return
+	}
+	e.cfg.Mode = mode
+}
+
+// SetContributionBounds sets the bounded score-nudge limits used in confluence
+// mode. Negative maxPenalty, positive maxBonus.
+func (e *Engine) SetContributionBounds(maxBonus, maxPenalty float64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.cfg.MaxBonus = maxBonus
+	e.cfg.MaxPenalty = maxPenalty
+}
+
+// SignalContribution is the engine's bounded, fail-closed output into the live
+// signal pipeline. It is the Devil Liquidity counterpart to cross-market's
+// ConfluenceResult: it summarises the present liquidity context for the
+// candidate signal and returns a bounded score adjustment.
+//
+// Returns ok=false when the engine is not in a contributing mode (shadow/
+// disabled/etc.) — callers MUST then apply zero adjustment and must NOT read the
+// other fields. This is the fail-closed contract: any error or non-conflux mode
+// yields no production impact.
+type SignalContribution struct {
+	OK              bool
+	Direction       MarkDirection // bias implied by nearest marks
+	ScoreAdjustment float64       // bounded within [MaxPenalty, MaxBonus]
+	Confidence      float64       // 0..1 (depth of evidence)
+	ActiveMarks     int
+	Reason          string
+}
+
+// EvaluateSignalContribution is the ONLY devilliquidity method called from the
+// signal hot path. It reads in-memory mark state without any external I/O and is
+// RLock-guarded. It never mutates engine state, never blocks, and never
+// overrides gates.
+func (e *Engine) EvaluateSignalContribution(symbol, tf string) SignalContribution {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if !e.enabled || !e.cfg.Contributing() {
+		return SignalContribution{OK: false}
+	}
+	// Find the nearest non-terminal mark for this symbol|tf by recency.
+	var best *DevilMark
+	bestAge := time.Duration(1<<63 - 1)
+	for _, m := range e.marks {
+		if m.Symbol != symbol || m.Timeframe != tf {
+			continue
+		}
+		if isTerminal(m.State) {
+			continue
+		}
+		age := time.Since(m.DetectedAt)
+		if age < bestAge {
+			bestAge = age
+			best = m
+		}
+	}
+	if best == nil {
+		return SignalContribution{OK: false}
+	}
+	// Confidence from mark quality (0..1) lightly damped by age.
+	conf := clamp01(best.MarkQuality / 100.0)
+	if bestAge > 0 {
+		// decay: lose ~half confidence over MarkExpiryBars worth of time
+		decay := float64(bestAge) / (float64(e.cfg.MarkExpiryBars) * float64(5*time.Minute))
+		conf *= clamp01(1.0 - 0.5*decay)
+	}
+	// Bounded nudge: scale mark quality into the [MaxPenalty, MaxBonus] band,
+	// directed by the mark's implied bias. Strong bullish sweep-support => +,
+	// strong bearish resistance-sweep => -.
+	base := (conf*2 - 1) // -1..+1
+	var adj float64
+	switch best.Direction {
+	case DirBullish:
+		adj = base * e.cfg.MaxBonus
+	case DirBearish:
+		adj = base * -e.cfg.MaxPenalty
+	}
+	adj = max(e.cfg.MaxPenalty, min(e.cfg.MaxBonus, adj))
+	return SignalContribution{
+		OK:              true,
+		Direction:       best.Direction,
+		ScoreAdjustment: adj,
+		Confidence:      conf,
+		ActiveMarks:     len(e.marks),
+		Reason:          string(best.Direction) + "_mark q=" + strconv.FormatFloat(best.MarkQuality, 'f', 1, 64) + " age=" + bestAge.Round(time.Minute).String(),
+	}
 }
 
 func (e *Engine) key(symbol string, tf string) string { return symbol + "|" + tf }

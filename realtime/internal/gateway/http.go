@@ -1577,16 +1577,18 @@ func (h *HTTPServer) handleDevilLiquidityMarks(w http.ResponseWriter, r *http.Re
 	eng := devilliquidity.GlobalEngine()
 	type resp struct {
 		Enabled bool                        `json:"enabled"`
+		Mode    string                      `json:"mode"`
 		Count   int                         `json:"count"`
 		Marks   []*devilliquidity.DevilMark `json:"marks"`
 		Stats   devilliquidity.EngineStats  `json:"stats"`
 	}
-	out := resp{Enabled: false, Marks: []*devilliquidity.DevilMark{}}
+	out := resp{Enabled: false, Mode: devilliquidity.ModeDisabled, Marks: []*devilliquidity.DevilMark{}}
 	if eng == nil {
 		writeJSON(w, out)
 		return
 	}
 	out.Enabled = true
+	out.Mode = eng.Mode()
 	out.Stats = eng.Stats()
 	marks := eng.ActiveMarks()
 	if len(marks) == 0 {

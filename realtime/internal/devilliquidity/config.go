@@ -44,6 +44,29 @@ const (
 	DirBearish MarkDirection = "BEARISH" // resistance sweep -> down
 )
 
+// Devil Liquidity operational modes.
+//
+// disabled  — engine does not detect marks (Enabled=false wins regardless).
+// shadow    — detects + persists marks for observation only; NO signal
+//
+//	contribution (mirrors cross-market shadow mode).
+//
+// confluence— PRODUCTION LIVE: detects marks AND contributes a bounded,
+//
+//	fail-closed score nudge to the signal pipeline (never triggers
+//	or blocks a trade on its own; risk gates stay authoritative).
+//
+// soft_filter / hard_filter — reserved for future gating; treated as
+//
+//	non-contributing today.
+const (
+	ModeDisabled   = "disabled"
+	ModeShadow     = "shadow"
+	ModeConfluence = "confluence"
+	ModeSoftFilter = "soft_filter"
+	ModeHardFilter = "hard_filter"
+)
+
 // Config holds all Devil Liquidity tunables (prompt.md Sections 9-11, 18-22, 41-42, 52).
 type Config struct {
 	Enabled bool
@@ -83,10 +106,22 @@ type Config struct {
 	// Operational.
 	Mode string // disabled|shadow|confluence|soft_filter|hard_filter
 
+	// Contribution bounds (production-live / confluence mode). The engine only
+	// ever nudges the existing signal score by [MaxPenalty, MaxBonus]; it
+	// cannot override hard gates or place orders on its own.
+	MaxBonus   float64 // max positive score adjustment
+	MaxPenalty float64 // max negative score adjustment
+
 	ConfigVersion string
 }
 
 // DefaultConfig returns the prompt.md initial defaults.
+//
+// Mode defaults to confluence (PRODUCTION LIVE): the engine detects marks and
+// contributes a bounded, fail-closed score nudge to the signal pipeline. It
+// never triggers or blocks a trade on its own — existing risk gates remain
+// authoritative. Operators can downgrade to "shadow" (observe-only) or
+// "disabled" at runtime via the devil_liquidity_config table / /admin API.
 func DefaultConfig() Config {
 	return Config{
 		Enabled:             true,
@@ -108,9 +143,18 @@ func DefaultConfig() Config {
 		MinMarkQuality:      40.0,
 		MinSignalScore:      60.0,
 		VolumeWeight:        10.0,
-		Mode:                "confluence",
+		Mode:                ModeConfluence,
+		MaxBonus:            10.0, // bounded contribution — never dominates the signal
+		MaxPenalty:          -10.0,
 		ConfigVersion:       "1.0.0",
 	}
+}
+
+// Contributing reports whether the engine should feed the signal pipeline in
+// production. Only confluence mode contributes; shadow/disabled/soft_filter/
+// hard_filter do not touch the live signal score.
+func (c Config) Contributing() bool {
+	return c.Mode == ModeConfluence
 }
 
 // ScoreComponents records the individual weighted parts so later optimization

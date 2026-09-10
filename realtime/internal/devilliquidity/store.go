@@ -31,8 +31,65 @@ func NewStore(dbURL string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
-// Enabled reports whether persistence is active.
-func (s *Store) Enabled() bool { return s.db != nil }
+// LoadConfig reads the active devil_liquidity_config row and maps it onto a
+// Config. Returns (DefaultConfig(), false, nil) when no row exists or the store
+// is not enabled — callers should fall back to defaults.
+func (s *Store) LoadConfig() (Config, bool, error) {
+	if s.db == nil {
+		return DefaultConfig(), false, nil
+	}
+	row := s.db.QueryRowContext(context.Background(), `
+		SELECT enabled, mode, flat_wick_ratio, flat_wick_atr_tol, minimum_tick_tol,
+		       minimum_body_ratio, minimum_range_atr, minimum_body_exp,
+		       close_extreme_ratio, min_mark_quality, min_signal_score,
+		       approach_distance_atr, minimum_sweep_depth_atr, maximum_sweep_depth_atr,
+		       reclaim_max_bars, reversal_body_ratio, mark_expiry_bars, volume_weight
+		FROM devil_liquidity_config
+		ORDER BY updated_at DESC
+		LIMIT 1`)
+	var (
+		enabled, mode                                                          string
+		flatWickRatio, flatWickATRTol, bodyRatio, rangeATR, bodyExp            float64
+		closeExtremeRatio, minMarkQuality, minSignalScore, approachDistATR     float64
+		minSweepDepthATR, maxSweepDepthATR, reclaimMaxBarsF, reversalBodyRatio float64
+		markExpiryBarsF, volumeWeight                                          float64
+		minimumTickTol                                                         int64
+	)
+	if err := row.Scan(
+		&enabled, &mode, &flatWickRatio, &flatWickATRTol, &minimumTickTol,
+		&bodyRatio, &rangeATR, &bodyExp, &closeExtremeRatio, &minMarkQuality,
+		&minSignalScore, &approachDistATR, &minSweepDepthATR, &maxSweepDepthATR,
+		&reclaimMaxBarsF, &reversalBodyRatio, &markExpiryBarsF, &volumeWeight,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return DefaultConfig(), false, nil
+		}
+		return DefaultConfig(), false, fmt.Errorf("devilliquidity load config: %w", err)
+	}
+	cfg := DefaultConfig()
+	cfg.Enabled = enabled == "t" || enabled == "true" || enabled == "TRUE"
+	cfg.Mode = mode
+	if cfg.Mode == "" {
+		cfg.Mode = ModeConfluence
+	}
+	cfg.FlatWickRatio = flatWickRatio
+	cfg.FlatWickATRTol = flatWickATRTol
+	cfg.MinimumTickTol = int64(minimumTickTol)
+	cfg.MinBodyRatio = bodyRatio
+	cfg.MinRangeATR = rangeATR
+	cfg.MinBodyExpansion = bodyExp
+	cfg.CloseExtremeRatio = closeExtremeRatio
+	cfg.MinMarkQuality = minMarkQuality
+	cfg.MinSignalScore = minSignalScore
+	cfg.ApproachDistanceATR = approachDistATR
+	cfg.MinSweepDepthATR = minSweepDepthATR
+	cfg.MaxSweepDepthATR = maxSweepDepthATR
+	cfg.ReclaimMaxBars = int(reclaimMaxBarsF)
+	cfg.ReversalBodyRatio = reversalBodyRatio
+	cfg.MarkExpiryBars = int(markExpiryBarsF)
+	cfg.VolumeWeight = volumeWeight
+	return cfg, true, nil
+}
 
 func nullTime(t *time.Time) sql.NullTime {
 	if t == nil {

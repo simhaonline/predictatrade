@@ -27,6 +27,7 @@ export interface DevilMark {
 
 interface DevilResponse {
   enabled: boolean;
+  mode: string;
   count: number;
   marks: DevilMark[];
   stats: {
@@ -55,7 +56,10 @@ export function DevilLiquidityPanel({ title = "Devil Liquidity / Devil's Mark En
           <p className="text-sm text-pat-text-secondary mt-1">
             Detects institutional-style displacement candles with a flat (wickless) edge — a potential
             <span className="font-semibold"> Devil&apos;s Mark</span>. Tracks the full lifecycle: approach → touch →
-            sweep → reclaim → reversal confirmation. Runs in <strong>SHADOW</strong> mode (observation only, no live signal gating yet).
+            sweep → reclaim → reversal confirmation. Runs in <strong>{data?.mode?.toUpperCase() || "CONFLUENCE"}</strong> mode
+            {data?.mode === "confluence" && " (live-contributing: bounded score nudge, never auto-trades)"}
+            {data?.mode === "shadow" && " (observation only — no signal contribution)"}
+            {data?.mode === "disabled" && " (detection disabled)"}.
           </p>
         </div>
         <button
@@ -69,6 +73,9 @@ export function DevilLiquidityPanel({ title = "Devil Liquidity / Devil's Mark En
       <div className="flex flex-wrap items-center gap-3 text-xs">
         <span className="px-2 py-1 rounded bg-pat-bg-surface-secondary border border-pat-border">
           Engine: {data?.enabled ? <span className="text-pat-success">ENABLED</span> : <span className="text-pat-text-muted">OFFLINE</span>}
+        </span>
+        <span className="px-2 py-1 rounded bg-pat-bg-surface-secondary border border-pat-border">
+          Mode: {data?.mode ? <span className="text-pat-accent">{data.mode.toUpperCase()}</span> : <span className="text-pat-text-muted">—</span>}
         </span>
         <span className="px-2 py-1 rounded bg-pat-bg-surface-secondary border border-pat-border">
           Active marks: {data?.count ?? 0}
