@@ -99,14 +99,7 @@ export default function AdminLicensesPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-bold text-pat-text-primary">License Management</h1>
-        <p className="text-sm text-pat-text-secondary mt-1">View and manage all platform licenses.</p>
-      </div>
-
-      <div className="rounded-lg border border-pat-warning/30 bg-pat-warning/5 px-4 py-3 flex items-start gap-2">
-        <IconAlertTriangle size={16} className="text-pat-warning shrink-0 mt-0.5" />
-        <div className="text-xs text-pat-text-secondary">
-          License management actions (create, suspend, revoke, renew, reset, force-logout, activation-history) are wired to live backend endpoints under <span className="font-mono">/licensing/licenses/*</span>. Each action requires admin authorization and returns a real result from the licensing database. The license list below is live.
-        </div>
+        <p className="text-sm text-pat-text-secondary mt-1">View and manage all platform licenses. Actions require admin authorization and operate on the live licensing database.</p>
       </div>
 
       <div className="flex flex-wrap gap-2 items-center">

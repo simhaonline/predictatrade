@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../common/guards/admin.guard';
 import { ConnectivityWatchdogService } from './connectivity-watchdog.service';
@@ -25,6 +25,16 @@ export class MonitoringController {
   @Get('connectivity')
   async getConnectivity() {
     return this.watchdog.getConnectivitySnapshot();
+  }
+
+  @Post('risk-degraded')
+  async reportRiskDegraded(@Body() body: { gates?: Array<{ gate: string; status: string }> }) {
+    const gates = (body?.gates ?? []).map((g) => ({
+      gate: String(g.gate),
+      status: (['active', 'degraded', 'unknown', 'halted'].includes(g.status) ? g.status : 'unknown') as
+        'active' | 'degraded' | 'unknown' | 'halted',
+    }));
+    return this.watchdog.reportRiskGateStatus(gates);
   }
 
   @Get('delivery')

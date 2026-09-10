@@ -111,6 +111,31 @@ export async function fetchAdminSubscriptions(page: number, limit: number) {
   return res.data;
 }
 
+export async function fetchSubscriptionInvoices() {
+  const res = await customInstance.get(`/admin/subscriptions/invoices`);
+  return res.data;
+}
+
+export async function createSubscriptionCoupon(payload: {
+  code: string;
+  description?: string | null;
+  discountType: 'PERCENTAGE' | 'FIXED';
+  discountValue: number;
+  currency?: string;
+  maxRedemptions?: number | null;
+  validFrom?: string | null;
+  validUntil?: string | null;
+  active?: boolean;
+}) {
+  const res = await customInstance.post(`/admin/subscriptions/coupons`, payload);
+  return res.data;
+}
+
+export async function reportRiskGateStatus(gates: Array<{ gate: string; status: 'active' | 'degraded' | 'unknown' | 'halted' }>) {
+  const res = await customInstance.post(`/monitoring/risk-degraded`, { gates });
+  return res.data;
+}
+
 // === Commissions ===
 export async function fetchAdminCommissions(page: number, limit: number) {
   const res = await customInstance.get(`/admin/commissions?page=${page}&limit=${limit}`);

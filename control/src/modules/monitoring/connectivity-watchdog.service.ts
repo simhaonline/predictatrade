@@ -257,6 +257,36 @@ export class ConnectivityWatchdogService implements OnModuleInit, OnModuleDestro
     }
   }
 
+  /**
+   * Report hard-risk gate health from the admin Risk Center. A degraded gate
+   * raises a `RISK:<gate>` alert (which pushes to ntfy at the cooldown rate via
+   * the shared raiseAlert path) so an admin is notified; a non-degraded report
+   * for a previously-open gate auto-resolves it. Never fabricated — callers only
+   * ever report the real evaluated state.
+   */
+  async reportRiskGateStatus(gates: Array<{ gate: string; status: 'active' | 'degraded' | 'unknown' | 'halted' }>) {
+    const degraded = gates.filter((g) => g.status === 'degraded');
+    for (const g of degraded) {
+      await this.raiseAlert({
+        alertKey: `RISK:${g.gate}`,
+        severity: 'WARNING',
+        scope: 'ENGINE',
+        message: `Risk gate "${g.gate}" is DEGRADED — a platform guardrail is outside its healthy band. Investigate before resuming/raising exposure.`,
+      });
+    }
+    // Auto-resolve RISK alerts whose gate is no longer degraded.
+    const degradedKeys = new Set(degraded.map((g) => `RISK:${g.gate}`));
+    const open = await this.pool.query(
+      `SELECT alert_key FROM system.connectivity_alerts WHERE status = 'OPEN' AND alert_key LIKE 'RISK:%'`,
+    );
+    for (const row of open.rows) {
+      if (!degradedKeys.has(String(row.alert_key))) {
+        await this.resolveAlert(String(row.alert_key));
+      }
+    }
+    return { ok: true, degraded: degraded.length };
+  }
+
   /** Admin dashboard payload: open alerts + per-device freshness. */
   async getConnectivitySnapshot() {
     const open = await this.pool.query(

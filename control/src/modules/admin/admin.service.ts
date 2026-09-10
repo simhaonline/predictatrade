@@ -268,9 +268,9 @@ export class AdminService {
                 s.auto_renew, s.created_at, s.updated_at,
                 s.cancelled_at, s.cancel_reason,
                 u.status as user_status,
-                l.license_key, l.id as license_id
+                l.license_key, l.id as license_id, l.expires_at
          FROM billing.subscriptions s
-         JOIN iam.users u ON s.user_id = u.id
+         JOIN iam.users u ON s.user_id = u.id AND u.deleted_at IS NULL
          LEFT JOIN control.plans p ON s.plan_id = p.id
          LEFT JOIN licensing.licenses l ON l.subscription_id = s.id
          ORDER BY s.created_at DESC LIMIT $1 OFFSET $2`,
@@ -1244,6 +1244,81 @@ export class AdminService {
       this.logger.warn(`provider read failed: ${err instanceof Error ? err.message : err}`);
       return unconfigured;
     }
+  }
+
+  /**
+   * Subscription invoices (admin subscriptions → Invoices tab). Real rows from
+   * billing.invoices joined to the subscription and user; never fabricated.
+   * If the table is absent it returns an honest empty note.
+   */
+  async getSubscriptionInvoices(limit = 100) {
+    if (!(await this.tableExists('billing', 'invoices'))) {
+      return { items: [], note: 'No invoices recorded' };
+    }
+    try {
+      const r = await this.pool.query(
+        `SELECT i.id, i.invoice_number, i.user_id, u.email as user_email,
+                s.id as subscription_id, p.name as plan_name,
+                i.amount, i.currency, i.status, i.invoice_url,
+                i.billing_period_start, i.billing_period_end, i.created_at, i.paid_at
+         FROM billing.invoices i
+         JOIN billing.subscriptions s ON s.id = i.subscription_id
+         JOIN iam.users u ON u.id = i.user_id
+         LEFT JOIN control.plans p ON p.id = i.plan_id
+         ORDER BY i.created_at DESC
+         LIMIT $1`,
+        [limit],
+      );
+      if (r.rows.length === 0) return { items: [], note: 'No invoices recorded' };
+      return { items: r.rows };
+    } catch (err) {
+      this.logger.warn(`billing.invoices read failed: ${err instanceof Error ? err.message : err}`);
+      return { items: [], note: 'No invoices recorded' };
+    }
+  }
+
+  /**
+   * Create a coupon (admin subscriptions → Coupons tab). Inserts a real row into
+   * billing.coupons so the tab is populated from DB truth, not a placeholder.
+   */
+  async createCoupon(input: {
+    code: string;
+    description?: string | null;
+    discountType: 'PERCENTAGE' | 'FIXED';
+    discountValue: number;
+    currency?: string;
+    maxRedemptions?: number | null;
+    validFrom?: string | null;
+    validUntil?: string | null;
+    active?: boolean;
+  }) {
+    if (!(await this.tableExists('billing', 'coupons'))) {
+      throw new Error('billing.coupons table not found');
+    }
+    const code = (input.code || '').trim().toUpperCase();
+    if (!code) throw new BadRequestException('Coupon code is required');
+    const exists = await this.pool.query('SELECT id FROM billing.coupons WHERE code = $1', [code]);
+    if (exists.rows[0]) throw new BadRequestException(`Coupon code "${code}" already exists`);
+    const r = await this.pool.query(
+      `INSERT INTO billing.coupons
+         (code, description, discount_type, discount_value, currency,
+          max_redemptions, redemption_count, active, valid_from, valid_until, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8::timestamptz,$9::timestamptz, now())
+       RETURNING id, code, description, discount_type, discount_value, currency,
+                 max_redemptions, redemption_count, active, valid_from, valid_until, created_at`,
+      [
+        code,
+        input.description ?? null,
+        input.discountType,
+        input.discountValue,
+        input.currency ?? 'USD',
+        input.maxRedemptions ?? null,
+        input.active ?? true,
+        input.validFrom ?? null,
+        input.validUntil ?? null,
+      ],
+    );
+    return r.rows[0];
   }
 
   /** Trading report statistics - signal counts, strategy breakdown, hourly trends. */

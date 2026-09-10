@@ -250,6 +250,29 @@ export class AdminController {
     return this.adminService.getSubscriptionProvider();
   }
 
+  @Get('subscriptions/invoices')
+  async subscriptionInvoices() {
+    return this.adminService.getSubscriptionInvoices();
+  }
+
+  @Post('subscriptions/coupons')
+  async createCoupon(@Body() body: {
+    code: string;
+    description?: string | null;
+    discountType: 'PERCENTAGE' | 'FIXED';
+    discountValue: number;
+    currency?: string;
+    maxRedemptions?: number | null;
+    validFrom?: string | null;
+    validUntil?: string | null;
+    active?: boolean;
+  }) {
+    if (!body.code || !body.discountType || body.discountValue == null) {
+      throw new BadRequestException('code, discountType and discountValue are required');
+    }
+    return this.adminService.createCoupon(body);
+  }
+
   @Get('signal-accuracy')
   getSignalAccuracy() {
     return this.adminService.getSignalAccuracy();

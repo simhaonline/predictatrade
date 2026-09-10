@@ -113,13 +113,27 @@ export default function AdminDeviceAuthPage() {
     )},
     { key: "user_email", header: "User", cell: (row) => <span className="text-xs text-pat-text-secondary">{row.user_email || "—"}</span> },
     { key: "license_key", header: "License", cell: (row) => <span className="text-xs text-pat-text-muted font-mono">{row.license_key ? row.license_key.slice(0, 20) + "..." : "—"}</span> },
-    { key: "activations", header: "Terminals", cell: (row) => (
-      <div className="flex flex-wrap gap-1">
-        {row.activations && row.activations.length > 0 ? row.activations.map((a, i) => (
-          <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-pat-bg-surface-secondary text-pat-text-secondary">{a.client_type}</span>
-        )) : <span className="text-xs text-pat-text-muted">—</span>}
-      </div>
-    )},
+    { key: "activations", header: "Terminals", cell: (row) => {
+      // Dedupe by mt_account_login — re-activations (after reset/reinstall) can
+      // leave multiple rows for the same account; show each account once.
+      const seen = new Set<string>();
+      const unique = (row.activations ?? []).filter((a) => {
+        const key = a.mt_account_login || a.client_type || "unknown";
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      return (
+        <div className="flex flex-wrap gap-1">
+          {unique.length > 0 ? unique.map((a) => (
+            <span key={a.mt_account_login || a.client_type} title={`${a.client_type} · ${a.broker_name || ""}`}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-pat-bg-surface-secondary text-pat-text-secondary">
+              {a.mt_account_login || a.client_type}
+            </span>
+          )) : <span className="text-xs text-pat-text-muted">—</span>}
+        </div>
+      );
+    }},
     { key: "os", header: "OS", cell: (row) => <span className="text-xs text-pat-text-secondary">{row.os || "—"}</span> },
     { key: "status", header: "Connection", cell: (row) => <StatusBadge status={row.status} /> },
     { key: "last_seen_at", header: "Last Seen", cell: (row) => <span className="text-xs text-pat-text-muted">{row.last_seen_at ? format(new Date(row.last_seen_at), "MMM d, yyyy HH:mm") : "—"}</span> },
@@ -245,13 +259,6 @@ export default function AdminDeviceAuthPage() {
       {/* Registered Devices Table */}
       <div>
         <h2 className="text-sm font-semibold text-pat-text-primary mb-3">Registered Devices (Licensing Database)</h2>
-
-        <div className="rounded-lg border border-pat-warning/30 bg-pat-warning/5 px-4 py-3 flex items-start gap-2 mb-3">
-          <IconAlertTriangle size={16} className="text-pat-warning shrink-0 mt-0.5" />
-          <div className="text-xs text-pat-text-secondary">
-            Device write actions are wired to live backend endpoints: <strong>Revoke</strong> (via <span className="font-mono">/licensing/devices/:id/revoke</span>), <strong>Reset</strong> (<span className="font-mono">/reset</span>), <strong>Force Upgrade</strong> (<span className="font-mono">/force-upgrade</span>) and <strong>Disable Signal</strong> (<span className="font-mono">/disable-signal</span>). All require admin authorization and mutate real device state without deleting rows.
-          </div>
-        </div>
 
         <div className="flex flex-wrap gap-2 mb-3">
           <button onClick={() => selected ? doDeviceAction(`Revoke ${selected.device_name}`, () => revokeDevice(selected.id, "admin")) : toast.error("Select a device first (click Manage)")} disabled={!selected} className="px-3 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded hover:bg-pat-bg-surface-secondary transition-colors disabled:opacity-40">Revoke</button>

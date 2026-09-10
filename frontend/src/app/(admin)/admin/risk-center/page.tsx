@@ -10,6 +10,7 @@ import {
   fetchMarketState,
   fetchRiskConfig,
   saveRiskConfig,
+  reportRiskGateStatus,
 } from "@/lib/admin-api";
 import ConfirmDialog from "@/components/admin/confirm-dialog";
 import StatusBadge from "@/components/ui/status-badge";
@@ -112,6 +113,15 @@ export default function AdminRiskCenterPage() {
     queryFn: async () => (await fetchMarketState()) as MarketState,
   });
 
+  // Report real gate health to the backend so an admin is notified (ntfy) when any
+  // hard-risk gate degrades. The backend dedupes + rate-limits the notification and
+  // auto-resolves the alert when the gate recovers. Never pushes fabricated state.
+  useEffect(() => {
+    if (!marketQ.data) return;
+    const gates = HARD_GATES.map((g) => ({ gate: g, status: marketGateStatus(g) }));
+    reportRiskGateStatus(gates).catch(() => undefined);
+  }, [marketQ.data]);
+
   const mutation = useMutation({
     mutationFn: async (fn: () => Promise<unknown>) => { await fn(); },
     onSuccess: () => {
@@ -190,20 +200,42 @@ export default function AdminRiskCenterPage() {
     riskSaveMutation.mutate();
   };
 
+  // XAUUSD trades Sun 22:00 UTC → Fri 22:00 UTC with a daily 23:00–00:00 break.
+  // During closed sessions a frozen timestamp is EXPECTED, not an outage.
+  const isMarketOpen = (() => {
+    const now = new Date();
+    const day = now.getUTCDay();
+    const hour = now.getUTCHours() + now.getUTCMinutes() / 60;
+    if (day === 6) return false;
+    if (day === 0) return hour >= 22;
+    if (day === 5) return hour < 22;
+    return hour >= 0 && hour < 23;
+  })();
+
   // Map market state fields to gates when available.
-  // /api/v1/market/state returns { states: MarketState[] } — derive gate health
-  // from the real XAUUSD state instead of non-existent top-level flags.
+  // /api/v1/market/state returns a `market_snapshot` object (top-level
+  // `timestamp` + `tick.spread`), NOT a `states[]` array — the previous reader
+  // looked for the wrong shape and so both data-quality and spread gates were
+  // permanently "degraded". Missing data => "unknown" (never silently degraded).
   const marketGateStatus = (gate: string): "active" | "degraded" | "unknown" | "halted" => {
-    const m = marketQ.data as unknown as { states?: Array<Record<string, unknown>> } | undefined;
-    const states = m?.states;
-    const xau = states?.find((s) => s?.symbol === "XAUUSD") ?? states?.[0];
-    const lastTs = xau?.timestamp ? new Date(String(xau.timestamp)).getTime() : 0;
+    const m = marketQ.data as unknown as {
+      market_snapshot?: { timestamp?: string | number; tick?: { spread?: number | string; symbol?: string } };
+    } | undefined;
+    const snap = m?.market_snapshot;
+    const lastTs = snap?.timestamp ? new Date(String(snap.timestamp)).getTime() : 0;
     const fresh = lastTs > 0 && Date.now() - lastTs < 120_000;
+    const spreadRaw = snap?.tick?.spread;
+    const spread = spreadRaw != null ? Number(spreadRaw) : NaN;
     switch (gate) {
       case "Data quality / freshness":
-        return fresh ? "active" : "degraded";
+        if (!fresh) return isMarketOpen ? "degraded" : "unknown"; // closed market: expected, not an outage
+        return "active";
       case "Spread / slippage / total-cost limit":
-        return xau != null && xau.spread != null ? "active" : "degraded";
+        // No observed spread is "unknown", not "degraded". Only a spread above the
+        // configured limit is a real breach.
+        if (!Number.isFinite(spread)) return "unknown";
+        const maxSpread = parseFloat(limits.max_spread);
+        return Number.isFinite(maxSpread) && spread > maxSpread ? "degraded" : "active";
       case "Emergency stop":
         // The emergency-stop mechanism is ARMED/ready by default; only a triggered
         // halt changes the state. A non-halted path is healthy ("active"), not "degraded".
@@ -332,7 +364,7 @@ export default function AdminRiskCenterPage() {
         )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
           {HARD_GATES.map((gate) => {
-            const status = marketQ.data ? marketGateStatus(gate) : "degraded";
+            const status = marketQ.data ? marketGateStatus(gate) : "unknown";
             return (
               <div key={gate} className="flex items-center justify-between rounded-md bg-pat-bg-surface-secondary px-3 py-2">
                 <span className="text-xs text-pat-text-primary">{gate}</span>

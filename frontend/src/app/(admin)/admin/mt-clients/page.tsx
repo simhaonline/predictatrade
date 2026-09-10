@@ -35,28 +35,30 @@ interface ConnectivitySnapshot {
 
 const POLL_MS = 30_000;
 
-// Live detection mirrors the platform standard (see memory/live-detection):
-// GREATEST(device.last_seen, edge last_poll) < 5 min = ONLINE, otherwise
-// OFFLINE. The terminal is a binary state; "last seen Xm/h ago" carries the
-// freshness detail (a 3-state LIVE/RECENT/STALE ladder read like the terminal
-// itself was in an unknown half-state and was removed on operator request —
-// an offline terminal is simply OFFLINE, with its last-seen time shown).
+// Terminal is a BINARY state per the platform live-detection standard (see
+// memory: GREATEST(device.last_seen, edge last_poll) < 5 min = ONLINE, otherwise
+// OFFLINE). The "last seen Xm/h ago" label carries the freshness detail — there is
+// no half-state. The backend (connectivity-watchdog.getConnectivitySnapshot) only
+// ever returns secondsSincePoll, so the UI must map to a binary state.
 function freshness(seconds: number): { label: string; cls: string; state: "ONLINE" | "OFFLINE" } {
+  if (seconds < 5) {
+    return { label: "now", cls: "text-emerald-500", state: "ONLINE" };
+  }
   if (seconds < 300) {
-    return { label: seconds < 5 ? "now" : `${seconds}s ago`, cls: "text-emerald-500", state: "ONLINE" };
+    return { label: `${seconds}s ago`, cls: "text-emerald-500", state: "ONLINE" };
   }
   if (seconds < 3600) {
     const mins = Math.max(1, Math.round(seconds / 60));
-    return { label: `${mins}m ago`, cls: "text-slate-400", state: "OFFLINE" };
+    return { label: `${mins}m ago`, cls: "text-red-400", state: "OFFLINE" };
   }
   const hours = Math.round(seconds / 3600);
-  return { label: `${hours}h ago`, cls: "text-slate-400", state: "OFFLINE" };
+  return { label: `${hours}h ago`, cls: "text-red-400", state: "OFFLINE" };
 }
 
 export default function MtClientsPage() {
   const [snap, setSnap] = useState<ConnectivitySnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"ALL" | "LIVE" | "RECENT" | "STALE">("ALL");
+  const [filter, setFilter] = useState<"ALL" | "ONLINE" | "OFFLINE">("ALL");
   const [roleFilter, setRoleFilter] = useState<"ALL" | "exec" | "data">("ALL");
 
   const load = useCallback(async () => {
@@ -80,14 +82,13 @@ export default function MtClientsPage() {
     return () => clearInterval(t);
   }, [load]);
 
-  const { live, recent, stale, critical, warnings } = useMemo(() => {
-    if (!snap) return { live: 0, recent: 0, stale: 0, critical: [], warnings: [] };
+  const { online, offline, critical, warnings } = useMemo(() => {
+    if (!snap) return { online: 0, offline: 0, critical: [] as ConnectivityAlert[], warnings: [] as ConnectivityAlert[] };
     const devices = snap.devices ?? [];
     const states = devices.map((d) => freshness(Number(d.secondsSincePoll ?? 0)).state);
     return {
-      live: states.filter((s) => s === "LIVE").length,
-      recent: states.filter((s) => s === "RECENT").length,
-      stale: states.filter((s) => s === "STALE").length,
+      online: states.filter((s) => s === "ONLINE").length,
+      offline: states.filter((s) => s === "OFFLINE").length,
       critical: (snap.openAlerts ?? []).filter((a) => a.severity === "CRITICAL"),
       warnings: (snap.openAlerts ?? []).filter((a) => a.severity === "WARNING"),
     };
@@ -124,28 +125,30 @@ export default function MtClientsPage() {
         <h1 className="text-xl font-bold text-pat-text-primary">MT Client Connectivity</h1>
         <p className="text-sm text-pat-text-secondary mt-1">
           MT4/MT5 client terminals polling the signal edge (edge-poll liveness).
-          LIVE = polled within 5 minutes; alerts also push to ntfy.
+          ONLINE = polled within 5 minutes; OFFLINE = no poll in 5+ minutes. Alerts also push to ntfy.
         </p>
       </div>
 
       {/* Summary tiles */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="rounded-lg border border-pat-border bg-pat-card p-4">
-          <div className="text-xs text-pat-text-muted">LIVE (&lt;5 min)</div>
-          <div className="text-2xl font-bold text-emerald-500">{live}</div>
+          <div className="text-xs text-pat-text-muted">ONLINE (&lt;5 min)</div>
+          <div className="text-2xl font-bold text-emerald-500">{online}</div>
         </div>
         <div className="rounded-lg border border-pat-border bg-pat-card p-4">
-          <div className="text-xs text-pat-text-muted">RECENT (5-60 min)</div>
-          <div className="text-2xl font-bold text-amber-500">{recent}</div>
+          <div className="text-xs text-pat-text-muted">OFFLINE (5+ min)</div>
+          <div className="text-2xl font-bold text-red-500">{offline}</div>
         </div>
         <div className="rounded-lg border border-pat-border bg-pat-card p-4">
-          <div className="text-xs text-pat-text-muted">STALE (&gt;1 h)</div>
-          <div className="text-2xl font-bold text-red-500">{stale}</div>
+          <div className="text-xs text-pat-text-muted">Critical alerts</div>
+          <div className={`text-2xl font-bold ${critical.length > 0 ? "text-red-500" : "text-emerald-500"}`}>
+            {critical.length}
+          </div>
         </div>
         <div className="rounded-lg border border-pat-border bg-pat-card p-4">
-          <div className="text-xs text-pat-text-muted">Open alerts</div>
-          <div className={`text-2xl font-bold ${critical.length > 0 ? "text-red-500" : warnings.length > 0 ? "text-amber-500" : "text-emerald-500"}`}>
-            {critical.length + warnings.length}
+          <div className="text-xs text-pat-text-muted">Warnings</div>
+          <div className={`text-2xl font-bold ${warnings.length > 0 ? "text-amber-500" : "text-emerald-500"}`}>
+            {warnings.length}
           </div>
         </div>
       </div>
@@ -165,7 +168,7 @@ export default function MtClientsPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2">
-        {(["ALL", "LIVE", "RECENT", "STALE"] as const).map((f) => (
+        {(["ALL", "ONLINE", "OFFLINE"] as const).map((f) => (
           <button key={f} onClick={() => setFilter(f)}
             className={`text-xs px-3 py-1.5 rounded transition-colors ${filter === f ? "bg-primary text-primary-foreground" : "bg-pat-bg-surface-secondary text-pat-text-primary hover:bg-pat-bg-surface-secondary"}`}>
             {f}
@@ -214,8 +217,7 @@ export default function MtClientsPage() {
                     </td>
                     <td className="px-3 py-3">
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${
-                        f.state === "LIVE" ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30"
-                        : f.state === "RECENT" ? "bg-amber-500/10 text-amber-500 border-amber-500/30"
+                        f.state === "ONLINE" ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30"
                         : "bg-red-500/10 text-red-500 border-red-500/30"
                       }`}>{f.state}</span>
                     </td>

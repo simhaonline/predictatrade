@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
-import { fetchSubscriptionPayments, fetchSubscriptionRefunds, fetchSubscriptionChargebacks, fetchSubscriptionCoupons, fetchSubscriptionProvider } from "@/lib/admin-api";
+import { fetchSubscriptionPayments, fetchSubscriptionRefunds, fetchSubscriptionChargebacks, fetchSubscriptionCoupons, fetchSubscriptionProvider, fetchSubscriptionInvoices, createSubscriptionCoupon } from "@/lib/admin-api";
 import { approveEntitlement } from "@/lib/admin-commercial-api";
 import DataTable, { DataTableColumn } from "@/components/ui/data-table";
 import StatusBadge from "@/components/ui/status-badge";
@@ -27,6 +27,25 @@ interface Subscription {
   cancelled_at?: string | null;
   cancel_reason?: string | null;
   user_status?: string;
+  license_id?: string | null;
+  expires_at?: string | null;
+}
+
+interface InvoiceRow {
+  id: string;
+  invoice_number: string | null;
+  user_id: string;
+  user_email: string | null;
+  subscription_id: string;
+  plan_name: string | null;
+  amount: string | number;
+  currency: string;
+  status: string;
+  invoice_url: string | null;
+  billing_period_start: string | null;
+  billing_period_end: string | null;
+  created_at: string;
+  paid_at: string | null;
 }
 
 interface UserNoSub {
@@ -97,6 +116,10 @@ export default function AdminSubscriptionsPage() {
   const [showAllUsers, setShowAllUsers] = useState(false);
   const [planPick, setPlanPick] = useState<Record<string, string>>({});
   const [intervalPick, setIntervalPick] = useState<Record<string, "MONTHLY" | "ANNUAL">>({});
+  const [couponForm, setCouponForm] = useState<{ code: string; description: string; discountType: "PERCENTAGE" | "FIXED"; discountValue: string; currency: string; maxRedemptions: string }>({
+    code: "", description: "", discountType: "PERCENTAGE", discountValue: "", currency: "USD", maxRedemptions: "",
+  });
+  const [couponBusy, setCouponBusy] = useState(false);
 
   const completeSub = async (id: string) => {
     if (typeof window !== "undefined" && !window.confirm("Complete this INCOMPLETE subscription? This marks it ACTIVE (provisioning/entitlement confirmed) and is recorded in the audit log.")) return;
@@ -172,6 +195,30 @@ export default function AdminSubscriptionsPage() {
     }
   };
 
+  const createCouponHandler = async () => {
+    if (!couponForm.code || !couponForm.discountValue) {
+      if (typeof window !== "undefined") window.alert("Coupon code and discount value are required.");
+      return;
+    }
+    setCouponBusy(true);
+    try {
+      await createSubscriptionCoupon({
+        code: couponForm.code,
+        description: couponForm.description || null,
+        discountType: couponForm.discountType,
+        discountValue: Number(couponForm.discountValue),
+        currency: couponForm.currency || "USD",
+        maxRedemptions: couponForm.maxRedemptions ? Number(couponForm.maxRedemptions) : null,
+      });
+      setCouponForm({ code: "", description: "", discountType: "PERCENTAGE", discountValue: "", currency: "USD", maxRedemptions: "" });
+      couponsQ.refetch();
+    } catch (e) {
+      if (typeof window !== "undefined") window.alert("Failed to create coupon: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setCouponBusy(false);
+    }
+  };
+
   const paymentsQ = useQuery<{ items: PaymentRow[] }>({
     queryKey: ["admin-sub-payments"],
     queryFn: fetchSubscriptionPayments,
@@ -200,6 +247,12 @@ export default function AdminSubscriptionsPage() {
     queryKey: ["admin-sub-provider"],
     queryFn: fetchSubscriptionProvider,
     enabled: tab === "provider",
+  });
+
+  const invoicesQ = useQuery<{ items: InvoiceRow[]; note?: string }>({
+    queryKey: ["admin-sub-invoices"],
+    queryFn: fetchSubscriptionInvoices,
+    enabled: tab === "invoices",
   });
 
   const subsCols: DataTableColumn<Subscription>[] = [
@@ -232,6 +285,7 @@ export default function AdminSubscriptionsPage() {
     ) },
     { key: "current_period_start", header: "Period Start", cell: (row) => <span className="text-xs text-pat-text-muted">{row.current_period_start ? format(new Date(row.current_period_start), "MMM d, yyyy") : "—"}</span> },
     { key: "current_period_end", header: "Period End", cell: (row) => <span className="text-xs text-pat-text-muted">{row.current_period_end ? format(new Date(row.current_period_end), "MMM d, yyyy") : "—"}</span> },
+    { key: "expires_at", header: "Expires", cell: (row) => <span className="text-xs text-pat-text-muted">{row.expires_at ? format(new Date(row.expires_at), "MMM d, yyyy") : "—"}</span> },
     { key: "auto_renew", header: "Auto-Renew", cell: (row) => <span className={`text-xs ${row.auto_renew ? "text-pat-success" : "text-pat-text-muted"}`}>{row.auto_renew ? "Yes" : "No"}</span> },
     { key: "action", header: "Approval", cell: (row) => ["INCOMPLETE", "FAILED", "PAST_DUE"].includes(row.status) ? (
       <div className="flex items-center gap-1">
@@ -275,6 +329,20 @@ export default function AdminSubscriptionsPage() {
     { key: "active", header: "Active", cell: (row) => <StatusBadge status={row.active ? "active" : "inactive"} /> },
     { key: "redemption_count", header: "Redeemed", cell: (row) => <span className="text-xs text-pat-text-muted">{row.redemption_count}{row.max_redemptions ? ` / ${row.max_redemptions}` : ""}</span> },
     { key: "valid_until", header: "Valid Until", cell: (row) => <span className="text-xs text-pat-text-muted">{fmtDate(row.valid_until)}</span> },
+  ];
+
+  const invoiceCols: DataTableColumn<InvoiceRow>[] = [
+    { key: "invoice_number", header: "Invoice #", cell: (row) => <span className="text-xs text-pat-text-primary font-mono">{row.invoice_number || row.id.slice(0, 8)}</span> },
+    { key: "user_email", header: "User", cell: (row) => <span className="text-xs text-pat-text-primary">{row.user_email || "—"}</span> },
+    { key: "plan_name", header: "Plan", cell: (row) => <span className="text-xs text-pat-text-secondary">{row.plan_name || "—"}</span> },
+    { key: "amount", header: "Amount", cell: (row) => <span className="text-xs text-pat-text-primary">{(Number(row.amount) || 0).toFixed(2)} {row.currency}</span> },
+    { key: "status", header: "Status", cell: (row) => <StatusBadge status={row.status} /> },
+    { key: "billing_period_start", header: "Period Start", cell: (row) => <span className="text-xs text-pat-text-muted">{fmtDate(row.billing_period_start)}</span> },
+    { key: "billing_period_end", header: "Period End", cell: (row) => <span className="text-xs text-pat-text-muted">{fmtDate(row.billing_period_end)}</span> },
+    { key: "created_at", header: "Issued", cell: (row) => <span className="text-xs text-pat-text-muted">{fmtDate(row.created_at)}</span> },
+    { key: "invoice_url", header: "Link", cell: (row) => row.invoice_url ? (
+      <a href={row.invoice_url} target="_blank" rel="noreferrer" className="text-xs text-pat-info underline">open</a>
+    ) : <span className="text-xs text-pat-text-muted">—</span> },
   ];
 
   const totalPages = subsQ.data?.total ? Math.ceil(subsQ.data.total / 20) : 1;
@@ -373,12 +441,16 @@ export default function AdminSubscriptionsPage() {
       )}
 
       {tab === "invoices" && (
-        <DegradedNote>
-          Subscription invoices are not available here — see Billing &amp; Payouts → Invoices. No backend
-          subscription-invoice endpoint is wired to this tab.
-        </DegradedNote>
+        invoicesQ.isLoading ? (
+          <div className="text-sm text-pat-text-muted">Loading invoices…</div>
+        ) : invoicesQ.error ? (
+          <DegradedNote>Degraded — invoices endpoint returned an error. {(invoicesQ.error as Error).message}</DegradedNote>
+        ) : (invoicesQ.data?.items?.length ?? 0) === 0 ? (
+          <DegradedNote>{invoicesQ.data?.note || "No invoices recorded."}</DegradedNote>
+        ) : (
+          <DataTable data={invoicesQ.data?.items || []} pageSize={20} hidePager columns={invoiceCols} loading={false} error={null} onRetry={() => invoicesQ.refetch()} />
+        )
       )}
-
       {tab === "payments" && (
         paymentsQ.isLoading ? (
           <div className="text-sm text-pat-text-muted">Loading payments…</div>
@@ -414,15 +486,42 @@ export default function AdminSubscriptionsPage() {
       )}
 
       {tab === "coupons" && (
-        couponsQ.isLoading ? (
-          <div className="text-sm text-pat-text-muted">Loading coupons…</div>
-        ) : couponsQ.error ? (
-          <DegradedNote>Degraded — coupons endpoint returned an error. Showing no data rather than fabricating records. {(couponsQ.error as Error).message}</DegradedNote>
-        ) : (couponsQ.data?.items?.length ?? 0) === 0 ? (
-          <DegradedNote>{couponsQ.data?.note || "No coupons configured."}</DegradedNote>
-        ) : (
-          <DataTable data={couponsQ.data?.items || []} columns={couponsCols} loading={false} error={null} onRetry={() => couponsQ.refetch()} />
-        )
+        <div className="space-y-4">
+          <div className="rounded-lg border border-pat-border bg-pat-card p-4">
+            <div className="text-sm font-medium text-pat-text-primary mb-3">Create coupon</div>
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+              <input placeholder="Code (e.g. LAUNCH20)" value={couponForm.code} onChange={(e) => setCouponForm((c) => ({ ...c, code: e.target.value.toUpperCase() }))}
+                className="px-2 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded border border-pat-border" />
+              <select value={couponForm.discountType} onChange={(e) => setCouponForm((c) => ({ ...c, discountType: e.target.value as "PERCENTAGE" | "FIXED" }))}
+                className="px-2 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded border border-pat-border">
+                <option value="PERCENTAGE">% off</option>
+                <option value="FIXED">Fixed</option>
+              </select>
+              <input placeholder={couponForm.discountType === "PERCENTAGE" ? "Value (e.g. 20)" : "Amount"} value={couponForm.discountValue} onChange={(e) => setCouponForm((c) => ({ ...c, discountValue: e.target.value }))}
+                className="px-2 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded border border-pat-border" inputMode="decimal" />
+              <input placeholder="Currency (USD)" value={couponForm.currency} onChange={(e) => setCouponForm((c) => ({ ...c, currency: e.target.value }))}
+                className="px-2 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded border border-pat-border" />
+              <input placeholder="Max redeems (blank = ∞)" value={couponForm.maxRedemptions} onChange={(e) => setCouponForm((c) => ({ ...c, maxRedemptions: e.target.value }))}
+                className="px-2 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded border border-pat-border" inputMode="numeric" />
+              <button onClick={createCouponHandler} disabled={couponBusy}
+                className="text-xs px-3 py-1.5 rounded bg-pat-success/20 text-pat-success hover:bg-pat-success/30 disabled:opacity-40 font-medium">
+                {couponBusy ? "Creating…" : "Create"}
+              </button>
+            </div>
+            <input placeholder="Description (optional)" value={couponForm.description} onChange={(e) => setCouponForm((c) => ({ ...c, description: e.target.value }))}
+              className="mt-2 w-full px-2 py-1.5 text-xs bg-pat-bg-surface-secondary text-pat-text-primary rounded border border-pat-border" />
+          </div>
+
+          {couponsQ.isLoading ? (
+            <div className="text-sm text-pat-text-muted">Loading coupons…</div>
+          ) : couponsQ.error ? (
+            <DegradedNote>Degraded — coupons endpoint returned an error. Showing no data rather than fabricating records. {(couponsQ.error as Error).message}</DegradedNote>
+          ) : (couponsQ.data?.items?.length ?? 0) === 0 ? (
+            <DegradedNote>{couponsQ.data?.note || "No coupons configured."}</DegradedNote>
+          ) : (
+            <DataTable data={couponsQ.data?.items || []} columns={couponsCols} loading={false} error={null} onRetry={() => couponsQ.refetch()} />
+          )}
+        </div>
       )}
 
       {tab === "provider" && (
