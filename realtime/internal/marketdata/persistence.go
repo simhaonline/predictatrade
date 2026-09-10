@@ -1147,6 +1147,48 @@ func (p *Persister) SaveOutboxEvent(ctx context.Context, signalID string, signal
 	return err
 }
 
+// SweepOutboxToPublished closes the outbox state machine: a signal is
+// "published" when its durable row exists in trading.signals (written in the
+// same tick by SaveSignal). The outbox is a publication audit trail, not a
+// delivery queue — WS broadcast + edge_signal_queue are the delivery paths.
+// This sweeper (2026-09-10) stops the table hoarding PENDING rows forever
+// (observed: 11,142 PENDING since launch with zero consumers).
+func (p *Persister) SweepOutboxToPublished(ctx context.Context) (int64, error) {
+	tag, err := p.db.ExecContext(ctx, `
+		UPDATE trading.signal_outbox o
+		   SET state = 'PUBLISHED', published_at = NOW()
+		  FROM trading.signals s
+		 WHERE o.signal_id = s.signal_id::uuid
+		   AND o.state IN ('PENDING', 'RETRYING')`,
+	)
+	if err != nil {
+		log.Printf("[RT] SweepOutboxToPublished error: %v", err)
+		return 0, err
+	}
+	n, _ := tag.RowsAffected()
+	return n, nil
+}
+
+// StartOutboxSweeper runs the PENDING→PUBLISHED sweep every minute, forever.
+// Idempotent: rows whose signal is missing (insert failed) stay PENDING for
+// manual inspection rather than being falsely marked.
+func (p *Persister) StartOutboxSweeper(ctx context.Context, interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if n, err := p.SweepOutboxToPublished(ctx); err == nil && n > 0 {
+					log.Printf("[RT] outbox sweep: %d events → PUBLISHED", n)
+				}
+			}
+		}
+	}()
+}
+
 // GetPendingOutboxEvents retrieves pending outbox events for dispatch.
 func (p *Persister) GetPendingOutboxEvents(ctx context.Context, limit int) ([]OutboxEvent, error) {
 	rows, err := p.db.QueryContext(ctx, `

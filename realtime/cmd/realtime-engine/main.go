@@ -1197,6 +1197,11 @@ func main() {
 			// Install per-symbol volatility-scale overrides (e.g. XAUUSD.sd) so
 			// stop distances track each broker instrument's real volatility.
 			strategy.SetSymbolVolatilityScale(cfg.SymbolVolatilityScale)
+			// Outbox state machine sweeper (2026-09-10): close PENDING→PUBLISHED
+			// for signals whose durable row exists; stops the outbox hoarding.
+			outboxCtx, outboxCancel := context.WithCancel(context.Background())
+			defer outboxCancel()
+			persister.StartOutboxSweeper(outboxCtx, time.Minute)
 			observability.Log.Info().Msg("Database connected for exit profile configuration")
 		}
 		if err != nil {
