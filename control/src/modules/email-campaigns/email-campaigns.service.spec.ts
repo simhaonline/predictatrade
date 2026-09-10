@@ -21,7 +21,7 @@ describe('EmailCampaignService', () => {
   const makePool = (campaignOverride?: Record<string, unknown>) => ({
     query: jest.fn(async (sql: string, params: unknown[] = []): Promise<QueryResult> => {
       queries.push({ sql, params });
-      if (sql.includes('count(DISTINCT u.id)')) {
+      if (sql.includes('count(DISTINCT u.id)') && sql.includes('billing.subscriptions')) {
         return { rows: [{ count: '7' }], rowCount: 1 };
       }
       if (sql.includes('consent_records') && sql.includes('marketing_opt_in = true')) {

@@ -46,22 +46,24 @@ export class EmailCampaignService {
    * Audience counts for the compose form (live DB truth).
    */
   async audienceCounts(): Promise<CampaignAudienceCounts> {
+    // iam.users has a `status` column ('ACTIVE'|'DELETED') — there is no
+    // is_active boolean (that mismatch caused the 500 on first load).
     const all = await this.pool.query<{ count: string }>(
       `SELECT count(*)::text AS count
          FROM iam.users
-        WHERE is_active = true AND email IS NOT NULL AND email <> ''`,
+        WHERE status = 'ACTIVE' AND email IS NOT NULL AND email <> ''`,
     );
     const active = await this.pool.query<{ count: string }>(
       `SELECT count(DISTINCT u.id)::text AS count
          FROM iam.users u
          JOIN billing.subscriptions s ON s.user_id = u.id
-        WHERE s.status = 'ACTIVE' AND u.is_active = true AND u.email IS NOT NULL AND u.email <> ''`,
+        WHERE s.status = 'ACTIVE' AND u.status = 'ACTIVE' AND u.email IS NOT NULL AND u.email <> ''`,
     );
     const optIn = await this.pool.query<{ count: string }>(
-      `SELECT count(*)::text AS count
+      `SELECT count(DISTINCT u.id)::text AS count
          FROM iam.users u
          JOIN iam.consent_records c ON c.user_id = u.id
-        WHERE c.marketing_opt_in = true AND u.is_active = true AND u.email IS NOT NULL AND u.email <> ''`,
+        WHERE c.marketing_opt_in = true AND u.status = 'ACTIVE' AND u.email IS NOT NULL AND u.email <> ''`,
     );
     return {
       all_clients: parseInt(all.rows[0]?.count ?? '0', 10),
@@ -209,9 +211,9 @@ export class EmailCampaignService {
    */
   async listCampaigns(limit = 50): Promise<unknown> {
     const res = await this.pool.query(
-      `SELECT id, subject, campaign_type, audience, status,
-              total_recipients, sent_count, failed_count, skipped_count,
-              created_at, sent_at, completed_at,
+      `SELECT c.id, c.subject, c.campaign_type, c.audience, c.status,
+              c.total_recipients, c.sent_count, c.failed_count, c.skipped_count,
+              c.created_at, c.sent_at, c.completed_at,
               u.email AS created_by_email
          FROM control.email_campaigns c
          LEFT JOIN iam.users u ON u.id = c.created_by
@@ -254,15 +256,15 @@ export class EmailCampaignService {
       case 'active_subscribers':
         return `${base}
                   JOIN billing.subscriptions s ON s.user_id = u.id
-                 WHERE s.status = 'ACTIVE' AND u.is_active = true AND u.email IS NOT NULL AND u.email <> ''`;
+                 WHERE s.status = 'ACTIVE' AND u.status = 'ACTIVE' AND u.email IS NOT NULL AND u.email <> ''`;
       case 'marketing_opt_in':
         return `${base}
                   JOIN iam.consent_records c ON c.user_id = u.id
-                 WHERE c.marketing_opt_in = true AND u.is_active = true AND u.email IS NOT NULL AND u.email <> ''`;
+                 WHERE c.marketing_opt_in = true AND u.status = 'ACTIVE' AND u.email IS NOT NULL AND u.email <> ''`;
       case 'all_clients':
       default:
         return `${base}
-                 WHERE u.is_active = true AND u.email IS NOT NULL AND u.email <> ''`;
+                 WHERE u.status = 'ACTIVE' AND u.email IS NOT NULL AND u.email <> ''`;
     }
   }
 
