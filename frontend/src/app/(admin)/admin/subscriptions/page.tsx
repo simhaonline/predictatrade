@@ -24,6 +24,9 @@ interface Subscription {
   current_period_end: string;
   auto_renew: boolean;
   created_at: string;
+  cancelled_at?: string | null;
+  cancel_reason?: string | null;
+  user_status?: string;
 }
 
 interface UserNoSub {
@@ -200,11 +203,33 @@ export default function AdminSubscriptionsPage() {
   });
 
   const subsCols: DataTableColumn<Subscription>[] = [
-    { key: "user_email", header: "User", cell: (row) => <span className="text-sm text-pat-text-primary">{row.user_email || "—"}</span> },
+    { key: "user_email", header: "User", cell: (row) => (
+      <span className="text-sm">
+        <span className={row.user_status === "DELETED" ? "text-pat-text-muted line-through" : "text-pat-text-primary"}>
+          {row.user_email || "—"}
+        </span>
+        {row.user_status === "DELETED" && (
+          <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded-full border border-pat-border text-pat-text-muted align-middle">
+            user deleted
+          </span>
+        )}
+      </span>
+    ) },
     { key: "plan_name", header: "Plan", cell: (row) => <span className="text-sm text-pat-text-primary">{row.plan_name || "—"}</span> },
     { key: "monthly_price", header: "Fee", cell: (row) => <span className="text-xs text-pat-text-secondary">${Number(row.monthly_price || 0).toFixed(0)}/mo{row.annual_price ? ` · $${Number(row.annual_price).toFixed(0)}/yr` : ""}</span> },
     { key: "billing_cycle", header: "Cycle", cell: (row) => <span className="text-xs text-pat-text-secondary">{row.billing_cycle || "—"}</span> },
-    { key: "status", header: "Status", cell: (row) => <StatusBadge status={row.status} /> },
+    { key: "status", header: "Status", cell: (row) => (
+      <span>
+        <StatusBadge status={row.status} />
+        {row.status === "CANCELLED" && (row.cancel_reason || row.cancelled_at) && (
+          <span className="block mt-1 text-[10px] text-pat-text-muted max-w-[180px] leading-tight">
+            {row.cancel_reason
+              ? row.cancel_reason
+              : `cancelled ${row.cancelled_at ? format(new Date(row.cancelled_at), "MMM d, yyyy") : ""}`}
+          </span>
+        )}
+      </span>
+    ) },
     { key: "current_period_start", header: "Period Start", cell: (row) => <span className="text-xs text-pat-text-muted">{row.current_period_start ? format(new Date(row.current_period_start), "MMM d, yyyy") : "—"}</span> },
     { key: "current_period_end", header: "Period End", cell: (row) => <span className="text-xs text-pat-text-muted">{row.current_period_end ? format(new Date(row.current_period_end), "MMM d, yyyy") : "—"}</span> },
     { key: "auto_renew", header: "Auto-Renew", cell: (row) => <span className={`text-xs ${row.auto_renew ? "text-pat-success" : "text-pat-text-muted"}`}>{row.auto_renew ? "Yes" : "No"}</span> },

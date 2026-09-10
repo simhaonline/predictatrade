@@ -266,6 +266,8 @@ export class AdminService {
                 s.billing_period_start as current_period_start,
                 s.billing_period_end as current_period_end,
                 s.auto_renew, s.created_at, s.updated_at,
+                s.cancelled_at, s.cancel_reason,
+                u.status as user_status,
                 l.license_key, l.id as license_id
          FROM billing.subscriptions s
          JOIN iam.users u ON s.user_id = u.id
