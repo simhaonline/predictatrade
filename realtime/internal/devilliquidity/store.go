@@ -43,7 +43,8 @@ func (s *Store) LoadConfig() (Config, bool, error) {
 		       minimum_body_ratio, minimum_range_atr, minimum_body_exp,
 		       close_extreme_ratio, min_mark_quality, min_signal_score,
 		       approach_distance_atr, minimum_sweep_depth_atr, maximum_sweep_depth_atr,
-		       reclaim_max_bars, reversal_body_ratio, mark_expiry_bars, volume_weight
+		       reclaim_max_bars, reversal_body_ratio, mark_expiry_bars, volume_weight,
+		       max_bonus, max_penalty
 		FROM devil_liquidity_config
 		ORDER BY updated_at DESC
 		LIMIT 1`)
@@ -54,12 +55,14 @@ func (s *Store) LoadConfig() (Config, bool, error) {
 		minSweepDepthATR, maxSweepDepthATR, reclaimMaxBarsF, reversalBodyRatio float64
 		markExpiryBarsF, volumeWeight                                          float64
 		minimumTickTol                                                         int64
+		maxBonus, maxPenalty                                                   float64
 	)
 	if err := row.Scan(
 		&enabled, &mode, &flatWickRatio, &flatWickATRTol, &minimumTickTol,
 		&bodyRatio, &rangeATR, &bodyExp, &closeExtremeRatio, &minMarkQuality,
 		&minSignalScore, &approachDistATR, &minSweepDepthATR, &maxSweepDepthATR,
 		&reclaimMaxBarsF, &reversalBodyRatio, &markExpiryBarsF, &volumeWeight,
+		&maxBonus, &maxPenalty,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return DefaultConfig(), false, nil
@@ -88,6 +91,14 @@ func (s *Store) LoadConfig() (Config, bool, error) {
 	cfg.ReversalBodyRatio = reversalBodyRatio
 	cfg.MarkExpiryBars = int(markExpiryBarsF)
 	cfg.VolumeWeight = volumeWeight
+	// Bounds: DB wins, but guard against a zero/forgotten value (fail conservative).
+	if maxBonus == 0 && maxPenalty == 0 {
+		cfg.MaxBonus = 5.0
+		cfg.MaxPenalty = -5.0
+	} else {
+		cfg.MaxBonus = maxBonus
+		cfg.MaxPenalty = maxPenalty
+	}
 	return cfg, true, nil
 }
 

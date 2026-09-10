@@ -144,8 +144,8 @@ func DefaultConfig() Config {
 		MinSignalScore:      60.0,
 		VolumeWeight:        10.0,
 		Mode:                ModeConfluence,
-		MaxBonus:            10.0, // bounded contribution — never dominates the signal
-		MaxPenalty:          -10.0,
+		MaxBonus:            5.0, // conservative day-one bound: fine-tune only, never dominate
+		MaxPenalty:          -5.0,
 		ConfigVersion:       "1.0.0",
 	}
 }

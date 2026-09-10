@@ -40,8 +40,8 @@ func TestContributionShadowModeDoesNotContribute(t *testing.T) {
 func TestContributionConfluenceBounded(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Mode = ModeConfluence
-	cfg.MaxBonus = 10.0
-	cfg.MaxPenalty = -10.0
+	cfg.MaxBonus = 5.0
+	cfg.MaxPenalty = -5.0
 	e := NewEngine("", cfg)
 	e.SetEnabled(true)
 	base := time.Now()
