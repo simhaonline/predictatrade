@@ -184,7 +184,7 @@ func (p *FMPProvider) categorizeEvent(name string) string {
 		return "GDP"
 	case contains(nameLower, "unemployment"):
 		return "UNEMPLOYMENT"
-	case contains(nameLower, "powell"), contains(nameLower, "speech"), contains(nameLower, "yellen"), contains(nameLower, "fed chair"):
+	case contains(nameLower, "powell"), contains(nameLower, "speech"), contains(nameLower, "yellen"), contains(nameLower, "fed chair"), contains(nameLower, "press conference"):
 		return "SPEECH"
 	case contains(nameLower, "ism"):
 		return "ISM"
