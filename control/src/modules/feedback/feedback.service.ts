@@ -179,7 +179,7 @@ export class FeedbackService {
     return res.rows[0];
   }
 
-  /** Public featured list (for future marketing surfaces — only featured + not hidden). */
+  /** Public featured list (marketing surface — only featured + not hidden). */
   async listPublicFeatured(limit = 10): Promise<unknown> {
     const res = await this.pool.query(
       `SELECT full_name, category, rating, message, featured_at
@@ -189,7 +189,15 @@ export class FeedbackService {
         LIMIT $1`,
       [Math.min(Math.max(limit, 1), 50)],
     );
-    return { items: res.rows };
+    // Privacy: attribute by FIRST NAME ONLY on the public surface.
+    const items = res.rows.map((r) => ({
+      first_name: (r.full_name || '').split(' ')[0] || 'A client',
+      category: r.category,
+      rating: r.rating,
+      message: r.message,
+      featured_at: r.featured_at,
+    }));
+    return { items };
   }
 
   private async audit(actorId: string, action: string, entityId: string, newValue: unknown) {

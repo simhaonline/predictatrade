@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server';
 import { isAdminRole } from '@/lib/roles';
 
 const AUTH_ROUTES = ['/login', '/register', '/forgot-password', '/reset-password'];
-const PUBLIC_ROUTES = ['/terms', '/privacy', '/complaints', '/sitemap', '/cookies', '/forbidden', '/preview', '/unsubscribe'];
+const PUBLIC_ROUTES = ['/terms', '/privacy', '/complaints', '/sitemap', '/cookies', '/forbidden', '/preview', '/unsubscribe', '/feedback-showcase'];
 
 function getRoleFromToken(token: string | undefined): string | null {
   if (!token) return null;
