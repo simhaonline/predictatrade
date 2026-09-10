@@ -250,6 +250,16 @@ erDiagram
 - **Payments are USDT-only** (NOWPayments, Stripe controller-disabled). Settlement requires:
   HMAC-verified IPN + exact-key dedupe + `payment_status ∈ {confirmed, finished}` +
   amount verification (else `UNDERPAID`, audit row, no activation).
+- **Post-settlement provisioning (fixed 023dbaf — was a live bug):** after the
+  settlement transaction commits, the subscription's license is AUTO-PROVISIONED
+  (`licensing.ensureActiveLicenseForSubscription`: issue first license /
+  reactivate revoked / plan-sync drift) and referral commission is credited from
+  validated revenue — both idempotent, both fail-safe (never fail the IPN).
+  Gate MUST be the gateway status set, NOT the internal payments status.
+- **At-least-once webhooks:** if settlement fails, the dedupe row
+  (`billing.payment_events`) is unmarked so the gateway retry re-processes; the
+  settlement itself is status-guarded, so replay is safe. A deduped FAILED
+  delivery used to silently lose the payment.
 - All timestamps are `TIMESTAMPTZ`; internal truth is UTC; broker-server time is a display
   conversion only (`market/proxy`, `features/session.go`).
 - Financial history is append-only — corrections are compensating/reversal rows, never UPDATEs.
