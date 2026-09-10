@@ -35,7 +35,7 @@ delete orphan rows. A rollback SQL is generated alongside it.
 
 ## Current inventory (as of v1.18.0)
 
-100 unique migrations on disk, `001` → `139` (0xx–1xx sequences + this index
+102 unique migrations on disk, `001` → `142` (0xx–1xx sequences + this index
 file). The early section below documents migrations 096–099; the recent
 additions list (121+) covers the latest schema changes:
 
@@ -85,6 +85,9 @@ jumped from 100 straight to 110). Do NOT reuse these numbers casually: run
 - `136_master_source_canonicalization.sql` — master data source canonicalization
 - `137_candle_tf_mn_alias.sql` — candle TF MN alias
 - `138_device_risk_events.sql` — device risk events
+- `139_plan_entitlements_realignment.sql` — plan_entitlements display rows realigned to migration-110/README spec (FREE 5/day, STD 2, PRO 4, ELITE 6 slots)
+- `141_email_campaigns.sql` — admin email campaigns (alerts/newsletters/marketing) + per-recipient delivery tracking
+- `142_customer_feedback.sql` — customer feedback (category/rating/message) with admin moderation + Featured toggle
 - `139_plan_entitlements_realignment.sql` — re-align control.plan_entitlements
   display rows to migration 110 (MASTER PROMPT spec: FREE 1 slot / 5 signals/day,
   STANDARD 2, PRO 4, ELITE 6) + restore ELITE api.access=true (regressed by 024).
