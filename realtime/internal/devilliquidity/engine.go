@@ -79,6 +79,13 @@ type Engine struct {
 	atrEMA    map[string]float64
 	prevClose map[string]float64
 
+	// 2026-09-10 detection diagnostics (gate-rejection accounting)
+	detected        int64
+	rejBodyRatio    int64
+	rejDisplacement int64
+	rejCloseExtreme int64
+	rejShape        int64
+
 	// liveness / observability stats
 	candlesProcessed int64
 	marksCreated     int64
@@ -285,6 +292,35 @@ func (e *Engine) detect(c *CandleInput, o, h, l, cl, rng, body, bodyRatio,
 	displacementOK := bodyRatio >= cfg.MinBodyRatio &&
 		rangeATR >= cfg.MinRangeATR &&
 		bodyExp >= cfg.MinBodyExpansion
+
+	// 2026-09-10 diagnostics: per-stage rejection counters (live bug hunt —
+	// 50k candles produced 0 marks while the same engine detects offline on
+	// identical real candles). Exposed via EngineStats; cheap int64 adds.
+	//
+	// NOTE: ProcessCandle() holds e.mu for the entire call (including this
+	// function), so these increments are already mutually excluded — do NOT
+	// re-lock here. sync.Mutex is non-reentrant; an inner Lock() would
+	// self-deadlock the Ingest goroutine and silently stall all detection
+	// (candlesProcessed keeps climbing, marksCreated stays 0). This was the
+	// root cause of the reported 0-marks symptom.
+	if !(bodyRatio >= cfg.MinBodyRatio) {
+		e.rejBodyRatio++
+	}
+	if !displacementOK {
+		e.rejDisplacement++
+	} else {
+		closeExtremeOK := (cl > o && (h-cl)/rng <= cfg.CloseExtremeRatio) ||
+			(cl < o && (cl-l)/rng <= cfg.CloseExtremeRatio)
+		if !closeExtremeOK {
+			e.rejCloseExtreme++
+		} else if !(lowerWick <= flatTol && lowerWickRatio <= cfg.FlatWickRatio &&
+			upperWick <= flatTol && upperWickRatio <= cfg.FlatWickRatio) {
+			// Displacement + close-extreme passed but the flat-edge (wick)
+			// gate rejected it.
+			e.rejShape++
+		}
+	}
+	e.detected++
 
 	// Duplicate-mark guard: skip detection when a young, non-terminal mark for
 	// this (symbol, timeframe) already exists. Without this, the candle right
@@ -614,6 +650,11 @@ type EngineStats struct {
 	Active           int       `json:"active_marks"`
 	LastCandleTime   time.Time `json:"last_candle_time"`
 	SymbolsSeen      []string  `json:"symbols_seen"`
+	Detected         int64     `json:"detected"`
+	RejBodyRatio     int64     `json:"rej_body_ratio"`
+	RejDisplacement  int64     `json:"rej_displacement"`
+	RejCloseExtreme  int64     `json:"rej_close_extreme"`
+	RejShape         int64     `json:"rej_shape"`
 }
 
 // Stats returns a snapshot of engine activity.
@@ -627,6 +668,11 @@ func (e *Engine) Stats() EngineStats {
 	return EngineStats{
 		CandlesProcessed: e.candlesProcessed,
 		MarksCreated:     e.marksCreated,
+		Detected:         e.detected,
+		RejBodyRatio:     e.rejBodyRatio,
+		RejDisplacement:  e.rejDisplacement,
+		RejCloseExtreme:  e.rejCloseExtreme,
+		RejShape:         e.rejShape,
 		Active:           len(e.marks),
 		LastCandleTime:   e.lastCandleTime,
 		SymbolsSeen:      syms,

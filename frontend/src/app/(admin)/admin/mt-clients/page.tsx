@@ -36,16 +36,21 @@ interface ConnectivitySnapshot {
 const POLL_MS = 30_000;
 
 // Live detection mirrors the platform standard (see memory/live-detection):
-// GREATEST(device.last_seen, edge last_poll) < 5 min. The API's
-// secondsSincePoll already reflects last_seen freshness.
-function freshness(seconds: number): { label: string; cls: string; state: "LIVE" | "RECENT" | "STALE" } {
-  if (seconds < 300) return { label: "LIVE", cls: "text-emerald-500", state: "LIVE" };
+// GREATEST(device.last_seen, edge last_poll) < 5 min = ONLINE, otherwise
+// OFFLINE. The terminal is a binary state; "last seen Xm/h ago" carries the
+// freshness detail (a 3-state LIVE/RECENT/STALE ladder read like the terminal
+// itself was in an unknown half-state and was removed on operator request —
+// an offline terminal is simply OFFLINE, with its last-seen time shown).
+function freshness(seconds: number): { label: string; cls: string; state: "ONLINE" | "OFFLINE" } {
+  if (seconds < 300) {
+    return { label: seconds < 5 ? "now" : `${seconds}s ago`, cls: "text-emerald-500", state: "ONLINE" };
+  }
   if (seconds < 3600) {
     const mins = Math.max(1, Math.round(seconds / 60));
-    return { label: `${mins}m ago`, cls: "text-amber-500", state: "RECENT" };
+    return { label: `${mins}m ago`, cls: "text-slate-400", state: "OFFLINE" };
   }
   const hours = Math.round(seconds / 3600);
-  return { label: `${hours}h ago`, cls: "text-red-500", state: "STALE" };
+  return { label: `${hours}h ago`, cls: "text-slate-400", state: "OFFLINE" };
 }
 
 export default function MtClientsPage() {
