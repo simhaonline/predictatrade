@@ -97,10 +97,14 @@ export class SubscriptionsService {
        ORDER BY MAX(s.created_at) DESC LIMIT 1`, [userId],
     );
     if (!r.rows[0]) {
+      // FREE fallback — MUST mirror migration 110 / MASTER PROMPT spec
+      // (README.md §plan-entitlement): FREE = STANDARD_SCALPING only, 5
+      // signals/day. The Go engine (persistence.go GetUserSignalEntitlement)
+      // uses the same default, so both planes answer identically.
       return {
         code: 'FREE',
-        selected_strategies: ['STANDARD_SWING'],
-        max_signals_per_day: 3,
+        selected_strategies: ['STANDARD_SCALPING'],
+        max_signals_per_day: 5,
         feature_access_level: 'core',
         feature_access: { level: 'core', features: visibleFeatureGroups('core') },
         entitlements: {},

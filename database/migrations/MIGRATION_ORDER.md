@@ -48,6 +48,11 @@ delete orphan rows. A rollback SQL is generated alongside it.
   "remember this device" MFA bypass (30d, single-use rotation)
 - `123_backtest_runs_subscription.sql` — trading.backtest_runs.subscription_id +
   plan_code/plan_name snapshot + index (R9 per-plan backtest/revenue attribution)
+- `139_plan_entitlements_realignment.sql` — re-align control.plan_entitlements
+  display rows to migration 110 (MASTER PROMPT spec: FREE 1 slot / 5 signals/day,
+  STANDARD 2, PRO 4, ELITE 6) + restore ELITE api.access=true (regressed by 024).
+  Fixes admin "Plans & Entitlements" showing stale slot caps contradicting the
+  enforced plans-table columns.
 - `124_backtest_runs_raw_output.sql` — trading.backtest_runs.raw_output: verbatim
   backtest-engine stdout per run (R9-verify audit trail; admin-only exposure)
 
