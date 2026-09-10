@@ -426,11 +426,13 @@ func (p *Persister) GetEngineDiagnostics(ctx context.Context) ([]*EngineDiagnost
 	// rejection_gate breakdown the console's "Top reasons" displays.
 	cRows, err := p.db.QueryContext(ctx, `
 		SELECT strategy_id, approval_state, COALESCE(rejection_gate, ''),
-		       count(*)::int64
+		       count(*)::bigint
 		  FROM trading.signal_candidates
 		 WHERE created_at > now() - interval '24 hours'
 		 GROUP BY 1, 2, 3`)
-	if err == nil {
+	if err != nil {
+		log.Printf("[engine-diagnostics] candidates query failed: %v", err)
+	} else {
 		defer cRows.Close()
 		for cRows.Next() {
 			var strat, state, gate string
@@ -456,7 +458,7 @@ func (p *Persister) GetEngineDiagnostics(ctx context.Context) ([]*EngineDiagnost
 
 	// Signals today (any class) per strategy — the console's context column.
 	sRows, err := p.db.QueryContext(ctx, `
-		SELECT strategy_id, count(*)::int64
+		SELECT strategy_id, count(*)::bigint
 		  FROM trading.signals
 		 WHERE created_at > now() - interval '24 hours'
 		 GROUP BY 1`)
