@@ -421,3 +421,14 @@ canonical env file carries the container-network Postgres URL.
 
 - `docs/runbooks/edge-poll-429.md` — rate-limit side of edge-poll.
 - EA diagnostics skill: pat-ea-auth-diagnostics (401 loops / License NOT SET).
+## 2026-09-10 addendum — live.predictatrade.com 502 storm (nginx DNS cache)
+
+**Symptom:** live.predictatrade.com intermittently 502 on ALL `/api/v1/*` (4,418 in one day, clustered around deploys); page loads (static) fine, data offline.
+
+**Root cause:** the live vhost had `resolver 127.0.0.11 valid=10s` + a `set $upstream_realtime` variable, but the actual `proxy_pass` directives still used **static hostnames** (`http://pat-realtime:13081`, `http://live-terminal:13090`). nginx resolves static hostnames **once at config load**; the resolver only applies to variabled proxy_pass. Every backend recreate (any deploy) gives containers new IPs while nginx serves the stale cached IP → instant 502 (5ms, error log silent because the request never reached an upstream).
+
+**Fix (66855c0-era):** all proxy_pass in `live.predictatrade.com.conf`, `platform.predictatrade.com.conf` (relay + direct WS) and `api.predictatrade.com.conf` (control-b failover peers) now use variabled `proxy_pass` resolved via Docker's embedded DNS every 10s.
+
+**Verify after any nginx change:** `docker exec xauusd-nginx-1 nginx -t && docker exec xauusd-nginx-1 nginx -s reload`, then recreate a backend (`docker compose --env-file infra/env/.env up -d --force-recreate --no-deps realtime`) and confirm public 200s continue.
+
+**Rule:** any new vhost proxying to a compose service name MUST use `set $upstream_x "service:port";` + `proxy_pass http://$upstream_x;` — never a static hostname with a service name.
