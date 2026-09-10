@@ -41,7 +41,14 @@ import (
 	"bufio"
 	"crypto/tls"
 	"database/sql"
+	"bytes"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"log"
 	"net"
@@ -190,7 +197,7 @@ func main() {
 	} else {
 		log.Printf("pat-mail: WARNING no TLS cert (%v) — STARTTLS disabled, AUTH PLAIN sent in clear text", err)
 	}
-	srv := &Server{cfg: cfg, store: store, tlsConfig: tlsCfg}
+	srv := &Server{cfg: cfg, store: store, tlsConfig: tlsCfg, dkimKey: loadDKIMKey(cfg.DKIMKeyPath)}
 	log.Printf("pat-mail: domain=%s listening submission=%s tls=%s allowed_from=%v",
 		cfg.MailDomain, cfg.Listen, cfg.TLSListen, cfg.AllowedFrom)
 	// Outbound delivery worker
@@ -213,6 +220,148 @@ type Server struct {
 	cfg        Config
 	store      *Store
 	tlsConfig  *tls.Config // non-nil → STARTTLS advertised on submission port
+	dkimKey    interface{} // parsed DKIM private key (nil = signing disabled)
+}
+
+// ---------------------------------------------------------------------------
+// DKIM signing (RFC 6376, relaxed/relaxed, rsa-sha256) — production fix
+// 2026-09-10: the config fields existed but were never used, so outbound mail
+// carried no DKIM signature. With SPF not covering this host, that meant
+// password-reset mail failed alignment at strict receivers (Gmail/Outlook).
+// ---------------------------------------------------------------------------
+func loadDKIMKey(path string) interface{} {
+	if path == "" {
+		return nil
+	}
+	pemBytes, err := os.ReadFile(path)
+	if err != nil {
+		log.Printf("dkim: key not loaded (%v) — signing disabled", err)
+		return nil
+	}
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		log.Printf("dkim: %s is not PEM — signing disabled", path)
+		return nil
+	}
+	if k, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		log.Printf("dkim: signing enabled (rsa, selector from env, %d-bit key)", k.N.BitLen())
+		return k
+	}
+	if k, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
+		if rk, ok := k.(*rsa.PrivateKey); ok {
+			log.Printf("dkim: signing enabled (pkcs8 rsa, %d-bit key)", rk.N.BitLen())
+			return rk
+		}
+		log.Printf("dkim: pkcs8 key is %T, need RSA — signing disabled", k)
+		return nil
+	}
+	log.Printf("dkim: unparsable key in %s — signing disabled", path)
+	return nil
+}
+
+// dkimSign prepends a DKIM-Signature header (relaxed/relaxed, rsa-sha256) to
+// the message. Headers already named in h= are excluded; body is canonicalized
+// relaxed (strip trailing WS per line, collapse internal WS, strip trailing
+// empty lines, no trailing CRLF).
+func dkimSign(key *rsa.PrivateKey, selector, domain, d string) []byte {
+	b, hashInput, ok := dkimBuildHeader(selector, domain, d)
+	if !ok {
+		return []byte(d)
+	}
+	digest := sha256.Sum256(hashInput)
+	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
+	if err != nil {
+		return []byte(d) // fail-open: unsigned mail beats corrupted mail
+	}
+	full := "DKIM-Signature: " + b + base64.StdEncoding.EncodeToString(sig) + "\r\n"
+	return append([]byte(full), []byte(d)...)
+}
+
+// dkimBuildHeader computes the DKIM-Signature tag value (minus b=) and the
+// header hash input the signature covers. Separated from signing so tests can
+// re-verify with the exact same inputs.
+func dkimBuildHeader(selector, domain, d string) (tagValue string, hashInput []byte, ok bool) {
+	// Split headers/body on the first empty line ("\r\n\r\n").
+	// head = headers + their trailing CRLF; body = everything after the empty
+	// line (a leading CRLF in body would corrupt relaxed canonicalization —
+	// this off-by-two was the 2026-09-10 bh= mismatch bug).
+	var i int
+	if j := bytes.Index([]byte(d), []byte("\r\n\r\n")); j >= 0 {
+		i = j
+	} else {
+		return "", nil, false
+	}
+	head, body := d[:i+2], d[i+4:]
+
+	// Collect existing header names (lowercased) + raw values for canonicalization.
+	lines := strings.Split(head, "\r\n")
+	vals := map[string][]string{} // lowername -> raw values in order
+	var order []string
+	for _, ln := range lines {
+		if ln == "" {
+			continue
+		}
+		idx := strings.Index(ln, ":")
+		if idx < 0 {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSpace(ln[:idx]))
+		val := strings.TrimSpace(ln[idx+1:])
+		vals[name] = append(vals[name], val)
+		if len(order) == 0 || order[len(order)-1] != name {
+			order = append(order, name)
+		}
+	}
+
+	// Sign a bounded, stable header set (never touches Received etc.).
+	signable := []string{"from", "to", "subject", "date", "message-id", "mime-version"}
+	var hlist []string
+	for _, h := range signable {
+		for _, v := range vals[h] { // repeated headers in order
+			hashInput = append(hashInput, []byte(h+":"+dkimRelaxedValue(v)+"\r\n")...)
+			hlist = append(hlist, h)
+		}
+	}
+	if len(hlist) == 0 || len(vals["from"]) == 0 {
+		return "", nil, false
+	}
+
+	// Relaxed body canonicalization.
+	canon := dkimRelaxedBody(body)
+	bodyHash := sha256.Sum256([]byte(canon))
+	bh := base64.StdEncoding.EncodeToString(bodyHash[:])
+
+	b := fmt.Sprintf(
+		"v=1; a=rsa-sha256; c=relaxed/relaxed; d=%s; s=%s; t=%d;\r\n	h=%s;\r\n	bh=%s;\r\n	b=",
+		domain, selector, time.Now().Unix(), strings.Join(hlist, ":"), bh)
+
+	// Header hash includes the DKIM-Signature header itself, relaxed, WITHOUT
+	// the trailing b= value.
+	hashInput = append(hashInput, []byte("DKIM-Signature: "+dkimRelaxedValue(b)+"\r\n")...)
+	return b, hashInput, true
+}
+
+// dkimRelaxedValue unfolds, collapses WS runs to single SP, trims.
+func dkimRelaxedValue(v string) string {
+	v = strings.Join(strings.Fields(v), " ")
+	return v
+}
+
+// dkimRelaxedBody: strip trailing WS per line, collapse internal WS, strip
+// trailing empty lines, no trailing CRLF.
+func dkimRelaxedBody(body string) string {
+	lines := strings.Split(body, "\r\n")
+	for i, ln := range lines {
+		lines[i] = strings.Join(strings.Fields(ln), " ")
+		// per RFC: relaxed strips trailing WSP; Fields already handles that
+	}
+	// trim trailing empty lines
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	// re-collapse internal empties to a single empty line? RFC relaxed keeps
+	// them, just WS-stripped — keep as-is, join with CRLF, no trailing CRLF.
+	return strings.Join(lines, "\r\n")
 }
 
 // ---------------------------------------------------------------------------
@@ -220,10 +369,18 @@ type Server struct {
 // ---------------------------------------------------------------------------
 func (sv *Server) deliver(m *Message) error {
 	from := m.From
+	data := m.Data
+	// Sign at delivery time (key may rotate while messages sit in spool).
+	if k, ok := sv.dkimKey.(*rsa.PrivateKey); ok && k != nil && len(m.From) > 0 {
+		if at := strings.Index(m.From, "@"); at >= 0 && strings.EqualFold(m.From[at+1:], sv.cfg.DKIMDomain) {
+			data = dkimSign(k, sv.cfg.DKIMSelector, sv.cfg.DKIMDomain, string(m.Data))
+			m.Data = data
+		}
+	}
 	var err error
 	for i := 0; i < 3; i++ {
 		if sv.cfg.Smarthost != "" {
-			err = smtpDeliver(sv.cfg.Smarthost, from, m.To, m.Data)
+			err = smtpDeliver(sv.cfg.Smarthost, from, m.To, data)
 		} else {
 			host := strings.SplitN(m.To[0], "@", 2)
 			if len(host) != 2 {
@@ -233,7 +390,7 @@ func (sv *Server) deliver(m *Message) error {
 			if err2 != nil || len(mx) == 0 {
 				return fmt.Errorf("no MX for %s", host[1])
 			}
-			err = smtpDeliver(fmt.Sprintf("%s:%d", mx[0].Host, 25), from, m.To, m.Data)
+			err = smtpDeliver(fmt.Sprintf("%s:%d", mx[0].Host, 25), from, m.To, data)
 		}
 		if err == nil {
 			return nil
