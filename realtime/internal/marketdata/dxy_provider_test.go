@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // Test DXY provider fails safely when not configured
@@ -227,5 +228,77 @@ func TestIsRateLimited(t *testing.T) {
 	}
 	if isRateLimited(fmt.Errorf("connection refused")) {
 		t.Error("Should not detect rate limit in non-rate error")
+	}
+}
+
+// TestDXYFireSnapshotCallbacksOnRefresh — regression for the 2026-09-10
+// "DXY STALE on Macro Intelligence" live bug. OnSnapshot callbacks must fire
+// on EVERY refresh, not only the initial fetch: crossmarket + IGS consumers
+// are wired exclusively via OnSnapshot, and a refresh-loop that skips them
+// leaves driver timestamps frozen at startup (freshness → 0, effective
+// weight → 0, permanent STALE display while the provider is healthy).
+//
+// Drive the real refresh loop with a sub-second tick: RefreshMin is in
+// minutes, so instead we simulate two refresh cycles by calling the same
+// code path the loop uses (Update + fireSnapshotCallbacks) and asserting the
+// callback fires and prevValue advances — the exact logic the loop now runs.
+func TestDXYFireSnapshotCallbacksOnRefresh(t *testing.T) {
+	prices := []string{"1.1000", "1.1001", "1.1002"}
+	i := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if i >= len(prices) {
+			fmt.Fprintf(w, `{"price":"%s"}`, prices[len(prices)-1])
+			return
+		}
+		fmt.Fprintf(w, `{"price":"%s"}`, prices[i])
+		i++
+	}))
+	defer ts.Close()
+
+	provider := NewDXYProvider(DXYProviderConfig{
+		APIKey:     "test-key",
+		APIBase:    ts.URL,
+		TimeoutSec: 5,
+	})
+
+	var calls []struct{ value, prev float64 }
+	done := make(chan struct{}, 4)
+	provider.OnSnapshot(func(value, prevValue float64, ts time.Time) {
+		calls = append(calls, struct{ value, prev float64 }{value, prevValue})
+		done <- struct{}{}
+	})
+
+	ctx := context.Background()
+	// Initial cycle (what StartRefreshLoop does on startup).
+	if err := provider.Update(ctx); err != nil {
+		t.Fatalf("initial Update: %v", err)
+	}
+	provider.fireSnapshotCallbacks(provider.GetSnapshot().Value, provider.GetSnapshot().FetchedAt)
+	<-done
+
+	// Refresh cycle #1 — BEFORE the fix this never fired the callback.
+	if err := provider.Update(ctx); err != nil {
+		t.Fatalf("refresh Update 1: %v", err)
+	}
+	provider.fireSnapshotCallbacks(provider.GetSnapshot().Value, provider.GetSnapshot().FetchedAt)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("refresh cycle did not fire OnSnapshot callback (pre-fix behavior)")
+	}
+
+	// Refresh cycle #2 — prev must now be the previous refresh's value.
+	if err := provider.Update(ctx); err != nil {
+		t.Fatalf("refresh Update 2: %v", err)
+	}
+	provider.fireSnapshotCallbacks(provider.GetSnapshot().Value, provider.GetSnapshot().FetchedAt)
+	<-done
+
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 callbacks (initial + 2 refreshes), got %d", len(calls))
+	}
+	// Third call's prev must equal the second call's value (chained refreshes).
+	if calls[2].prev != calls[1].value {
+		t.Errorf("chained prev broken: got prev=%v want %v", calls[2].prev, calls[1].value)
 	}
 }

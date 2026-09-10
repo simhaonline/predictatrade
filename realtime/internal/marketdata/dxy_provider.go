@@ -247,6 +247,26 @@ func (p *DXYProvider) OnSnapshot(cb func(value, prevValue float64, ts time.Time)
 	p.snapshotCallbacks = append(p.snapshotCallbacks, cb)
 }
 
+// fireSnapshotCallbacks invokes every registered OnSnapshot callback with the
+// given snapshot and advances prevValue. Shared by the initial fetch AND the
+// refresh loop (stale-DXY fix, 2026-09-10: the refresh loop previously never
+// fired callbacks, so crossmarket/IGS drivers wired via OnSnapshot saw a
+// Timestamp frozen at startup — DXY showed permanently STALE on Macro
+// Intelligence while the provider itself was healthy).
+func (p *DXYProvider) fireSnapshotCallbacks(value float64, ts time.Time) {
+	p.mu.RLock()
+	prev := p.prevValue
+	callbacks := make([]func(float64, float64, time.Time), len(p.snapshotCallbacks))
+	copy(callbacks, p.snapshotCallbacks)
+	p.mu.RUnlock()
+	for _, cb := range callbacks {
+		cb(value, prev, ts)
+	}
+	p.mu.Lock()
+	p.prevValue = value
+	p.mu.Unlock()
+}
+
 // StartRefreshLoop runs a background goroutine that periodically fetches DXY data.
 // On each successful fetch, it calls the onUpdate callback with the DXY value
 // and timestamp — this is used to feed the CorrelationEngine.
@@ -273,17 +293,7 @@ func (p *DXYProvider) StartRefreshLoop(ctx context.Context, onUpdate func(value 
 				onUpdate(snap.Value, snap.FetchedAt)
 			}
 			// Fire snapshot callbacks for cross-market engine
-			p.mu.RLock()
-			prev := p.prevValue
-			callbacks := make([]func(float64, float64, time.Time), len(p.snapshotCallbacks))
-			copy(callbacks, p.snapshotCallbacks)
-			p.mu.RUnlock()
-			for _, cb := range callbacks {
-				cb(snap.Value, prev, snap.FetchedAt)
-			}
-			p.mu.Lock()
-			p.prevValue = snap.Value
-			p.mu.Unlock()
+			p.fireSnapshotCallbacks(snap.Value, snap.FetchedAt)
 		} else if snap != nil {
 			if logFn != nil {
 				logFn(fmt.Sprintf("DXY fetch returned %s: %s", snap.Status, snap.ErrorMessage), nil)
@@ -316,6 +326,15 @@ func (p *DXYProvider) StartRefreshLoop(ctx context.Context, onUpdate func(value 
 					if onUpdate != nil {
 						onUpdate(snap.Value, snap.FetchedAt)
 					}
+					// Fire snapshot callbacks on REFRESH too (stale-DXY fix,
+					// 2026-09-10): the crossmarket engine + IGS fan-in are
+					// wired via OnSnapshot (main.go), but this loop previously
+					// only fired them on the INITIAL fetch. Result: the DXY
+					// driver's Timestamp froze at startup while the provider
+					// kept refreshing — freshness decayed to 0 and Macro
+					// Intelligence showed DXY permanently STALE with
+					// effective_weight 0 (observed live 2026-09-10).
+					p.fireSnapshotCallbacks(snap.Value, snap.FetchedAt)
 				}
 			}
 		}
