@@ -1350,41 +1350,47 @@ func main() {
 	// The news risk engine already syncs the FMP economic calendar every 5 min.
 	// This loop drains its cached events, finds FOMC/rate-decision events, and
 	// feeds the crossmarket fed_context driver. Event-based (no new I/O).
-	if globalCrossMarketEngine != nil {
-		go func() {
-			ticker := time.NewTicker(60 * time.Second)
-			defer ticker.Stop()
-			feed := func() {
-				engine := globalCrossMarketEngine
-				if engine == nil {
-					return
-				}
-				now := time.Now().UTC()
-				var upcoming, last *time.Time
-				for _, ev := range newsRiskEngine.GetEvents() {
-					if ev.EventCategory != "RATE_DECISION" {
-						continue
-					}
-					if ev.ScheduledAtUTC.After(now) {
-						if upcoming == nil || ev.ScheduledAtUTC.Before(*upcoming) {
-							t := ev.ScheduledAtUTC
-							upcoming = &t
-						}
-					} else {
-						if last == nil || ev.ScheduledAtUTC.After(*last) {
-							t := ev.ScheduledAtUTC
-							last = &t
-						}
-					}
-				}
-				engine.UpdateDriver(crossmarket.NormalizeFedContext(upcoming, last, now))
+	// NOTE: always start the goroutine — globalCrossMarketEngine is assigned
+	// LATER in main() than this line, so gating startup on it nil-checking
+	// non-nil would permanently kill the feeder (observed 2026-09-10: driver
+	// stayed missing for the process lifetime).
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		fed := func() {
+			engine := globalCrossMarketEngine
+			if engine == nil {
+				return
 			}
-			feed() // initial feed after the news engine's first sync
-			for range ticker.C {
-				feed()
+			now := time.Now().UTC()
+			var upcoming, last *time.Time
+			for _, ev := range newsRiskEngine.GetEvents() {
+				if ev.EventCategory != "RATE_DECISION" {
+					continue
+				}
+				if ev.ScheduledAtUTC.After(now) {
+					if upcoming == nil || ev.ScheduledAtUTC.Before(*upcoming) {
+						t := ev.ScheduledAtUTC
+						upcoming = &t
+					}
+				} else {
+					if last == nil || ev.ScheduledAtUTC.After(*last) {
+						t := ev.ScheduledAtUTC
+						last = &t
+					}
+				}
 			}
-		}()
-	}
+			engine.UpdateDriver(crossmarket.NormalizeFedContext(upcoming, last, now))
+		}
+		// Wait for the crossmarket engine to be assigned before first feed.
+		for i := 0; i < 30 && globalCrossMarketEngine == nil; i++ {
+			time.Sleep(1 * time.Second)
+		}
+		fed()
+		for range ticker.C {
+			fed()
+		}
+	}()
 
 	// Give AgentProvider access to state manager + merge function
 	// This allows authoritative MT5 snapshot indicators to be merged into MarketState
