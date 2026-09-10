@@ -29,18 +29,25 @@ interface CampaignRow {
   created_by_email: string | null;
 }
 
-const TYPE_STYLE: Record<string, string> = {
-  alert: "bg-pat-info/15 text-pat-info",
-  newsletter: "bg-pat-success/15 text-pat-success",
-  marketing: "bg-pat-warning/15 text-pat-warning",
+const TYPE_LABELS: Record<string, string> = {
+  alert: "Service Alert",
+  newsletter: "Newsletter",
+  marketing: "Marketing",
 };
 
-const STATUS_STYLE: Record<string, string> = {
-  draft: "bg-white/5 text-pat-text-muted",
-  sending: "bg-pat-info/15 text-pat-info",
-  sent: "bg-pat-success/15 text-pat-success",
-  failed: "bg-red-500/15 text-red-400",
-  cancelled: "bg-white/5 text-pat-text-muted",
+// Badge style contract used across the admin console (10px pill + border).
+const TYPE_BADGE: Record<string, string> = {
+  alert: "bg-pat-info/10 text-pat-info border-pat-info/30",
+  newsletter: "bg-pat-success/10 text-pat-success border-pat-success/30",
+  marketing: "bg-pat-warning/10 text-pat-warning border-pat-warning/30",
+};
+
+const STATUS_BADGE: Record<string, string> = {
+  draft: "bg-pat-badge-neutral-bg text-pat-badge-neutral-text border-pat-border",
+  sending: "bg-pat-info/10 text-pat-info border-pat-info/30",
+  sent: "bg-pat-success/10 text-pat-success border-pat-success/30",
+  failed: "bg-red-500/10 text-red-500 border-red-500/30",
+  cancelled: "bg-pat-badge-neutral-bg text-pat-badge-neutral-text border-pat-border",
 };
 
 const AUDIENCE_LABEL: Record<Audience, string> = {
@@ -49,11 +56,7 @@ const AUDIENCE_LABEL: Record<Audience, string> = {
   marketing_opt_in: "Marketing Opt-in",
 };
 
-const TYPE_LABEL: Record<CampaignType, string> = {
-  alert: "Service Alert",
-  newsletter: "Newsletter",
-  marketing: "Marketing",
-};
+const TYPE_LABEL = (t: string) => TYPE_LABELS[t] ?? t;
 
 export default function EmailNotificationsPage() {
   const [counts, setCounts] = useState<AudienceCounts | null>(null);
@@ -92,6 +95,7 @@ export default function EmailNotificationsPage() {
   );
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     try {
       const [a, l] = await Promise.all([
         authedFetch("/admin/email-campaigns/audience"),
@@ -99,8 +103,11 @@ export default function EmailNotificationsPage() {
       ]);
       setCounts(a);
       setCampaigns(l.campaigns ?? []);
+      setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
+    } finally {
+      setLoading(false);
     }
   }, [authedFetch]);
 
@@ -115,7 +122,6 @@ export default function EmailNotificationsPage() {
     try {
       const { id } = await authedFetch("/admin/email-campaigns", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ subject, bodyHtml, bodyText, campaignType, audience }),
       });
       const result = await authedFetch(`/admin/email-campaigns/${id}/send`, { method: "POST" });
@@ -140,48 +146,51 @@ export default function EmailNotificationsPage() {
       ? "Service alerts are delivered to the selected audience without opt-out filtering (operational communication)."
       : "Newsletter/marketing sends automatically exclude addresses that unsubscribed, and carry a List-Unsubscribe header.";
 
+  const canSend = subject.trim() !== "" && bodyHtml.trim() !== "" && bodyText.trim() !== "" && !sending;
+
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="space-y-4">
+      {/* Page header — matches sibling admin pages */}
       <div>
-        <h1 className="text-xl font-semibold text-pat-text">Email Notifications</h1>
-        <p className="text-sm text-pat-text-muted mt-1">
+        <h1 className="text-xl font-bold text-pat-text-primary">Email Notifications</h1>
+        <p className="text-sm text-pat-text-secondary mt-1">
           Send service alerts, newsletters and marketing campaigns to clients via the platform mail relay.
         </p>
       </div>
 
-      {/* Audience counts */}
-      <div className="grid grid-cols-3 gap-4">
-        {counts ? (
-          <>
-            <div className="rounded-lg border border-pat-border bg-pat-surface p-4">
-              <div className="text-2xl font-semibold text-pat-text">{counts.all_clients}</div>
-              <div className="text-xs text-pat-text-muted mt-1">All Clients (active accounts)</div>
-            </div>
-            <div className="rounded-lg border border-pat-surface p-4">
-              <div className="text-2xl font-semibold text-pat-text">{counts.active_subscribers}</div>
-              <div className="text-xs text-pat-text-muted mt-1">Active Subscribers</div>
-            </div>
-            <div className="rounded-lg border border-pat-surface p-4">
-              <div className="text-2xl font-semibold text-pat-text">{counts.marketing_opt_in}</div>
-              <div className="text-xs text-pat-text-muted mt-1">Marketing Opt-in (consented)</div>
-            </div>
-          </>
-        ) : (
-          <div className="col-span-3 text-sm text-pat-text-muted">Loading audience…</div>
-        )}
+      {/* Audience counts — same tile pattern as MT Client Connectivity */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="rounded-lg border border-pat-border bg-pat-card p-4">
+          <div className="text-xs text-pat-text-muted">All Clients (active accounts)</div>
+          <div className="text-2xl font-bold text-pat-text-primary">
+            {loading ? "…" : counts?.all_clients ?? "—"}
+          </div>
+        </div>
+        <div className="rounded-lg border border-pat-border bg-pat-card p-4">
+          <div className="text-xs text-pat-text-muted">Active Subscribers</div>
+          <div className="text-2xl font-bold text-emerald-500">
+            {loading ? "…" : counts?.active_subscribers ?? "—"}
+          </div>
+        </div>
+        <div className="rounded-lg border border-pat-border bg-pat-card p-4">
+          <div className="text-xs text-pat-text-muted">Marketing Opt-in (consented)</div>
+          <div className="text-2xl font-bold text-pat-info">
+            {loading ? "…" : counts?.marketing_opt_in ?? "—"}
+          </div>
+        </div>
       </div>
 
       {/* Composer */}
-      <div className="rounded-lg border border-pat-surface bg-pat-surface/50 p-5 space-y-4">
-        <h2 className="text-sm font-medium text-pat-text">Compose Campaign</h2>
+      <div className="rounded-lg border border-pat-border bg-pat-card p-4 space-y-4">
+        <div className="text-sm font-medium text-pat-text-primary">Compose Campaign</div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-pat-text-muted mb-1">Campaign Type</label>
+            <label className="block text-xs text-pat-text-muted mb-1.5">Campaign Type</label>
             <select
               value={campaignType}
               onChange={(e) => setCampaignType(e.target.value as CampaignType)}
-              className="w-full bg-black/20 border border-pat-surface rounded px-3 py-2 text-sm text-pat-text"
+              className="w-full rounded-md border border-pat-input-border bg-pat-input-bg px-3 py-2 text-sm text-pat-input-text"
             >
               <option value="alert">Service Alert (all clients, operational)</option>
               <option value="newsletter">Newsletter (respects unsubscribes)</option>
@@ -189,11 +198,11 @@ export default function EmailNotificationsPage() {
             </select>
           </div>
           <div>
-            <label className="block text-xs text-pat-text-muted mb-1">Audience</label>
+            <label className="block text-xs text-pat-text-muted mb-1.5">Audience</label>
             <select
               value={audience}
               onChange={(e) => setAudience(e.target.value as Audience)}
-              className="w-full bg-black/20 border border-pat-surface rounded px-3 py-2 text-sm text-pat-text"
+              className="w-full rounded-md border border-pat-input-border bg-pat-input-bg px-3 py-2 text-sm text-pat-input-text"
             >
               <option value="all_clients">All Clients{counts ? ` (${counts.all_clients})` : ""}</option>
               <option value="active_subscribers">Active Subscribers{counts ? ` (${counts.active_subscribers})` : ""}</option>
@@ -203,74 +212,83 @@ export default function EmailNotificationsPage() {
         </div>
 
         <div>
-          <label className="block text-xs text-pat-text-muted mb-1">Subject</label>
+          <label className="block text-xs text-pat-text-muted mb-1.5">Subject</label>
           <input
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             placeholder="e.g. Scheduled maintenance window — Saturday 02:00 UTC"
-            className="w-full bg-black/20 border border-pat-surface rounded px-3 py-2 text-sm text-pat-text"
+            className="w-full rounded-md border border-pat-input-border bg-pat-input-bg px-3 py-2 text-sm text-pat-input-text placeholder:text-pat-text-muted"
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-pat-text-muted mb-1">HTML Body</label>
+            <label className="block text-xs text-pat-text-muted mb-1.5">HTML Body</label>
             <textarea
               value={bodyHtml}
               onChange={(e) => setBodyHtml(e.target.value)}
               rows={10}
               placeholder="<p>Hello {{name}}, …</p>"
-              className="w-full bg-black/20 border border-pat-surface rounded px-3 py-2 text-xs font-mono text-pat-text"
+              className="w-full rounded-md border border-pat-input-border bg-pat-input-bg px-3 py-2 text-xs font-mono text-pat-input-text placeholder:text-pat-text-muted"
             />
           </div>
           <div>
-            <label className="block text-xs text-pat-text-muted mb-1">Plain-Text Body (required fallback)</label>
+            <label className="block text-xs text-pat-text-muted mb-1.5">Plain-Text Body (required fallback)</label>
             <textarea
               value={bodyText}
               onChange={(e) => setBodyText(e.target.value)}
               rows={10}
               placeholder="Hello, …"
-              className="w-full bg-black/20 border border-pat-surface rounded px-3 py-2 text-xs text-pat-text"
+              className="w-full rounded-md border border-pat-input-border bg-pat-input-bg px-3 py-2 text-xs text-pat-input-text placeholder:text-pat-text-muted"
             />
           </div>
         </div>
 
-        <div className="text-xs text-pat-text-muted bg-white/5 rounded p-3">{complianceNote}</div>
+        <div className="rounded-md bg-pat-bg-surface-secondary px-3 py-2.5 text-xs text-pat-text-secondary">
+          {complianceNote}
+        </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={() => setConfirmOpen(true)}
-            disabled={!subject.trim() || !bodyHtml.trim() || !bodyText.trim() || sending}
-            className="px-4 py-2 rounded bg-pat-primary text-white text-sm font-medium disabled:opacity-40"
+            disabled={!canSend}
+            className="text-sm px-4 py-2 rounded-md bg-pat-primary text-pat-primary-foreground hover:bg-pat-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {sending ? "Sending…" : "Review & Send"}
           </button>
-          {error && <span className="text-xs text-red-400">{error}</span>}
-          {notice && <span className="text-xs text-pat-success">{notice}</span>}
+          {error && (
+            <span className="text-xs text-red-500 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1">
+              {error}
+            </span>
+          )}
+          {notice && (
+            <span className="text-xs text-pat-success rounded-md border border-pat-success/30 bg-pat-success/10 px-2 py-1">
+              {notice}
+            </span>
+          )}
         </div>
 
         {confirmOpen && (
-          <div className="border border-pat-warning/40 bg-pat-warning/10 rounded p-4 text-sm space-y-2">
-            <div className="text-pat-text font-medium">
-              Send “{subject || "(no subject)"}” as {TYPE_LABELS[campaignType]} to{" "}
-              {AUDIENCE_LABEL[audience]}?
+          <div className="rounded-md border border-pat-warning/40 bg-pat-warning/10 p-4 space-y-2">
+            <div className="text-sm font-medium text-pat-text-primary">
+              Send “{subject || "(no subject)"}” as {TYPE_LABEL(campaignType)} to {AUDIENCE_LABEL[audience]}?
             </div>
-            <div className="text-xs text-pat-text-muted">
+            <div className="text-xs text-pat-text-secondary">
               This emails real clients through the platform relay. Unsubscribed addresses are excluded for
-              newsletter/marketing types. The campaign is logged to the audit trail.
+              newsletter/marketing types. The campaign is recorded in the audit trail.
             </div>
             <div className="flex gap-2 pt-1">
               <button
                 onClick={sendNow}
                 disabled={sending}
-                className="px-3 py-1.5 rounded bg-pat-warning text-black text-xs font-semibold disabled:opacity-40"
+                className="text-xs px-3 py-1.5 rounded-md bg-pat-warning text-pat-text-inverse font-semibold disabled:opacity-40 transition-colors"
               >
                 {sending ? "Sending…" : "Confirm Send"}
               </button>
               <button
                 onClick={() => setConfirmOpen(false)}
                 disabled={sending}
-                className="px-3 py-1.5 rounded border border-pat-surface text-xs"
+                className="text-xs px-3 py-1.5 rounded-md border border-pat-border text-pat-text-secondary hover:bg-pat-bg-surface-secondary transition-colors"
               >
                 Cancel
               </button>
@@ -279,62 +297,64 @@ export default function EmailNotificationsPage() {
         )}
       </div>
 
-      {/* History */}
-      <div className="rounded-lg border border-pat-surface">
-        <div className="px-5 py-3 border-b border-pat-surface text-sm font-medium text-pat-text">
+      {/* History — same table pattern as MT Client Connectivity */}
+      <div className="overflow-x-auto border border-pat-border rounded-lg">
+        <div className="px-4 py-3 border-b border-pat-border bg-pat-bg-surface text-sm font-medium text-pat-text-primary">
           Campaign History
         </div>
-        {campaigns.length === 0 ? (
-          <div className="px-5 py-6 text-sm text-pat-text-muted">No campaigns sent yet.</div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-pat-text-muted border-b border-pat-surface">
-                <th className="px-5 py-2">Subject</th>
-                <th className="px-3 py-2">Type</th>
-                <th className="px-3 py-2">Audience</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2">Sent / Total</th>
-                <th className="px-3 py-2">Date</th>
+        <table className="w-full text-sm text-left">
+          <thead className="bg-pat-bg-surface text-pat-text-secondary uppercase text-xs">
+            <tr>
+              <th className="px-4 py-3 font-medium">Subject</th>
+              <th className="px-3 py-3 font-medium">Type</th>
+              <th className="px-3 py-3 font-medium">Audience</th>
+              <th className="px-3 py-3 font-medium">Status</th>
+              <th className="px-3 py-3 font-medium">Sent / Total</th>
+              <th className="px-3 py-3 font-medium">Date</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-pat-border">
+            {campaigns.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-pat-text-muted text-sm">
+                  {loading ? "Loading campaigns…" : "No campaigns sent yet"}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {campaigns.map((c) => (
-                <tr key={c.id} className="border-b border-pat-surface/50 last:border-0">
-                  <td className="px-5 py-2.5 text-pat-text">{c.subject}</td>
-                  <td className="px-3 py-2.5">
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${TYPE_STYLE[c.campaign_type] ?? ""}`}>
-                      {TYPE_LABELS[c.campaign_type as CampaignType] ?? c.campaign_type}
+            ) : (
+              campaigns.map((c) => (
+                <tr key={c.id} className="hover:bg-pat-table-hover transition-colors">
+                  <td className="px-4 py-3 text-xs text-pat-text-primary">{c.subject}</td>
+                  <td className="px-3 py-3">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${TYPE_BADGE[c.campaign_type] ?? ""}`}>
+                      {TYPE_LABEL(c.campaign_type)}
                     </span>
                   </td>
-                  <td className="px-3 py-2.5 text-xs text-pat-text-muted">
+                  <td className="px-3 py-3 text-xs text-pat-text-secondary">
                     {AUDIENCE_LABEL[c.audience as Audience] ?? c.audience}
                   </td>
-                  <td className="px-3 py-2.5">
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${STATUS_STYLE[c.status] ?? ""}`}>
+                  <td className="px-3 py-3">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${STATUS_BADGE[c.status] ?? STATUS_BADGE.draft}`}>
                       {c.status}
                     </span>
                   </td>
-                  <td className="px-3 py-2.5 text-xs text-pat-text-muted">
+                  <td className="px-3 py-3 text-xs tabular-nums text-pat-text-secondary">
                     {c.sent_count}/{c.total_recipients}
-                    {c.failed_count > 0 && <span className="text-red-400"> · {c.failed_count} failed</span>}
-                    {c.skipped_count > 0 && <span> · {c.skipped_count} skipped</span>}
+                    {c.failed_count > 0 && <span className="text-red-500"> · {c.failed_count} failed</span>}
+                    {c.skipped_count > 0 && <span className="text-pat-text-muted"> · {c.skipped_count} skipped</span>}
                   </td>
-                  <td className="px-3 py-2.5 text-xs text-pat-text-muted">
+                  <td className="px-3 py-3 text-xs tabular-nums text-pat-text-muted">
                     {new Date(c.created_at).toLocaleString("en-GB", { timeZone: "UTC" })} UTC
                   </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
+
+      <p className="text-[11px] text-pat-text-secondary">
+        Delivered via pat-mail-relay (DKIM-signed) · marketing sends respect unsubscribes · every campaign is audit-logged
+      </p>
     </div>
   );
 }
-
-const TYPE_LABELS: Record<string, string> = {
-  alert: "Service Alert",
-  newsletter: "Newsletter",
-  marketing: "Marketing",
-};
