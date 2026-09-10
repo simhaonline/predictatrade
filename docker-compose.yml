@@ -508,6 +508,26 @@ services:
       - pat-net            # reach realtime /health and ntfy by service name
     restart: always
 
+  # ─── Discord Bot: alerts · portfolio · price prediction (operator opt-in) ───
+  # Requires DISCORD_BOT_TOKEN + DISCORD_CLIENT_ID (leave empty to disable).
+  # Reads server-authoritative realtime endpoints + read-only DB for portfolio.
+  discord-bot:
+    build:
+      context: .
+      dockerfile: discord-bot/Dockerfile
+    container_name: pat-discord-bot
+    environment:
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID:-}
+      - DISCORD_GUILD_ID=${DISCORD_GUILD_ID:-}
+      - REALTIME_URL=http://realtime:13081
+      - DATABASE_URL=${DATABASE_URL}
+      - ALERT_CHANNEL_ID=${DISCORD_ALERT_CHANNEL_ID:-}
+      - PAT_POLL_INTERVAL_MS=30000
+    networks:
+      - pat-net
+    restart: always
+
 volumes:
   pat-mail-spool:
   # Docker-managed named volumes — created automatically on first `docker compose up`.

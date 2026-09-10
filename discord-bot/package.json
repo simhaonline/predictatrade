@@ -1,0 +1,18 @@
+{
+  "name": "predictatrade-discord-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Predict-A-Trade Discord bot — real-time alerts, portfolio tracking, price prediction (slash commands, rich embeds)",
+  "type": "module",
+  "main": "bot.mjs",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node bot.mjs",
+    "register": "node bot.mjs"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "pg": "^8.13.1"
+  }
+}
