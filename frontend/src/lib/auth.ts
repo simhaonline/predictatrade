@@ -81,12 +81,3 @@ export function setAccessToken(token: string): void {
 export function clearAccessToken(): void {
   memoryToken = null;
 }
-
-/**
- * Check if a user has an admin-level role.
- * Handles both ADMIN and SUPER_ADMIN as the backend AdminGuard does.
- * @deprecated Use isAdminRole from '@/lib/roles' for new code.
- */
-export function isAdmin(user: User | null): boolean {
-  return user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
-}

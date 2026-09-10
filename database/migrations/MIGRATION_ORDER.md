@@ -33,9 +33,11 @@ applies exactly once.
 Run `scripts/reconcile_migrations.sh --apply` to back-fill missing rows and
 delete orphan rows. A rollback SQL is generated alongside it.
 
-## Current inventory (as of v1.17.4)
+## Current inventory (as of v1.18.0)
 
-69 unique migrations on disk, `001` → `099`. Recent additions:
+100 unique migrations on disk, `001` → `139` (0xx–1xx sequences + this index
+file). The early section below documents migrations 096–099; the recent
+additions list (121+) covers the latest schema changes:
 
 - `096_ai_providers.sql` — AI provider registry (ollama|openai|custom)
 - `097_playbook_exit_profiles.sql` — playbook exit profiles
@@ -48,6 +50,32 @@ delete orphan rows. A rollback SQL is generated alongside it.
   "remember this device" MFA bypass (30d, single-use rotation)
 - `123_backtest_runs_subscription.sql` — trading.backtest_runs.subscription_id +
   plan_code/plan_name snapshot + index (R9 per-plan backtest/revenue attribution)
+- `100_atten_elite_entitlement.sql` — ATEN strategy entitlement on ELITE
+- `110_align_plans_to_master_spec.sql` — plan tiers to MASTER PROMPT (FREE 1/5, STD 2, PRO 4, ELITE 6)
+- `111_user_onboarding_fields.sql` — signup onboarding columns
+- `112_fix_plan_annual_prices_descriptions.sql` — annual pricing/description fixes
+- `113_arcanist_elite_entitlement.sql` — ARCANIST on ELITE
+- `114_arcanist_all_paid_plans.sql` — ARCANIST on all paid plans
+- `115_device_id_text.sql` — devices.id text compatibility
+- `116_add_mfa_recovery_codes.sql` — MFA recovery codes
+- `117_edge_signal_queue.sql` — licensing.edge_signal_queue (EA-direct delivery)
+- `118_drop_agent_architecture.sql` — Windows-agent WS architecture removal
+- `119_device_role_column.sql` — devices.role (data|exec)
+- `120_capital_tiers.sql` — capital-tier classification columns
+- `125_backtest_jobs.sql` — backtest job queue
+- `126_connectivity_alerts.sql` — system.connectivity_alerts
+- `127_delivery_reconciliation.sql` — delivery reconciliation ledger
+- `128_combined_tier_geometry.sql` — combined tier geometry (v1.25)
+- `129_standard_scalping_rebuild.sql` — STANDARD_SCALPING rebuild
+- `130_aten_undorm.sql` — ATEN un-dorm
+- `131_trend_swing_plan_tier.sql` — TREND_SWING plan tier
+- `132_fleet_entitlement_pro.sql` — fleet entitlement for PRO
+- `133_account_type_tables.sql` — broker account type tables
+- `134_account_type_columns.sql` — account type columns
+- `135_account_type_spec_conformance.sql` — account type spec conformance
+- `136_master_source_canonicalization.sql` — master data source canonicalization
+- `137_candle_tf_mn_alias.sql` — candle TF MN alias
+- `138_device_risk_events.sql` — device risk events
 - `139_plan_entitlements_realignment.sql` — re-align control.plan_entitlements
   display rows to migration 110 (MASTER PROMPT spec: FREE 1 slot / 5 signals/day,
   STANDARD 2, PRO 4, ELITE 6) + restore ELITE api.access=true (regressed by 024).

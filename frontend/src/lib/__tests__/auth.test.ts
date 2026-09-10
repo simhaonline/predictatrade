@@ -1,4 +1,5 @@
-import { getAccessToken, setAccessToken, clearAccessToken, isAdmin } from '@/lib/auth';
+import { getAccessToken, setAccessToken, clearAccessToken } from '@/lib/auth';
+import { isAdminRole } from '@/lib/roles';
 
 describe('auth helpers', () => {
   beforeEach(() => {
@@ -20,11 +21,14 @@ describe('auth helpers', () => {
     expect(getAccessToken()).toBeNull();
   });
 
-  it('isAdmin returns true for ADMIN role', () => {
-    expect(isAdmin({ id: '1', email: 'a@b.com', role: 'ADMIN' })).toBe(true);
+  // Role checks live in lib/roles (canonical); auth.ts no longer carries a
+  // duplicate deprecated helper.
+  it('isAdminRole returns true for ADMIN role', () => {
+    expect(isAdminRole('ADMIN')).toBe(true);
+    expect(isAdminRole('SUPER_ADMIN')).toBe(true);
   });
 
-  it('isAdmin returns false for USER role', () => {
-    expect(isAdmin({ id: '1', email: 'a@b.com', role: 'USER' })).toBe(false);
+  it('isAdminRole returns false for USER role', () => {
+    expect(isAdminRole('USER')).toBe(false);
   });
 });
