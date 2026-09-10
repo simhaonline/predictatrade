@@ -113,6 +113,11 @@ export class NowPaymentsService {
       'https://api.predictatrade.com/api/v1/billing/webhook/nowpayments';
 
     let resp: Response;
+    // Live-gateway finding (2026-09-10): the bare 'usdt' code is REJECTED by
+    // NOWPayments ("Currency USDT is currently unavailable" — verified live).
+    // The gateway only accepts network-specific codes ('usdterc20',
+    // 'usdttrc20', …). Default ERC20, overridable via env.
+    const payCurrency = (process.env.NOWPAYMENTS_PAY_CURRENCY || 'usdterc20').trim().toLowerCase();
     try {
       resp = await fetch(`${NOWPAYMENTS_API_BASE}/invoice`, {
         method: 'POST',
@@ -120,7 +125,7 @@ export class NowPaymentsService {
         body: JSON.stringify({
           price_amount: price.toNumber(),
           price_currency: 'usd',
-          pay_currency: 'usdt',
+          pay_currency: payCurrency,
           order_id: orderId,
           order_description: `${p.name} subscription (${interval})`,
           success_url: successUrl,
