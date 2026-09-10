@@ -378,6 +378,10 @@ export default function AdminSubscriptionsPage() {
           </div>
           <DataTable data={subsQ.data?.items || []} pageSize={20} hidePager columns={subsCols} loading={subsQ.isLoading} error={subsQ.error as Error | null} onRetry={() => subsQ.refetch()} />
 
+          <p className="text-[11px] text-pat-text-secondary">
+            Users marked <span className="font-medium text-pat-warning">user deleted</span> have been soft-deleted: their row is retained in the database for audit and possible reactivation, but they are excluded from this list. Expires shows the bound license expiry.
+          </p>
+
           {showAllUsers && (
             <div className="space-y-2">
               <div className="text-xs text-pat-text-muted">

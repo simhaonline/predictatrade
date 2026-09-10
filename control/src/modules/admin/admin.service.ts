@@ -1297,6 +1297,11 @@ export class AdminService {
     }
     const code = (input.code || '').trim().toUpperCase();
     if (!code) throw new BadRequestException('Coupon code is required');
+    // DB enum is PERCENTAGE | FIXED_AMOUNT; accept the short 'FIXED' alias too.
+    const discountType = input.discountType === 'FIXED' ? 'FIXED_AMOUNT' : input.discountType;
+    if (discountType !== 'PERCENTAGE' && discountType !== 'FIXED_AMOUNT') {
+      throw new BadRequestException('discountType must be PERCENTAGE or FIXED_AMOUNT');
+    }
     const exists = await this.pool.query('SELECT id FROM billing.coupons WHERE code = $1', [code]);
     if (exists.rows[0]) throw new BadRequestException(`Coupon code "${code}" already exists`);
     const r = await this.pool.query(
@@ -1309,7 +1314,7 @@ export class AdminService {
       [
         code,
         input.description ?? null,
-        input.discountType,
+        discountType,
         input.discountValue,
         input.currency ?? 'USD',
         input.maxRedemptions ?? null,

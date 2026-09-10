@@ -68,7 +68,7 @@ export class LicensingService {
                     'spread', da.xauusd_spread,
                     'last_tick_time', da.xauusd_last_tick_time
                   )
-               )) FROM licensing.device_activations da WHERE da.device_id = d.id) as activations
+               )) FROM licensing.device_activations da WHERE da.device_id = d.id AND da.deactivated_at IS NULL) as activations
        FROM licensing.devices d
        LEFT JOIN licensing.licenses l ON d.bound_license_id = l.id
        WHERE d.user_id = $1 AND d.deleted_at IS NULL
@@ -215,6 +215,21 @@ export class LicensingService {
     if (!deviceId) {
       throw new BadRequestException('Device not found. Register the device first.');
     }
+
+    // An MT account should be active on a single device at a time. When this
+    // device activates a login, deactivate any other still-active activation of
+    // the same login (typically left over from a previous device/reinstall).
+    // Prevents the same account appearing as "multiple terminals" in the admin
+    // device list.
+    await this.pool.query(
+      `UPDATE licensing.device_activations da
+         SET deactivated_at = now()
+         FROM licensing.devices d
+       WHERE da.device_id = d.id AND d.user_id = $1
+         AND da.mt_account_login = $2 AND da.deactivated_at IS NULL
+         AND da.device_id <> $3`,
+      [userId, body.mtAccountLogin, deviceId],
+    );
 
     // Check if activation with same MT account already exists
     const existing = await this.pool.query(
