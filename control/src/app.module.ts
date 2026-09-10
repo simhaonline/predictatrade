@@ -30,6 +30,7 @@ import { AdminExtrasModule } from './modules/admin-extras/admin-extras.module';
 import { EmailCampaignModule } from './modules/email-campaigns/email-campaigns.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
 import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
+import { TelegramModule } from './modules/telegram/telegram.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ComplianceInterceptor } from './common/interceptors/compliance.interceptor';
@@ -72,6 +73,7 @@ import { ComplianceInterceptor } from './common/interceptors/compliance.intercep
     EmailCampaignModule,
     FeedbackModule,
     WhatsAppModule,
+    TelegramModule,
     ReportsModule,
   ],
   providers: [
