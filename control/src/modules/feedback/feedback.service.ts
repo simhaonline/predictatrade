@@ -138,7 +138,7 @@ export class FeedbackService {
       `UPDATE control.customer_feedback
           SET status = $2,
               reviewed_at = CASE WHEN $2 = 'reviewed' THEN now() ELSE reviewed_at END
-        WHERE id = $1
+        WHERE id = $1::uuid
         RETURNING id, status`,
       [id, status],
     );
@@ -156,8 +156,8 @@ export class FeedbackService {
       `UPDATE control.customer_feedback
           SET featured = $2,
               featured_at = CASE WHEN $2 THEN now() ELSE NULL END,
-              featured_by = CASE WHEN $2 THEN $3 ELSE NULL END
-        WHERE id = $1
+              featured_by = CASE WHEN $2 THEN $3::uuid ELSE NULL END
+        WHERE id = $1::uuid
         RETURNING id, featured, featured_at`,
       [id, featured, actorId],
     );
@@ -171,7 +171,7 @@ export class FeedbackService {
   async adminSetNote(actorId: string, id: string, note: string): Promise<unknown> {
     const trimmed = String(note ?? '').trim().slice(0, 1000);
     const res = await this.pool.query(
-      `UPDATE control.customer_feedback SET admin_note = $2 WHERE id = $1 RETURNING id, admin_note`,
+      `UPDATE control.customer_feedback SET admin_note = $2 WHERE id = $1::uuid RETURNING id, admin_note`,
       [id, trimmed],
     );
     if (res.rowCount === 0) throw new NotFoundException('Feedback not found');
