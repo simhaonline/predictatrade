@@ -15,7 +15,7 @@ curl http://localhost:13081/health
 ```
 
 > Secrets are no longer in `docker-compose.yml`. **Always pass `--env-file infra/env/.env`** to every
-> `docker compose` command. See `docs/reports/REMEDIATION_REPORT_2026-08-28.md` (SEC-1).
+> `docker compose` command. See `docs/archive/2026-08-reports/REMEDIATION_REPORT_2026-08-28.md` (SEC-1).
 
 ### Required Environment Variables
 

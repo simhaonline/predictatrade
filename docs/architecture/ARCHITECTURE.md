@@ -14,7 +14,7 @@ MT4/MT5 EAs (Master Nodes stream data; Client EAs poll signals)
    |  POST /ingest/agent  (Bearer device JWT, TYPE|{json} lines)
    |  HMAC edge-poll every ~3s (always-ACK) for signals + server commands
                     |
-                    v  (IngestBus: DirectBus in-process, or NatsBus when NATS_URL set)
+                    v  (in-process ingest — the pkg/bus NATS seam was designed but never shipped; NATS scheduled for removal)
 Go REALTIME ENGINE (:13081, single port — WS /ws/v1 for browsers, REST /api/v1/*)
   Ingest -> marketdata AgentProvider -> [tick goroutine | candle goroutine]  (split loops, v1.28.3)
        |                                     |
@@ -43,14 +43,13 @@ Go REALTIME ENGINE (:13081, single port — WS /ws/v1 for browsers, REST /api/v1
 > fabricates ticks — when the Master EA stops streaming, the feed reports
 > `NO_DATA`, not a fake "live".
 
-> **Ingest/signal decoupling (v1.17.0):** inbound EA messages travel through
-> a `pkg/bus` abstraction (`realtime/pkg/bus`). The default `DirectBus` calls
-> the engine handler in-process (identical to the pre-NATS path). When
-> `NATS_URL` is set on the `realtime` service, a `NatsBus` enqueues messages on
-> the `pat-nats` service and a subscriber dispatches them to the same engine
-> handler — isolating data-collection throughput from signal processing and
-> allowing a dedicated ingest service later. Connection failure falls back to
-> in-process automatically.
+> **Ingest/signal decoupling (HISTORICAL — not implemented):** a `pkg/bus`
+> abstraction (`realtime/pkg/bus`, DirectBus in-process / NatsBus via
+> `NATS_URL`) was documented in earlier releases but **no such code exists in
+> the current tree**; `realtime/pkg/bus` is absent and no Go file references
+> NATS. Ingest runs in-process today. The `pat-nats` compose service is
+> scheduled for removal (second-pass audit 0ab2502). If a bus seam is needed
+> later, re-introduce it with code first — do not document ahead of code.
 
 ### Timezone Model
 The broker server runs on **GMT+2 winter / GMT+3 summer** (Equiti Master Node; DST-following). All session classification, ORB ranges, and hour-of-day logic use broker-local time via `BrokerLocation()`. Precedence (v1.28): (1) the offset observed **live from the Master Node** (`TimeGMTOffset()` reported on every tick — authoritative, matches the exact clock the EAs' `TimeCurrent()` runs on, and rolls automatically at the DST change), (2) `BROKER_TIMEZONE` env (IANA name or fixed `+2`/`-5` offset), (3) fixed GMT+2 default (winter value). Absolute instants are stored as TIMESTAMPTZ (UTC) in Postgres and every API timestamp is a UTC RFC3339 instant; only hour-of-day logic converts to broker time. `/health` reports the resolved mode as `time_mode: "BROKER_ALIGNED"` plus the live `broker_offset` hours.
@@ -89,7 +88,7 @@ The engine runs **separate goroutines** for tick and candle drainage (`realtime/
 | ntfy | 8091 | Alerts | LIVE |
 | Nginx | 80/443 | Reverse proxy/TLS | LIVE |
 | Backtest service | 8088 | Python (FastAPI) | LIVE |
-| NATS | 4222/8222 | Ingest bus (optional) | OPT-IN (`NATS_URL`) |
+| NATS | 4222/8222 | Ingest bus (optional) | **PLANNED REMOVAL** — no code consumer; never wired (audit 0ab2502) |
 
 > Port 13091 (dedicated agent data-WS) was removed with the Windows Agent in v1.19.0 — all agent traffic now shares 13081 via `POST /ingest/agent`.
 

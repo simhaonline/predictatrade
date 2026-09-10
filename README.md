@@ -2,7 +2,7 @@
 
 Multi-plane XAUUSD trading signal generation and analytics platform.
 
-**Version:** v1.19.0 | **Date:** 1 September 2026 | **Status:** GO — paper/sandbox/advisory signal operation. **LIVE TRADING ARMING AUTHORIZED BY OPERATOR (2026-08-30):** `LIVE_TRADING_AUTHORIZED=true` in `infra/env/realtime.env` (fail-closed capital-protection gates still require a verified broker equity/order feed; no self-promotion to live execution without it). **v1.19.0 — Option B (EA-direct cloud transport):** the Windows Agent architecture is REMOVED — MetaTrader 4/5 EAs talk to the cloud directly over HTTPS (device activation → HMAC-signed edge-poll for signals/commands, Bearer ingest for market data). No local binaries, no services, no open ports on the trader's machine.
+**Engine v1.24.2 · EA v1.31 | Date:** 10 September 2026 | **Status:** GO — paper/sandbox/advisory signal operation. **LIVE TRADING ARMING AUTHORIZED BY OPERATOR (2026-08-30):** `LIVE_TRADING_AUTHORIZED=true` in `infra/env/realtime.env` (fail-closed capital-protection gates still require a verified broker equity/order feed; no self-promotion to live execution without it). **EA-direct cloud transport:** MetaTrader 4/5 EAs talk to the cloud directly over HTTPS (device activation → HMAC-signed edge-poll for signals/commands, Bearer ingest for market data). No local binaries, no services, no open ports on the trader's machine.
 
 ## Quick Start
 
@@ -17,7 +17,7 @@ docker compose --env-file infra/env/.env up -d
 curl http://localhost:13081/health
 ```
 
-> **IMPORTANT:** All `docker compose` commands MUST include `--env-file infra/env/.env` (the compose file no longer contains secret values — see `docs/reports/REMEDIATION_REPORT_2026-08-28.md`, SEC-1). Running `docker compose up -d` without it starts containers with blank secrets.
+> **IMPORTANT:** All `docker compose` commands MUST include `--env-file infra/env/.env` (the compose file no longer contains secret values — see `docs/archive/2026-08-reports/REMEDIATION_REPORT_2026-08-28.md`, SEC-1). Running `docker compose up -d` without it starts containers with blank secrets.
 
 ## Architecture
 
@@ -58,29 +58,36 @@ MT4/MT5 (Client Node — exec)  ◀────signals/commands───┤
 | Service | Container | Port | Role |
 |---------|-----------|:----:|------|
 | Realtime Engine | pat-realtime | 13081 | Go HTTP/WebSocket signal engine |
-| Control Plane | pat-control | 13080 | NestJS IAM, billing, licensing |
+| Control Plane (HA ×2) | pat-control, pat-control-b | 13080 | NestJS IAM, billing, licensing |
 | Frontend | pat-frontend | 13082 | Next.js user/admin dashboards |
 | Status Page | pat-status | 13083 | System health status |
-| Live Terminal | pat-live-terminal | 13090 | Bloomberg-style terminal |
+| Live Terminal | pat-live-terminal | 13090 | Public preview terminal + 5-min trials |
 | PostgreSQL | pat-postgres | 5432 | TimescaleDB hypertables |
 | Valkey | pat-valkey | 6379 | Cache and hot state |
-| Nginx | pat-nginx | 80/443 | Reverse proxy, TLS, WS routing |
+| Nginx | xauusd-nginx | 80/443 | Reverse proxy, TLS, WS routing |
 | Prometheus | pat-prometheus | 9090 | Metrics collection |
 | Grafana | pat-grafana | 3001 | Dashboards |
 | ntfy | pat-ntfy | 8091 | Notifications |
-| Backtest Service | pat-backtest | 8088 (127.0.0.1) | Walk-forward / OOS backtesting |
+| Mail Relay | pat-mail-relay | 25/587 | DKIM-signed send-only SMTP relay |
+| Backtest (FastAPI) | pat-backtest | 8088 (127.0.0.1) | ⚠️ removal candidate — control spawns the Go backtest-engine directly; zero consumers |
+| Watchdog | pat-watchdog | — | Health reconcile + alert mirrors (ntfy/Telegram/Discord) |
+| Backup Sync | pat-backup-sync | — | Hetzner S3 WAL + pg_dump off-host sync |
+| Discord Bot | pat-discord-bot | — | Alerts/portfolio/prediction slash commands (operator opt-in) |
+| NATS | pat-nats | 4222 | ⚠️ removal candidate — never wired (audit 0ab2502) |
 
 ## Strategy Engines
 
-| Engine | ID | TFs | Min Score | Expiry | Status |
+Source of truth: `realtime/internal/strategy/strategies.go` + `candidate_threshold.go` (thresholds current as of v1.24.2 — the earlier "Min Score 65/60/68/70" values predate the v1.1 threshold revision and were wrong).
+
+| Engine | ID | Decision TFs | Trade threshold | Expiry | Status |
 |--------|----|-----|:---------:|:------:|:------:|
-| Standard Scalping | STANDARD_SCALPING | M1/M5 | 65 | 10m | LIVE |
-| Ultra Scalping | ULTRA_SCALPING | M1 | 60 | 5m | LIVE |
-| Standard Swing | STANDARD_SWING | M15/H1 | 68 | 30m | LIVE |
-| Trend Swing | TREND_SWING | H1/H4 | 70 | 60m | LIVE |
-| EQFE | MARNIE_FIB | H1 | 70 | 60m | LIVE |
-| ATEN | ATEN | H1/H4 | 70 | 60m | LIVE |
-| IMLR | M5/M15 | 70 | 180m | ADVISORY |
+| Standard Scalping | STANDARD_SCALPING | M1/M5 | 25 (candidate 10) | 10m | LIVE |
+| Ultra Scalping | ULTRA_SCALPING | M1 | 25 (candidate 10) | 3m | LIVE |
+| Standard Swing | STANDARD_SWING | M15/M30/H1 | 25 (candidate 10) | 60m | LIVE |
+| Trend Swing | TREND_SWING | H1/H4 | 25 (candidate 10) | 240m | LIVE |
+| EQFE | MARNIE_FIB | M15/H1 | 25 (candidate 10) | 120m | LIVE |
+| ATEN | ATEN | H1 (extends to 120m) | 25 (candidate 10) | 60–120m | LIVE |
+| IMLR | ARCANIST | M5/M15 | 25 (candidate 10) | 180m | ADVISORY |
 
 > `MARNIE_FIB` is the internal strategy ID and is displayed to users as **EQFE**. The seven strategies are gated by plan entitlement: FREE → STANDARD_SCALPING only (max 5 signals/day); STANDARD → STANDARD_SCALPING + STANDARD_SWING; PRO → all 4 core; ELITE → all 7 (incl. EQFE, ATEN, IMLR). IMLR is delivered ADVISORY-only (not operator-armed for execution) until it completes validation/backtesting. Signal visibility is server-enforced.
 
@@ -88,18 +95,20 @@ MT4/MT5 (Client Node — exec)  ◀────signals/commands───┤
 
 13 pillars with family caps: TREND(0.35), MOMENTUM(0.30), STRUCTURE(0.25), LIQUIDITY(0.20), SMC(0.20), MTF(0.20), CANDLE(0.20), REGIME(0.15), VWAP(0.15), VOLATILITY(0.15), ML(0.25), SENTIMENT(0.25), SESSION_ORB(0.15)
 
-42 indicators, 35 live, 7 warming up.
+76 feature fields across the feature registry (16 in the core indicator engine + structure/FVG/liquidity/session/ORB/VWAP/regime families), 35 live, 7 warming up.
 
-## Risk Gates (16 gates, ordered, per-(strategy, timeframe) isolated)
+## Risk Gates (24 gates, ordered, per-(strategy, timeframe) isolated)
 
-ExecutionPermission → BrokerSymbolValidation (P0) → SeedCapitalProtection (5% daily cap) → DailyLossLimit → MaxSpread → NewsRisk → Slippage → MaxPositions → MaxExposure → Cooldown → StopHuntFilter → MarginCheck → OvertradeProtection → MaxDailyTrades → RegimeFilter → ProfitTarget
+Source of truth: `realtime/internal/types/types.go:242-268` + `realtime/internal/gates/gates.go` (registry order). First veto short-circuits; unregistered/uninitialized gates fail closed.
+
+DataQuality → WrongSideSL → Session → News → Spread → Slippage → TotalCost → MinATR → StopHuntFilter → Exposure → Margin → RiskOversize → PositionCaps → DailyLoss → ProfitTarget → MartingaleBan → RRNetExpectancy → Profitability → Entitlement → License → ExecutionPermit → BrokerSymbolValidation → EdgeValidation → (GateConfigVersion/PolicyVersion metadata)
 
 Gate state is isolated per (strategy, timeframe) to prevent cross-strategy contamination. Operator edge-arming enables per-strategy broker-position authorization for EXECUTABLE delivery.
 
 ## v1.17.x Features
 
 - **Per-client risk isolation at delivery** — executable signals are forwarded only to clients whose own broker account has free margin; a blown client can never block others (fail-open on stale/unknown state).
-- **Ingest/signal decoupling seam** — inbound agent messages route through a `pkg/bus` abstraction (`DirectBus` in-process by default; `NatsBus` when `NATS_URL` is set).
+- **Ingest/signal decoupling seam (PLANNED, not implemented)** — a `pkg/bus` in-process/NATS abstraction was documented in earlier releases; no such code exists in the current tree and the `pat-nats` container is scheduled for removal (audit 0ab2502). Ingest currently runs in-process only.
 - **Silent data-feed detection + auto-recovery** — a data-independent 10s health monitor detects a dead `MARKET_SNAPSHOT` feed (not masked by ticks), alerts via ntfy, and nudges agents with `REQUEST_SNAPSHOT`.
 - **Master Node snapshot delivery fix** — `MasterAppend()` now truly appends (was truncating), so snapshots are no longer clobbered by tick writes.
 - **Launch-blocker remediation** — secrets moved out of `docker-compose.yml` (env-file injection), migrations renumbered to unique prefixes + reconciled, fabricated probability eliminated (VALIDATED-gated calibration), news gate fails closed, GDPR erasure service, RBAC roles+permissions guard, decimal.js money math.
@@ -219,9 +228,9 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 Located in `realtime/`. Key packages:
 
 - `internal/marketdata` — agent provider, tick/candle aggregation, COT, DXY providers
-- `internal/features` — 42 indicators, structure, regime, VWAP, Fibonacci, FVG, pivot points
+- `internal/features` — feature registry (76 feature fields: indicators, structure, FVG/liquidity, regime, VWAP, Fibonacci, session/ORB, pivots)
 - `internal/strategy` — 7 strategy engines, evidence scoring, confluence, geometry
-- `internal/gates` — 16 hard risk gates (ordered, fail-closed)
+- `internal/gates` — 24 hard risk gates (ordered, fail-closed)
 - `internal/signal` — master decision engine, cooldown, duplicate prevention
 - `internal/gateway` — HTTP, dashboard WS handlers (browser relay; EA traffic is HTTPS ingest + edge-poll)
 - `internal/crossmarket` — DXY, BTC, Oil macro module
@@ -277,6 +286,12 @@ Without explicit operator authorization, do NOT:
 - Export secrets or rotate signing keys
 
 NO-TRADE is a valid first-class result. ML/AI components are advisory only and cannot override deterministic gates.
+
+## Documentation & Security
+
+- **Documentation index:** [`docs/INDEX.md`](docs/INDEX.md) — canonical navigation; `docs/README.md` holds the full directory map. Architecture: `docs/architecture/ARCHITECTURE.md`. Runbooks live in `docs/runbooks/`; audits in `docs/audits/`.
+- **Secrets:** all credentials live in `infra/env/*.env` (gitignored). **Never** commit secrets to compose, docs, or code — for rotation procedures see `docs/operations/SECRET_ROTATION.md` (the live JWT_SECRET was historically leaked in tracked files and requires rotation — treated as compromised).
+- **Changelog:** `realtime/CHANGELOG.md`.
 
 ## License
 

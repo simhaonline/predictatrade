@@ -1,35 +1,38 @@
 # Risk Gates
-## v1.29.0 — 05 September 2026
+## Documentation — 10 September 2026 (engine v1.24.2)
 
 > **v1.23 capital tiers:** signal delivery and sizing are now capital-tier
 > aware (MICRO < $500 / STANDARD $500–5k / PRO ≥ $5k). Effective per-trade
 > cap = min(plan cap, tier cap 2%). See [CAPITAL_TIERS.md](CAPITAL_TIERS.md).
 
-### Gate Pipeline (16 gates, ordered execution)
+### Gate Pipeline (24 registered gate IDs, ordered execution — source: types.go:242-268, gates.go)
 
-| # | Gate | Type | Behaviour |
-|---|------|------|-----------|
-| 1 | ExecutionPermission | Entitlement | Fail-closed. Supports operator edge-arming per strategy for broker-position authorization. |
-| 2 | BrokerSymbolValidation | P0 safety | Degrade on missing meta. Validates SL/TP/lot against broker symbol metadata. |
-| 3 | SeedCapitalProtection | Capital | Fail-closed. 5% daily loss cap enforced per account equity snapshot. |
-| 4 | DailyLossLimit | Capital | Fail-closed. Per-(strategy, timeframe) loss tracking. |
-| 5 | MaxSpread | Market | Fail-closed. Relaxed thresholds for wider market conditions. |
-| 6 | NewsRisk | Event | Fail-closed. |
-| 7 | Slippage | Execution | Fail-closed. |
-| 8 | MaxPositions | Exposure | Fail-closed. |
-| 9 | MaxExposure | Exposure | Fail-closed. |
-|10 | Cooldown | Timing | Fail-closed. |
-|11 | StopHuntFilter | Structural | Advisory. |
-|12 | MarginCheck | Broker | Fail-closed. |
-|13 | OvertradeProtection | Frequency | Fail-closed. |
-|14 | MaxDailyTrades | Frequency | Fail-closed. |
-|15 | RegimeFilter | Market | Advisory. |
-|16 | ProfitTarget | Capital | Fail-closed. |
+The historical "16 gates" table below described v1.17-era names. The current
+registry evaluates (first veto short-circuits; unregistered/uninitialized →
+fail-closed veto):
+
+DataQuality → WrongSideSL → Session → News → Spread → Slippage → TotalCost →
+MinATR → StopHuntFilter → Exposure → Margin → RiskOversize → PositionCaps →
+DailyLoss → ProfitTarget → MartingaleBan → RRNetExpectancy → Profitability →
+Entitlement → License → ExecutionPermit → BrokerSymbolValidation →
+EdgeValidation.
+
+Highlights (source: `realtime/internal/gates/`):
+- **DailyLossGate** (`capital_gates.go:296`): nested daily 5% / weekly 8% /
+  monthly caps; soft recovery-band vs hard-halt at 2× cap; **fail-closed on
+  unknown PnL** (`pnl_state_unknown` veto until a broker snapshot hydrates).
+- **MarginGate** (`implementations.go:316`): state-driven headroom veto.
+- **News BE-4**: news-data-unavailable/stale ⇒ VETO, never silently pass.
+- **Staged capital halt** (`capital_protection.go`): soft 4% (block new
+  entries) / hard 6% (halt) + dynamic risk tapering below $200 equity.
+- Per-(strategy, timeframe) state isolation prevents cross-strategy
+  contamination; operator edge-arming enables per-strategy broker-position
+  authorization for EXECUTABLE delivery.
 
 ### Key Changes (v1.17.x → v1.23 delivery model)
 
 **Per-Device Entitlement Delivery (EA-direct era, v1.19+):**
-Beyond the server-side 16-gate pipeline (which evaluates signal-worthiness at
+Beyond the server-side gate pipeline (which evaluates signal-worthiness at
 generation time), signal **delivery** enforces per-receiving-device entitlement
 in SQL at enqueue time (`enqueueSignalForDevices` → `licensing.edge_signal_queue`)
 and re-checks it at poll time (control-plane `edge-poll` handler). An executable

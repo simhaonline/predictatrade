@@ -21,8 +21,8 @@ npm run build
 ## Environment
 
 See `.env.example`. Key variables:
-- `NEXT_PUBLIC_API_BASE_URL` - NestJS API (default: http://localhost:3000/api/v1)
-- `NEXT_PUBLIC_WS_URL` - Go realtime WebSocket (default: ws://localhost:8080/ws/v1)
+- `NEXT_PUBLIC_API_BASE_URL` - NestJS API (default: http://localhost:13080/api/v1)
+- `NEXT_PUBLIC_WS_URL` - Go realtime WebSocket (default: ws://localhost:13081/ws/v1)
 
 ## Architecture
 
@@ -35,9 +35,9 @@ See `.env.example`. Key variables:
 
 ## Domain / Port
 
-- Frontend: platform.predictatrade.com (port 3000)
-- API: api.predictatrade.com (port 13080)
-- WebSocket: live.predictatrade.com/ws (port 8080)
+- Frontend: platform.predictatrade.com (container `pat-frontend`, port 13082)
+- API: api.predictatrade.com (container `pat-control` HA ×2, port 13080)
+- WebSocket: live.predictatrade.com (engine WS at :13081, `/ws/v1`)
 
 Do not change these values without updating Nginx/systemd configuration.
 

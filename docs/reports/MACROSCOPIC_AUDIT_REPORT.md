@@ -59,11 +59,11 @@ Docker Compose (11 services), GitHub Actions CI (`.github/workflows/ci.yml`), ng
 
 ### CRITICAL
 
-**C-1 — Hardcoded production secrets in a tracked file**
-- **What:** `docker-compose.yml` (tracked in git) hardcodes `JWT_SECRET=lyFoqwbIPuflF/6PjNtrZXCM1wXGVfYJhj7ZxDAWKYA=` (lines 71, 95) and `POSTGRES_PASSWORD: pat_local_dev_only` (line 24), plus `DATABASE_URL` with the DB password inline.
+**C-1 — Hardcoded production secrets in a tracked file** *(secret values redacted 2026-09-10 — they were themselves leaked in this doc's original text while the live secret still matched; rotation REQUIRED, see docs/operations/SECRET_ROTATION.md)*
+- **What:** `docker-compose.yml` (tracked in git at the time) hardcoded the live `JWT_SECRET` (lines 71, 95) and `POSTGRES_PASSWORD: pat_local_dev_only` (line 24), plus `DATABASE_URL` with the DB password inline. **[REDACTED — actual values removed from this document 2026-09-10; both were previously printed verbatim here, which re-leaked them after the compose fix.]**
 - **Why it matters:** The JWT secret is the signing key for all auth tokens (shared between Go and NestJS — see `realtime/internal/gateway/websocket.go:96` and `realtime/cmd/live-terminal/main.go:376`). Anyone with repo access can mint valid admin tokens. The DB password is the superuser credential.
 - **Remediation:** Move all secrets to `infra/env/*.env` (already gitignored) or Docker secrets; rotate the JWT secret and DB password immediately; add a pre-commit secret scan that also flags `docker-compose.yml`.
-- **Note:** `.gitignore` correctly excludes `jwt_secret.txt`, `database_url.txt`, `mcp.env`, and `infra/env/*.env` — but the compose file bypasses that protection.
+- **Note:** `.gitignore` correctly excludes `jwt_secret.txt`, `database_url.txt`, `mcp.env`, and `infra/env/*.env` — but the compose file bypassed that protection.
 
 **C-2 — Migration drift: schema ahead of migration history**
 - **What:** `database/migrations/` has 64 `.sql` files. `audit.migration_history` records 62 distinct files, newest = `073_device_activation_unique.sql`. Migrations `074`–`080` (e.g. `075_finance_ledger_entries.sql`, `080_devil_liquidity.sql`, `079_payouts_idempotency.sql`) are **not** in `migration_history`, yet their tables exist (`finance.ledger_entries`, `public.devil_liquidity_*`, `trading.backtest_artifacts`).

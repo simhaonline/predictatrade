@@ -174,7 +174,7 @@ Systemd units (in `infra/systemd/`) are DISABLED and must not be used.
 | Prometheus | pat-prometheus | 9090 | ✅ Active |
 | Grafana | pat-grafana | 3001 | ✅ Active |
 | ntfy | pat-ntfy | 8091 | ✅ Active |
-| NATS (optional bus) | pat-nats | 4222 | Optional (ingest decoupling seam) |
+| NATS (optional bus) | pat-nats | 4222 | ⚠️ Scheduled for removal — never wired (no code consumer; audit 0ab2502) |
 | Backup Sync | pat-backup-sync | — | Hetzner S3 WAL + pg_dump off-host sync |
 | Ollama | host/container | 11434 | ✅ Active (sentiment; NOT_AI_VERIFIED provenance) |
 

@@ -1,0 +1,48 @@
+name: Docs Quality
+
+# Documentation-quality gates: broken relative .md links + stale-reference
+# sweeps. Runs on docs changes; advisory-first (warnings), blocking on
+# leaked-secret patterns and broken links.
+on:
+  pull_request:
+    paths: ["**/*.md", "docs/**"]
+  push:
+    branches: [main]
+    paths: ["**/*.md", "docs/**"]
+
+jobs:
+  docs-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Broken relative .md links (docs/, root docs)
+        run: |
+          set -e
+          fail=0
+          while IFS= read -r doc; do
+            base=$(dirname "$doc")
+            grep -oE '\]\((\./|\.\./)*[^)#]*\.md\)' "$doc" 2>/dev/null | sed -E 's/^\]\(//; s/\)$//' | while read -r link; do
+              if [ ! -e "$base/$link" ] && [ ! -e "$link" ]; then echo "BROKEN: $doc -> $link"; exit 1; fi
+            done || fail=1
+          done < <(find docs README.md docs.md indicator.md project-brief.md MANIFEST.md -type f -name '*.md')
+          exit $fail
+
+      - name: No real secret values in tracked markdown
+        run: |
+          # Blocklist: known previously-leaked values must never reappear in tracked docs.
+          if grep -rn "lyFoqwbIPuflF" --include='*.md' . | grep -v node_modules; then
+            echo "LEAKED SECRET VALUE REINTRODUCED"; exit 1
+          fi
+
+      - name: No active-doc references to archived report paths
+        run: |
+          if grep -rn "reports/REMEDIATION_REPORT_2026-08-28\|reports/MACROSCOPIC_AUDIT_REPORT_2026-08-28" docs README.md 2>/dev/null | grep -v archive; then
+            echo "Active docs still link to archived paths"; exit 1
+          fi
+
+      - name: Obsolete-infrastructure phrasing (NATS as opt-in feature)
+        run: |
+          if grep -rn "NatsBus when\|OPT-IN (\`NATS_URL\`)" README.md docs/architecture/ARCHITECTURE.md MANIFEST.md; then
+            echo "NATS documented as an active feature — update to PLANNED-REMOVAL wording"; exit 1
+          fi

@@ -1,5 +1,5 @@
 # Predict-A-Trade Documentation Index
-## v1.29.0 — 05 September 2026
+## Documentation Index — 10 September 2026 (engine v1.24.2 · EA v1.31)
 
 ### Architecture
 - [Architecture & Boundaries](architecture/ARCHITECTURE.md) — 13+ services, NestJS 12/ESM notes, plane boundaries, BE-6 reconciliation, recent changes
@@ -8,9 +8,9 @@
 ### Strategy & Trading
 - [Strategy Playbooks](strategy/STRATEGY_PLAYBOOKS.md) — 7 engines (display names), per-strategy exit specs, micro profit-taking, quality grades, expectancy metrics
 - [Indicators & Features](strategy/INDICATORS_AND_FEATURES.md) — 42 indicators, 13 evidence pillars, P2 features (all ACTIVE), broker time ORB
-- [Risk Gates](strategy/RISK_GATES.md) — 16 gates with per-(strategy, timeframe) isolation, 5% capital protection, operator edge-arming
+- [Risk Gates](strategy/RISK_GATES.md) — 24 gates with per-(strategy, timeframe) isolation, nested daily/weekly/monthly capital caps, operator edge-arming
 - [Capital-Tiered Signal Engine](strategy/CAPITAL_TIERS.md) — MICRO/STANDARD/PRO capital bands, per-tier signal viability + delivery, tier-aware sizing (v1.23)
-- [Full Pipeline & Maths (plain words)](../../docs.md) — docs.md: every formula the live engine computes, all 7 strategies with exact rules/weights/geometry
+- [Full Pipeline & Maths (plain words)](../docs.md) — docs.md: every formula the live engine computes, all 7 strategies with exact rules/weights/geometry
 
 ### API
 - [REST & WebSocket Reference](api/API_REFERENCE.md) — Full surface: both backends, all 16 control modules + realtime, signal schema, events, rate limits (64-path OpenAPI mirror)
@@ -20,11 +20,11 @@
 - [MT Client Connectivity & 502 Prevention](runbooks/mt-connectivity-502.md) — edge-poll 502 root cause, dual-control HA + nginx failover, connectivity watchdog, triage flow (2026-09-03)
 
 ### Database
-- [Database Architecture](database/DATABASE_ARCHITECTURE.md) — 16 schemas, 210+ tables live, 99 migrations (unique prefixes, numbered to 138), hypertables + retention, money/time invariants
+- [Database Architecture](database/DATABASE_ARCHITECTURE.md) — 16 schemas, 210+ tables live, 102 migrations (unique prefixes, numbered to 142), hypertables + retention, money/time invariants
 - [ERD (mermaid)](database/DB_ERD.md) — entity relationships for IAM, licensing, commercial, finance, trading, market, audit + invariants
 
 ### Mail & Payments
-- [Mail Relay Runbook](../../mail-relay/README.md) — pat.predictatrade.com send-only SMTP relay: deployment, DNS (MX/SPF/DKIM/DMARC), env reference
+- [Mail Relay Runbook](../mail-relay/README.md) — pat.predictatrade.com send-only SMTP relay: deployment, DNS (MX/SPF/DKIM/DMARC), env reference
 - Payments policy: **USDT-only** (NOWPayments; Stripe disabled at controller). Anti-scam: HMAC IPN + amount verification + UNDERPAID handling — see [API Reference](api/API_REFERENCE.md) §5 and the user billing banner.
 
 ### Deployment & Operations
@@ -43,10 +43,10 @@
 - [PhD Thesis](reports/PHD_THESIS.md) — Academic thesis: 9 chapters, literature review, formal contributions
 - [UI/UX Audit Report](reports/UI_UX_AUDIT_REPORT.md) — Dashboard accessibility, UX, visual-consistency, and performance audit (41 findings)
 - [Macroscopic Audit Report](reports/MACROSCOPIC_AUDIT_REPORT.md) — System-wide codebase + database audit (initial)
-- [Macroscopic Audit (28 Aug)](reports/MACROSCOPIC_AUDIT_REPORT_2026-08-28.md) — IT & Compliance re-audit: NO-GO verdict, 29 findings, launch-blockers
-- [Macroscopic Audit Revisit (28 Aug)](reports/MACROSCOPIC_AUDIT_REVISIT_2026-08-28.md) — GO/NO-GO update: CONDITIONAL GO, blockers resolved
-- [Remediation Report (28 Aug)](reports/REMEDIATION_REPORT_2026-08-28.md) — Launch-blocker fixes + post-remediation incident
+- [Macroscopic Audit (28 Aug) — ARCHIVED](archive/2026-08-reports/MACROSCOPIC_AUDIT_REPORT_2026-08-28.md) — IT & Compliance re-audit: NO-GO verdict, 29 findings, launch-blockers (historical)
+- [Macroscopic Audit Revisit (28 Aug) — ARCHIVED](archive/2026-08-reports/MACROSCOPIC_AUDIT_REVISIT_2026-08-28.md) — GO/NO-GO update: CONDITIONAL GO, blockers resolved (historical)
+- [Remediation Report (28 Aug) — ARCHIVED](archive/2026-08-reports/REMEDIATION_REPORT_2026-08-28.md) — Launch-blocker fixes + post-remediation incident (historical; SEC-1 compose-secret story is preserved here — secret values now redacted)
 
 ### Current status (living documents)
 - [Implementation Status](reports/IMPLEMENTATION_STATUS.md) — per-requirement implementation ledger (29 Aug)
-- [Changelog](../../realtime/CHANGELOG.md) — version history (v1.29.0 current)
+- [Changelog](../realtime/CHANGELOG.md) — version history

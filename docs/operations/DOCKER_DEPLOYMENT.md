@@ -212,7 +212,7 @@ docker compose restart nginx
 > docker compose --env-file infra/env/.env restart nginx
 > # verify: docker exec pat-nginx nginx -T 2>/dev/null | grep limit_req_zone
 > ```
-> See `docs/reports/REMEDIATION_REPORT_2026-08-28.md` §7.6.
+> See `docs/archive/2026-08-reports/REMEDIATION_REPORT_2026-08-28.md` §7.6.
 
 ---
 
