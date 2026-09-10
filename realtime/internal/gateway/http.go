@@ -193,6 +193,11 @@ func (h *HTTPServer) registerRoutes() {
 	// Per-strategy-engine liveness (prompt.md Sections 26, 38, 43-46)
 	h.mux.HandleFunc("/api/v1/engines/status", h.handleEnginesStatus)
 
+	// Per-strategy daily diagnostics (prompt.md Sections 14, 17-18): DB-
+	// authoritative candidates/qualified/rejection-rate/top-reasons/expectancy
+	// powering the Real-Time Console cards.
+	h.mux.HandleFunc("/api/v1/engines/diagnostics", h.handleEnginesDiagnostics)
+
 	// Capital-tiered signal engine overview (admin JWT required) — per-tier
 	// device/delivery counts, recent signals with EligibleTiers, 24h stats.
 	h.mux.HandleFunc("/api/v1/admin/signal-engine", h.requireAdminAction(h.handleSignalEngine))
@@ -217,6 +222,37 @@ func (h *HTTPServer) handleEnginesStatus(w http.ResponseWriter, r *http.Request)
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"engines":     h.engTracker.All(),
+		"server_time": time.Now().UTC(),
+	})
+}
+
+// handleEnginesDiagnostics serves GET /api/v1/engines/diagnostics — the
+// DB-authoritative per-strategy 24h funnel (candidates/qualified/rejected +
+// top rejection reasons) and 7-day realized-R expectancy that the Real-Time
+// Console cards render. Empty diagnostics (no DB) degrade to an empty list —
+// the frontend falls back to "—" placeholders, never fabricated numbers.
+func (h *HTTPServer) handleEnginesDiagnostics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if h.persister == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"diagnostics": []marketdata.EngineDiagnostics{},
+			"server_time": time.Now().UTC(),
+		})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	diags, err := h.persister.GetEngineDiagnostics(ctx)
+	if err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	if diags == nil {
+		diags = []*marketdata.EngineDiagnostics{}
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"diagnostics": diags,
 		"server_time": time.Now().UTC(),
 	})
 }

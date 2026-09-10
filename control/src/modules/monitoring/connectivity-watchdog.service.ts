@@ -275,10 +275,12 @@ export class ConnectivityWatchdogService implements OnModuleInit, OnModuleDestro
        LIMIT 100`,
     );
     const devices = await this.pool.query(
-      `SELECT d.id, d.device_name, d.last_seen_at, u.email,
+      `SELECT d.id, d.device_name, d.os_name, d.role, u.email,
+              eds.last_equity,
               EXTRACT(EPOCH FROM (now() - d.last_seen_at))::int AS secs_since_poll
        FROM licensing.devices d
        JOIN iam.users u ON u.id = d.user_id
+       LEFT JOIN licensing.edge_device_state eds ON eds.device_id = d.id
        WHERE d.revoked_at IS NULL
          AND d.deleted_at IS NULL
          AND d.last_seen_at > now() - interval '24 hours'
@@ -302,6 +304,10 @@ export class ConnectivityWatchdogService implements OnModuleInit, OnModuleDestro
       devices: devices.rows.map((d: Record<string, unknown>) => ({
         deviceId: d.id,
         deviceName: d.device_name,
+        osName: d.os_name,
+        role: d.role,
+        email: d.email,
+        lastEquity: Number(d.last_equity ?? 0),
         lastSeenAt: d.last_seen_at,
         secondsSincePoll: d.secs_since_poll,
       })),

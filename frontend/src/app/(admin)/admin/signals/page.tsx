@@ -128,8 +128,17 @@ export default function AdminSignalsPage() {
     if (g === "A") return "bg-pat-info/15 text-pat-info";
     if (g === "B") return "bg-pat-warning/15 text-pat-warning";
     if (g === "C" || g === "REJECTED" || g === "NO-TRADE") return "bg-pat-danger/15 text-pat-danger";
+    if (g === "RESEARCH") return "bg-pat-info/10 text-pat-info border border-pat-info/30";
+    if (g === "TRADE") return "bg-pat-success/15 text-pat-success";
     return "bg-pat-bg-surface-secondary text-pat-text-muted";
   };
+
+  // Effective quality grade: prefer QualityGrade; fall back to Grade (the DB
+  // `grade` column — SAVE writes SignalGrade: TRADE/RESEARCH/NO-TRADE), which
+  // the /signals endpoint now maps into QualityGrade. This is DB truth, not
+  // derived client-side.
+  const qualityOf = (row: GoSignal): string =>
+    row.QualityGrade || row.Grade || "";
 
   const fmtExpectancy = (val: string) => {
     const n = parseFloat(val);
@@ -252,8 +261,8 @@ export default function AdminSignalsPage() {
                       <td className="px-3 py-3 text-xs text-pat-text-muted">{row.Regime || "—"}</td>
                       <td className="px-3 py-3 text-xs text-pat-text-muted">{row.Session || "—"}</td>
                       <td className="px-3 py-3">
-                      {row.QualityGrade ? (
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${gradeStyle(row.QualityGrade)}`}>{row.QualityGrade}</span>
+                      {qualityOf(row) ? (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${gradeStyle(qualityOf(row))}`}>{qualityOf(row)}</span>
                       ) : <span className="text-xs text-pat-text-muted">—</span>}
                     </td>
                     <td className="px-3 py-3 text-xs tabular-nums">

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -371,9 +372,171 @@ func (p *Persister) GetRecentSignals(ctx context.Context, limit int, strategy st
 		}
 		s.AiVerification = aiVerificationStr
 		s.RiskDecision = riskDecisionStr
+		// QualityGrade / Expectancy / PrimaryRejectionReason (prompt.md §12-14,
+		// 17-18): these were previously empty on /signals because only the
+		// advisory-candidate path computed them at generation time — NO-TRADE
+		// and executable rows were persisted without them and the DB round-trip
+		// never reconstructed them. The DB `grade` column IS the quality grade
+		// (SaveSignal writes s.Grade, which carries RESEARCH/NO-TRADE/…), and
+		// reason_codes carries the rejection factors — map both here so the
+		// Signal Panel shows truthful values for every row.
+		s.QualityGrade = types.SignalGrade(grade)
+		if len(reasonCodesJSON) > 0 && s.QualityGrade != types.GradeNoTrade && string(reasonCodesJSON) != "null" {
+			// Primary rejection reason = first reason code for non-executable
+			// rows (machine-readable, e.g. INSUFFICIENT_SCORE).
+			if len(s.ReasonCodes) > 0 {
+				s.PrimaryRejectionReason = string(s.ReasonCodes[0])
+			}
+		}
+		// Expectancy from realized R when the trade has closed (real data only);
+		// signals still open show ExpectancyR 0 → frontend renders "—".
+		if !s.ClosedAt.IsZero() && !s.RealizedR.IsZero() {
+			s.ExpectancyR = s.RealizedR
+			rF, _ := s.RealizedR.Float64()
+			s.ExpectancyScore = math.Max(0, math.Min(100, 50+rF*50))
+		}
 		signals = append(signals, s)
 	}
 	return signals, nil
+}
+
+// EngineDiagnostics is the per-strategy daily production-statistics block
+// powering the Real-Time Console cards (prompt.md Sections 17-18, 14).
+// All values are DB-authoritative (trading.signal_candidates +
+// trading.signals) — never fabricated client-side.
+type EngineDiagnostics struct {
+	Engine           string             `json:"engine"`
+	CandidatesToday  int64              `json:"candidates_today"`
+	QualifiedToday   int64              `json:"qualified_today"`
+	RejectionRate    float64            `json:"rejection_rate"` // 0-1
+	RejectionCounts  map[string]int64   `json:"rejection_counts"`
+	ExpectancyScore  *float64           `json:"expectancy_score"` // 0-100, from realized R of closed signals (7d)
+	SignalsToday     int64              `json:"signals_today"`
+}
+
+// GetEngineDiagnostics returns 24h candidate/qualified/rejection stats and a
+// 7-day realized-R expectancy per strategy engine. Nil DB → nil.
+func (p *Persister) GetEngineDiagnostics(ctx context.Context) ([]*EngineDiagnostics, error) {
+	if p.db == nil {
+		return nil, nil
+	}
+	out := map[string]*EngineDiagnostics{}
+
+	// 24h candidate funnel: ADVISORY (candidates) vs REJECTED, with the
+	// rejection_gate breakdown the console's "Top reasons" displays.
+	cRows, err := p.db.QueryContext(ctx, `
+		SELECT strategy_id, approval_state, COALESCE(rejection_gate, ''),
+		       count(*)::int64
+		  FROM trading.signal_candidates
+		 WHERE created_at > now() - interval '24 hours'
+		 GROUP BY 1, 2, 3`)
+	if err == nil {
+		defer cRows.Close()
+		for cRows.Next() {
+			var strat, state, gate string
+			var n int64
+			if err := cRows.Scan(&strat, &state, &gate, &n); err != nil {
+				continue
+			}
+			d := out[strat]
+			if d == nil {
+				d = &EngineDiagnostics{Engine: strat, RejectionCounts: map[string]int64{}}
+				out[strat] = d
+			}
+			switch state {
+			case "ADVISORY":
+				d.CandidatesToday += n
+			case "QUALIFIED":
+				d.QualifiedToday += n
+			case "REJECTED":
+				d.RejectionCounts[gateLabel(gate)] += n
+			}
+		}
+	}
+
+	// Signals today (any class) per strategy — the console's context column.
+	sRows, err := p.db.QueryContext(ctx, `
+		SELECT strategy_id, count(*)::int64
+		  FROM trading.signals
+		 WHERE created_at > now() - interval '24 hours'
+		 GROUP BY 1`)
+	if err == nil {
+		defer sRows.Close()
+		for sRows.Next() {
+			var strat string
+			var n int64
+			if err := sRows.Scan(&strat, &n); err != nil {
+				continue
+			}
+			d := out[strat]
+			if d == nil {
+				d = &EngineDiagnostics{Engine: strat, RejectionCounts: map[string]int64{}}
+				out[strat] = d
+			}
+			d.SignalsToday = n
+		}
+	}
+
+	// 7-day realized-R expectancy per strategy (real fills only — never
+	// derived from probabilities; NO-TRADE is a valid first-class result).
+	eRows, err := p.db.QueryContext(ctx, `
+		SELECT strategy_id, avg(realized_r)::float8
+		  FROM trading.signals
+		 WHERE closed_at IS NOT NULL
+		   AND realized_r IS NOT NULL
+		   AND realized_r <> 0
+		   AND created_at > now() - interval '7 days'
+		 GROUP BY 1`)
+	if err == nil {
+		defer eRows.Close()
+		for eRows.Next() {
+			var strat string
+			var avgR float64
+			if err := eRows.Scan(&strat, &avgR); err != nil {
+				continue
+			}
+			if d := out[strat]; d != nil {
+				// EV_R → 0-100 display score: 1R ≈ 100, 0R = 50, -1R = 0.
+				v := math.Max(0, math.Min(100, 50+avgR*50))
+				d.ExpectancyScore = &v
+			}
+		}
+	}
+
+	// Rejection rate = rejected / (candidates + rejected) over 24h.
+	for _, d := range out {
+		rejected := int64(0)
+		for _, n := range d.RejectionCounts {
+			rejected += n
+		}
+		total := d.CandidatesToday + rejected
+		if total > 0 {
+			d.RejectionRate = float64(rejected) / float64(total)
+		}
+	}
+
+	result := make([]*EngineDiagnostics, 0, len(out))
+	for _, d := range out {
+		result = append(result, d)
+	}
+	return result, nil
+}
+
+// gateLabel normalizes rejection_gate values into the short human labels the
+// console's "Top reasons" chips display.
+func gateLabel(gate string) string {
+	switch gate {
+	case "STRATEGY_NO_TRADE":
+		return "no_trade"
+	case "profitability":
+		return "profitability"
+	case "risk_oversize":
+		return "risk_oversize"
+	case "":
+		return "unspecified"
+	default:
+		return gate
+	}
 }
 
 // TradeResult is the real executed-trade record surfaced to dashboards.

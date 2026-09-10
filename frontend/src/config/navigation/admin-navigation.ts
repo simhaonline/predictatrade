@@ -32,6 +32,7 @@ export const adminNavigation: NavItem[] = [
   // ── Signal Quality ──
   { label: 'Indicator Monitor', href: '/admin/indicator-monitor', icon: IconActivity, section: 'Signal Quality' },
   { label: 'Signal Accuracy', href: '/admin/signal-accuracy', icon: IconListCheck, section: 'Signal Quality' },
+  { label: 'MT Client Connectivity', href: '/admin/mt-clients', icon: IconDeviceDesktop, section: 'Signal Quality' },
 
   // ── Risk & Compliance ──
   { label: 'Risk Center', href: '/admin/risk-center', icon: IconAlertTriangle, section: 'Risk & Compliance' },

@@ -1,6 +1,6 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
-import { fetchEnginesStatus, type EngineSnapshot } from "@/lib/engines-api";
+import { fetchEnginesStatus, fetchEnginesDiagnostics, type EngineSnapshot, type EngineDiagnostics } from "@/lib/engines-api";
 import { formatDistanceToNowStrict, parseISO } from "date-fns";
 
 const ENGINE_LABELS: Record<string, string> = {
@@ -45,10 +45,19 @@ function topRejectionReasons(counts: Record<string, number> | undefined): string
     .join(", ");
 }
 
-export function EngineCard({ e, serverTime }: { e: EngineSnapshot; serverTime: Date }) {
+export function EngineCard({ e, diag, serverTime }: { e: EngineSnapshot; diag?: EngineDiagnostics; serverTime: Date }) {
   const label = ENGINE_LABELS[e.engine] ?? e.engine;
   const decision = e.current_decision || "NO-TRADE";
   const isCandidate = decision === "BUY" || decision === "SELL" || decision === "BUY_CANDIDATE" || decision === "SELL_CANDIDATE";
+
+  // DB-authoritative diagnostics (from /engines/diagnostics) take precedence —
+  // they come from trading.signal_candidates / trading.signals, not memory.
+  const candidatesToday = diag?.candidates_today ?? e.candidates_today ?? e.signal_count ?? 0;
+  const qualifiedToday = diag?.qualified_today ?? e.qualified_today ?? null;
+  const rejectionRate = diag?.rejection_rate ?? e.rejection_rate ?? 0;
+  const rejectionCounts = diag?.rejection_counts ?? e.rejection_counts;
+  const expectancyScore = diag?.expectancy_score ?? e.expectancy_score ?? null;
+
   return (
     <div className="bg-pat-card-bg border border-pat-card-border rounded-lg p-3 shadow-sm">
       <div className="flex items-center justify-between mb-2">
@@ -62,11 +71,11 @@ export function EngineCard({ e, serverTime }: { e: EngineSnapshot; serverTime: D
         <div className="flex justify-between"><dt className="text-pat-text-muted">Last eval</dt><dd className="text-pat-text-primary">{age(e.last_evaluation, serverTime)}</dd></div>
         <div className="flex justify-between"><dt className="text-pat-text-muted">Decision</dt><dd className={isCandidate ? "text-pat-warning font-medium" : "text-pat-text-secondary"}>{isCandidate ? decision : "NO-TRADE"}</dd></div>
         <div className="flex justify-between"><dt className="text-pat-text-muted">Score</dt><dd className="text-pat-text-primary tabular-nums">{e.current_score > 0 ? e.current_score.toFixed(1) : "—"}</dd></div>
-        <div className="flex justify-between"><dt className="text-pat-text-muted">Expectancy</dt><dd className={(e.expectancy_score ?? 0) > 50 ? "text-pat-success tabular-nums" : "text-pat-text-secondary tabular-nums"}>{e.expectancy_score != null ? e.expectancy_score.toFixed(1) : "—"}</dd></div>
-        <div className="flex justify-between"><dt className="text-pat-text-muted">Quality</dt><dd className={`text-[10px] px-1 py-0.5 rounded-full border font-medium ${GRADE_COLORS[e.current_decision === 'NO-TRADE' ? 'NO-TRADE' : 'B']}`}>{isCandidate ? (e.expectancy_score != null && e.expectancy_score > 60 ? "A" : "B") : "—"}</dd></div>
-        <div className="flex justify-between"><dt className="text-pat-text-muted">Candidates / Qualified</dt><dd className="text-pat-text-primary tabular-nums">{e.candidates_today ?? e.signal_count} / {e.qualified_today ?? "—"}</dd></div>
-        <div className="flex justify-between"><dt className="text-pat-text-muted">Rejection rate</dt><dd className={(e.rejection_rate ?? 0) > 80 ? "text-pat-danger tabular-nums" : "text-pat-text-primary tabular-nums"}>{(e.rejection_rate ?? 0) > 0 ? `${((e.rejection_rate ?? 0) * 100).toFixed(0)}%` : "—"}</dd></div>
-        <div className="flex justify-between"><dt className="text-pat-text-muted">Top reasons</dt><dd className="text-[11px] text-pat-text-secondary">{topRejectionReasons(e.rejection_counts)}</dd></div>
+        <div className="flex justify-between"><dt className="text-pat-text-muted" title="7-day mean realized R of closed trades (0-100)">Expectancy</dt><dd className={(expectancyScore ?? 0) > 50 ? "text-pat-success tabular-nums" : "text-pat-text-secondary tabular-nums"}>{expectancyScore != null ? expectancyScore.toFixed(1) : "—"}</dd></div>
+        <div className="flex justify-between"><dt className="text-pat-text-muted">Quality</dt><dd className={`text-[10px] px-1 py-0.5 rounded-full border font-medium ${GRADE_COLORS[e.current_decision === 'NO-TRADE' ? 'NO-TRADE' : 'B']}`}>{isCandidate ? ((expectancyScore ?? 0) > 60 ? "A" : "B") : "—"}</dd></div>
+        <div className="flex justify-between"><dt className="text-pat-text-muted">Candidates / Qualified</dt><dd className="text-pat-text-primary tabular-nums">{candidatesToday} / {qualifiedToday ?? "—"}</dd></div>
+        <div className="flex justify-between"><dt className="text-pat-text-muted">Rejection rate</dt><dd className={(rejectionRate * 100) > 80 ? "text-pat-danger tabular-nums" : "text-pat-text-primary tabular-nums"}>{rejectionRate > 0 ? `${(rejectionRate * 100).toFixed(0)}%` : "—"}</dd></div>
+        <div className="flex justify-between"><dt className="text-pat-text-muted">Top reasons</dt><dd className="text-[11px] text-pat-text-secondary">{topRejectionReasons(rejectionCounts)}</dd></div>
         <div className="flex justify-between"><dt className="text-pat-text-muted">Config v</dt><dd className="text-pat-text-muted">{e.config_version || "1.15.0"}</dd></div>
       </dl>
     </div>
@@ -74,7 +83,10 @@ export function EngineCard({ e, serverTime }: { e: EngineSnapshot; serverTime: D
 }
 
 /**
- * Strategy engine cards fed by the Go engine's /engines/status endpoint.
+ * Strategy engine cards fed by the Go engine's /engines/status endpoint,
+ * enriched with DB-authoritative per-strategy diagnostics from
+ * /engines/diagnostics (24h candidate funnel + top rejection reasons +
+ * 7-day realized-R expectancy — trading.signal_candidates/trading.signals).
  * Shows truthful liveness with quality, expectancy, rejection diagnostics.
  * Includes EQFE (internal ID MARNIE_FIB) as the 5th engine (prompt.md Sections 19, 69).
  */
@@ -83,6 +95,11 @@ export default function AdminEngineCards() {
     queryKey: ["engines-status"],
     queryFn: fetchEnginesStatus,
     refetchInterval: 10000,
+  });
+  const { data: diagData } = useQuery({
+    queryKey: ["engines-diagnostics"],
+    queryFn: fetchEnginesDiagnostics,
+    refetchInterval: 60000,
   });
 
   if (isLoading) {
@@ -104,6 +121,9 @@ export default function AdminEngineCards() {
 
   const serverTime = data.server_time ? parseISO(data.server_time) : new Date();
   const engines = data.engines ?? [];
+  const diagByEngine = new Map<string, EngineDiagnostics>(
+    (diagData?.diagnostics ?? []).map((d) => [d.engine, d])
+  );
   const stale = engines.filter((e) => e.health === "STALE").map((e) => ENGINE_LABELS[e.engine] ?? e.engine);
 
   return (
@@ -115,7 +135,7 @@ export default function AdminEngineCards() {
       )}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
         {engines.map((e) => (
-          <EngineCard key={e.engine} e={e} serverTime={serverTime} />
+          <EngineCard key={e.engine} e={e} diag={diagByEngine.get(e.engine)} serverTime={serverTime} />
         ))}
       </div>
     </div>

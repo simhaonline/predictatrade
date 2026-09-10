@@ -338,7 +338,7 @@ export default function AdminDashboardPage() {
       {/* Four Strategy Engine Cards (prompt.md Section 44) */}
       <AdminEngineCards />
 
-      {/* MT Client Connectivity — fleet liveness gate for every downstream page */}
+      {/* MT Client Connectivity — compact strip; full fleet view on its own tab */}
       <ConnectivityCard />
 
       {/* Platform Metrics */}

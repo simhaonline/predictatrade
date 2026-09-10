@@ -39,8 +39,25 @@ export interface EngineSnapshot {
   config_version?: string;
 }
 
+// DB-authoritative per-engine 24h funnel + 7d expectancy
+// (GET /api/v1/engines/diagnostics — Go realtime plane).
+export interface EngineDiagnostics {
+  engine: string;
+  candidates_today: number;
+  qualified_today: number;
+  rejection_rate: number;
+  rejection_counts: Record<string, number>;
+  expectancy_score?: number | null;
+  signals_today: number;
+}
+
 export interface EnginesStatusResponse {
   engines: EngineSnapshot[];
+  server_time: string;
+}
+
+export interface EngineDiagnosticsResponse {
+  diagnostics: EngineDiagnostics[];
   server_time: string;
 }
 
@@ -48,4 +65,10 @@ export interface EnginesStatusResponse {
 export async function fetchEnginesStatus(): Promise<EnginesStatusResponse> {
   const res = await customInstance.get<EnginesStatusResponse>("/engines/status");
   return res.data ?? { engines: [], server_time: new Date().toISOString() };
+}
+
+/** DB-authoritative per-engine daily diagnostics (candidates/rejections/expectancy). */
+export async function fetchEnginesDiagnostics(): Promise<EngineDiagnosticsResponse> {
+  const res = await customInstance.get<EngineDiagnosticsResponse>("/engines/diagnostics");
+  return res.data ?? { diagnostics: [], server_time: new Date().toISOString() };
 }
