@@ -36,11 +36,12 @@ func NewDriverRegistry(cfg Config) *DriverRegistry {
 		{DriverDXY, cfg.DXYEnabled, "twelvedata"},
 		{DriverEURUSD, cfg.EURUSDEnabled, "dxy_component"},
 		{DriverRealYields, cfg.RealYieldsEnabled, "fmp"},
-		{DriverFedContext, false, "economic_calendar"},
+		{DriverFedContext, cfg.FedContextEnabled, "fmp_calendar"},
 		{DriverVIX, cfg.VIXEnabled, "twelvedata"},
 		{DriverCOT, cfg.COTEnabled, "fmp"},
 		{DriverBTC, cfg.BTCEnabled, "twelvedata"},
 		{DriverOil, cfg.OilEnabled, "twelvedata"},
+		{DriverUSDCHF, cfg.USDCHFEnabled, "twelvedata"},
 	}
 
 	for _, d := range drivers {

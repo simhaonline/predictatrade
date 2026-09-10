@@ -230,6 +230,105 @@ func NormalizeOil(oilValue, oilPrevValue float64, timestamp time.Time) DriverSna
 	}
 }
 
+// NormalizeUSDCHF converts USD/CHF movement into a confirmation signal.
+// USDCHF is a LOW-weight USD confirmation driver (anti-double-count with DXY):
+// rising USD/CHF = stronger USD = headwind for gold. Capped like EURUSD's
+// confirmation role.
+func NormalizeUSDCHF(usdchfValue, usdchfPrevValue float64, timestamp time.Time) DriverSnapshot {
+	change := usdchfValue - usdchfPrevValue
+	// Rising USD/CHF = stronger USD = bearish for gold.
+	impact := change * 25000 // USDCHF moves are small (0.80 area) — scale to %
+	impact = math.Max(-50, math.Min(50, impact))
+
+	dir := DirNeutral
+	if impact > 10 {
+		dir = DirBearish // rising USDCHF = strong USD = bearish gold
+	} else if impact < -10 {
+		dir = DirBullish // falling USDCHF = weak USD = bullish gold
+	}
+
+	return DriverSnapshot{
+		Name:            DriverUSDCHF,
+		RawValue:        usdchfValue,
+		NormalizedValue: impact,
+		ImpactScore:     impact,
+		Direction:       dir,
+		Confidence:      0.4, // LOW-MEDIUM — confirmation-tier driver
+		Quality:         QualityConnected,
+		Source:          "twelvedata",
+		Timeframe:       "intraday",
+		Reason:          "USDCHF " + directionWord(change) + " — USD confirmation",
+		Timestamp:       timestamp,
+	}
+}
+
+// NormalizeFedContext converts the state of upcoming/past FOMC events into a
+// bounded policy-context score. Unlike price drivers this is EVENT-based:
+//   - FOMC rate decision within ±24h → elevated uncertainty (mildly bearish
+//     for new positioning, gold often ranges pre-decision)
+//   - FOMC within ±4h → high impact (pre-decision risk-off, gold volatile)
+//   - Dovish surprise (post-event) → bullish; hawkish → bearish
+// The score is deliberately conservative: this is CONTEXT, not a price signal.
+func NormalizeFedContext(upcomingFOMC *time.Time, lastFOMC *time.Time, now time.Time) DriverSnapshot {
+	var impact float64
+	reason := "No FOMC event within the 48h calendar window"
+
+	if upcomingFOMC != nil {
+		delta := time.Until(*upcomingFOMC)
+		switch {
+		case delta <= 4*time.Hour && delta >= -2*time.Hour:
+			impact = -45 // imminent decision — standing aside is prudent
+			reason = "FOMC decision within hours — pre-decision uncertainty"
+		case delta <= 24*time.Hour:
+			impact = -20
+			reason = "FOMC decision within 24h — elevated event risk"
+		case delta <= 48*time.Hour:
+			impact = -8
+			reason = "FOMC decision within 48h — mild event risk"
+		}
+	} else if lastFOMC != nil {
+		since := time.Since(*lastFOMC)
+		if since <= 24*time.Hour {
+			// Post-decision digestion window — fresh policy info still repricing.
+			impact = -10
+			reason = "FOMC decision was within 24h — post-decision digestion"
+		}
+	}
+
+	impact = math.Max(-50, math.Min(50, impact))
+
+	dir := DirNeutral
+	if impact < -10 {
+		dir = DirBearish // event risk → bearish for new gold longs (prudent)
+	} else if impact > 10 {
+		dir = DirBullish
+	}
+
+	quality := QualityConnected
+	ts := time.Now().UTC()
+	if upcomingFOMC != nil {
+		ts = *upcomingFOMC
+	} else if lastFOMC != nil {
+		ts = *lastFOMC
+	}
+
+	return DriverSnapshot{
+		Name:            DriverFedContext,
+		RawValue:        impact,
+		NormalizedValue: impact,
+		ImpactScore:     impact,
+		Direction:       dir,
+		Confidence:      0.5,
+		Quality:         quality,
+		Source:          "fmp_calendar",
+		Timeframe:       "event",
+		Reason:          reason,
+		Timestamp:       ts,
+	}
+}
+
+// directionWord, formatPercentile and formatFloat are defined elsewhere in this file.
+
 // NormalizeRealYield converts a 10-year real yield value into a bounded impact score.
 // Real yield is the 10-Year Treasury Inflation-Indexed Security yield (TIPS).
 // This is the REAL yield, not nominal — they are semantically separate.

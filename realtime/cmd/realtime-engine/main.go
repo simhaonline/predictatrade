@@ -1346,6 +1346,46 @@ func main() {
 	strategy.SetExecutionCostModel(cfg.SlippageCostPoints, cfg.CommissionCostPoints)
 	go newsRiskEngine.Start(context.Background())
 
+	// ─── Fed Context driver feeder (event-based FOMC context) ───
+	// The news risk engine already syncs the FMP economic calendar every 5 min.
+	// This loop drains its cached events, finds FOMC/rate-decision events, and
+	// feeds the crossmarket fed_context driver. Event-based (no new I/O).
+	if globalCrossMarketEngine != nil {
+		go func() {
+			ticker := time.NewTicker(60 * time.Second)
+			defer ticker.Stop()
+			feed := func() {
+				engine := globalCrossMarketEngine
+				if engine == nil {
+					return
+				}
+				now := time.Now().UTC()
+				var upcoming, last *time.Time
+				for _, ev := range newsRiskEngine.GetEvents() {
+					if ev.EventCategory != "RATE_DECISION" {
+						continue
+					}
+					if ev.ScheduledAtUTC.After(now) {
+						if upcoming == nil || ev.ScheduledAtUTC.Before(*upcoming) {
+							t := ev.ScheduledAtUTC
+							upcoming = &t
+						}
+					} else {
+						if last == nil || ev.ScheduledAtUTC.After(*last) {
+							t := ev.ScheduledAtUTC
+							last = &t
+						}
+					}
+				}
+				engine.UpdateDriver(crossmarket.NormalizeFedContext(upcoming, last, now))
+			}
+			feed() // initial feed after the news engine's first sync
+			for range ticker.C {
+				feed()
+			}
+		}()
+	}
+
 	// Give AgentProvider access to state manager + merge function
 	// This allows authoritative MT5 snapshot indicators to be merged into MarketState
 	if isAgentProvider {
@@ -2998,6 +3038,12 @@ func main() {
 	xmConfig.VIXEnabled = os.Getenv("VIX_ENABLED") == "true"
 	xmConfig.RealYieldsEnabled = os.Getenv("REAL_YIELD_ENABLED") == "true"
 	xmConfig.EURUSDEnabled = os.Getenv("EURUSD_ENABLED") != "false" // default true
+	// USD/CHF confirmation driver — opt-in via env; requires TWELVEDATA_API_KEY.
+	xmConfig.USDCHFEnabled = os.Getenv("USDCHF_ENABLED") == "true" && cfg.TwelveDataAPIKey != ""
+	// Fed Context driver — event-based FOMC context from the FMP economic
+	// calendar (the same provider the news risk engine syncs). Requires the
+	// calendar provider to be configured (newsRiskEngine below wires the data).
+	xmConfig.FedContextEnabled = os.Getenv("FED_CONTEXT_ENABLED") == "true" && cfg.NewsProviderAPIKey != "" && cfg.NewsProvider == "fmp"
 
 	// Engine SL/TP override matrix is OPT-IN. Default (unset) = NO overrides,
 	// so the live engine uses the same getStrategyConfig geometry as the
@@ -3225,6 +3271,8 @@ func main() {
 			xmEngine.UpdateDriver(crossmarket.NormalizeBTC(snap.Price, prevPrice, now))
 		case "WTI":
 			xmEngine.UpdateDriver(crossmarket.NormalizeOil(snap.Price, prevPrice, now))
+		case "USDCHF":
+			xmEngine.UpdateDriver(crossmarket.NormalizeUSDCHF(snap.Price, prevPrice, now))
 		}
 	}, func(msg string, err error) {
 		if err != nil {

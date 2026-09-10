@@ -165,6 +165,8 @@ type Config struct {
 	OilEnabled         bool
 	USDJPYEnabled      bool
 	ETFEnabled         bool
+	USDCHFEnabled      bool
+	FedContextEnabled  bool
 	EventBlackoutEnabled bool
 	// Weights (Tier 1 = HIGH, Tier 2 = MEDIUM, Tier 3 = LOW)
 	Weights map[DriverName]float64
@@ -190,6 +192,8 @@ func DefaultConfig() Config {
 		OilEnabled:           false,
 		USDJPYEnabled:        false,
 		ETFEnabled:           false,
+		USDCHFEnabled:        false, // enabled by main.go when the TD feed is wired
+		FedContextEnabled:    false, // enabled by main.go when FMP calendar is wired
 		EventBlackoutEnabled: true,
 		Weights: map[DriverName]float64{
 			DriverDXY:        25.0, // HIGH — primary USD driver
@@ -208,12 +212,13 @@ func DefaultConfig() Config {
 			DriverDXY:        300,   // 5 minutes
 			DriverEURUSD:     300,
 			DriverRealYields: 3600,  // 1 hour
-			DriverFedContext: 3600,
+			DriverFedContext: 3600,  // 1 hour (calendar re-synced every 5 min)
 			DriverVIX:        300,
 			DriverCOT:        604800, // 7 days (weekly data)
 			DriverBTC:        300,
 			DriverOil:        600,
 			DriverUSDJPY:     300,
+			DriverUSDCHF:     300,
 			DriverETF:        86400,  // 1 day
 		},
 		CorrelationWindow: 50,

@@ -69,6 +69,7 @@ func NewTwelveDataProvider(apiKey string) *TwelveDataProvider {
 			"BTCUSD": "BTC/USD",
 			"WTI":    "WTI",
 			"EURUSD": "EUR/USD",
+			"USDCHF": "USD/CHF",
 		},
 		last: map[string]*MacroAssetSnapshot{},
 		prev: map[string]float64{},

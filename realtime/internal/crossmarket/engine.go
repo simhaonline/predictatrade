@@ -323,6 +323,10 @@ func (e *Engine) driverEnabled(name DriverName) bool {
 		return e.cfg.USDJPYEnabled
 	case DriverETF:
 		return e.cfg.ETFEnabled
+	case DriverUSDCHF:
+		return e.cfg.USDCHFEnabled
+	case DriverFedContext:
+		return e.cfg.FedContextEnabled
 	default:
 		return true
 	}
