@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Injectable, Logger, Inject, OnModuleInit } from '@nestjs/common';
 import { Pool } from 'pg';
 import { DB_POOL } from '../../common/database.module';
 
@@ -12,10 +12,60 @@ import { DB_POOL } from '../../common/database.module';
  * them to the EA and takes back execution ACKs — no local binaries required.
  */
 @Injectable()
-export class EdgePollService {
+export class EdgePollService implements OnModuleInit {
   private readonly logger = new Logger(EdgePollService.name);
+  private sweepTimer?: NodeJS.Timeout;
 
   constructor(@Inject(DB_POOL) private readonly pool: Pool) {}
+
+  /**
+   * Queue hygiene sweep (production fix 2026-09-10): TTL expiry and IN_FLIGHT
+   * reclaim previously ran ONLY inside per-device poll() — a device that goes
+   * offline (terminal closed) never polls again, so its PENDING rows sat in
+   * the queue forever (observed: 17 devices / 200 rows stuck 2h-4d). This
+   * global sweep expires PENDING rows whose TTL passed or whose device has
+   * been offline >1h, fleet-wide, every 10 minutes. It only touches queue
+   * state — never deletes delivery history.
+   */
+  onModuleInit() {
+    // Run once shortly after boot, then every 10 minutes. Both HA peers run
+    // this; the UPDATE is idempotent and row-locked, so double-execution is
+    // harmless.
+    setTimeout(() => this.sweepStale(), 15_000);
+    this.sweepTimer = setInterval(() => this.sweepStale(), 10 * 60_000);
+    if (this.sweepTimer.unref) this.sweepTimer.unref();
+  }
+
+  private async sweepStale() {
+    try {
+      // 1. Payload TTL passed → EXPIRED (never execute a stale read).
+      const ttl = await this.pool.query(
+        `UPDATE licensing.edge_signal_queue
+            SET status = 'EXPIRED',
+                last_error = COALESCE(last_error,'') || ' ttl-swept;'
+          WHERE status = 'PENDING'
+            AND COALESCE(payload->>'ExpiresAt', payload->>'expires_at') IS NOT NULL
+            AND COALESCE(payload->>'ExpiresAt', payload->>'expires_at')::timestamptz < now()`,
+      );
+      // 2. Device offline >1h (no edge-poll heartbeat) → EXPIRED. If the
+      // device returns, the EA's own signal-state gate prevents double-trading.
+      const offline = await this.pool.query(
+        `UPDATE licensing.edge_signal_queue q
+            SET status = 'EXPIRED',
+                last_error = COALESCE(q.last_error,'') || ' device-offline-swept;'
+           FROM licensing.devices d
+          WHERE q.device_id = d.id
+            AND q.status = 'PENDING'
+            AND d.last_seen_at < now() - interval '1 hour'`,
+      );
+      const n = (ttl.rowCount ?? 0) + (offline.rowCount ?? 0);
+      if (n > 0) {
+        this.logger.log(`[EDGE-SWEEP] expired ${ttl.rowCount ?? 0} ttl + ${offline.rowCount ?? 0} offline-device PENDING rows`);
+      }
+    } catch (e) {
+      this.logger.warn(`[EDGE-SWEEP] failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }
 
   /**
    * Poll: hand PENDING signals to the device and mark them IN_FLIGHT.
