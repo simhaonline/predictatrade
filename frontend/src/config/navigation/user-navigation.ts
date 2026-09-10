@@ -1,5 +1,6 @@
 import {
   IconDashboard, IconChartLine, IconChartBar, IconDeviceDesktop, IconBolt,
+  IconMessage2Heart,
   IconFileAnalytics, IconTestPipe, IconUsers, IconCreditCard, IconSettings,
   IconShieldLock, IconBell, IconLifebuoy, IconWallet, IconCertificate,
   IconHistory, IconDroplet, IconSparkles,
@@ -37,5 +38,6 @@ export const userNavigation: NavItem[] = [
   { label: 'Settings', href: '/dashboard/settings', icon: IconSettings, section: 'Account' },
 
   // ── Help ──
+  { label: 'Feedback', href: '/dashboard/feedback', icon: IconMessage2Heart, section: 'Help' },
   { label: 'Support', href: '/dashboard/support', icon: IconLifebuoy, section: 'Help' },
 ];

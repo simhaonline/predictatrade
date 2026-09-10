@@ -6,7 +6,7 @@ import {
   IconAlertTriangle, IconListCheck, IconAdjustments, IconWallet,
   IconReportMoney, IconBrain, IconBroadcast, IconWorld, IconRocket,
   IconDatabase, IconFlag, IconBuildingBank, IconServer, IconDroplet, IconSparkles,
-  IconMail,
+  IconMail, IconMessage2Star,
 } from '@tabler/icons-react';
 
 export interface NavItem {
@@ -40,6 +40,7 @@ export const adminNavigation: NavItem[] = [
   { label: 'Risk Center', href: '/admin/risk-center', icon: IconAlertTriangle, section: 'Risk & Compliance' },
 
   // ── Customer Management ──
+  { label: 'Customer Feedback', href: '/admin/feedback', icon: IconMessage2Star, section: 'Customer Management' },
   { label: 'Users & Onboarding', href: '/admin/users', icon: IconUsers, section: 'Customer Management' },
   { label: 'Subscription Management', href: '/admin/subscriptions', icon: IconReceipt, section: 'Customer Management' },
   { label: 'License Management', href: '/admin/licenses', icon: IconShield, section: 'Customer Management' },

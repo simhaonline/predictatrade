@@ -28,6 +28,7 @@ import { MarketProxyModule } from './modules/market-proxy/market-proxy.module';
 import { FeatureFlagsModule } from './modules/feature-flags/feature-flags.module';
 import { AdminExtrasModule } from './modules/admin-extras/admin-extras.module';
 import { EmailCampaignModule } from './modules/email-campaigns/email-campaigns.module';
+import { FeedbackModule } from './modules/feedback/feedback.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ComplianceInterceptor } from './common/interceptors/compliance.interceptor';
@@ -68,6 +69,7 @@ import { ComplianceInterceptor } from './common/interceptors/compliance.intercep
     FeatureFlagsModule,
     AdminExtrasModule,
     EmailCampaignModule,
+    FeedbackModule,
     ReportsModule,
   ],
   providers: [
