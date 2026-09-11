@@ -117,7 +117,7 @@ func loadConfig() *Config {
 		RunbookBase:       getenv("RUNBOOK_BASE", "https://docs.predictatrade.com/runbooks"),
 		Services: strings.Fields(getenv(
 			"SUPERVISED_SERVICES",
-			"postgres valkey realtime control control-b frontend live-terminal mail-relay backtest nats ntfy prometheus grafana status backup-sync nginx")),
+			"postgres valkey realtime control control-b frontend live-terminal mail-relay backtest ntfy prometheus grafana status backup-sync nginx")),
 	}
 	return c
 }
