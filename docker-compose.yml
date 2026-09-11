@@ -132,6 +132,14 @@ services:
       - MAX_PER_STRATEGY_POSITIONS=1
       - MAX_TOTAL_POSITIONS=2
       - MAX_SAME_DIRECTION_POSITIONS=1
+      # ─── PRODUCTION ENABLEMENT (operator-authorized 2026-09-11) ───
+      # LIVE_TRADING_AUTHORIZED + EDGE_ARMED_STRATEGIES flip the engine from
+      # advisory-only to executable-capable (main.go:5474). Risk-sizing still
+      # gates on VERIFIED broker equity/positions via the Client Agent feed
+      # (live for the fleet) — no PAT_PAPER_EQUITY seeded constant.
+      # HARD gates + capital-protection + proven-negative-edge veto remain armed.
+      - LIVE_TRADING_AUTHORIZED=true
+      - EDGE_ARMED_STRATEGIES=STANDARD_SWING,TREND_SWING,MARNIE_FIB,STANDARD_SCALPING,ULTRA_SCALPING
     extra_hosts:
       # Host Ollama AI proxy (sentiment) — iptables restricts 11434 to docker nets
       - "host.docker.internal:host-gateway"
