@@ -940,6 +940,7 @@ export class LicensingService {
        LEFT JOIN licensing.licenses l ON da.license_id = l.id
        LEFT JOIN iam.users u ON d.user_id = u.id
        WHERE da.deactivated_at IS NULL
+         AND da.mt_account_login IS NOT NULL AND da.mt_account_login <> ''
        ORDER BY da.activated_at DESC LIMIT 500`,
     );
     return r.rows;
