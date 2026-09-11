@@ -231,29 +231,21 @@ export class LicensingService {
       [userId, body.mtAccountLogin, deviceId],
     );
 
-    // Check if activation with same MT account already exists
-    const existing = await this.pool.query(
-      `SELECT id FROM licensing.device_activations
-       WHERE device_id = $1 AND mt_account_login = $2 AND client_type = $3`,
+    // Upsert activation: guarantee exactly ONE active row per
+    // (device_id, mt_account_login, client_type). First deactivate any existing
+    // active row for this key, then insert a single fresh active row. This
+    // prevents the duplicate-row pile-up that previously happened on every
+    // poll/heartbeat (blank-login activations were each inserting a new row).
+    await this.pool.query(
+      `UPDATE licensing.device_activations
+         SET deactivated_at = now()
+       WHERE device_id = $1 AND mt_account_login = $2 AND client_type = $3
+         AND deactivated_at IS NULL`,
       [deviceId, body.mtAccountLogin, body.clientType],
     );
 
-    if (existing.rows.length > 0) {
-      // Update existing activation
-      const r = await this.pool.query(
-        `UPDATE licensing.device_activations
-          SET terminal_build = $3, ea_version = $4, broker_name = $5, broker_server = $6,
-              fingerprint_hash = $7, activated_at = now()
-          WHERE id = $1 AND device_id = $2
-          RETURNING *`,
-        [existing.rows[0].id, deviceId, body.terminalBuild, body.eaVersion,
-          body.brokerName, body.brokerServer, fingerprintHash],
-      );
-      return r.rows[0];
-    }
-
-    // Check max_mt_accounts limit
-    // P1 fix: also select l.id so the activation insert gets a real license_id
+    // Check max_mt_accounts limit (count only ACTIVE activations per device).
+    // P1 fix: also select l.id so the activation insert gets a real license_id.
     const lic = await this.pool.query(
       `SELECT l.id, l.max_mt_accounts FROM licensing.devices d
        JOIN licensing.licenses l ON d.bound_license_id = l.id
@@ -261,7 +253,8 @@ export class LicensingService {
     );
     if (lic.rows.length > 0) {
       const count = await this.pool.query(
-        `SELECT count(*) as cnt FROM licensing.device_activations WHERE device_id = $1`,
+        `SELECT count(*) as cnt FROM licensing.device_activations
+         WHERE device_id = $1 AND deactivated_at IS NULL`,
         [deviceId],
       );
       if (parseInt(count.rows[0].cnt, 10) >= lic.rows[0].max_mt_accounts) {
@@ -269,7 +262,7 @@ export class LicensingService {
       }
     }
 
-    // Create new activation
+    // Create new activation (single active row for this key).
     const id = crypto.randomUUID();
     const licId = lic.rows.length > 0 ? lic.rows[0].id : null;
     const r = await this.pool.query(
