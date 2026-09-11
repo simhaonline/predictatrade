@@ -7,7 +7,7 @@
         control-build control-test control-lint control-format \
         frontend-build frontend-test frontend-lint frontend-format \
         research-test research-lint \
-        e2e-test security-scan
+        e2e-test security-scan verify-cloudflare
 
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
@@ -152,6 +152,9 @@ e2e-test: control-test-e2e frontend-test ## Run E2E tests
 
 security-scan: ## Run security scans (secrets, deps, SAST)
 	./scripts/security-scan.sh
+
+verify-cloudflare: ## Verify Cloudflare proxy: DNS anycast, API no-store, ingest alive
+	./scripts/verify-cloudflare.sh
 
 clean: ## Clean build artifacts
 	rm -rf realtime/bin control/dist frontend/.next frontend/out
