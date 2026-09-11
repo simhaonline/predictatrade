@@ -34,6 +34,11 @@ function timeAgo(iso?: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+// Render a value, or a clean "—" when it's null/undefined/empty string.
+function val(v?: string | null): string {
+  return v && v.trim() !== "" ? v : "—";
+}
+
 // Balance is only as fresh as the last EA sync. Flag it stale past 1 hour so a
 // frozen number is never mistaken for a live broker balance.
 function isStale(iso?: string): boolean {
@@ -121,11 +126,11 @@ export default function AdminMtAccountsPage() {
               <tbody>
                 {adminQ.data!.map((a) => (
                   <tr key={a.id} className="border-b border-pat-border/50">
-                    <td className="px-3 py-2 font-mono text-pat-text-primary">{a.mt_account_login ?? "—"}</td>
-                    <td className="px-3 py-2 text-pat-text-secondary">{a.broker_name ?? "—"}</td>
-                    <td className="px-3 py-2 text-pat-text-secondary">{a.broker_server ?? "—"}</td>
-                    <td className="px-3 py-2 text-pat-text-secondary">{a.client_type ?? "—"}</td>
-                    <td className="px-3 py-2 text-pat-text-secondary">{a.device_name ?? "—"}</td>
+                    <td className="px-3 py-2 font-mono text-pat-text-primary">{val(a.mt_account_login)}</td>
+                    <td className="px-3 py-2 text-pat-text-secondary">{val(a.broker_name)}</td>
+                    <td className="px-3 py-2 text-pat-text-secondary">{val(a.broker_server)}</td>
+                    <td className="px-3 py-2 text-pat-text-secondary">{val(a.client_type)}</td>
+                    <td className="px-3 py-2 text-pat-text-secondary">{val(a.device_name)}</td>
                     <td className="px-3 py-2">
                       <span className={`text-xs px-2 py-0.5 rounded-full ${a.connection_status === "ONLINE" ? "bg-emerald-500/15 text-emerald-400" : "bg-pat-bg-surface-secondary text-pat-text-muted"}`}>
                         {a.connection_status === "ONLINE" ? "ONLINE" : "OFFLINE"}

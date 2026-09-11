@@ -919,26 +919,40 @@ export class LicensingService {
    *  includes live balance/connection/device data; the legacy licensing.mt_accounts
    *  table lacks those columns). */
   async listAllMtAccounts() {
-    // One row per DEVICE, using that device's most-recently-updated activation
-    // (DISTINCT ON d.id ordered by last_account_update DESC). The EA syncs live
-    // balance into the device's active terminal row (syncTerminalAccount matches
-    // by device+client_type, not login), so this surfaces the freshest balance
-    // even when the EA reports a blank login. Blank-login rows are NOT filtered
-    // out here — a device that synced with no login still carries real balance.
+    // One row per DEVICE (DISTINCT ON d.id by freshest sync = live balance).
+    // The EA frequently syncs with BLANK login/broker fields, overwriting the
+    // values it set at registration. So we recover login/broker from the device's
+    // most recent registration (reg CTE) and fall back to the active sync row.
     const r = await this.pool.query(
-      `SELECT DISTINCT ON (d.id) da.id, da.mt_account_login, da.broker_name, da.broker_server,
-              da.client_type, da.account_balance, da.account_equity,
-              da.account_currency as currency, da.activated_at, da.last_account_update,
+      `WITH active AS (
+         SELECT DISTINCT ON (device_id) *
+         FROM licensing.device_activations
+         WHERE deactivated_at IS NULL
+         ORDER BY device_id, last_account_update DESC NULLS LAST
+       ),
+       reg AS (
+         SELECT DISTINCT ON (device_id) device_id, mt_account_login, broker_name, broker_server, client_type
+         FROM licensing.device_activations
+         WHERE (mt_account_login IS NOT NULL AND mt_account_login <> '')
+            OR (broker_server IS NOT NULL AND broker_server <> '')
+         ORDER BY device_id, activated_at DESC
+       )
+       SELECT d.id as device_id_val,
+              COALESCE(NULLIF(reg.mt_account_login, ''), active.mt_account_login) AS mt_account_login,
+              COALESCE(NULLIF(reg.broker_name, ''), active.broker_name) AS broker_name,
+              COALESCE(NULLIF(reg.broker_server, ''), active.broker_server) AS broker_server,
+              COALESCE(NULLIF(reg.client_type, ''), active.client_type) AS client_type,
+              active.account_balance, active.account_equity,
+              active.account_currency AS currency, active.activated_at, active.last_account_update,
               d.device_name, d.hostname, d.connection_status,
               l.license_key, l.status AS license_status,
               u.email AS user_email
-       FROM licensing.device_activations da
-       JOIN licensing.devices d ON da.device_id = d.id AND d.deleted_at IS NULL
-       LEFT JOIN licensing.licenses l ON da.license_id = l.id
+       FROM active
+       JOIN licensing.devices d ON active.device_id = d.id AND d.deleted_at IS NULL
+       LEFT JOIN reg ON reg.device_id = active.device_id
+       LEFT JOIN licensing.licenses l ON active.license_id = l.id
        LEFT JOIN iam.users u ON d.user_id = u.id
-       WHERE da.deactivated_at IS NULL
-       ORDER BY d.id, da.last_account_update DESC NULLS LAST, da.activated_at DESC
-       LIMIT 500`,
+       ORDER BY d.device_name`,
     );
     return r.rows;
   }
