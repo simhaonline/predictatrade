@@ -23,7 +23,8 @@ import (
 // COTProviderConfig holds COT provider configuration.
 type COTProviderConfig struct {
 	APIKey       string
-	APIBase      string
+	APIBase      string // FMP base URL
+	CFTCAPIBase  string // CFTC Socrata base URL (fallback; empty → official endpoint)
 	Symbol       string // CFTC futures contract code, e.g. "GC" for gold
 	RefreshHours int    // How often to fetch (COT is weekly data)
 	TimeoutSec   int
@@ -59,25 +60,30 @@ type COTReport struct {
 
 // COTSnapshot is the processed COT data for use in signal scoring.
 type COTSnapshot struct {
-	ReportDate      time.Time
-	NetPosition     int64   // non-commercial long - short
-	NetPercentile   float64 // 0-1 percentile of recent net positioning
-	NetZScore       float64 // z-score of net positioning
-	OpenInterest    int64
-	CommercialNet   int64   // commercial long - short (hedger positioning)
-	FetchedAt       time.Time
-	Source          string
-	Status          string  // AVAILABLE, STALE, UNAVAILABLE, UNCONFIGURED
-	ErrorMessage    string
+	ReportDate    time.Time
+	NetPosition   int64   // non-commercial long - short
+	NetPercentile float64 // 0-1 percentile of recent net positioning
+	NetZScore     float64 // z-score of net positioning
+	OpenInterest  int64
+	CommercialNet int64 // commercial long - short (hedger positioning)
+	FetchedAt     time.Time
+	Source        string
+	Status        string // AVAILABLE, STALE, UNAVAILABLE, UNCONFIGURED
+	ErrorMessage  string
 }
 
-// COTProvider fetches and processes COT data from FMP API.
+// COTProvider fetches and processes COT data from FMP API (with the official
+// CFTC public API as fallback).
 type COTProvider struct {
-	config         COTProviderConfig
-	mu             sync.RWMutex
-	lastSnap       *COTSnapshot
-	client         *http.Client
+	config            COTProviderConfig
+	mu                sync.RWMutex
+	lastSnap          *COTSnapshot
+	client            *http.Client
 	snapshotCallbacks []func(netPosition float64, percentile float64, ts time.Time)
+
+	// lastSourceOverride records the upstream that served the most recent
+	// report batch ("cftc" when the CFTC fallback succeeded, "" → FMP).
+	lastSourceOverride string
 }
 
 // NewCOTProvider creates a new COT provider.
@@ -100,7 +106,8 @@ func (p *COTProvider) IsConfigured() bool {
 }
 
 // FetchReport fetches COT data from the FMP API.
-// Tries the stable endpoint first, falls back to the legacy v4 endpoint.
+// Tries the stable endpoint first, then the legacy v4 endpoint, then the
+// CFTC official public Socrata API (free, no key) as final fallback.
 func (p *COTProvider) FetchReport(ctx context.Context) (*COTSnapshot, error) {
 	if !p.IsConfigured() {
 		return &COTSnapshot{
@@ -114,15 +121,35 @@ func (p *COTProvider) FetchReport(ctx context.Context) (*COTSnapshot, error) {
 	reports, err := p.fetchStable(ctx)
 	if err != nil {
 		// Try legacy v4 endpoint as fallback
+		fmpErr := err
 		reports, err = p.fetchLegacyV4(ctx)
 		if err != nil {
-			return &COTSnapshot{
-				Status:       "UNAVAILABLE",
-				ErrorMessage: err.Error(),
-				Source:       "fmp",
-				FetchedAt:    time.Now().UTC(),
-			}, err
+			// FMP is unavailable on this subscription/endpoint — fall back to the
+			// CFTC official public API so the pillar stays alive without FMP.
+			reports, err = p.fetchCFTCSocrata(ctx)
+			if err != nil {
+				p.mu.Lock()
+				p.lastSourceOverride = ""
+				p.mu.Unlock()
+				return &COTSnapshot{
+					Status:       "UNAVAILABLE",
+					ErrorMessage: fmt.Sprintf("fmp: %v; cftc: %v", fmpErr, err),
+					Source:       "fmp",
+					FetchedAt:    time.Now().UTC(),
+				}, err
+			}
+			p.mu.Lock()
+			p.lastSourceOverride = "cftc"
+			p.mu.Unlock()
+		} else {
+			p.mu.Lock()
+			p.lastSourceOverride = ""
+			p.mu.Unlock()
 		}
+	} else {
+		p.mu.Lock()
+		p.lastSourceOverride = ""
+		p.mu.Unlock()
 	}
 
 	if len(reports) == 0 {
@@ -134,9 +161,17 @@ func (p *COTProvider) FetchReport(ctx context.Context) (*COTSnapshot, error) {
 		}, fmt.Errorf("no COT data returned")
 	}
 
-	// Use the most recent report (first in the list)
+	// Use the most recent report (first in the list). Provenance: the CFTC
+	// fallback sets p.lastSourceOverride so the snapshot records the real
+	// upstream instead of pretending it came from FMP.
 	latest := reports[0]
-	snap := p.processReport(latest, reports)
+	p.mu.RLock()
+	source := p.lastSourceOverride
+	p.mu.RUnlock()
+	if source == "" {
+		source = "fmp"
+	}
+	snap := p.processReport(latest, reports, source)
 	return snap, nil
 }
 
@@ -220,8 +255,105 @@ func (p *COTProvider) fetchLegacyV4(ctx context.Context) ([]COTReport, error) {
 	return reports, nil
 }
 
+// cftcContractCodes maps the provider's futures symbol to the CFTC
+// cftc_contract_market_code used by the official public Socrata datasets.
+// COMMODITIES (fut_hist_txt, dataset key 6dca-aqww).
+var cftcContractCodes = map[string]string{
+	"GC": "088691", // Gold COMEX
+	"SI": "084691", // Silver COMEX
+	"HG": "085692", // Copper COMEX
+	"CL": "067651", // Light Crude NYMEX
+	"NG": "023651", // Natural Gas NYMEX
+}
+
+// cftcSocrataBase is the official CFTC public reporting endpoint (Socrata).
+const cftcSocrataBase = "https://publicreporting.cftc.gov"
+
+// fetchCFTCSocrata fetches COT history directly from the CFTC official public
+// API — free, no API key, no subscription. Used as the final fallback when FMP
+// is unavailable (402 restricted / 403 legacy-killed). The legacy
+// futures-only dataset (fut_hist_txt, Socrata 6dca-aqww) carries the same
+// noncommercial/commercial/open-interest fields FMP's COT reports expose.
+// Rows come oldest-first and are returned oldest-first, matching
+// processReport's expectations (it computes percentile/z-score over the whole
+// series and uses reports[0] as the latest, so we reverse to newest-first).
+func (p *COTProvider) fetchCFTCSocrata(ctx context.Context) ([]COTReport, error) {
+	code, ok := cftcContractCodes[p.config.Symbol]
+	if !ok {
+		return nil, fmt.Errorf("CFTC fallback: no contract code mapped for symbol %q", p.config.Symbol)
+	}
+
+	base := p.config.CFTCAPIBase
+	if base == "" {
+		base = cftcSocrataBase
+	}
+	url := fmt.Sprintf("%s/resource/6dca-aqww.json?$select=report_date_as_yyyy_mm_dd,noncomm_positions_long_all,noncomm_positions_short_all,comm_positions_long_all,comm_positions_short_all,open_interest_all&cftc_contract_market_code=%s&$order=report_date_as_yyyy_mm_dd%%20DESC&$limit=160",
+		base, code)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("CFTC request failed: %w", err)
+	}
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("CFTC request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("CFTC read failed: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		bodyStr := string(body)
+		if len(bodyStr) > 200 {
+			bodyStr = bodyStr[:200]
+		}
+		return nil, fmt.Errorf("CFTC HTTP %d: %s", resp.StatusCode, bodyStr)
+	}
+
+	// Socrata returns every field as a JSON string (e.g. "261007").
+	var rows []struct {
+		Date     string `json:"report_date_as_yyyy_mm_dd"`
+		NcLong   string `json:"noncomm_positions_long_all"`
+		NcShort  string `json:"noncomm_positions_short_all"`
+		CommLong string `json:"comm_positions_long_all"`
+		CommShrt string `json:"comm_positions_short_all"`
+		OI       string `json:"open_interest_all"`
+	}
+	if err := json.Unmarshal(body, &rows); err != nil {
+		return nil, fmt.Errorf("CFTC parse failed: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("CFTC returned no rows for contract %s", code)
+	}
+
+	atoi64 := func(s string) int64 {
+		var v int64
+		fmt.Sscanf(strings.TrimSpace(s), "%d", &v)
+		return v
+	}
+
+	// Socrata $order DESC → newest-first, same shape as the FMP stable feed.
+	reports := make([]COTReport, 0, len(rows))
+	for _, r := range rows {
+		reports = append(reports, COTReport{
+			Date:                     strings.Split(r.Date, "T")[0],
+			Symbol:                   p.config.Symbol,
+			OpenInterestAll:          atoi64(r.OI),
+			NoncommPositionsLongAll:  atoi64(r.NcLong),
+			NoncommPositionsShortAll: atoi64(r.NcShort),
+			CommPositionsLongAll:     atoi64(r.CommLong),
+			CommPositionsShortAll:    atoi64(r.CommShrt),
+		})
+	}
+	return reports, nil
+}
+
 // processReport computes COT features from raw report data.
-func (p *COTProvider) processReport(latest COTReport, history []COTReport) *COTSnapshot {
+func (p *COTProvider) processReport(latest COTReport, history []COTReport, source string) *COTSnapshot {
 	reportDate, _ := time.Parse("2006-01-02", latest.Date)
 	if reportDate.IsZero() {
 		reportDate = time.Now().UTC()
@@ -248,7 +380,7 @@ func (p *COTProvider) processReport(latest COTReport, history []COTReport) *COTS
 		OpenInterest:  latest.OpenInterestAll,
 		CommercialNet: commercialNet,
 		FetchedAt:     time.Now().UTC(),
-		Source:        "fmp",
+		Source:        source,
 		Status:        "AVAILABLE",
 	}
 }

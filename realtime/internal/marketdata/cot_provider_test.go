@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // Test COT provider fails safely when not configured
@@ -35,17 +36,24 @@ func TestCOTProviderNotConfigured(t *testing.T) {
 
 // Test COT provider handles 402 restricted endpoint (fail safe)
 func TestCOTProviderHandlesRestricted(t *testing.T) {
-	// Create a test server that returns 402
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// FMP test server returns 402; the CFTC fallback test server returns 500.
+	// Both upstreams down → provider must fail safe (UNAVAILABLE), never fabricate.
+	fmp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired)
 		w.Write([]byte("Restricted Endpoint: This endpoint is not available under your current subscription"))
 	}))
-	defer ts.Close()
+	defer fmp.Close()
+	cftc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":true}`))
+	}))
+	defer cftc.Close()
 
 	cfg := COTProviderConfig{
-		APIKey:  "test_key",
-		APIBase: ts.URL,
-		Symbol:  "GC",
+		APIKey:      "test_key",
+		APIBase:     fmp.URL,
+		CFTCAPIBase: cftc.URL,
+		Symbol:      "GC",
 	}
 	provider := NewCOTProvider(cfg)
 
@@ -58,6 +66,59 @@ func TestCOTProviderHandlesRestricted(t *testing.T) {
 	}
 	if snap.Status != "UNAVAILABLE" {
 		t.Errorf("Expected status UNAVAILABLE, got %s", snap.Status)
+	}
+}
+
+// Test COT provider falls back to the CFTC official public API when FMP is
+// restricted (402/403). The snapshot must be AVAILABLE with Source="cftc" —
+// this is the regression for the 2026-09-11 permanent COT UNAVAILABLE wall
+// (FMP stable=402 restricted, v4=403 legacy endpoint killed).
+func TestCOTProviderFallsBackToCFTC(t *testing.T) {
+	fmp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPaymentRequired)
+		w.Write([]byte("Restricted Endpoint"))
+	}))
+	defer fmp.Close()
+
+	// CFTC Socrata mock: newest-first rows, string-typed fields (Socrata shape).
+	cftc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("cftc_contract_market_code"); got != "088691" {
+			t.Errorf("expected gold contract code 088691, got %q", got)
+		}
+		w.Write([]byte(`[
+			{"report_date_as_yyyy_mm_dd":"2026-09-08T00:00:00.000","noncomm_positions_long_all":"261007","noncomm_positions_short_all":"29047","comm_positions_long_all":"54403","comm_positions_short_all":"324677","open_interest_all":"411227"},
+			{"report_date_as_yyyy_mm_dd":"2026-09-01T00:00:00.000","noncomm_positions_long_all":"260485","noncomm_positions_short_all":"32361","comm_positions_long_all":"61450","comm_positions_short_all":"326168","open_interest_all":"415196"}
+		]`))
+	}))
+	defer cftc.Close()
+
+	cfg := COTProviderConfig{
+		APIKey:      "test_key",
+		APIBase:     fmp.URL,
+		CFTCAPIBase: cftc.URL,
+		Symbol:      "GC",
+	}
+	provider := NewCOTProvider(cfg)
+
+	snap, err := provider.FetchReport(context.Background())
+	if err != nil {
+		t.Fatalf("expected CFTC fallback success, got error: %v", err)
+	}
+	if snap.Status != "AVAILABLE" {
+		t.Errorf("expected AVAILABLE via CFTC fallback, got %s (%s)", snap.Status, snap.ErrorMessage)
+	}
+	if snap.Source != "cftc" {
+		t.Errorf("expected Source cftc, got %s", snap.Source)
+	}
+	// Newest row: noncomm net = 261007 - 29047 = 231960.
+	if snap.NetPosition != 231960 {
+		t.Errorf("expected net position 231960, got %d", snap.NetPosition)
+	}
+	if snap.OpenInterest != 411227 {
+		t.Errorf("expected OI 411227, got %d", snap.OpenInterest)
+	}
+	if !snap.ReportDate.Equal(time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("expected report date 2026-09-08, got %s", snap.ReportDate.Format("2006-01-02"))
 	}
 }
 
@@ -245,5 +306,3 @@ func TestRedactAPIKey(t *testing.T) {
 		t.Error("Redacted string should not contain the API key")
 	}
 }
-
-

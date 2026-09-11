@@ -529,10 +529,10 @@ func EvaluateProfitability(state *features.MarketState, dir types.Direction, ent
 		}
 	default:
 		// Qualify. Tier by EV strength.
-		// Loosened delivery-grade floor (operator-authorized): candidates with
-		// post-cost EV within -0.10 of zero (marginally negative) still qualify
-		// as B (executable). Hard safety (REJECT on clearly-negative EV with
-		// SUFFICIENT evidence, EMERGENCY_HALT, DXY mandatory) remains intact.
+		// Delivery-grade floor (operator-authorized): candidates with post-cost EV
+		// down to -0.25R still qualify as B (executable). Hard safety (REJECT on
+		// clearly-negative EV with SUFFICIENT evidence, EMERGENCY_HALT, DXY
+		// mandatory) remains intact. Thresholds match gates/profitability.go.
 		p.ShadowExecutable = false
 		switch {
 		case evf >= 0.30 && score >= 65:

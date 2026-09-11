@@ -202,20 +202,23 @@ func (g *RiskOversizeGate) Evaluate(input GateInput, state GateState) GateEvalua
 // PositionCapsGate enforces MaxSameDirection / MaxTotal / MaxPerStrategy.
 // Same-direction and total counts come from the broker account snapshot;
 // the per-strategy count is an upper-bound estimate of engine-issued
-// signals still inside their lifetime window (RecordIssued). When broker
-// positions data is unavailable the gate DEGRADES (blocks EXECUTABLE,
-// allows ADVISORY) — it never claims safety it cannot verify.
+// signals still inside their lifetime window (RecordIssued).
+//
+// Unknown-snapshot policy (operator-authorized 2026-09-11): an unknown broker
+// snapshot with ZERO reported/issued positions is trivially within every cap →
+// PASS (positions_unknown_zero_issued). Unknown WITH reported open positions
+// still DEGRADES (blocks EXECUTABLE, allows ADVISORY) — it never claims safety
+// it cannot verify. Real over-cap violations are caught whenever
+// PositionsKnown=true. The EA enforces position caps locally as a second layer.
 type PositionCapsGate struct {
 	MaxSameDirection int
 	MaxTotal         int
 	MaxPerStrategy   int
 
-	// Operator authorization: when LiveTradingAuthorized is true and the strategy
-	// is in the armed set, a missing broker position snapshot does NOT block the
-	// signal. The EA enforces position caps locally (per AGENTS.md / code
-	// comments), so the server-side gate trusts the operator's qualification
-	// rather than failing closed on absent broker data. This is set only by
-	// main.go after verifying LiveTradingAuthorized.
+	// authorized/armed are retained for wiring compatibility (main.go sets
+	// them when LiveTradingAuthorized) — Evaluate no longer consults them:
+	// the zero-issued pass rule above replaced the old authorized-armed
+	// DEGRADED bypass. Kept so operator authorization remains observable.
 	authorized bool
 	mu         sync.RWMutex
 	armed      map[types.StrategyID]bool

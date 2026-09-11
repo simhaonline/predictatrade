@@ -126,12 +126,18 @@ func (g *ProfitabilityGate) Evaluate(input GateInput, state GateState) GateEvalu
 	if wr > 0.90 {
 		wr = 0.90
 	}
-	evPerRisk := wr*netWin - (1-wr)*netLoss
+	// Normalized expectancy in R (per unit risk). All thresholds below are
+	// R-based — the hard veto (-0.25), the shadow band (-0.10), the profile
+	// MinNetRR ladder and qualityTierForEV. (Pre-2026-09-11 this carried
+	// PRICE-UNIT EV while the veto compensated with *risk — but
+	// qualityTierForEV compared its R-based constants against raw price-unit
+	// EV, which for gold made "A_PLUS ≥ 0.30" trivially true at ~0.07R.)
+	evPerRisk := (wr*netWin - (1-wr)*netLoss) / risk
 	netRR1 := netWin / netLoss
 
 	// Decision: map into tier + shadow; do NOT blanket-veto (prompt.md §23).
 	switch {
-	case evPerRisk <= -0.25*risk:
+	case evPerRisk <= -0.25:
 		eval.Result = types.GateVeto
 		eval.ReasonCodes = append(eval.ReasonCodes, "NEGATIVE_EXPECTANCY")
 		eval.QualityTier = "REJECT"
@@ -140,7 +146,7 @@ func (g *ProfitabilityGate) Evaluate(input GateInput, state GateState) GateEvalu
 		eval.ShadowExecutable = true
 		eval.QualityTier = "WATCH"
 		eval.SoftScore = -0.3
-	case evPerRisk <= -0.10*risk:
+	case evPerRisk <= -0.10:
 		eval.ShadowExecutable = true
 		eval.QualityTier = "WATCH"
 		eval.SoftScore = -0.1
@@ -158,10 +164,10 @@ func isDeliveryGradeTier(tier string) bool {
 	return tier == "A_PLUS" || tier == "A" || tier == "B"
 }
 
-// qualityTierForEV maps EV-per-risk + score into a delivery tier.
+// qualityTierForEV maps EV-per-risk (R units) + score into a delivery tier.
 func qualityTierForEV(evPerRisk, score float64) string {
 	switch {
-	case evPerRisk >= 0.30*1 && score >= 65:
+	case evPerRisk >= 0.30 && score >= 65:
 		return "A_PLUS"
 	case evPerRisk >= 0.10 && score >= 55:
 		return "A"

@@ -88,6 +88,14 @@ jumped from 100 straight to 110). Do NOT reuse these numbers casually: run
 - `139_plan_entitlements_realignment.sql` — plan_entitlements display rows realigned to migration-110/README spec (FREE 5/day, STD 2, PRO 4, ELITE 6 slots)
 - `141_email_campaigns.sql` — admin email campaigns (alerts/newsletters/marketing) + per-recipient delivery tracking
 - `142_customer_feedback.sql` — customer feedback (category/rating/message) with admin moderation + Featured toggle
+- `143_devil_liquidity_production_live.sql` — devil-liquidity to production/confluence (max_bonus/max_penalty columns)
+- `144_seed_example_coupon.sql` — seed example coupon
+- `145_hypertable_retention_policies.sql` — TimescaleDB hypertable retention policies
+- `146_drop_orphan_tables.sql` — drop orphaned tables
+- `147_data_retention_pruning.sql` — data-retention pruning
+- `148_devil_liquidity_volume_weight.sql` — devil_liquidity_config.volume_weight column
+  (fixes realtime startup error "column volume_weight does not exist" — engine was
+  silently falling back to in-code defaults, so DB-side config tuning never loaded)
 - `139_plan_entitlements_realignment.sql` — re-align control.plan_entitlements
   display rows to migration 110 (MASTER PROMPT spec: FREE 1 slot / 5 signals/day,
   STANDARD 2, PRO 4, ELITE 6) + restore ELITE api.access=true (regressed by 024).
