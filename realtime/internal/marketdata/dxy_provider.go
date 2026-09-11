@@ -19,6 +19,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -105,6 +106,11 @@ func (p *DXYProvider) GetSnapshot() *DXYSnapshot {
 }
 
 // FetchDXY fetches all 6 component currencies and computes DXY.
+//
+// It fetches every component in a SINGLE batched Twelve Data /price call
+// (symbol=EUR/USD,USD/JPY,...) — 1 API credit instead of 6 — and passes through
+// the shared Twelve Data rate limiter so the combined call volume from both
+// Twelve Data consumers stays under the free-tier 8-credits/minute cap.
 func (p *DXYProvider) FetchDXY(ctx context.Context) (*DXYSnapshot, error) {
 	if !p.IsConfigured() {
 		return &DXYSnapshot{
@@ -114,19 +120,55 @@ func (p *DXYProvider) FetchDXY(ctx context.Context) (*DXYSnapshot, error) {
 		}, nil
 	}
 
-	components := make(map[string]float64)
-	rateLimited := false
+	// Build the batched symbol list from the DXY component map.
+	symbols := make([]string, 0, len(dxyComponents))
+	for _, comp := range dxyComponents {
+		symbols = append(symbols, comp.symbol)
+	}
 
+	prices, rateLimited, err := p.fetchBatchPrices(ctx, symbols)
+	if err != nil && len(prices) == 0 {
+		status := "UNAVAILABLE"
+		msg := err.Error()
+		if rateLimited {
+			status = "RATE_LIMITED"
+			msg = "Twelve Data API rate limit reached — DXY temporarily unavailable"
+		}
+		return &DXYSnapshot{
+			Status:       status,
+			ErrorMessage: msg,
+			Source:       "twelvedata",
+			FetchedAt:    time.Now().UTC(),
+		}, err
+	}
+
+	// All 6 components are required to compute DXY.
+	if len(prices) < len(dxyComponents) {
+		status := "UNAVAILABLE"
+		msg := fmt.Sprintf("incomplete DXY components: got %d/%d", len(prices), len(dxyComponents))
+		if rateLimited {
+			status = "RATE_LIMITED"
+			msg = "Twelve Data API rate limit reached — DXY temporarily unavailable"
+		}
+		return &DXYSnapshot{
+			Status:       status,
+			ErrorMessage: msg,
+			Source:       "twelvedata",
+			FetchedAt:    time.Now().UTC(),
+		}, fmt.Errorf("%s", msg)
+	}
+
+	// Map provider symbol back to DXY pair key and compute DXY.
+	components := make(map[string]float64, len(dxyComponents))
 	for pair, comp := range dxyComponents {
-		price, err := p.fetchPrice(ctx, comp.symbol)
-		if err != nil {
-			// Check for rate limiting
-			if isRateLimited(err) {
-				rateLimited = true
-			}
-			// Continue with remaining pairs — partial data is not useful for DXY
-			// (all 6 components are required)
-			continue
+		price, ok := prices[comp.symbol]
+		if !ok || price <= 0 {
+			return &DXYSnapshot{
+				Status:       "UNAVAILABLE",
+				ErrorMessage: fmt.Sprintf("invalid/missing price for %s", pair),
+				Source:       "twelvedata",
+				FetchedAt:    time.Now().UTC(),
+			}, fmt.Errorf("invalid price for %s", pair)
 		}
 		components[pair] = price
 	}
@@ -173,54 +215,125 @@ func (p *DXYProvider) FetchDXY(ctx context.Context) (*DXYSnapshot, error) {
 	}, nil
 }
 
-// fetchPrice fetches a single currency pair price from Twelve Data /price endpoint.
-func (p *DXYProvider) fetchPrice(ctx context.Context, symbol string) (float64, error) {
-	url := fmt.Sprintf("%s/price?symbol=%s&apikey=%s",
-		p.config.APIBase, symbol, p.config.APIKey)
+// fetchBatchPrices fetches multiple symbols in a SINGLE Twelve Data /price call
+// (1 API credit for the whole batch) and returns a map of symbol -> price.
+// It passes through the shared Twelve Data rate limiter so the combined call
+// volume from both Twelve Data consumers stays under the free-tier cap.
+//
+// Twelve Data returns an ARRAY of {symbol, price} objects when multiple symbols
+// are requested. We retry on HTTP 429 (rate limit) with exponential backoff so a
+// transient burst throttle self-heals instead of permanently failing the cycle.
+func (p *DXYProvider) fetchBatchPrices(ctx context.Context, symbols []string) (map[string]float64, bool, error) {
+	const maxRetries = 3
+	prices := make(map[string]float64)
+	var lastErr error
+	var rateLimited bool
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return 0, err
-	}
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("DXY fetch %s failed: %w", symbol, err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, fmt.Errorf("DXY read %s failed: %w", symbol, err)
-	}
-
-	// Check for API errors
-	var apiErr struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-		Status  string `json:"status"`
-	}
-	if err := json.Unmarshal(body, &apiErr); err == nil && apiErr.Status == "error" {
-		if apiErr.Code == 429 {
-			return 0, fmt.Errorf("rate_limited: %s", apiErr.Message)
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(1<<uint(attempt-1)) * time.Second // 1s, 2s, 4s
+			select {
+			case <-ctx.Done():
+				return prices, rateLimited, ctx.Err()
+			case <-time.After(backoff):
+			}
 		}
-		return 0, fmt.Errorf("API error %d: %s", apiErr.Code, apiErr.Message)
-	}
 
-	// Parse price response
-	var priceResp struct {
-		Price string `json:"price"`
-	}
-	if err := json.Unmarshal(body, &priceResp); err != nil {
-		return 0, fmt.Errorf("DXY parse %s failed: %w", symbol, err)
-	}
+		// Respect the shared free-tier credit budget before issuing the call.
+		if err := acquireTwelveDataCredit(ctx); err != nil {
+			return prices, rateLimited, err
+		}
 
-	var price float64
-	if _, err := fmt.Sscanf(priceResp.Price, "%f", &price); err != nil {
-		return 0, fmt.Errorf("DXY parse price %s: %w", symbol, err)
-	}
+		url := fmt.Sprintf("%s/price?symbol=%s&apikey=%s",
+			p.config.APIBase, strings.Join(symbols, ","), p.config.APIKey)
 
-	return price, nil
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return prices, rateLimited, err
+		}
+		resp, err := p.client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("DXY batch fetch failed: %w", err)
+			continue
+		}
+		body, rerr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if rerr != nil {
+			lastErr = fmt.Errorf("DXY batch read failed: %w", rerr)
+			continue
+		}
+
+		// Twelve Data signals rate limiting via HTTP 429 or an error-status body.
+		if resp.StatusCode == 429 {
+			rateLimited = true
+			lastErr = fmt.Errorf("rate_limited: HTTP 429")
+			continue
+		}
+		var apiErr struct {
+			Status  string `json:"status"`
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		}
+		if jerr := json.Unmarshal(body, &apiErr); jerr == nil && apiErr.Status == "error" {
+			if apiErr.Code == 429 {
+				rateLimited = true
+			}
+			lastErr = fmt.Errorf("API error %d: %s", apiErr.Code, apiErr.Message)
+			if rateLimited {
+				continue
+			}
+			return prices, rateLimited, lastErr
+		}
+
+		// Successful response. Twelve Data's batched /price returns a JSON OBJECT
+		// keyed by symbol: {"EUR/USD":{"price":"1.16"},"USD/JPY":{"price":"153.5"},...}
+		// (not an array). Parse that form; fall back to an array if needed.
+		var objForm map[string]struct {
+			Price string `json:"price"`
+		}
+		if perr := json.Unmarshal(body, &objForm); perr == nil && len(objForm) > 0 {
+			got := 0
+			for sym, v := range objForm {
+				var price float64
+				if _, serr := fmt.Sscanf(v.Price, "%f", &price); serr == nil && price > 0 {
+					prices[sym] = price
+					got++
+				}
+			}
+			if got == 0 {
+				lastErr = fmt.Errorf("DXY batch returned no usable prices")
+				return prices, rateLimited, lastErr
+			}
+			return prices, rateLimited, nil
+		}
+
+		// Fallback: some endpoints return an array of {symbol, price}.
+		var quotes []struct {
+			Symbol string `json:"symbol"`
+			Price  string `json:"price"`
+		}
+		if perr := json.Unmarshal(body, &quotes); perr != nil {
+			lastErr = fmt.Errorf("DXY batch parse failed: %w", perr)
+			return prices, rateLimited, lastErr
+		}
+		got := 0
+		for _, q := range quotes {
+			var price float64
+			if _, serr := fmt.Sscanf(q.Price, "%f", &price); serr == nil && price > 0 {
+				prices[q.Symbol] = price
+				got++
+			}
+		}
+		if got == 0 {
+			lastErr = fmt.Errorf("DXY batch returned no usable prices")
+			return prices, rateLimited, lastErr
+		}
+		return prices, rateLimited, nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("DXY batch fetch failed after retries")
+	}
+	return prices, rateLimited, lastErr
 }
 
 // Update fetches fresh DXY data and updates the cached snapshot.

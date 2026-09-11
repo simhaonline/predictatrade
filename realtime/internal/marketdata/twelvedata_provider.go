@@ -175,25 +175,148 @@ func (p *TwelveDataProvider) FetchSymbol(ctx context.Context, canonical string) 
 	return snap, nil
 }
 
-// FetchAll fetches all configured symbols and caches them.
+// FetchAll fetches all configured symbols in a SINGLE batched Twelve Data /quote
+// call (1 API credit instead of N) and caches them. It passes through the shared
+// Twelve Data rate limiter so the combined call volume from both Twelve Data
+// consumers stays under the free-tier 8-credits/minute cap.
 func (p *TwelveDataProvider) FetchAll(ctx context.Context) map[string]*MacroAssetSnapshot {
 	results := make(map[string]*MacroAssetSnapshot)
-	for canonical := range p.symbols {
-		snap, err := p.FetchSymbol(ctx, canonical)
-		if err != nil {
-			results[canonical] = snap
+
+	if !p.IsConfigured() {
+		for canonical := range p.symbols {
+			results[canonical] = &MacroAssetSnapshot{
+				CanonicalSymbol: canonical,
+				Status:          "UNCONFIGURED",
+				Source:          "twelvedata",
+			}
+		}
+		return results
+	}
+
+	canonicals := make([]string, 0, len(p.symbols))
+	providerSyms := make([]string, 0, len(p.symbols))
+	for c, ps := range p.symbols {
+		canonicals = append(canonicals, c)
+		providerSyms = append(providerSyms, ps)
+	}
+
+	snaps, err := p.fetchBatchQuotes(ctx, providerSyms)
+	if err != nil {
+		// Batch failed entirely — mark all unavailable with the error.
+		for _, c := range canonicals {
+			status := "UNAVAILABLE"
+			msg := err.Error()
+			if isRateLimited(err) {
+				status = "RATE_LIMITED"
+				msg = "Twelve Data rate limit"
+			}
+			results[c] = &MacroAssetSnapshot{
+				CanonicalSymbol: c, Status: status,
+				ErrorMessage: msg, FetchedAt: time.Now().UTC(), Source: "twelvedata",
+			}
+		}
+		return results
+	}
+
+	for i, c := range canonicals {
+		snap, ok := snaps[providerSyms[i]]
+		if !ok || snap.Status != "AVAILABLE" {
+			results[c] = &MacroAssetSnapshot{
+				CanonicalSymbol: c, Status: "UNAVAILABLE",
+				ErrorMessage: "missing from batch response", FetchedAt: time.Now().UTC(), Source: "twelvedata",
+			}
 			continue
 		}
 		p.mu.Lock()
-		// Store previous price before updating
-		if existing, ok := p.last[canonical]; ok && existing.Price > 0 {
-			p.prev[canonical] = existing.Price
+		if existing, ok := p.last[canonicals[i]]; ok && existing.Price > 0 {
+			p.prev[canonicals[i]] = existing.Price
 		}
-		p.last[canonical] = snap
+		p.last[canonicals[i]] = snap
 		p.mu.Unlock()
-		results[canonical] = snap
+		results[canonicals[i]] = snap
 	}
 	return results
+}
+
+// fetchBatchQuotes fetches multiple symbols in a SINGLE Twelve Data /quote call
+// (1 API credit for the whole batch) and returns a map of provider-symbol -> snapshot.
+func (p *TwelveDataProvider) fetchBatchQuotes(ctx context.Context, symbols []string) (map[string]*MacroAssetSnapshot, error) {
+	// Respect the shared free-tier credit budget before issuing the call.
+	if err := acquireTwelveDataCredit(ctx); err != nil {
+		return nil, err
+	}
+
+	url := fmt.Sprintf("%s/quote?symbol=%s&apikey=%s&format=JSON",
+		p.apiBase, strings.Join(symbols, ","), p.apiKey)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	body, rerr := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if rerr != nil {
+		return nil, fmt.Errorf("read failed: %w", rerr)
+	}
+
+	if resp.StatusCode == 429 {
+		return nil, fmt.Errorf("rate_limited: HTTP 429")
+	}
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Twelve Data returns either a single object (1 symbol) or an array (multiple).
+	var quotes []TwelveDataQuote
+	if perr := json.Unmarshal(body, &quotes); perr != nil {
+		// Try single-object form.
+		var single TwelveDataQuote
+		if serr := json.Unmarshal(body, &single); serr != nil {
+			return nil, fmt.Errorf("parse failed: %w", perr)
+		}
+		quotes = []TwelveDataQuote{single}
+	}
+
+	out := make(map[string]*MacroAssetSnapshot, len(quotes))
+	for _, q := range quotes {
+		ts := time.Now().UTC()
+		if len(q.Timestamp) > 0 {
+			tsStr := strings.Trim(string(q.Timestamp), "\"")
+			if parsed, err := time.Parse("2006-01-02 15:04:05", tsStr); err == nil {
+				ts = parsed.UTC()
+			} else if parsed, err := time.Parse(time.RFC3339, tsStr); err == nil {
+				ts = parsed.UTC()
+			}
+		}
+		snap := &MacroAssetSnapshot{
+			CanonicalSymbol: q.Symbol,
+			ProviderSymbol:  q.Symbol,
+			Price:           q.Close,
+			Open:            q.Open,
+			High:            q.High,
+			Low:             q.Low,
+			Volume:          q.Volume,
+			Timestamp:       ts,
+			Source:          "twelvedata",
+			Provider:        "twelvedata",
+			FetchedAt:       time.Now().UTC(),
+		}
+		if snap.Price <= 0 {
+			snap.Status = "UNAVAILABLE"
+			snap.ErrorMessage = "zero or negative price"
+		} else {
+			snap.Status = "AVAILABLE"
+		}
+		out[q.Symbol] = snap
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("batch returned no quotes")
+	}
+	return out, nil
 }
 
 // StartRefreshLoop runs a background goroutine that periodically fetches all symbols.
