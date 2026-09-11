@@ -436,6 +436,11 @@ type Signal struct {
 	// IsLossCandidate is true when the signal fails the profitability filter
 	// (negative EV, unprofitable micro-TP, or sub-minimum R:R after cost).
 	IsLossCandidate bool `json:"is_loss_candidate"`
+	// QualityTier is the profitability quality classification (A+/A/B/C/WATCH/REJECT).
+	QualityTier string `json:"quality_tier,omitempty"`
+	// ShadowExecutable: candidate failed only SOFT gates / had UNKNOWN evidence;
+	// tracked for shadow evaluation, not force-executed (prompt.md Section 79).
+	ShadowExecutable bool `json:"shadow_executable,omitempty"`
 
 	// Phase 2: Detailed timestamp model (SOW Sections 26-30)
 	// Each timestamp captures a distinct lifecycle stage.
@@ -574,6 +579,17 @@ type GateEvaluation struct {
 	// (size-down) instead of blocking the signal, so entitled+authorized signals
 	// still execute at a safe size. Zero means "use requested lot".
 	SafeLot float64 `json:"safe_lot,omitempty"`
+	// Classification groups the gate for reporting (prompt.md Sections 5-6).
+	Classification string `json:"classification,omitempty"`
+	// SoftScore is the gate's positive/negative contribution when it is a
+	// SOFT_ALPHA gate (0 = neutral, +ve = supportive, -ve = penalising).
+	SoftScore float64 `json:"soft_score,omitempty"`
+	// QualityTier is the resulting signal-quality classification when this gate
+	// decides executability (e.g. profitability). Empty for non-deciding gates.
+	QualityTier string `json:"quality_tier,omitempty"`
+	// ShadowExecutable is true when the candidate failed only SOFT gates and is
+	// tracked for shadow evaluation rather than delivered (prompt.md Section 79).
+	ShadowExecutable bool `json:"shadow_executable,omitempty"`
 }
 
 // Capability represents a data feed capability (SOW Section 6A.1).

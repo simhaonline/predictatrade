@@ -101,6 +101,11 @@ type StrategyResult struct {
 	ExpectedValue float64 `json:"expected_value"`
 	// IsLossCandidate is true when the candidate fails the profitability filter.
 	IsLossCandidate bool `json:"is_loss_candidate"`
+	// ShadowExecutable: candidate failed only SOFT gates / had UNKNOWN evidence;
+	// tracked for shadow evaluation, not delivered (prompt.md Section 79).
+	ShadowExecutable bool `json:"shadow_executable"`
+	// QualityTier: A_PLUS/A/B/C/WATCH/REJECT classification (prompt.md Section 51).
+	QualityTier string `json:"quality_tier,omitempty"`
 	// EntryGatePassed records whether the strategy's unique entry gate passed.
 	EntryGatePassed bool `json:"entry_gate_passed"`
 	// EntryGateMetrics carries observability metrics from the entry gate.

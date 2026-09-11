@@ -43,9 +43,21 @@ exact reason a device receives nothing.
    - Device activated (LicenseKey) — terminal log should show
      `Cloud device ready — edge-poll mode`
    - Terminal actually running (not closed)
-4. **Profitability veto too aggressive** — system-wide only 0.45% of generated
-   signals become executable. This is a calibration lever, not a delivery bug.
-   Adjust the refinement/executability thresholds only with explicit operator sign-off.
+4. **Profitability soft-gate was over-vetoing (FIXED 2026-09-11).** Historically
+   the system marked ~99.5% of candidates as loss-candidates via an uncalibrated
+   win-rate model + a broken micro-TP coverage test, and the delivery gate
+   hard-vetoed on that flag — so even entitled, polling EAs got almost nothing.
+   The gate model was rebuilt (`docs/trading/signal-gating.md`): HARD gates are
+   unchanged, but the profitability SOFT-ALPHA gate now uses a versioned,
+   strategy-specific, sample-confident expectancy and emits `ShadowExecutable`
+   signals instead of starving the strategy. Rollback via `GATE_PROFILE_VERSION`.
+   After this change, re-run the tool: a previously-silent entitled device should
+   now show `ACKED` > 0 (or `ShadowExecutable` candidates being tracked).
+5. **Profitability veto still appropriate but now calibrated** — system-wide the
+   executable pool should be materially larger. If your allowed strategy still
+   produces 0 executable signals, that's a genuine strategy-performance gap (see
+   the gating doc §4), not a delivery bug. Adjust refinement/executability only
+   with explicit operator sign-off.
 
 ## Is the pipeline itself broken?
 

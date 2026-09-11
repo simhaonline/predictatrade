@@ -94,21 +94,62 @@ func containsReason(codes []types.NoTradeReason, want string) bool {
 }
 
 // TestEvaluateProfitability_NegativeWhenCostHigh verifies the loss-candidate
-// filter flags clearly unprofitable setups (excessive cost vs geometry).
+// filter still flags clearly unprofitable setups (excessive cost vs geometry).
+// With UNKNOWN evidence the candidate is tracked as SHADOW (not delivered) rather
+// than silently starved; with SUFFICIENT evidence it is a hard REJECT.
 func TestEvaluateProfitability_NegativeWhenCostHigh(t *testing.T) {
 	state := makeBullishState()
 	state.Spread = decimal.NewFromFloat(50) // absurdly wide spread destroys edge
 	spec := StrategyExitSpec(types.StrategyStandardScalping)
-	// Build a trivial directional geometry.
 	entry := decimal.NewFromFloat(4400)
 	sl := decimal.NewFromFloat(4377.5)
 	tp1 := decimal.NewFromFloat(4437.5)
-	prof := EvaluateProfitability(state, types.DirectionBuy, entry, sl, tp1, spec, 70)
-	if !prof.LossCandidate {
-		t.Errorf("expected loss candidate with excessive spread, got LossCandidate=false (EV=%.3f)", prof.ExpectedValue)
+
+	// UNKNOWN evidence (sample 0): negative EV → SHADOW/WATCH, not delivered,
+	// but NOT a hard loss candidate that would permanently starve the strategy.
+	prof := EvaluateProfitability(state, types.DirectionBuy, entry, sl, tp1, spec, 70, types.StrategyStandardScalping, 0)
+	if prof.LossCandidate {
+		t.Errorf("UNKNOWN-evidence negative-EV should be SHADOW, not hard LossCandidate")
+	}
+	if !prof.ShadowExecutable {
+		t.Errorf("expected ShadowExecutable=true when cost dominates (not delivered, tracked)")
+	}
+	if prof.QualityTier != "WATCH" {
+		t.Errorf("expected WATCH tier for cost-dominated setup, got %s", prof.QualityTier)
 	}
 	if prof.MicroTPProfitable {
 		t.Errorf("micro-TP must be unprofitable when spread dominates")
+	}
+
+	// SUFFICIENT evidence (sample >= MinEvidenceTrades): negative EV → hard REJECT.
+	prof2 := EvaluateProfitability(state, types.DirectionBuy, entry, sl, tp1, spec, 70, types.StrategyStandardScalping, 100)
+	if !prof2.LossCandidate {
+		t.Errorf("SUFFICIENT-evidence negative-EV must be a hard LossCandidate (REJECT)")
+	}
+	if prof2.QualityTier != "REJECT" {
+		t.Errorf("expected REJECT tier for sufficient-evidence negative EV, got %s", prof2.QualityTier)
+	}
+}
+
+// TestEvaluateProfitability_ScalpingNotStarved verifies the central fix: a normal
+// scalping setup (UNKNOWN evidence, modest score) is NO LONGER flagged a loss
+// candidate by the synthetic win-rate model. It qualifies (tier B/C) so it can be
+// delivered/shadowed instead of being vetoed ~100% of the time.
+func TestEvaluateProfitability_ScalpingNotStarved(t *testing.T) {
+	state := makeBullishState()
+	state.Spread = decimal.NewFromFloat(2.5) // realistic XAUUSD ECN spread
+	state.Indicators.ATR = decimal.NewFromFloat(15)
+	spec := StrategyExitSpec(types.StrategyStandardScalping)
+	// SL 0.8*ATR=12 below entry, TP1 1.2*ATR=18 above → gross R:R 1.5, score 55.
+	entry := decimal.NewFromFloat(2400)
+	sl := entry.Sub(decimal.NewFromFloat(12))
+	tp1 := entry.Add(decimal.NewFromFloat(18))
+	prof := EvaluateProfitability(state, types.DirectionBuy, entry, sl, tp1, spec, 55, types.StrategyStandardScalping, 0)
+	if prof.LossCandidate {
+		t.Errorf("normal scalping setup must NOT be a loss candidate (EV=%.3f, tier=%s)", prof.ExpectedValue, prof.QualityTier)
+	}
+	if prof.QualityTier != "A" && prof.QualityTier != "B" && prof.QualityTier != "C" {
+		t.Errorf("expected delivery-grade/shadow tier for scalping, got %s", prof.QualityTier)
 	}
 }
 

@@ -89,6 +89,11 @@ type DecisionInput struct {
 	ExpectedValue   float64
 	IsLossCandidate bool
 	EntryGatePassed bool
+	// QualityTier / ShadowExecutable carry the strategy's profitability
+	// classification so the delivery gate classifies rather than re-vetoes
+	// (prompt.md §21-23).
+	QualityTier       string
+	ShadowExecutable  bool
 
 	// Timeframe is the decision timeframe of the triggering candle. It scopes
 	// all strategy/timeframe-sensitive gates (ATR, structural, edge) so they are
@@ -273,6 +278,10 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 	gateInput.IsLossCandidate = input.IsLossCandidate
 	gateInput.EntryGatePassed = input.EntryGatePassed
 	gateInput.RefinementProvided = true
+	// Carry the strategy-computed quality tier / shadow marker so the
+	// profitability gate classifies (not re-vetoes) — prompt.md §21-23.
+	gateInput.QualityTier = input.QualityTier
+	gateInput.ShadowExecutable = input.ShadowExecutable
 	allPass, gateEvals, firstVeto := e.gateRegistry.EvaluateAll(gateInput)
 	result.AllGatesPass = allPass
 	result.GateResults = gateEvals
@@ -374,6 +383,28 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 	}
 
 	// All gates pass → produce BUY/SELL signal
+	// Derive the profitability quality tier from the gate evaluations so the
+	// emitted signal carries it (prompt.md Section 51). A SOFT-ALPHA failure
+	// (WATCH/REJECT) downgrades quality but — critically — no longer starves the
+	// strategy: WATCH candidates become executable SHADOW signals (tracked, not
+	// forced to trade), and only a genuine SUFFICIENT-evidence REJECT is blocked.
+	qualityTier := ""
+	shadowExecutable := false
+	for _, ge := range gateEvals {
+		if ge.GateID == types.GateProfitability {
+			qualityTier = ge.QualityTier
+			shadowExecutable = ge.ShadowExecutable
+		}
+	}
+	// Executable when the profitability tier is delivery-grade (A+/A/B) and not a
+	// shadow-only WATCH. A downgraded (WATCH) signal is still emitted but flagged
+	// ShadowOnly so it is delivered to the dashboard for transparency, never force-
+	// executed on the EA.
+	isDeliveryGrade := qualityTier == "A_PLUS" || qualityTier == "A" || qualityTier == "B"
+	executable := isDeliveryGrade && !shadowExecutable
+	shadowOnly := shadowExecutable || (!isDeliveryGrade && qualityTier != "REJECT")
+	qualityGrade := tierToGrade(qualityTier)
+
 	// Compute gross R:R
 	grossRR1 := decimal.Zero
 	if !input.StopLoss.IsZero() {
@@ -390,7 +421,7 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 		Symbol:       types.SymbolXAUUSD,
 		StrategyID:   input.StrategyID,
 		Direction:    direction,
-		Grade:        types.GradeUnrated, // Before calibration sufficiency (SOW Section 17A)
+		Grade:        qualityGrade, // Before calibration sufficiency (SOW Section 17A)
 		Status:       types.SignalCandidate,
 		RawScore:     input.RawScore,
 		LongScore:    input.LongScore,
@@ -409,6 +440,12 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 		ReasonCodes:  nil,
 		Evidence:     input.Evidence,
 		GateResults:  convertGateEvals(gateEvals),
+		// Phase 2: quality tier + shadow + versioning (prompt.md Section 51, 226).
+		QualityTier:       qualityTier,
+		ShadowExecutable:  shadowExecutable,
+		ShadowOnly:        shadowOnly,
+		Executable:        executable,
+		GatePolicyVersion: gates.CurrentGateProfile.Version,
 		CreatedAt:    time.Now().UTC(),
 		ExpiresAt:    time.Now().UTC().Add(time.Minute * 15),
 	}
@@ -439,7 +476,32 @@ func convertGateEvals(evals []gates.GateEvaluation) []types.GateEvaluation {
 			FreshnessMs:  e.FreshnessMs,
 			StateVersion: e.StateVersion,
 			SafeLot:      e.SafeLot,
+			// Phase 2: classification / soft-score / tier / shadow for reporting.
+			Classification:   string(e.Classification),
+			SoftScore:       e.SoftScore,
+			QualityTier:     e.QualityTier,
+			ShadowExecutable: e.ShadowExecutable,
 		}
 	}
 	return result
+}
+
+// tierToGrade maps a profitability quality tier to a subscriber-facing SignalGrade.
+func tierToGrade(tier string) types.SignalGrade {
+	switch tier {
+	case "A_PLUS":
+		return types.GradeAPlus
+	case "A":
+		return types.GradeA
+	case "B":
+		return types.GradeB
+	case "C":
+		return types.GradeC
+	case "WATCH":
+		return types.GradeC
+	case "REJECT":
+		return types.GradeBlocked
+	default:
+		return types.GradeUnrated
+	}
 }

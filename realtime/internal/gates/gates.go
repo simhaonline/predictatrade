@@ -102,6 +102,10 @@ type GateInput struct {
 	// tests or legacy paths), the gate falls back to its own EV computation and
 	// must not veto solely on zero-valued default flags.
 	RefinementProvided bool
+	// QualityTier and ShadowExecutable are carried from the strategy refinement
+	// so the profitability gate classifies rather than re-vetoing (prompt.md §21-23).
+	QualityTier      string
+	ShadowExecutable bool
 }
 
 // GateEvaluation records the result of a single gate check.
@@ -116,6 +120,17 @@ type GateEvaluation struct {
 	// the budget when the requested lot would exceed it. The engine applies it
 	// (size-down) instead of blocking. Zero means "use requested lot".
 	SafeLot float64 `json:"safe_lot,omitempty"`
+	// Classification groups the gate for reporting (prompt.md Sections 5-6).
+	Classification GateClassification `json:"classification,omitempty"`
+	// SoftScore is the gate's positive/negative contribution when it is a
+	// SOFT_ALPHA gate (0 = neutral, +ve = supportive, -ve = penalising).
+	SoftScore float64 `json:"soft_score,omitempty"`
+	// QualityTier is the resulting signal-quality classification when this gate
+	// decides executability (e.g. profitability). Empty for non-deciding gates.
+	QualityTier string `json:"quality_tier,omitempty"`
+	// ShadowExecutable is true when the candidate failed only SOFT gates and is
+	// tracked for shadow evaluation rather than delivered (prompt.md Section 79).
+	ShadowExecutable bool `json:"shadow_executable,omitempty"`
 }
 
 // Registry holds all registered gates and their cached state.

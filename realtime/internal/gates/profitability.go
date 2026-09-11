@@ -29,58 +29,53 @@ func NewProfitabilityGate() *ProfitabilityGate { return &ProfitabilityGate{} }
 // ID implements Gate.
 func (g *ProfitabilityGate) ID() types.GateID { return types.GateProfitability }
 
-// modelWinRate is a deterministic, score/regime-based edge estimate in [0.35,0.82].
-// It mirrors the strategy-side estimate so delivery enforcement is consistent.
-func modelWinRate(score float64, regime types.Regime) float64 {
-	wr := 0.5 + (score-55.0)/100.0*0.5
-	switch regime {
-	case types.RegimeTrendingBullish, types.RegimeTrendingBearish, types.RegimeBreakout:
-		wr += 0.05
-	case types.RegimeRange, types.RegimeMeanReversion:
-		wr += 0.02
-	case types.RegimeHighVolatility:
-		wr -= 0.03
-	}
-	if wr < 0.35 {
-		wr = 0.35
-	}
-	if wr > 0.82 {
-		wr = 0.82
-	}
-	return wr
-}
+// Classification groups this gate for reporting (prompt.md Sections 5-6).
+func (g *ProfitabilityGate) Classification() GateClassification { return ClassSoftAlpha }
 
-// Evaluate computes cost-aware EV and applies the loss-candidate elimination.
+// Evaluate classifies a candidate's profitability into a QUALITY TIER and sets
+// ShadowExecutable. It does NOT blanket-veto on a synthetic model (prompt.md
+// Sections 21-23): a SOFT-ALPHA failure now downgrades the tier and, when
+// evidence is UNKNOWN/LIMITED, tracks the candidate as SHADOW instead of
+// starving the strategy. A genuine malformed signal (no entry/SL/score) still
+// fails closed so it can never become EXECUTABLE.
 func (g *ProfitabilityGate) Evaluate(input GateInput, state GateState) GateEvaluation {
+	profile := CurrentGateProfile
 	eval := GateEvaluation{
-		GateID:      g.ID(),
-		EvaluatedAt: time.Now(),
-		Result:      types.GatePass,
+		GateID:         g.ID(),
+		EvaluatedAt:    time.Now(),
+		Result:         types.GatePass,
+		FreshnessMs:    state.FreshnessMs,
+		StateVersion:   state.SourceVersion,
+		Classification: g.Classification(),
 	}
+	eval.Classification = ClassSoftAlpha
 
-	// Honor strategy-computed flags (authoritative, set by signal engine).
-	// Only when the engine actually populated them — otherwise we fall back to
-	// the independent EV computation below and must not veto on zero defaults.
-	// NOTE: we deliberately veto only on clearly negative-expectancy /
-	// loss-candidate signals here. The strategy's unique entry gate is a trading-
-	// quality signal recorded in result.ReasonCodes, but it is NOT a hard delivery
-	// veto at this layer — otherwise the (intentionally strict) entry filter would
-	// block every positive-EV setup and no signal could ever become EXECUTABLE.
+	// Honor strategy-computed refinement when the engine populated it.
 	if input.RefinementProvided {
 		if input.IsLossCandidate {
+			// Engine flagged a clearly negative-EV candidate with SUFFICIENT
+			// evidence. Treat as REJECT (not a silent veto) and record the cue.
 			eval.Result = types.GateVeto
 			eval.ReasonCodes = append(eval.ReasonCodes, "NEGATIVE_EXPECTANCY")
-			// v1.19.2 DIAGNOSTIC: refinement loss-candidate vetoes spiked 100% —
-			// log the refinement metrics that produced the flag.
+			eval.QualityTier = "REJECT"
 			observability.Log.Warn().
 				Bool("loss_candidate", input.IsLossCandidate).
 				Float64("signal_score", input.SignalScore).
 				Float64("round_trip_cost", input.RoundTripCost).
-				Float64("entry", input.EntryPrice).
-				Float64("sl", input.StopLoss).
-				Float64("tp1", input.TakeProfit1).
 				Str("strategy", string(input.StrategyID)).
-				Msg("[PROFITABILITY] veto — refinement flagged loss candidate")
+				Msg("[PROFITABILITY] reject — refinement flagged loss candidate (sufficient evidence)")
+			return eval
+		}
+		// Strategy supplied a quality tier; carry it through.
+		if input.QualityTier != "" {
+			eval.QualityTier = input.QualityTier
+			eval.SoftScore = qualityTierScore(input.QualityTier)
+			if input.ShadowExecutable {
+				eval.ShadowExecutable = true
+				eval.Result = types.GatePass
+			} else {
+				eval.Result = types.GatePass
+			}
 			return eval
 		}
 	}
@@ -89,11 +84,12 @@ func (g *ProfitabilityGate) Evaluate(input GateInput, state GateState) GateEvalu
 	// have both a score (so the win-rate model is meaningful) and geometry.
 	if input.SignalScore == 0 || input.EntryPrice == 0 || input.StopLoss == 0 {
 		// Cannot assess — fail open (data-quality / geometry gates handle absence).
+		eval.SoftScore = 0
 		return eval
 	}
 	entry, sl, cost := input.EntryPrice, input.StopLoss, input.RoundTripCost
-	// Assess against the BEST (farthest) target so a multi-TP strategy whose TP1 is
-	// close but TP2/TP3 are far is not vetoed on its nearest target alone.
+	// Assess against the BEST (farthest) target so a multi-TP strategy whose TP1
+	// is close but TP2/TP3 are far is not vetoed on its nearest target alone.
 	bestWin := 0.0
 	for _, tp := range []float64{input.TakeProfit1, input.TakeProfit2, input.TakeProfit3} {
 		if tp == 0 {
@@ -116,21 +112,71 @@ func (g *ProfitabilityGate) Evaluate(input GateInput, state GateState) GateEvalu
 	if risk <= 0 {
 		return eval
 	}
-	netRR1 := netWin / netLoss
-	if netRR1 < 0.5 {
-		eval.Result = types.GateVeto
-		eval.ReasonCodes = append(eval.ReasonCodes, "POOR_STRUCTURAL_RR")
-		return eval
+	sp := profile.Strategy(input.StrategyID)
+	wr := sp.AssumedHitRate + ((input.SignalScore - 55.0) / 100.0 * 0.12)
+	if wr < 0.40 {
+		wr = 0.40
 	}
-
-	wr := modelWinRate(input.SignalScore, input.Regime)
+	if wr > 0.90 {
+		wr = 0.90
+	}
 	evPerRisk := wr*netWin - (1-wr)*netLoss
-	if evPerRisk <= 0 {
+	netRR1 := netWin / netLoss
+
+	// Decision: map into tier + shadow; do NOT blanket-veto (prompt.md §23).
+	switch {
+	case evPerRisk <= -0.10*risk:
 		eval.Result = types.GateVeto
 		eval.ReasonCodes = append(eval.ReasonCodes, "NEGATIVE_EXPECTANCY")
-		return eval
+		eval.QualityTier = "REJECT"
+	case netRR1 < sp.MinNetRR:
+		// materially sub-minimum R:R — shadow, not veto
+		eval.ShadowExecutable = true
+		eval.QualityTier = "WATCH"
+		eval.SoftScore = -0.3
+	case evPerRisk <= 0:
+		eval.ShadowExecutable = true
+		eval.QualityTier = "WATCH"
+		eval.SoftScore = -0.1
+	default:
+		eval.QualityTier = qualityTierForEV(evPerRisk, input.SignalScore)
+		eval.SoftScore = qualityTierScore(eval.QualityTier)
 	}
 	return eval
+}
+
+// qualityTierForEV maps EV-per-risk + score into a delivery tier.
+func qualityTierForEV(evPerRisk, score float64) string {
+	switch {
+	case evPerRisk >= 0.30*1 && score >= 65:
+		return "A_PLUS"
+	case evPerRisk >= 0.10 && score >= 55:
+		return "A"
+	case evPerRisk >= 0.0:
+		return "B"
+	default:
+		return "C"
+	}
+}
+
+// qualityTierScore converts a tier to a SoftScore in [-1, 1].
+func qualityTierScore(tier string) float64 {
+	switch tier {
+	case "A_PLUS":
+		return 1.0
+	case "A":
+		return 0.7
+	case "B":
+		return 0.4
+	case "C":
+		return 0.1
+	case "WATCH":
+		return -0.3
+	case "REJECT":
+		return -1.0
+	default:
+		return 0.0
+	}
 }
 
 func absF(x float64) float64 {

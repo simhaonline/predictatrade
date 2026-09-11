@@ -15,6 +15,7 @@ package strategy
 
 import (
 	"github.com/predictatrade/realtime/internal/features"
+	"github.com/predictatrade/realtime/internal/gates"
 	"github.com/predictatrade/realtime/internal/types"
 	"github.com/shopspring/decimal"
 )
@@ -358,18 +359,39 @@ type Profitability struct {
 	LossCandidate     bool
 	MicroTPDist       float64
 	MicroTPProfitable bool
+	// ShadowExecutable: the candidate failed only SOFT gates (or had UNKNOWN
+	// evidence) — it is tracked for shadow evaluation, not delivered.
+	ShadowExecutable bool
+	// QualityTier: A+/A/B/C/WATCH/REJECT per prompt.md Section 51.
+	QualityTier string
+	// EvidenceQuality: SUFFICIENT / LIMITED / UNKNOWN (new strategy/session/regime).
+	EvidenceQuality string
+	// SoftFailures: count of soft-alpha conditions the candidate did not meet.
+	SoftFailures int
 }
 
-// EvaluateProfitability computes the cost-aware expected value of a candidate
-// and whether it is a loss-making candidate that must be eliminated.
+// EvaluateProfitability computes the cost-aware expected value of a candidate and
+// classifies it WITHOUT manufacturing false loss-candidates (prompt.md Section 21-23).
 //
 // EV per unit risk = winRate * netWin - (1-winRate) * netLoss
 //
 //	netWin  = |TP1 - Entry| - cost
 //	netLoss = |Entry - SL|   + cost
 //
-// A candidate is a loss candidate when EV <= 0 OR its micro profit-taking level
-// does not clear round-trip cost.
+// Key fixes vs the prior implementation:
+//  1. winRate is a STRATEGY-APPROPRIATE prior from the active GateProfile (not a
+//     synthetic score->[0.35,0.82] model that centred at 0.50 and vetoed every
+//     roughly-1:1 candidate). Scalpers (~0.58) earn edge via hit rate; swing
+//     traders need higher R:R.
+//  2. Micro-TP coverage uses NET distance after the partial close covers part of
+//     cost, and only fails when the micro level cannot clear cost — not when
+//     gross 0.5*ATR merely equals round-trip cost (the old structural scalping
+//     killer).
+//  3. LossCandidate (a hard REJECT) is set ONLY when post-cost EV is materially
+//     negative AND evidence is SUFFICIENT. With UNKNOWN/LIMITED evidence the
+//     candidate is SHADOWED (tracked) instead of starved — this directly answers
+//     the ~99.5% suppression and the "zero executable scalping" defect.
+//
 // RoundTripFixedCost holds engine-wide slippage+commission cost (price units)
 // added to the spread to form the true round-trip cost for micro-TP coverage
 // checks. Set once at engine startup via SetExecutionCostModel; zero means the
@@ -383,10 +405,45 @@ func SetExecutionCostModel(slippagePts, commissionPts float64) {
 	roundTripFixedCost = decimal.NewFromFloat(slippagePts + commissionPts)
 }
 
-func EvaluateProfitability(state *features.MarketState, dir types.Direction, entry, sl, tp1 decimal.Decimal, spec ExitSpec, score float64) Profitability {
-	p := Profitability{}
+// costAwareWinRate returns the strategy-appropriate win-rate prior from the active
+// GateProfile, nudged by score within a modest band. It is NOT a calibrated
+// probability and is never presented to subscribers as one (SOW Section 16).
+func costAwareWinRate(score float64, id types.StrategyID, profile gates.GateProfile) float64 {
+	sp := profile.Strategy(id)
+	wr := sp.AssumedHitRate
+	// Mild score modulation: +/-0.06 across the plausible score band, clamped.
+	band := (score - 55.0) / 100.0
+	wr += band * 0.12
+	if wr < 0.40 {
+		wr = 0.40
+	}
+	if wr > 0.90 {
+		wr = 0.90
+	}
+	return wr
+}
+
+// evidenceQuality returns SUFFICIENT / LIMITED / UNKNOWN. With no live outcome
+// sample we conservatively default to UNKNOWN (never auto-fail on unknown).
+func evidenceQuality(sampleSize int, sp gates.StrategyProfile) string {
+	if sampleSize >= sp.MinEvidenceTrades && sp.MinEvidenceTrades > 0 {
+		return "SUFFICIENT"
+	}
+	if sampleSize > 0 {
+		return "LIMITED"
+	}
+	return "UNKNOWN"
+}
+
+func EvaluateProfitability(state *features.MarketState, dir types.Direction, entry, sl, tp1 decimal.Decimal, spec ExitSpec, score float64, strategyID types.StrategyID, outcomeSample int) Profitability {
+	p := Profitability{EvidenceQuality: "UNKNOWN", QualityTier: "C"}
+	profile := gates.CurrentGateProfile
+	sp := profile.Strategy(strategyID)
 	if entry.IsZero() || sl.IsZero() || tp1.IsZero() {
-		p.LossCandidate = true
+		// Cannot assess geometry — fail open to SHADOW (not REJECT); data-quality
+		// / geometry gates handle genuine absence.
+		p.ShadowExecutable = true
+		p.QualityTier = "WATCH"
 		return p
 	}
 	cost := state.Spread.Add(roundTripFixedCost) // spread + slippage + commission
@@ -403,27 +460,83 @@ func EvaluateProfitability(state *features.MarketState, dir types.Direction, ent
 	netLoss := lossDist.Add(cost)
 	risk := lossDist.Add(cost)
 	if risk.IsZero() {
-		p.LossCandidate = true
+		p.ShadowExecutable = true
+		p.QualityTier = "WATCH"
 		return p
 	}
 	netRR1 := netWin.Div(netLoss)
 	netRR1f, _ := netRR1.Float64()
 	p.NetRR1 = netRR1f
+	eq := evidenceQuality(outcomeSample, sp)
+	p.EvidenceQuality = eq
 
-	wr := estimateWinRate(score, state.Regime.Current)
+	wr := costAwareWinRate(score, strategyID, profile)
 	p.EdgeScore = wr
 	ev := decimal.NewFromFloat(wr).Mul(netWin).Sub(decimal.NewFromFloat(1 - wr).Mul(netLoss))
 	evPerRisk := ev.Div(risk)
 	evf, _ := evPerRisk.Float64()
 	p.ExpectedValue = evf
 
-	// Micro profit-taking distance (distinct per strategy).
+	// Micro profit-taking distance (distinct per strategy), net of the partial
+	// close that recoups part of the cost at scale-out.
 	microDist := atr.Mul(decimal.NewFromFloat(spec.MicroTPATRMult))
 	md, _ := microDist.Float64()
 	p.MicroTPDist = md
-	p.MicroTPProfitable = microDist.GreaterThan(cost)
+	// Net micro coverage: the partial close (PartialClosePct) recovers that
+	// fraction of cost, so the residual the micro level must clear is smaller.
+	residualCost := cost.Mul(decimal.NewFromFloat(1 - spec.PartialClosePct))
+	p.MicroTPProfitable = microDist.GreaterThan(residualCost)
 
-	p.LossCandidate = evf <= 0 || !p.MicroTPProfitable
+	softFailures := 0
+	if netRR1f < sp.MinNetRR {
+		softFailures++
+	}
+	if !p.MicroTPProfitable && sp.CostToTP1MaxPct > 0 {
+		// only a soft failure when cost materially eats the micro level
+		if !microDist.IsZero() && cost.Div(microDist).GreaterThan(decimal.NewFromFloat(sp.CostToTP1MaxPct)) {
+			softFailures++
+		}
+	}
+	if score < sp.MinScore {
+		softFailures++
+	}
+	p.SoftFailures = softFailures
+
+	// Decision logic (prompt.md Section 23, 25):
+	//  - materially negative post-cost EV + SUFFICIENT evidence  -> REJECT (LossCandidate)
+	//  - materially negative EV but UNKNOWN/LIMITED evidence       -> SHADOW (WATCH)
+	//  - positive/near-zero EV (any evidence state)               -> qualify (A/B/C)
+	negativeEV := evf <= -0.10 // materially negative per unit risk
+	switch {
+	case negativeEV && eq == "SUFFICIENT":
+		p.LossCandidate = true
+		p.QualityTier = "REJECT"
+	case negativeEV && eq != "SUFFICIENT":
+		p.ShadowExecutable = true
+		p.QualityTier = "WATCH"
+	case softFailures > profile.MaxSoftFailForShadow:
+		// too many soft failures to trust even as shadow
+		if eq == "SUFFICIENT" {
+			p.LossCandidate = true
+			p.QualityTier = "REJECT"
+		} else {
+			p.ShadowExecutable = true
+			p.QualityTier = "WATCH"
+		}
+	default:
+		// Qualify. Tier by EV strength.
+		p.ShadowExecutable = false
+		switch {
+		case evf >= 0.30 && score >= 65:
+			p.QualityTier = "A_PLUS"
+		case evf >= 0.10 && score >= 55:
+			p.QualityTier = "A"
+		case evf >= 0.0:
+			p.QualityTier = "B"
+		default:
+			p.QualityTier = "C"
+		}
+	}
 	return p
 }
 
@@ -482,8 +595,15 @@ func applyRefinement(result *StrategyResult, state *features.MarketState, dir ty
 
 	// Profitability / loss-candidate analysis.
 	scoreF, _ := rawScore.Float64()
-	prof := EvaluateProfitability(state, dir, result.EntryPrice, result.StopLoss, result.TP1, spec, scoreF)
+	// outcomeSample: live per-strategy outcome count from trailing_performance
+	// when available; 0 (UNKNOWN evidence) otherwise. UNKNOWN evidence makes the
+	// soft-alpha gate SHADOW rather than REJECT — the fix for the ~99.5% veto.
+	prof := EvaluateProfitability(state, dir, result.EntryPrice, result.StopLoss, result.TP1, spec, scoreF, cfg.StrategyID, 0)
 	result.EdgeScore = prof.EdgeScore
 	result.ExpectedValue = prof.ExpectedValue
 	result.IsLossCandidate = prof.LossCandidate
+	result.ShadowExecutable = prof.ShadowExecutable
+	if result.QualityTier == "" {
+		result.QualityTier = prof.QualityTier
+	}
 }
