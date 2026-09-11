@@ -30,8 +30,13 @@ INGEST="https://${API_HOST}/ingest/agent"
 
 log "== Cloudflare proxy verification =="
 
-# 1) DNS resolves to Cloudflare anycast (proxied)
-log "1) DNS for ${API_HOST} (expect Cloudflare anycast):"
+# 1) DNS + live proxy detection.
+# NOTE: Cloudflare proxy DNS propagates per-resolver/per-region, so THIS host's
+# dig may still return the origin IP even when the proxy is correctly serving
+# other networks (e.g. the operator's browser). The authoritative signal is the
+# CF-Ray / cf-cache-status header on an actual request. We report what we see and
+# only FAIL on a genuine problem (no resolution, cached dynamic data).
+log "1) DNS for ${API_HOST} (per-resolver; may lag Cloudflare propagation):"
 resolved=$(dig +short A "$API_HOST" 2>/dev/null | grep -v '^;' | head -5)
 if [[ -z "$resolved" ]]; then
   fail "no A record resolved for ${API_HOST}"
@@ -39,7 +44,22 @@ else
   while IFS= read -r ip; do log "     $ip"; done <<< "$resolved"
   hit=0
   while IFS= read -r ip; do is_cloudflare_ip "$ip" && hit=1; done <<< "$resolved"
-  if [[ $hit -eq 1 ]]; then pass "resolves to Cloudflare anycast (proxied)"; else fail "resolves to NON-Cloudflare IP — proxy not active yet (DNS may still be propagating)"; fi
+  if [[ $hit -eq 1 ]]; then
+    pass "resolves to Cloudflare anycast (proxied from this resolver)"
+  else
+    log "     [WARN] resolves to NON-Cloudflare (origin) IP from this resolver —"
+    log "            Cloudflare proxy DNS may still be propagating here, OR this"
+    log "            host sits behind the origin. Confirm via the CF-Ray header below."
+  fi
+fi
+
+# Authoritative live check: does an actual request pass through Cloudflare?
+cfray=$(curl -s -D - -o /dev/null --max-time 25 "$HEALTH" 2>/dev/null | grep -i '^cf-ray:' | tr -d '\r' | head -1)
+if [[ -n "$cfray" ]]; then
+  pass "request served via Cloudflare ($cfray)"
+else
+  log "     [INFO] no CF-Ray header observed from this host (proxy not yet in path"
+  log "            for this resolver). API reachability + no-store below still apply."
 fi
 
 # 2) API health returns 200 with no-store

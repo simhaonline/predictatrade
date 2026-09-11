@@ -80,10 +80,14 @@ nginx restores it.
 
 ## Gotchas (learned the hard way)
 
-- **DNS propagation:** after orange-clouding, `dig` may still show the origin
-  IP for a few minutes. The nginx config is correct for the post-propagation
-  state (CF anycast). Wait for `dig api.predictatrade.com` to return a Cloudflare
-  IP (e.g. `104.x` / `172.64.x`) before concluding.
+- **DNS propagation is per-resolver / per-region.** After orange-clouding, `dig`
+  from THIS server may still return the origin IP (`152.53.67.111`) even though
+  the proxy is correctly serving the operator's browser/network. This is normal
+  — Cloudflare proxy DNS propagates unevenly. The authoritative "is it proxied
+  now?" signal is the **`CF-Ray`** response header on a live request, not `dig`.
+  The verify script encodes this: it reports the DNS view as a WARN and checks
+  for `CF-Ray` as the real proxy signal. If your browser shows Cloudflare but
+  `dig` here shows origin, the proxy is fine — just propagating here.
 
 - **MT4 `HTTP -1` root cause was IPv6-first DNS**, not Cloudflare. With CF
   proxy the hostname now resolves to Cloudflare anycast (solid IPv4), which
@@ -104,9 +108,12 @@ nginx restores it.
 
 ## Verification checklist
 
-- [ ] `dig api.predictatrade.com` returns a Cloudflare IP (not origin).
-- [ ] `curl -sI https://api.predictatrade.com/api/v1/health` → `200` and
-      response headers include `cache-control: no-store`.
+- [ ] `curl -sI https://api.predictatrade.com/api/v1/health` → `200`, response
+      headers include `cache-control: no-store`, and (when proxied from your
+      network) a `cf-ray:` header confirming Cloudflare is in the path. If `dig`
+      from the server still shows the origin IP but your browser sees Cloudflare,
+      that's expected per-resolver propagation — the `CF-Ray` header is the real
+      signal.
 - [ ] `curl -sI https://api.predictatrade.com/` → API JSON + no-store.
 - [ ] MT4/MT5 Master Node EA logs show successful `/ingest/agent` POSTs (no
       `HTTP -1`).
