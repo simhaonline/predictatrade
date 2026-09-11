@@ -13,6 +13,7 @@
 #   ./scripts/dr-kit.sh migrate-up       # run pending forward migrations
 #   ./scripts/dr-kit.sh migrate-status   # show applied/pending migrations
 #   ./scripts/dr-kit.sh migrate-test     # run migration self-tests
+#   ./scripts/dr-kit.sh verify-s3       # pre-flight check of S3 backup config (no secrets printed)
 #   ./scripts/dr-kit.sh health           # production + Cloudflare edge health checks
 #   ./scripts/dr-kit.sh all              # backup + restore-test + migrate-status + health
 #
@@ -57,6 +58,9 @@ case "${1:-help}" in
     ;;
   migrate-test)
     run bash scripts/migrate.sh test
+    ;;
+  verify-s3)
+    run bash scripts/backup/verify_s3.sh
     ;;
   health)
     run bash scripts/verify_live_production.sh
