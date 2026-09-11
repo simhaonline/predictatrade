@@ -1,6 +1,10 @@
 # Docker Deployment Guide
 ## v1.29.0 — 05 September 2026
 
+> **Hetzner VPS users:** see [HETZNER_DEPLOYMENT.md](HETZNER_DEPLOYMENT.md) for
+> host provisioning, UFW firewall, env-file wiring, R2 backup setup, and the
+> server-migration runbook. This generic guide covers the Docker steps only.
+
 Step-by-step guide to deploy Predict-A-Trade XAUUSD using Docker Compose.
 
 ---
@@ -13,7 +17,7 @@ Step-by-step guide to deploy Predict-A-Trade XAUUSD using Docker Compose.
 | Docker Compose | v2+ | `docker compose version` |
 | RAM | 4GB free | `free -h` |
 | Disk | 20GB free | `df -h` |
-| Ports | 80, 443, 5432, 6379, 13090, 13081, 13080, 13082, 13083, 8091 available | `ss -tlnp` |
+| Ports | 80, 443 published by nginx; 13081/13082/13083/13090 published by services. Postgres (5432) and Valkey (6379) bind to **127.0.0.1 only** (not exposed to host/internet) — do NOT list them as required host ports. | `ss -tlnp` |
 | Git | any recent | `git --version` |
 | API keys | TwelveData, FMP | (see Step 2) |
 
