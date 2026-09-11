@@ -173,13 +173,13 @@ func (g *RiskOversizeGate) Evaluate(input GateInput, state GateState) GateEvalua
 					eval.ReasonCodes = []string{ReasonRiskOversize + "_SIZED_DOWN"}
 					return eval
 				}
-				}
-				}
-				eval.Result = types.GateVeto
-				eval.ReasonCodes = []string{ReasonRiskOversize}
-				return eval
-				}
-				// Hard protection for small accounts: if even the broker's MINIMUM lot
+			}
+		}
+		eval.Result = types.GateVeto
+		eval.ReasonCodes = []string{ReasonRiskOversize}
+		return eval
+	}
+	// Hard protection for small accounts: if even the broker's MINIMUM lot
 	// would risk more than the per-trade budget, trading it would breach
 	// capital protection — veto instead of forcing over-risk. This is the
 	// $50-account case where the stop distance is too large for the balance.
@@ -648,7 +648,7 @@ func SeedCapitalProtectionGateStates(reg *Registry) {
 			ReasonCode: "positions_unknown", SourceVersion: "seed",
 		},
 		types.GateDailyLoss: {
-			State:      types.GatePass,
+			State:       types.GatePass,
 			EvaluatedAt: now,
 			ReasonCode:  "awaiting_pnl_anchor", SourceVersion: "seed",
 			// Seed a KNOWN zero-loss snapshot so a fresh account (no P&L history)
@@ -661,7 +661,7 @@ func SeedCapitalProtectionGateStates(reg *Registry) {
 			State:       types.GatePass,
 			EvaluatedAt: now,
 			ReasonCode:  "awaiting_pnl_anchor", SourceVersion: "seed",
-			Value:       PnLSnapshot{Known: true, PeriodPc: map[risk.Period]float64{risk.PeriodDay: 0, risk.PeriodWeek: 0, risk.PeriodMonth: 0}},
+			Value: PnLSnapshot{Known: true, PeriodPc: map[risk.Period]float64{risk.PeriodDay: 0, risk.PeriodWeek: 0, risk.PeriodMonth: 0}},
 		},
 		types.GateEdgeValidation: {
 			State: types.GateDegraded, EvaluatedAt: now,

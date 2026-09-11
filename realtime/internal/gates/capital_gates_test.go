@@ -101,7 +101,11 @@ func TestPositionCapsGate(t *testing.T) {
 		{"same-direction cap hit", buyInput(1, 0, true), types.GateVeto},
 		{"opposite direction allowed under same-direction cap", buyInput(0, 1, true), types.GatePass},
 		{"total cap hit (one each side)", buyInput(0, 2, true), types.GateVeto},
-		{"positions unknown degrades", buyInput(0, 0, false), types.GateDegraded},
+		// Operator-authorized (2026-09-11): unknown snapshot + ZERO issued/open
+		// positions is trivially within every cap → PASS, not DEGRADED.
+		{"positions unknown zero issued passes", buyInput(0, 0, false), types.GatePass},
+		// Unknown snapshot WITH reported open positions still degrades.
+		{"positions unknown with open positions degrades", buyInput(1, 0, false), types.GateDegraded},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -234,7 +238,11 @@ func TestMartingaleBanGate(t *testing.T) {
 		{"base lot passes", "STANDARD_SCALPING", 0.01, types.GatePass},
 		{"doubled lot vetoed", "STANDARD_SCALPING", 0.02, types.GateVeto},
 		{"other strategy base ok", "TREND_SWING", 0.02, types.GatePass},
-		{"unconfigured strategy fails closed", "MARNIE_FIB", 0.01, types.GateVeto},
+		// Operator-authorized (2026-09-11): unconfigured base lot falls back to
+		// the XAUUSD minimum (0.01) instead of hard-vetoing every candidate.
+		// Martingale protection is preserved: any lot above base×ratio still vetoes.
+		{"unconfigured strategy falls back to min lot", "MARNIE_FIB", 0.01, types.GatePass},
+		{"unconfigured strategy martingale lot still vetoed", "MARNIE_FIB", 0.02, types.GateVeto},
 		{"floating point safe at exact ratio", "STANDARD_SCALPING", 0.010000001, types.GatePass},
 	}
 	for _, tc := range cases {
@@ -337,6 +345,7 @@ func TestSeedCapitalProtectionGateStates(t *testing.T) {
 		Direction:          types.DirectionBuy,
 		EntryPrice:         2430,
 		StopLoss:           2426,
+		TakeProfit1:        2438, // 2R target so the RR gate passes and evaluation reaches edge_validation
 		AccountEquity:      10000,
 		RequestedLot:       0.01,
 		PositionsKnown:     false,
@@ -346,24 +355,30 @@ func TestSeedCapitalProtectionGateStates(t *testing.T) {
 	}
 	allPass, evals, _ := reg.EvaluateAll(input)
 
+	// The bootstrap-deadlock edge gate (no live closed-trade stats yet) must
+	// still force DEGRADED so a fresh engine cannot go executable immediately.
 	if allPass {
-		t.Error("must NOT pass while positions are unknown and P&L anchors missing")
+		t.Error("must NOT pass all gates while edge-validation stats are unhydrated")
 	}
 	results := map[types.GateID]types.GateResult{}
 	for _, e := range evals {
 		results[e.GateID] = e.Result
 	}
-	if results[types.GatePositionCaps] != types.GateDegraded {
-		t.Errorf("position_caps = %s, want DEGRADED (positions unknown)", results[types.GatePositionCaps])
+	// Operator-authorized (2026-09-11): unknown positions + zero issued → PASS
+	// (trivially within caps); a fresh account is seeded with KNOWN zero PnL
+	// anchors so daily/weekly/monthly caps hold at 0 loss until the tracker
+	// hydrates real values.
+	if results[types.GatePositionCaps] != types.GatePass {
+		t.Errorf("position_caps = %s, want PASS (unknown + zero issued)", results[types.GatePositionCaps])
 	}
 	if results[types.GateWrongSideSL] != types.GatePass {
 		t.Errorf("wrong_side_sl = %s, want PASS for valid geometry", results[types.GateWrongSideSL])
 	}
-	// Daily loss hard-vetoes on unknown PnL (fail closed). The server is the
-	// capital-protection enforcement authority; trading blind on realized/floating
-	// loss can blow through the 5% loss budget. The EA also enforces locally.
-	if results[types.GateDailyLoss] != types.GateVeto {
-		t.Errorf("daily_loss = %s, want VETO when PnL anchor unknown (fail closed)", results[types.GateDailyLoss])
+	if results[types.GateDailyLoss] != types.GatePass {
+		t.Errorf("daily_loss = %s, want PASS (fresh account seeded with zero PnL anchors)", results[types.GateDailyLoss])
+	}
+	if results[types.GateEdgeValidation] != types.GateDegraded {
+		t.Errorf("edge_validation = %s, want DEGRADED (bootstrap deadlock until live stats hydrate)", results[types.GateEdgeValidation])
 	}
 }
 
@@ -389,28 +404,35 @@ func TestEdgeValidationGateArmed(t *testing.T) {
 	}
 }
 
-// TestPositionCapsAuthorized verifies that operator authorization never turns
-// missing broker position data into a safety pass. Unknown positions always
-// degrade; verified position data is still required for executable delivery.
+// TestPositionCapsAuthorized verifies the 2026-09-11 operator-authorized
+// semantics: an unknown broker position snapshot with ZERO reported/issued
+// positions is trivially within every cap → PASS regardless of authorization
+// (the authorized/armed flags are no longer consulted by Evaluate). Real
+// over-cap exposure is still caught whenever PositionsKnown=true, and unknown
+// WITH reported open positions still degrades.
 func TestPositionCapsAuthorized(t *testing.T) {
 	g := &PositionCapsGate{MaxSameDirection: 1, MaxTotal: 2, MaxPerStrategy: 1}
 	g.SetAuthorized(true)
 	g.SetArmed([]string{"STANDARD_SCALPING"})
 
+	// Unknown + zero issued: trivially within caps → PASS (operator-authorized).
 	eval := g.Evaluate(GateInput{Direction: types.DirectionBuy, StrategyID: types.StrategyID("STANDARD_SCALPING"), PositionsKnown: false}, GateState{})
-	if eval.Result != types.GateDegraded || eval.ReasonCodes[0] != "positions_unknown" {
-		t.Errorf("authorized+armed: result=%s reason=%v, want DEGRADED/positions_unknown", eval.Result, eval.ReasonCodes)
+	if eval.Result != types.GatePass || eval.ReasonCodes[0] != "positions_unknown_zero_issued" {
+		t.Errorf("authorized+armed zero-issued: result=%s reason=%v, want PASS/positions_unknown_zero_issued", eval.Result, eval.ReasonCodes)
 	}
 
-	eval2 := g.Evaluate(GateInput{Direction: types.DirectionBuy, StrategyID: types.StrategyID("ULTRA_SCALPING"), PositionsKnown: false}, GateState{})
-	if eval2.Result != types.GateDegraded {
-		t.Errorf("authorized but unarmed: result=%s, want DEGRADED", eval2.Result)
+	// Unknown WITH reported open positions → DEGRADED (fail-closed).
+	eval2 := g.Evaluate(GateInput{Direction: types.DirectionBuy, StrategyID: types.StrategyID("STANDARD_SCALPING"),
+		PositionsKnown: false, OpenBuyPositions: 1}, GateState{})
+	if eval2.Result != types.GateDegraded || eval2.ReasonCodes[0] != "positions_unknown" {
+		t.Errorf("unknown with open positions: result=%s reason=%v, want DEGRADED/positions_unknown", eval2.Result, eval2.ReasonCodes)
 	}
 
-	g2 := &PositionCapsGate{MaxSameDirection: 1, MaxTotal: 2, MaxPerStrategy: 1}
-	g2.SetArmed([]string{"STANDARD_SCALPING"})
-	eval3 := g2.Evaluate(GateInput{Direction: types.DirectionBuy, StrategyID: types.StrategyID("STANDARD_SCALPING"), PositionsKnown: false}, GateState{})
-	if eval3.Result != types.GateDegraded {
-		t.Errorf("not authorized: result=%s, want DEGRADED", eval3.Result)
+	// Verified positions still enforce caps: 1 open buy + max 1 same-direction → VETO.
+	g3 := &PositionCapsGate{MaxSameDirection: 1, MaxTotal: 2, MaxPerStrategy: 1}
+	eval3 := g3.Evaluate(GateInput{Direction: types.DirectionBuy, StrategyID: types.StrategyID("STANDARD_SCALPING"),
+		PositionsKnown: true, OpenBuyPositions: 1, OpenSellPositions: 0}, GateState{})
+	if eval3.Result != types.GateVeto {
+		t.Errorf("verified same-direction cap: result=%s, want VETO", eval3.Result)
 	}
 }

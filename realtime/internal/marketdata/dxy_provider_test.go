@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -74,22 +75,27 @@ func TestDXYComputation(t *testing.T) {
 		"USD/CHF": "0.8900",
 	}
 
+	// The provider now fetches all 6 components in a SINGLE batched
+	// Twelve Data /price call (symbol=A,B,C,...) and parses the object-keyed
+	// response {"EUR/USD":{"price":"1.0850"},...}.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		symbol := r.URL.Query().Get("symbol")
 		if r.URL.Query().Get("apikey") != "test_key" {
 			t.Error("API key should be in request")
 		}
-		price, ok := prices[symbol]
-		if !ok {
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"code": 404, "message": "symbol not found", "status": "error",
-			})
-			return
+		symbolParam := r.URL.Query().Get("symbol")
+		requested := strings.Split(symbolParam, ",")
+		if len(requested) != len(prices) {
+			t.Errorf("batched call should request all %d components, got %d (%q)", len(prices), len(requested), symbolParam)
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"price": price,
-		})
+		resp := map[string]map[string]string{}
+		for _, sym := range requested {
+			price, ok := prices[sym]
+			if !ok {
+				continue
+			}
+			resp[sym] = map[string]string{"price": price}
+		}
+		json.NewEncoder(w).Encode(resp)
 	}))
 	defer ts.Close()
 
@@ -245,13 +251,19 @@ func TestIsRateLimited(t *testing.T) {
 func TestDXYFireSnapshotCallbacksOnRefresh(t *testing.T) {
 	prices := []string{"1.1000", "1.1001", "1.1002"}
 	i := 0
+	// Mock the batched /price endpoint: one call per refresh cycle returning
+	// all 6 components at the cycle's price level.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if i >= len(prices) {
-			fmt.Fprintf(w, `{"price":"%s"}`, prices[len(prices)-1])
-			return
+		p := prices[len(prices)-1]
+		if i < len(prices) {
+			p = prices[i]
+			i++
 		}
-		fmt.Fprintf(w, `{"price":"%s"}`, prices[i])
-		i++
+		resp := map[string]map[string]string{}
+		for _, comp := range dxyComponents {
+			resp[comp.symbol] = map[string]string{"price": p}
+		}
+		json.NewEncoder(w).Encode(resp)
 	}))
 	defer ts.Close()
 
