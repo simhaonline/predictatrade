@@ -48,21 +48,43 @@ export async function createMtAccount(body: CreateMtAccountBody) {
 }
 
 // Admin fleet-wide MT accounts (check.md #4): user-scoped endpoint returned
-// empty for admin sessions; this is the admin-wide listing.
+// empty for admin sessions; this is the admin-wide listing. Enriched from
+// device_activations so it carries live balance/connection/device data.
 export interface AdminMtAccount {
   id: string;
-  account_number?: string;
-  broker?: string;
+  mt_account_login?: string;
+  broker_name?: string;
+  broker_server?: string;
   client_type?: string;
+  account_balance?: number;
+  account_equity?: number;
+  currency?: string;
+  connection_status?: string;
+  device_name?: string;
   license_key?: string;
   license_status?: string;
   user_email?: string;
-  hardware_id?: string;
-  broker_server?: string;
-  created_at?: string;
+  activated_at?: string;
 }
 
 export async function fetchAllMtAccountsAdmin(): Promise<AdminMtAccount[]> {
   const res = await customInstance.get("/licensing/admin-mt-accounts");
   return Array.isArray(res.data) ? (res.data as AdminMtAccount[]) : [];
 }
+
+// Admin-wide device listing (powers the MT-account registration dropdown).
+export interface AdminDevice {
+  id: string;
+  device_name?: string;
+  hostname?: string;
+  connection_status?: string;
+  license_key?: string;
+  license_status?: string;
+  user_email?: string;
+}
+
+export async function fetchAllDevicesAdmin(): Promise<AdminDevice[]> {
+  const res = await customInstance.get("/licensing/admin-devices");
+  return Array.isArray(res.data) ? (res.data as AdminDevice[]) : [];
+}
+

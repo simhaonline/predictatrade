@@ -6,9 +6,11 @@ import { IconServer, IconAlertTriangle } from "@tabler/icons-react";
 import {
   fetchMtAccounts,
   fetchAllMtAccountsAdmin,
+  fetchAllDevicesAdmin,
   createMtAccount,
   type MtAccountDevice,
   type AdminMtAccount,
+  type AdminDevice,
   type CreateMtAccountBody,
 } from "@/lib/admin-mt-accounts-api";
 
@@ -36,6 +38,11 @@ export default function AdminMtAccountsPage() {
     queryKey: ["admin-mt-accounts"],
     queryFn: fetchAllMtAccountsAdmin,
     refetchInterval: 20000,
+  });
+  const devicesQ = useQuery<AdminDevice[]>({
+    queryKey: ["admin-devices"],
+    queryFn: fetchAllDevicesAdmin,
+    refetchInterval: 60000,
   });
   const { data: accounts, isLoading, error } = useQuery<MtAccountDevice[]>({
     queryKey: ["mt-accounts"],
@@ -87,6 +94,9 @@ export default function AdminMtAccountsPage() {
                   <th className="px-3 py-2 font-medium">Broker</th>
                   <th className="px-3 py-2 font-medium">Server</th>
                   <th className="px-3 py-2 font-medium">Client</th>
+                  <th className="px-3 py-2 font-medium">Device</th>
+                  <th className="px-3 py-2 font-medium">Connection</th>
+                  <th className="px-3 py-2 font-medium">Balance</th>
                   <th className="px-3 py-2 font-medium">License</th>
                   <th className="px-3 py-2 font-medium">User</th>
                 </tr>
@@ -94,10 +104,21 @@ export default function AdminMtAccountsPage() {
               <tbody>
                 {adminQ.data!.map((a) => (
                   <tr key={a.id} className="border-b border-pat-border/50">
-                    <td className="px-3 py-2 font-mono text-pat-text-primary">{a.account_number ?? "—"}</td>
-                    <td className="px-3 py-2 text-pat-text-secondary">{a.broker ?? "—"}</td>
+                    <td className="px-3 py-2 font-mono text-pat-text-primary">{a.mt_account_login ?? "—"}</td>
+                    <td className="px-3 py-2 text-pat-text-secondary">{a.broker_name ?? "—"}</td>
                     <td className="px-3 py-2 text-pat-text-secondary">{a.broker_server ?? "—"}</td>
                     <td className="px-3 py-2 text-pat-text-secondary">{a.client_type ?? "—"}</td>
+                    <td className="px-3 py-2 text-pat-text-secondary">{a.device_name ?? "—"}</td>
+                    <td className="px-3 py-2">
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-pat-bg-surface-secondary text-pat-text-muted">
+                        {a.connection_status ?? "UNKNOWN"}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-pat-text-primary">
+                      {a.account_balance !== undefined && a.account_balance !== null
+                        ? `${a.account_balance.toLocaleString()} ${a.currency ?? ""}`.trim()
+                        : "—"}
+                    </td>
                     <td className="px-3 py-2 font-mono text-xs text-pat-text-secondary">{a.license_key ?? "—"}</td>
                     <td className="px-3 py-2 text-pat-text-secondary">{a.user_email ?? "—"}</td>
                   </tr>
@@ -170,12 +191,20 @@ export default function AdminMtAccountsPage() {
             createMutation.mutate(form);
           }}
         >
-          <input
+          <select
             value={form.deviceId}
             onChange={(e) => setForm({ ...form, deviceId: e.target.value })}
-            placeholder="Device id"
             className="rounded-md border border-pat-input-border bg-pat-input-bg px-3 py-2 text-sm text-pat-input-text"
-          />
+          >
+            <option value="">Select a licensed device…</option>
+            {(devicesQ.data ?? []).map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.device_name || d.hostname || d.id}
+                {d.user_email ? ` — ${d.user_email}` : ""}
+                {d.license_key ? ` (${d.license_key})` : ""}
+              </option>
+            ))}
+          </select>
           <input
             value={form.mtAccountLogin}
             onChange={(e) => setForm({ ...form, mtAccountLogin: e.target.value })}

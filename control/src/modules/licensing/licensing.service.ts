@@ -931,13 +931,37 @@ export class LicensingService {
    * query returned empty for admin sessions. Admin sees ALL linked MetaTrader
    * accounts with bound license + device context.
    */
+  /** Admin fleet-wide MT account listing (reads from device_activations so it
+   *  includes live balance/connection/device data; the legacy licensing.mt_accounts
+   *  table lacks those columns). */
   async listAllMtAccounts() {
     const r = await this.pool.query(
-      `SELECT ma.*, l.license_key, l.status AS license_status, u.email AS user_email
-       FROM licensing.mt_accounts ma
-       LEFT JOIN licensing.licenses l ON ma.license_id = l.id
-       LEFT JOIN iam.users u ON ma.user_id = u.id
-       ORDER BY ma.created_at DESC LIMIT 200`
+      `SELECT da.id, da.mt_account_login, da.broker_name, da.broker_server,
+              da.client_type, da.account_balance, da.account_equity,
+              da.account_currency as currency, da.activated_at,
+              d.device_name, d.hostname, d.connection_status,
+              l.license_key, l.status AS license_status,
+              u.email AS user_email
+       FROM licensing.device_activations da
+       JOIN licensing.devices d ON da.device_id = d.id AND d.deleted_at IS NULL
+       LEFT JOIN licensing.licenses l ON da.license_id = l.id
+       LEFT JOIN iam.users u ON d.user_id = u.id
+       WHERE da.deactivated_at IS NULL
+       ORDER BY da.activated_at DESC LIMIT 500`,
+    );
+    return r.rows;
+  }
+
+  /** Admin-wide device listing for the MT-account registration dropdown. */
+  async listAllDevices() {
+    const r = await this.pool.query(
+      `SELECT d.id, d.device_name, d.hostname, d.connection_status,
+              l.license_key, l.status AS license_status, u.email AS user_email
+       FROM licensing.devices d
+       LEFT JOIN licensing.licenses l ON d.bound_license_id = l.id
+       LEFT JOIN iam.users u ON d.user_id = u.id
+       WHERE d.deleted_at IS NULL
+       ORDER BY d.device_name NULLS LAST, d.first_seen_at DESC LIMIT 500`,
     );
     return r.rows;
   }

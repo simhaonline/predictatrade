@@ -58,6 +58,14 @@ export class LicensingController {
     return this.licensingService.listAllMtAccounts();
   }
 
+  // Admin-wide device listing (powers the MT-account registration dropdown).
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionGuard)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @Get('admin-devices')
+  async listAllDevices() {
+    return this.licensingService.listAllDevices();
+  }
+
   @UseGuards(JwtAuthGuard)
   @Post('mt-accounts')
   async registerTerminal(@CurrentUser('sub') userId: string, @Body() body: any) {
