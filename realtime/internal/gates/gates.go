@@ -3,6 +3,7 @@
 package gates
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -376,6 +377,16 @@ func (r *Registry) EvaluateAll(input GateInput) (allPass bool, evaluations []Gat
 			allPass = false
 			// Don't set firstVeto for degraded — it's not a hard veto
 		}
+	}
+
+	if !allPass {
+		nonPass := make([]string, 0)
+		for _, ev := range evaluations {
+			if ev.Result != types.GatePass {
+				nonPass = append(nonPass, fmt.Sprintf("%s:%s", ev.GateID, ev.Result))
+			}
+		}
+		_ = nonPass
 	}
 
 	return allPass, evaluations, firstVeto

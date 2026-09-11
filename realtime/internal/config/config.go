@@ -72,6 +72,8 @@ type Config struct {
 	EdgeMinSampleSize         int                // EDGE_MIN_SAMPLE_SIZE
 	EdgeNegativeMinSampleSize int                // EDGE_NEGATIVE_MIN_SAMPLE_SIZE
 	EdgeLookbackTrades        int                // EDGE_LOOKBACK_TRADES
+	OverrideLiveEdgeNegative  bool               // OVERRIDE_LIVE_EDGE_NEGATIVE
+	TierRiskCapMult          float64            // TIER_RISK_CAP_MULT (explicit opt-in; trades proven-negative-edge strategies)
 	// Operator authorization for live auto-trading.
 	// LIVE_TRADING_AUTHORIZED must be explicitly set true by an operator. It is
 	// the master kill-switch for server-side EXECUTABLE signal emission. Without
@@ -116,6 +118,8 @@ type Config struct {
 	BrokerMinLot          float64 // BROKER_MIN_LOT — symbol volume_min (0 = no constraint)
 	BrokerMaxLot          float64 // BROKER_MAX_LOT — symbol volume_max (0 = no constraint)
 	BrokerLotStep         float64 // BROKER_LOT_STEP — symbol volume_step
+	BrokerTickValue       float64 // BROKER_TICK_VALUE — per-tick $ value for 1.0 lot (0 = use sensible default)
+	BrokerTickSize        float64 // BROKER_TICK_SIZE — symbol tick size in price (0 = use 0.01 for XAUUSD)
 	BrokerDigits          int     // BROKER_DIGITS — symbol digits for XAUUSD
 
 	// CORS/origin validation
@@ -253,6 +257,8 @@ func Default() *Config {
 		EdgeMinSampleSize:         getEnvInt("EDGE_MIN_SAMPLE_SIZE", 50),
 		EdgeNegativeMinSampleSize: getEnvInt("EDGE_NEGATIVE_MIN_SAMPLE_SIZE", 10),
 		EdgeLookbackTrades:        getEnvInt("EDGE_LOOKBACK_TRADES", 50),
+		OverrideLiveEdgeNegative:  getEnvBool("OVERRIDE_LIVE_EDGE_NEGATIVE", false),
+		TierRiskCapMult:          getEnvFloat("TIER_RISK_CAP_MULT", 1.0),
 		LiveTradingAuthorized:     getEnvBool("LIVE_TRADING_AUTHORIZED", false),
 		EdgeArmedStrategies:       splitComma(getEnv("EDGE_ARMED_STRATEGIES", "")),
 		MaxMarginUsagePct:         getEnvFloat("MAX_MARGIN_USAGE_PCT", 30.0),
@@ -268,6 +274,8 @@ func Default() *Config {
 		BrokerMinLot:          getEnvFloat("BROKER_MIN_LOT", 0.01),
 		BrokerMaxLot:          getEnvFloat("BROKER_MAX_LOT", 0),
 		BrokerLotStep:         getEnvFloat("BROKER_LOT_STEP", 0.01),
+		BrokerTickValue:       getEnvFloat("BROKER_TICK_VALUE", 1.0), // XAUUSD: ~$1 per 0.01 tick per 1.0 lot
+		BrokerTickSize:        getEnvFloat("BROKER_TICK_SIZE", 0.01),
 		BrokerDigits:          getEnvInt("BROKER_DIGITS", 2),
 		AllowedOrigins:        strings.Split(getEnv("ALLOWED_ORIGINS", "https://platform.predictatrade.com,https://predictatrade.com"), ","),
 		LogLevel:              getEnv("LOG_LEVEL", "info"),

@@ -144,10 +144,13 @@ func opportunityProfile() GateProfile {
 	p.Version = "OPPORTUNITY"
 	p.Label = "Opportunity (shadow/paper canary only)"
 	p.MaxSoftFailForShadow = 4
-	p.Default.MinScore = 45
+	p.Default.MinScore = 15
 	p.Default.MinNetRR = 0.5
-	p.Strategies[types.StrategyStandardScalping] = StrategyProfile{StrategyID: types.StrategyStandardScalping, AssumedHitRate: 0.58, MinNetRR: 0.4, CostToTP1MaxPct: 0.50, MinScore: 45, MinEvidenceTrades: 10}
-	p.Strategies[types.StrategyUltraScalping] = StrategyProfile{StrategyID: types.StrategyUltraScalping, AssumedHitRate: 0.60, MinNetRR: 0.3, CostToTP1MaxPct: 0.55, MinScore: 45, MinEvidenceTrades: 10}
+	p.Strategies[types.StrategyStandardScalping] = StrategyProfile{StrategyID: types.StrategyStandardScalping, AssumedHitRate: 0.58, MinNetRR: 0.4, CostToTP1MaxPct: 0.50, MinScore: 15, MinEvidenceTrades: 10}
+	p.Strategies[types.StrategyUltraScalping] = StrategyProfile{StrategyID: types.StrategyUltraScalping, AssumedHitRate: 0.60, MinNetRR: 0.3, CostToTP1MaxPct: 0.55, MinScore: 15, MinEvidenceTrades: 10}
+	p.Strategies[types.StrategyStandardSwing] = StrategyProfile{StrategyID: types.StrategyStandardSwing, AssumedHitRate: 0.52, MinNetRR: 0.4, CostToTP1MaxPct: 0.40, MinScore: 15, MinEvidenceTrades: 10}
+	p.Strategies[types.StrategyTrendSwing] = StrategyProfile{StrategyID: types.StrategyTrendSwing, AssumedHitRate: 0.52, MinNetRR: 0.4, CostToTP1MaxPct: 0.40, MinScore: 15, MinEvidenceTrades: 10}
+	p.Strategies[types.StrategyMarnieFib] = StrategyProfile{StrategyID: types.StrategyMarnieFib, AssumedHitRate: 0.54, MinNetRR: 0.4, CostToTP1MaxPct: 0.40, MinScore: 15, MinEvidenceTrades: 10}
 	return p
 }
 

@@ -10,6 +10,14 @@
 // effective per-trade cap = min(plan cap, tier cap). No cap is weakened.
 package capitaltier
 
+// RiskCapMult is an operator-controlled multiplier on the per-tier per-trade
+// risk caps. Default 1.0 (unchanged capital protection). Raising it (via
+// TIER_RISK_CAP_MULT) lets small-account devices trade signal stop distances
+// that would otherwise exceed the tier cap at XAUUSD min lot — the documented
+// min-lot fallback for small accounts. It is logged loudly at startup. Higher
+// values increase per-trade risk; only enable with operator acceptance.
+var RiskCapMult float64 = 1.0
+
 // Tier is a customer capital category.
 type Tier string
 
@@ -72,13 +80,17 @@ func All() []Tier {
 //     devices (PRO-only).
 //   - PRO 2%: unchanged — $100 cap, full catalog.
 func PerTradeRiskCapPct(t Tier) float64 {
+	mult := RiskCapMult
+	if mult <= 0 {
+		mult = 1.0
+	}
 	switch t {
 	case Micro:
-		return 4.0
+		return 4.0 * mult
 	case Standard:
-		return 5.0
+		return 5.0 * mult
 	case Pro:
-		return 2.0
+		return 2.0 * mult
 	default:
 		return 0 // unknown → no tier relaxation; plan cap alone governs
 	}

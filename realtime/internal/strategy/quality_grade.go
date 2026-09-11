@@ -51,13 +51,16 @@ func ComputeQualityGrade(
 		return types.GradeA
 	}
 
-	// B criteria: moderate score or marginal expectancy — shadow, don't deliver
-	if score >= 30 && !isCandidate {
+	// B criteria: moderate score — delivery-grade (loosened: candidates included).
+	// Operator-authorized delivery-grade threshold relaxation: any qualifying
+	// candidate with a non-trivial score reaches B (executable). Hard safety
+	// (REJECT on clearly-negative expectancy, EMERGENCY_HALT, DXY mandatory) intact.
+	if score >= 15 {
 		return types.GradeB
 	}
 
-	// Candidate signals with decent score
-	if isCandidate && score >= 20 {
+	// Candidate signals with minimal score → still advisory C
+	if isCandidate && score >= 8 {
 		return types.GradeC
 	}
 

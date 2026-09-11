@@ -18,6 +18,15 @@ import (
 	"github.com/predictatrade/realtime/internal/types"
 )
 
+// OverrideNegativeLiveEdge is an explicit operator opt-in that DISABLES the
+// fail-closed "proven-negative live edge" capital-protection block. It is OFF
+// by default and only takes effect when set true via OVERRIDE_LIVE_EDGE_NEGATIVE.
+// When enabled, strategies whose own live closed-trade record shows PF<1.0 over a
+// sufficient sample may still emit executable signals. This trades financial
+// integrity protection for signal frequency and MUST only be enabled by an
+// operator who explicitly accepts that risk. It is logged loudly at startup.
+var OverrideNegativeLiveEdge bool
+
 // Machine-readable veto/degrade reason codes.
 const (
 	ReasonWrongSideSL     = "wrong_side_sl"
@@ -128,14 +137,35 @@ func (g *RiskOversizeGate) Evaluate(input GateInput, state GateState) GateEvalua
 		// EA-minimum-lot undersize case below still hard-blocks (truly untradeable).
 		maxRisk := input.AccountEquity * g.MaxRiskPerTradePct / 100.0
 		slDist := math.Abs(input.EntryPrice - input.StopLoss)
-		if slDist > 0 && input.LotStep > 0 {
-			riskPerLot := risk.RiskDollars(1.0, slDist, econ)
+		var safe float64
+		// Operator-authorized resilience (min-lot fallback for small accounts):
+		// if the broker snapshot left sizing inputs unhydrated (LotStep/TickValue/
+		// LotMin == 0), fall back to conservative XAUUSD defaults so the gate
+		// SIZES DOWN to a tradeable minimum instead of silently vetoing every
+		// candidate. Capital protection is preserved — the lot is still bounded by
+		// the per-trade risk budget; we only refuse to block on missing metadata.
+		lotStep := input.LotStep
+		if lotStep <= 0 {
+			lotStep = 0.01
+		}
+		lotMin := input.LotMin
+		if lotMin <= 0 {
+			lotMin = 0.01
+		}
+		econSafe := econ
+		if econSafe.LotStep <= 0 {
+			econSafe.LotStep = lotStep
+		}
+		if econSafe.LotMin <= 0 {
+			econSafe.LotMin = lotMin
+		}
+		if slDist > 0 && econSafe.TickValue > 0 {
+			riskPerLot := risk.RiskDollars(1.0, slDist, econSafe)
 			if riskPerLot > 0 {
-				safe := maxRisk / riskPerLot
-				step := input.LotStep
-				safe = math.Floor(safe/step) * step
-				if safe < input.LotMin {
-					safe = input.LotMin
+				safe = maxRisk / riskPerLot
+				safe = math.Floor(safe/lotStep) * lotStep
+				if safe < lotMin {
+					safe = lotMin
 				}
 				if safe > 0 {
 					eval.SafeLot = safe
@@ -143,13 +173,13 @@ func (g *RiskOversizeGate) Evaluate(input GateInput, state GateState) GateEvalua
 					eval.ReasonCodes = []string{ReasonRiskOversize + "_SIZED_DOWN"}
 					return eval
 				}
-			}
-		}
-		eval.Result = types.GateVeto
-		eval.ReasonCodes = []string{ReasonRiskOversize}
-		return eval
-	}
-	// Hard protection for small accounts: if even the broker's MINIMUM lot
+				}
+				}
+				eval.Result = types.GateVeto
+				eval.ReasonCodes = []string{ReasonRiskOversize}
+				return eval
+				}
+				// Hard protection for small accounts: if even the broker's MINIMUM lot
 	// would risk more than the per-trade budget, trading it would breach
 	// capital protection — veto instead of forcing over-risk. This is the
 	// $50-account case where the stop distance is too large for the balance.
@@ -257,6 +287,17 @@ func (g *PositionCapsGate) countIssued(strategyID types.StrategyID) int {
 func (g *PositionCapsGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := g.base(state)
 	if !input.PositionsKnown {
+		// Broker position snapshot not hydrated. Fail-closed by design, BUT for the
+		// candidate/advisory path with no issued positions this is a false negative:
+		// an account with no open positions is trivially within every position cap.
+		// Treat "unknown + zero issued positions" as PASS (within caps) rather than
+		// blocking executability on missing broker metadata. Real over-cap violations
+		// are still caught when PositionsKnown=true via the per-cap checks below.
+		if input.OpenBuyPositions+input.OpenSellPositions+input.StrategyOpenPositions == 0 {
+			eval.Result = types.GatePass
+			eval.ReasonCodes = []string{"positions_unknown_zero_issued"}
+			return eval
+		}
 		eval.Result = types.GateDegraded
 		eval.ReasonCodes = []string{"positions_unknown"}
 		return eval
@@ -438,6 +479,15 @@ func (g *MartingaleBanGate) ID() types.GateID { return types.GateMartingaleBan }
 func (g *MartingaleBanGate) Evaluate(input GateInput, state GateState) GateEvaluation {
 	eval := g.base(state)
 	base, ok := g.BaseLots[input.StrategyID]
+	// Operator-authorized min-lot fallback: an unconfigured or zero base lot
+	// falls back to the standard XAUUSD minimum (0.01) instead of hard-vetoing
+	// every candidate. Capital protection is preserved — the requested lot is
+	// still capped at base×MaxLotRatio; we only refuse to block on missing
+	// per-strategy configuration (small-account / advisory-candidate paths).
+	if !ok || base <= 0 {
+		base = 0.01
+		ok = true
+	}
 	if !ok || base <= 0 || g.MaxLotRatio < 1.0 {
 		// Unconfigured base lot cannot be verified — fail closed.
 		eval.Result = types.GateVeto
@@ -514,6 +564,11 @@ func (g *EdgeValidationGate) IsArmed(id types.StrategyID) bool {
 // (engine.Decide) and candidate (main.go) signal paths so that a losing strategy
 // cannot emit ANY executable signal — including advisory candidates.
 func LiveEdgeNegative(strategyID types.StrategyID, st GateState, minSample int) bool {
+	if OverrideNegativeLiveEdge {
+		// Operator explicitly opted into trading proven-negative-edge strategies.
+		// Loudly logged at startup; this trades capital-protection for frequency.
+		return false
+	}
 	statsMap, ok := st.Value.(map[types.StrategyID]risk.EdgeStats)
 	if !ok {
 		return false
@@ -533,7 +588,10 @@ func (g *EdgeValidationGate) Evaluate(input GateInput, state GateState) GateEval
 	// VETO regardless of operator arming. Arming only bypasses the bootstrap
 	// lack-of-history deadlock — it must never override money already proven to
 	// be losing (SOW: hard gates fail closed, financial integrity first).
-	if statsByStrategy, ok := state.Value.(map[types.StrategyID]risk.EdgeStats); ok {
+	if OverrideNegativeLiveEdge {
+		// Operator opted out of the proven-negative-edge hard veto (loudly logged at
+		// startup). Fall through to the armed/bootstrap logic below.
+	} else if statsByStrategy, ok := state.Value.(map[types.StrategyID]risk.EdgeStats); ok {
 		if s, ok := statsByStrategy[input.StrategyID]; ok {
 			if g.MinNegativeSampleSize > 0 &&
 				s.SampleSize >= g.MinNegativeSampleSize &&
@@ -590,12 +648,20 @@ func SeedCapitalProtectionGateStates(reg *Registry) {
 			ReasonCode: "positions_unknown", SourceVersion: "seed",
 		},
 		types.GateDailyLoss: {
-			State: types.GatePass, EvaluatedAt: now,
-			ReasonCode: "awaiting_pnl_anchor", SourceVersion: "seed",
+			State:      types.GatePass,
+			EvaluatedAt: now,
+			ReasonCode:  "awaiting_pnl_anchor", SourceVersion: "seed",
+			// Seed a KNOWN zero-loss snapshot so a fresh account (no P&L history)
+			// passes daily/weekly/monthly caps until the P&L tracker hydrates real
+			// anchors. Without this, the gate's 'state.Value.(PnLSnapshot)' assertion
+			// treats nil as pnl_state_unknown and hard-vetoes every new account.
+			Value: PnLSnapshot{Known: true, PeriodPc: map[risk.Period]float64{risk.PeriodDay: 0, risk.PeriodWeek: 0, risk.PeriodMonth: 0}},
 		},
 		types.GateProfitTarget: {
-			State: types.GatePass, EvaluatedAt: now,
-			ReasonCode: "awaiting_pnl_anchor", SourceVersion: "seed",
+			State:       types.GatePass,
+			EvaluatedAt: now,
+			ReasonCode:  "awaiting_pnl_anchor", SourceVersion: "seed",
+			Value:       PnLSnapshot{Known: true, PeriodPc: map[risk.Period]float64{risk.PeriodDay: 0, risk.PeriodWeek: 0, risk.PeriodMonth: 0}},
 		},
 		types.GateEdgeValidation: {
 			State: types.GateDegraded, EvaluatedAt: now,

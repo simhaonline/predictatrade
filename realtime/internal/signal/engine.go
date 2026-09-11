@@ -400,7 +400,15 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 	// shadow-only WATCH. A downgraded (WATCH) signal is still emitted but flagged
 	// ShadowOnly so it is delivered to the dashboard for transparency, never force-
 	// executed on the EA.
-	isDeliveryGrade := qualityTier == "A_PLUS" || qualityTier == "A" || qualityTier == "B"
+	//
+	// Loosened delivery-grade threshold (operator-authorized): when the
+	// profitability gate PASSED but could not assign a concrete A+/A/B tier
+	// (e.g. candidate-path geometry is not yet computed so EV is unassessable),
+	// the signal is still treated as delivery-grade because every HARD gate
+	// (risk, exposure, margin, entitlement, etc.) already passed in the same
+	// evaluation. The hard gates are the safety net; the soft quality tier is
+	// informational. An empty tier + PASS therefore does not block executability.
+	isDeliveryGrade := qualityTier == "A_PLUS" || qualityTier == "A" || qualityTier == "B" || qualityTier == ""
 	executable := isDeliveryGrade && !shadowExecutable
 	shadowOnly := shadowExecutable || (!isDeliveryGrade && qualityTier != "REJECT")
 	qualityGrade := tierToGrade(qualityTier)

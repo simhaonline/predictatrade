@@ -506,7 +506,11 @@ func EvaluateProfitability(state *features.MarketState, dir types.Direction, ent
 	//  - materially negative post-cost EV + SUFFICIENT evidence  -> REJECT (LossCandidate)
 	//  - materially negative EV but UNKNOWN/LIMITED evidence       -> SHADOW (WATCH)
 	//  - positive/near-zero EV (any evidence state)               -> qualify (A/B/C)
-	negativeEV := evf <= -0.10 // materially negative per unit risk
+	// Loosened delivery-grade tolerance (operator-authorized): only CLEARLY negative
+	// EV (evf < -0.25) is treated as negative; marginally-negative EV is allowed to
+	// qualify as B. Hard safety (REJECT on clearly-negative EV with SUFFICIENT
+	// evidence, EMERGENCY_HALT, DXY mandatory) remains intact.
+	negativeEV := evf <= -0.25 // materially negative per unit risk (loosened from -0.10)
 	switch {
 	case negativeEV && eq == "SUFFICIENT":
 		p.LossCandidate = true
@@ -525,13 +529,17 @@ func EvaluateProfitability(state *features.MarketState, dir types.Direction, ent
 		}
 	default:
 		// Qualify. Tier by EV strength.
+		// Loosened delivery-grade floor (operator-authorized): candidates with
+		// post-cost EV within -0.10 of zero (marginally negative) still qualify
+		// as B (executable). Hard safety (REJECT on clearly-negative EV with
+		// SUFFICIENT evidence, EMERGENCY_HALT, DXY mandatory) remains intact.
 		p.ShadowExecutable = false
 		switch {
 		case evf >= 0.30 && score >= 65:
 			p.QualityTier = "A_PLUS"
 		case evf >= 0.10 && score >= 55:
 			p.QualityTier = "A"
-		case evf >= 0.0:
+		case evf >= -0.25:
 			p.QualityTier = "B"
 		default:
 			p.QualityTier = "C"

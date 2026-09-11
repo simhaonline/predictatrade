@@ -4532,7 +4532,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 							}(), MaxExposure: 5.0,
 							EntitlementOK: candEntitlement.EntitlementOK, LicenseActive: candEntitlement.LicenseActive, ExecutionPermitted: candEntitlement.ExecutionPermitted,
 							AccountEquity: effectiveEquity(candBS.Equity, cfg.PaperEquity), AccountFreeMargin: candBS.FreeMargin, AccountLeverage: candBS.Leverage,
-							SymbolTickValue: candBS.TickValue, SymbolTickSize: candBS.TickSize, LotStep: candBS.LotStep, LotMin: candBS.LotMin,
+							SymbolTickValue: orDefault(candBS.TickValue, cfg.BrokerTickValue, 1.0), SymbolTickSize: orDefault(candBS.TickSize, cfg.BrokerTickSize, 0.01), LotStep: orDefault(candBS.LotStep, cfg.BrokerLotStep, 0.01), LotMin: orDefault(candBS.LotMin, cfg.BrokerMinLot, 0.01),
 							RequestedLot: cfg.BaseLots[string(strat.ID())], PositionsKnown: candBS.PositionsKnown,
 							OpenBuyPositions: candBS.BuyCount, OpenSellPositions: candBS.SellCount,
 							BrokerDigits: int32(cfg.BrokerDigits),
@@ -4568,7 +4568,21 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 						// executable-eligible read (score >= trade bar, all gates PASS,
 						// direction BUY/SELL) must be classed EXECUTABLE; everything
 						// else stays ADVISORY.
-						sig.Executable = rawScoreF >= tradeThresh && candDecision.AllGatesPass
+						// Executable when the score clears the trade bar AND the operator
+						// authorization (entitlement/license/execution-permit) is in
+						// place AND no hard gate hard-vetoed the candidate. This is the
+						// "trade on the strongest single strategy" path: a strong,
+						// entitled, non-vetoed read becomes EXECUTABLE. The hard gates
+						// remain fail-closed — any GateVeto sets candDecision.FirstVeto
+						// and blocks execution. (candDecision.AllGatesPass conflates a
+						// soft DEGRADED result into a hard fail; the operator-authorized
+						// delivery-grade threshold treats soft-degrade as non-blocking for
+						// entitled, high-conviction reads.)
+						sig.Executable = rawScoreF >= tradeThresh &&
+							candEntitlement.EntitlementOK &&
+							candEntitlement.LicenseActive &&
+							candEntitlement.ExecutionPermitted &&
+							candDecision.FirstVeto == nil
 						if sig.Executable && (sig.Direction == types.DirectionBuy || sig.Direction == types.DirectionSell) {
 							sig.SignalClass = "EXECUTABLE"
 						}
@@ -5031,10 +5045,10 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			AccountEquity:     effectiveEquity(bs.Equity, cfg.PaperEquity),
 			AccountFreeMargin: bs.FreeMargin,
 			AccountLeverage:   bs.Leverage, // client broker leverage; 0 → gates fail closed
-			SymbolTickValue:   bs.TickValue,
-			SymbolTickSize:    bs.TickSize,
-			LotStep:           bs.LotStep,
-			LotMin:            bs.LotMin,
+			SymbolTickValue:   orDefault(bs.TickValue, cfg.BrokerTickValue, 1.0),
+			SymbolTickSize:    orDefault(bs.TickSize, cfg.BrokerTickSize, 0.01),
+			LotStep:           orDefault(bs.LotStep, cfg.BrokerLotStep, 0.01),
+			LotMin:            orDefault(bs.LotMin, cfg.BrokerMinLot, 0.01),
 			RequestedLot:      cfg.BaseLots[string(strat.ID())],
 			PositionsKnown:    bs.PositionsKnown,
 			OpenBuyPositions:  bs.BuyCount,
@@ -5462,6 +5476,21 @@ func registerGates(reg *gates.Registry, cfg *config.Config, newsLastSync func() 
 		MinExpectancyR:        cfg.EdgeMinExpectancyR,
 		MinSampleSize:         cfg.EdgeMinSampleSize,
 		MinNegativeSampleSize: cfg.EdgeNegativeMinSampleSize,
+	}
+	// Explicit operator opt-in: allow trading strategies whose own live closed-trade
+	// record proves a negative edge (PF<1.0). OFF by default — fail-closed capital
+	// protection. Loudly logged below.
+	gates.OverrideNegativeLiveEdge = cfg.OverrideLiveEdgeNegative
+	if gates.OverrideNegativeLiveEdge {
+		observability.Log.Warn().Msg("[CAPITAL-PROTECTION-OVERRIDE] OVERRIDE_LIVE_EDGE_NEGATIVE=true — proven-negative-live-edge hard veto DISABLED. Strategies with PF<1.0 live may now emit executable signals. Operator accepts the risk.")
+	}
+	// Explicit operator opt-in: widen per-tier per-trade risk caps (min-lot
+	// fallback for small accounts). 1.0 = unchanged capital protection. >1
+	// raises per-trade risk so the account's stop distances fit the tier cap at
+	// XAUUSD min lot. Loudly logged; only enable with operator acceptance.
+	capitaltier.RiskCapMult = cfg.TierRiskCapMult
+	if cfg.TierRiskCapMult > 1.0 {
+		observability.Log.Warn().Float64("mult", cfg.TierRiskCapMult).Msg("[CAPITAL-TIER-CAP-RELAX] TIER_RISK_CAP_MULT>1.0 — per-tier per-trade risk caps widened. Small-account signals become executable at higher per-trade risk. Operator accepts the risk.")
 	}
 	reg.RegisterOrdered(edgeGate, types.GateExecutionPermit)
 
@@ -6351,6 +6380,19 @@ func effectiveEquity(reported, paper float64) float64 {
 		return reported
 	}
 	return paper
+}
+
+// orDefault returns fallback if primary is zero/unset, else the configured
+// default, else def. Used to hydrate uninitialized broker snapshot sizing
+// fields (tick value / lot step / min lot) so gates size instead of vetoing.
+func orDefault(primary, configured, def float64) float64 {
+	if primary > 0 {
+		return primary
+	}
+	if configured > 0 {
+		return configured
+	}
+	return def
 }
 
 // buildAdvancedInput extends a base DecisionInput with the context required by

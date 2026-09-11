@@ -66,18 +66,24 @@ func (g *ProfitabilityGate) Evaluate(input GateInput, state GateState) GateEvalu
 				Msg("[PROFITABILITY] reject — refinement flagged loss candidate (sufficient evidence)")
 			return eval
 		}
-		// Strategy supplied a quality tier; carry it through.
-		if input.QualityTier != "" {
+		// Strategy supplied a quality tier; carry it through ONLY when it is
+		// already delivery-grade (A_PLUS/A/B). A non-delivery-grade tier
+		// (e.g. a conservative "C" from refinement) must NOT short-circuit the
+		// independent EV recomputation below — that recomputation returns B for
+		// any marginally-positive-EV setup (evPerRisk >= -0.25), which IS
+		// delivery-grade. Loosening the delivery-grade threshold (operator-
+		// authorized) means a setup that independently clears EV/geometry is
+		// executable even if the strategy's label was conservative.
+		if input.QualityTier != "" && isDeliveryGradeTier(input.QualityTier) {
 			eval.QualityTier = input.QualityTier
 			eval.SoftScore = qualityTierScore(input.QualityTier)
 			if input.ShadowExecutable {
 				eval.ShadowExecutable = true
-				eval.Result = types.GatePass
-			} else {
-				eval.Result = types.GatePass
 			}
+			eval.Result = types.GatePass
 			return eval
 		}
+		// Otherwise fall through to the independent EV-based tier computation.
 	}
 
 	// Independent recomputation from the concrete geometry. Only assess when we
@@ -125,7 +131,7 @@ func (g *ProfitabilityGate) Evaluate(input GateInput, state GateState) GateEvalu
 
 	// Decision: map into tier + shadow; do NOT blanket-veto (prompt.md §23).
 	switch {
-	case evPerRisk <= -0.10*risk:
+	case evPerRisk <= -0.25*risk:
 		eval.Result = types.GateVeto
 		eval.ReasonCodes = append(eval.ReasonCodes, "NEGATIVE_EXPECTANCY")
 		eval.QualityTier = "REJECT"
@@ -134,7 +140,7 @@ func (g *ProfitabilityGate) Evaluate(input GateInput, state GateState) GateEvalu
 		eval.ShadowExecutable = true
 		eval.QualityTier = "WATCH"
 		eval.SoftScore = -0.3
-	case evPerRisk <= 0:
+	case evPerRisk <= -0.10*risk:
 		eval.ShadowExecutable = true
 		eval.QualityTier = "WATCH"
 		eval.SoftScore = -0.1
@@ -145,6 +151,13 @@ func (g *ProfitabilityGate) Evaluate(input GateInput, state GateState) GateEvalu
 	return eval
 }
 
+// isDeliveryGradeTier reports whether a quality tier is executable-grade
+// (A_PLUS/A/B). Used to decide whether a strategy-supplied tier should be
+// adopted verbatim or recomputed from independent EV geometry.
+func isDeliveryGradeTier(tier string) bool {
+	return tier == "A_PLUS" || tier == "A" || tier == "B"
+}
+
 // qualityTierForEV maps EV-per-risk + score into a delivery tier.
 func qualityTierForEV(evPerRisk, score float64) string {
 	switch {
@@ -152,7 +165,7 @@ func qualityTierForEV(evPerRisk, score float64) string {
 		return "A_PLUS"
 	case evPerRisk >= 0.10 && score >= 55:
 		return "A"
-	case evPerRisk >= 0.0:
+	case evPerRisk >= -0.25:
 		return "B"
 	default:
 		return "C"
