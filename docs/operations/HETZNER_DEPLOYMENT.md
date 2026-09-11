@@ -51,6 +51,12 @@ if you want DB and backups physically separated.
 **Nuremberg (NBG1)** — both are close to the EU/UK broker (Xelans, GMT+3), which
 matters more for the Master-Node feed than admin-UI latency from Dubai.
 
+**Calibrate with real numbers:** before committing to a tier, run
+`scripts/capacity/measure_capacity.py` against the live stack (see
+[CAPACITY_PLAN.md](CAPACITY_PLAN.md)) — it measures the actual baseline and
+projects to your target subscriber count using editable per-user assumptions,
+with explicit dedicated-server trigger thresholds.
+
 **Image:** Ubuntu 22.04 LTS or 24.04 LTS (64-bit).
 
 ---
