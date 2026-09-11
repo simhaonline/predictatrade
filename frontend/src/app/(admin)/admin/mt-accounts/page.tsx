@@ -4,11 +4,9 @@ import { toast } from "sonner";
 import { useState } from "react";
 import { IconServer, IconAlertTriangle } from "@tabler/icons-react";
 import {
-  fetchMtAccounts,
   fetchAllMtAccountsAdmin,
   fetchAllDevicesAdmin,
   createMtAccount,
-  type MtAccountDevice,
   type AdminMtAccount,
   type AdminDevice,
   type CreateMtAccountBody,
@@ -55,7 +53,10 @@ export default function AdminMtAccountsPage() {
     clientType: "MT5",
   });
 
-  // Fleet-wide (admin) + user-scoped both queried; UI prefers fleet rows.
+  // Admin fleet-wide listing (check.md #4): one row per DEVICE (the backend
+  // returns DISTINCT ON device via the freshest sync). This is the authoritative
+  // view for the admin page — render it directly, never the user-scoped list
+  // (which still carries multiple activation rows per device → duplicates).
   const adminQ = useQuery<AdminMtAccount[]>({
     queryKey: ["admin-mt-accounts"],
     queryFn: fetchAllMtAccountsAdmin,
@@ -65,11 +66,6 @@ export default function AdminMtAccountsPage() {
     queryKey: ["admin-devices"],
     queryFn: fetchAllDevicesAdmin,
     refetchInterval: 60000,
-  });
-  const { data: accounts, isLoading, error } = useQuery<MtAccountDevice[]>({
-    queryKey: ["mt-accounts"],
-    queryFn: fetchMtAccounts,
-    refetchInterval: 20000,
   });
 
   const createMutation = useMutation({
@@ -82,32 +78,31 @@ export default function AdminMtAccountsPage() {
     onError: (e) => toast.error(`Failed to create MT account: ${e instanceof Error ? e.message : "unknown"}`),
   });
 
-  const rows = (accounts ?? []).flatMap((dev) =>
-    (dev.activations ?? []).map((a) => ({ device: dev, activation: a }))
-  );
-
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-bold text-pat-text-primary">MT Accounts</h1>
         <p className="text-sm text-pat-text-secondary mt-1">
-          MetaTrader accounts linked via licensing (GET /licensing/mt-accounts). Create is POST /licensing/mt-accounts.
+          MetaTrader accounts linked across the fleet — one entry per device. Create is POST /licensing/mt-accounts (requires a bound device id).
         </p>
       </div>
 
-      {error && (
+      {adminQ.error && (
         <DegradedBanner>
-          Could not load MT accounts: {error instanceof Error ? error.message : "unknown error"}.
+          Could not load MT accounts: {adminQ.error instanceof Error ? adminQ.error.message : "unknown error"}.
         </DegradedBanner>
       )}
 
-      {/* LIVE list */}
+      {/* LIVE fleet list — ONE row per device (adminQ is deduplicated server-side) */}
       <div className="bg-pat-card-bg border border-pat-card-border rounded-lg p-4 shadow-sm">
         <h2 className="text-sm font-medium text-pat-text-primary mb-3 flex items-center gap-2">
-          <IconServer size={16} /> Linked Accounts (LIVE)
+          <IconServer size={16} /> Linked Accounts (LIVE) — one entry per device
         </h2>
-        {isLoading && <div className="text-xs text-pat-text-muted">Loading accounts...</div>}
-        {!isLoading && rows.length === 0 && (adminQ.data?.length ?? 0) > 0 && (
+        {adminQ.isLoading && <div className="text-xs text-pat-text-muted">Loading accounts...</div>}
+        {!adminQ.isLoading && (adminQ.data?.length ?? 0) === 0 && (
+          <div className="text-xs text-pat-text-muted">No devices with linked MT accounts yet. Accounts appear when a device activates a bound MT account.</div>
+        )}
+        {!adminQ.isLoading && (adminQ.data?.length ?? 0) > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -132,8 +127,8 @@ export default function AdminMtAccountsPage() {
                     <td className="px-3 py-2 text-pat-text-secondary">{a.client_type ?? "—"}</td>
                     <td className="px-3 py-2 text-pat-text-secondary">{a.device_name ?? "—"}</td>
                     <td className="px-3 py-2">
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-pat-bg-surface-secondary text-pat-text-muted">
-                        {a.connection_status ?? "UNKNOWN"}
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${a.connection_status === "ONLINE" ? "bg-emerald-500/15 text-emerald-400" : "bg-pat-bg-surface-secondary text-pat-text-muted"}`}>
+                        {a.connection_status === "ONLINE" ? "ONLINE" : "OFFLINE"}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-pat-text-primary">
@@ -151,47 +146,6 @@ export default function AdminMtAccountsPage() {
                     </td>
                     <td className="px-3 py-2 font-mono text-xs text-pat-text-secondary">{a.license_key ?? "—"}</td>
                     <td className="px-3 py-2 text-pat-text-secondary">{a.user_email ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {!isLoading && rows.length === 0 && (adminQ.data?.length ?? 0) === 0 && (
-          <div className="text-xs text-pat-text-muted">No MT accounts linked anywhere yet. Accounts appear when a device activates with a bound MT account.</div>
-        )}
-        {rows.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-pat-text-muted border-b border-pat-border">
-                  <th className="px-3 py-2 font-medium">Login</th>
-                  <th className="px-3 py-2 font-medium">Broker</th>
-                  <th className="px-3 py-2 font-medium">Server</th>
-                  <th className="px-3 py-2 font-medium">Client</th>
-                  <th className="px-3 py-2 font-medium">Device</th>
-                  <th className="px-3 py-2 font-medium">Status</th>
-                  <th className="px-3 py-2 font-medium">Balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(({ device, activation }) => (
-                  <tr key={activation.id} className="border-b border-pat-border/50">
-                    <td className="px-3 py-2 font-mono text-pat-text-primary">{activation.mt_account_login ?? "—"}</td>
-                    <td className="px-3 py-2 text-pat-text-secondary">{activation.broker_name ?? "—"}</td>
-                    <td className="px-3 py-2 text-pat-text-secondary">{activation.broker_server ?? "—"}</td>
-                    <td className="px-3 py-2 text-pat-text-secondary">{activation.client_type ?? "—"}</td>
-                    <td className="px-3 py-2 text-pat-text-secondary">{device.device_name ?? device.id}</td>
-                    <td className="px-3 py-2">
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-pat-bg-surface-secondary text-pat-text-muted">
-                        {device.connection_status ?? "UNKNOWN"}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-pat-text-primary">
-                      {activation.balance !== undefined
-                        ? `${activation.balance} ${activation.currency ?? ""}`.trim()
-                        : "—"}
-                    </td>
                   </tr>
                 ))}
               </tbody>

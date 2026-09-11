@@ -216,32 +216,15 @@ export class LicensingService {
       throw new BadRequestException('Device not found. Register the device first.');
     }
 
-    // An MT account should be active on a single device at a time. When this
-    // device activates a login, deactivate any other still-active activation of
-    // the same login (typically left over from a previous device/reinstall).
-    // Prevents the same account appearing as "multiple terminals" in the admin
-    // device list.
-    await this.pool.query(
-      `UPDATE licensing.device_activations da
-         SET deactivated_at = now()
-         FROM licensing.devices d
-       WHERE da.device_id = d.id AND d.user_id = $1
-         AND da.mt_account_login = $2 AND da.deactivated_at IS NULL
-         AND da.device_id <> $3`,
-      [userId, body.mtAccountLogin, deviceId],
-    );
-
-    // Upsert activation: guarantee exactly ONE active row per
-    // (device_id, mt_account_login, client_type). First deactivate any existing
-    // active row for this key, then insert a single fresh active row. This
-    // prevents the duplicate-row pile-up that previously happened on every
-    // poll/heartbeat (blank-login activations were each inserting a new row).
+    // GUARANTEE exactly ONE active activation row per device (user's explicit
+    // requirement: "single entry of each user device"). On every activate/sync,
+    // deactivate all currently-active rows for this device FIRST, then insert a
+    // single fresh active row. Prior logins are preserved as deactivated history.
     await this.pool.query(
       `UPDATE licensing.device_activations
          SET deactivated_at = now()
-       WHERE device_id = $1 AND mt_account_login = $2 AND client_type = $3
-         AND deactivated_at IS NULL`,
-      [deviceId, body.mtAccountLogin, body.clientType],
+       WHERE device_id = $1 AND deactivated_at IS NULL`,
+      [deviceId],
     );
 
     // Check max_mt_accounts limit (count only ACTIVE activations per device).
