@@ -548,6 +548,10 @@ input int     SnapshotIntervalMs = 10;     // HFT: 10ms snapshot (1-5ms co-locat
 input int     TickIntervalMs     = 0;       // 0 = every tick (HFT: 1-5ms when co-located)
 input string  BrokerSymbol      = "";     // Empty = auto-detect chart symbol
 input string  PATCloudURL       = "https://api.predictatrade.com"; // Cloud API base URL (WebRequest allowlist)
+input string  PATCloudURLFallback= "";       // OPTIONAL IPv4-only fallback host (e.g. https://api-ipv4.predictatrade.com).
+                                                  // Use when the primary host resolves IPv6-first and the terminal host has no
+                                                  // working IPv6 (common on broker VPS): WebRequest then fails with HTTP -1.
+                                                  // Set this to an A-record-only hostname so the EA retries over IPv4.
 input string  MasterDeviceId    = "";     // Device UUID (optional — auto-activation from MasterLicenseKey)
 input string  MasterDeviceSecret= "";     // Device secret (optional)
 input string  MasterLicenseKey  = "";     // Master (data-node) license key for auto-activation
@@ -1746,6 +1750,37 @@ bool     g_masterNetShown = false;
 int      g_ingestOkCount  = 0;
 int      g_ingestErrCount = 0;
 
+//--- MasterWebRequestFallback: POST via WebRequest with an optional IPv4-only
+//    fallback host. If the primary request returns HTTP -1 (transport failure,
+//    i.e. NO server reply — typically IPv6-first DNS on a host without IPv6, or a
+//    missing WebRequest allowlist entry) AND a fallback base is configured, the
+//    same request is retried against the fallback host. This keeps the EA online
+//    when the primary hostname is unreachable over IPv6 from the terminal host.
+bool g_usingIpv4Fallback = false;
+int MasterWebRequestFallback(string method, string url, string headers, int timeout, uchar &data[], uchar &result[], string &resHeaders)
+{
+   int status = WebRequest(method, url, headers, timeout, data, result, resHeaders);
+   g_usingIpv4Fallback = false;
+   if(status == -1 && StringLen(PATCloudURLFallback) > 0)
+   {
+      // Swap the host portion of the URL for the fallback base, keep the path/query.
+      int proto = StringFind(url, "://");
+      int hostEnd = (proto >= 0) ? StringFind(url, "/", proto + 3) : StringFind(url, "/");
+      string pathOnly = (hostEnd >= 0) ? StringSubstr(url, hostEnd) : "/";
+      string fbUrl = PATCloudURLFallback;
+      if(StringSubstr(fbUrl, StringLen(fbUrl) - 1) != "/")
+         fbUrl += "/";
+      fbUrl = StringSubstr(fbUrl, 0, StringLen(fbUrl) - 1) + pathOnly; // avoid double slash
+      int s2 = WebRequest(method, fbUrl, headers, timeout, data, result, resHeaders);
+      if(s2 != -1)
+      {
+         g_usingIpv4Fallback = true;
+         return s2;
+      }
+   }
+   return status;
+}
+
 //--- MasterHTTPPost: plain JSON POST (no auth) → (status, response)
 int MasterHTTPPost(string url, string body, string &response)
 {
@@ -1755,7 +1790,7 @@ int MasterHTTPPost(string url, string body, string &response)
     ArrayResize(data, ArraySize(data) - 1);
     uchar result[];
     string resHeaders = "";
-    int status = WebRequest("POST", url, headers, 8000, data, result, resHeaders);
+    int status = MasterWebRequestFallback("POST", url, headers, 8000, data, result, resHeaders);
     response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
     return status;
 }
@@ -1938,7 +1973,7 @@ int MasterSignedPost(string path, string body, string &response)
     ArrayResize(data, ArraySize(data) - 1);
     uchar result[];
     string resHeaders = "";
-    int status = WebRequest("POST", PATCloudURL + path, headers, 8000, data, result, resHeaders);
+    int status = MasterWebRequestFallback("POST", PATCloudURL + path, headers, 8000, data, result, resHeaders);
     response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
     return status;
 }
@@ -2033,7 +2068,7 @@ void MasterAppend(string content)
     uchar result[];
     string resHeaders = "";
     string url = PATCloudURL + "/ingest/agent?agentId=" + PAT_MasterURLEncode(g_deviceId) + "&role=data";
-    int status = WebRequest("POST", url, headers, 5000, data, result, resHeaders);
+    int status = MasterWebRequestFallback("POST", url, headers, 5000, data, result, resHeaders);
     if(status == 401)
     {
         // Access token expired — force refresh once and retry.
@@ -2056,7 +2091,9 @@ void MasterAppend(string content)
             int err = GetLastError();
             if(status == -1)
                 Print("[MASTER_NODE] ingest failed: HTTP -1 (transport failure, NO server reply) err=", err,
-                      " url=", url, " — check WebRequest allowlist + DNS/TLS/IPv6 from the terminal host");
+                      " url=", url, " usingIpv4Fallback=", g_usingIpv4Fallback,
+                      " — check WebRequest allowlist + DNS/TLS/IPv6 from the terminal host",
+                      (StringLen(PATCloudURLFallback) == 0 ? " (set PATCloudURLFallback to an IPv4-only host to retry over IPv4)" : ""));
             else
                 Print("[MASTER_NODE] ingest failed: HTTP ", status, " type=", msgType, " err=", err);
             g_masterNetShown = true;
