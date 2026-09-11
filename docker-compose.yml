@@ -471,14 +471,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    environment:
-      AWS_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY}
-      AWS_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_KEY}
-      AWS_REGION: ${BACKUP_S3_REGION}
-      S3_BUCKET: ${BACKUP_S3_BUCKET}
-      S3_ENDPOINT: ${BACKUP_S3_ENDPOINT}
-      S3_PREFIX: ${BACKUP_S3_PREFIX:-predictatrade/wal}
-      DB_S3_PREFIX: ${BACKUP_S3_DB_PREFIX:-predictatrade/db}
+    # Credentials/secrets load from the gitignored infra/env/.env via env_file.
+    # This is the SINGLE source of truth — the sidecar no longer depends on the
+    # host shell exporting BACKUP_S3_* (which broke R2 sync when the vars were only
+    # in .env and not in the compose runner's environment).
+    env_file:
+      - ./infra/env/.env
+    # NOTE: no `environment:` interpolation of ${BACKUP_S3_*} here — those are read
+    # directly from the env_file inside the container (see command below).
     volumes:
       - pat-pgdata:/pgdata:ro
       # Host-side logical dumps produced by scripts/backup/backup.sh (every 6h cron)
@@ -498,15 +498,19 @@ services:
         # (botocore NoneType errors) — serialize uploads and retry harder.
         mkdir -p /tmp/aws && printf '[default]\ns3 =\n  max_concurrent_requests = 1\n  max_queue_size = 1\n  multipart_threshold = 64MB\nmax_attempts = 10\nretry_mode = adaptive\n' > /tmp/aws/config;
         export AWS_CONFIG_FILE=/tmp/aws/config;
+        # Pull creds/bucket/endpoint from the env_file-provided BACKUP_S3_* vars.
+        export AWS_ACCESS_KEY_ID=$${BACKUP_S3_ACCESS_KEY};
+        export AWS_SECRET_ACCESS_KEY=$${BACKUP_S3_SECRET_KEY};
+        export AWS_DEFAULT_REGION=$${BACKUP_S3_REGION:-auto};
         while true; do
-          echo "[backup-sync] $$(date -u) syncing /pgdata/wal_archive -> s3://$${S3_BUCKET}/$${S3_PREFIX}";
-          aws s3 sync /pgdata/wal_archive s3://$${S3_BUCKET}/$${S3_PREFIX} --endpoint-url $${S3_ENDPOINT} --no-progress 2>&1 || echo '[backup-sync] WAL sync failed, retrying';
-          echo "[backup-sync] $$(date -u) syncing /pgbackups -> s3://$${S3_BUCKET}/$${DB_S3_PREFIX}";
+          echo "[backup-sync] $$(date -u) syncing /pgdata/wal_archive -> s3://$${BACKUP_S3_BUCKET}/$${BACKUP_S3_PREFIX}";
+          aws s3 sync /pgdata/wal_archive s3://$${BACKUP_S3_BUCKET}/$${BACKUP_S3_PREFIX} --endpoint-url $${BACKUP_S3_ENDPOINT} --no-progress 2>&1 || echo '[backup-sync] WAL sync failed, retrying';
+          echo "[backup-sync] $$(date -u) syncing /pgbackups -> s3://$${BACKUP_S3_BUCKET}/$${BACKUP_S3_DB_PREFIX}";
           # Only timestamped dump artifacts (backup_2*.dump + sha256 sidecars) —
           # never logs, lock files, or old test dumps. A dump caught mid-write
           # re-uploads once complete (size/mtime change); restores must verify
           # the .sha256 sidecar before trusting any object.
-          aws s3 sync /pgbackups s3://$${S3_BUCKET}/$${DB_S3_PREFIX} --exclude '*' --include 'backup_2*.dump' --include 'backup_2*.sha256' --include 'base/*' --include 'base/*.sha256' --endpoint-url $${S3_ENDPOINT} --no-progress 2>&1 || echo '[backup-sync] DB dump sync failed, retrying';
+          aws s3 sync /pgbackups s3://$${BACKUP_S3_BUCKET}/$${BACKUP_S3_DB_PREFIX} --exclude '*' --include 'backup_2*.dump' --include 'backup_2*.sha256' --include 'base/*' --include 'base/*.sha256' --endpoint-url $${BACKUP_S3_ENDPOINT} --no-progress 2>&1 || echo '[backup-sync] DB dump sync failed, retrying';
           sleep 60;
         done
 

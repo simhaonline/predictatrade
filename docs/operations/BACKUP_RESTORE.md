@@ -338,6 +338,15 @@ edge posture):
 end-to-end against production: 25 schemas / 2748 tables / 30.6M ticks restored
 and validated.
 
+### 9.2 Off-host target: Cloudflare R2 (current)
+
+Off-host backup ships to **Cloudflare R2** (`s3://predictatrade-backups`, account
+`da104d0b…`). The `pat-backup-sync` sidecar reads `BACKUP_S3_*` from
+`infra/env/.env` via `env_file` (single source of truth — it does NOT depend on
+the compose runner's shell environment). Configure by editing `infra/env/.env`
+(`BACKUP_S3_ENDPOINT=https://<accountid>.r2.cloudflarestorage.com`,
+`BACKUP_S3_BUCKET`, access key + secret). Verify with `dr-kit.sh verify-s3`.
+
 ### 10. Related Documents
 
 - [Disaster Recovery Plan](DR_PLAN.md)
