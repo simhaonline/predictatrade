@@ -13,6 +13,11 @@ set -euo pipefail
 (crontab -l 2>/dev/null | grep -v "dr-kit.sh backup"; echo "13 3 * * * /srv/predictatrade/xauusd/scripts/dr-kit.sh backup >> /srv/predictatrade/xauusd/logs/dr_backup.log 2>&1") | crontab -
 (crontab -l 2>/dev/null | grep -v "dr-kit.sh restore-test"; echo "43 3 * * * /srv/predictatrade/xauusd/scripts/dr-kit.sh restore-test >> /srv/predictatrade/xauusd/logs/dr_restore_test.log 2>&1") | crontab -
 
+# DR kit — daily SEPARATE codebase+config snapshot -> R2 predictatrade/code/
+# (git bundle + working tree minus secrets + migration manifest). Distinct from
+# the DB/WAL backups so a server migration has code, configs, AND database.
+(crontab -l 2>/dev/null | grep -v "dr-kit.sh codebase"; echo "23 3 * * * /srv/predictatrade/xauusd/scripts/dr-kit.sh codebase >> /srv/predictatrade/xauusd/logs/dr_codebase.log 2>&1") | crontab -
+
 # DR kit — weekly migration status report (Monday 4 AM)
 (crontab -l 2>/dev/null | grep -v "dr-kit.sh migrate-status"; echo "17 4 * * 1 /srv/predictatrade/xauusd/scripts/dr-kit.sh migrate-status >> /srv/predictatrade/xauusd/logs/dr_migrate.log 2>&1") | crontab -
 
@@ -21,4 +26,5 @@ echo "  - Health check (incl. Cloudflare edge): every 5 minutes"
 echo "  - Weekly retraining: Sunday 2 AM"
 echo "  - DR backup: daily 03:13"
 echo "  - DR restore self-test: daily 03:43"
+echo "  - DR codebase snapshot (R2 predictatrade/code/): daily 03:23"
 echo "  - DR migration status: Monday 04:17"

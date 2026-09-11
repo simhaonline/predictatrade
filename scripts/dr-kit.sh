@@ -14,8 +14,9 @@
 #   ./scripts/dr-kit.sh migrate-status   # show applied/pending migrations
 #   ./scripts/dr-kit.sh migrate-test     # run migration self-tests
 #   ./scripts/dr-kit.sh verify-s3       # pre-flight check of S3 backup config (no secrets printed)
-#   ./scripts/dr-kit.sh health           # production + Cloudflare edge health checks
-#   ./scripts/dr-kit.sh all              # backup + restore-test + migrate-status + health
+#   ./scripts/dr-kit.sh codebase        # SEPARATE code+config snapshot -> R2 predictatrade/code/
+#   ./scripts/dr-kit.sh health          # production + Cloudflare edge health checks
+#   ./scripts/dr-kit.sh all             # backup + codebase + restore-test + migrate-status + health
 #
 # Every subcommand fails fast and prints what it ran. No destructive action runs
 # against the live database except 'backup' (read-only pg_dump) and 'migrate-up'
@@ -62,6 +63,9 @@ case "${1:-help}" in
   verify-s3)
     run bash scripts/backup/verify_s3.sh
     ;;
+  codebase)
+    run bash scripts/backup/codebase_backup.sh
+    ;;
   health)
     run bash scripts/verify_live_production.sh
     # Cloudflare edge check is advisory (non-fatal).
@@ -72,6 +76,7 @@ case "${1:-help}" in
     ;;
   all)
     run bash scripts/backup/backup.sh && \
+    run bash scripts/backup/codebase_backup.sh && \
     run bash scripts/backup/restore_test.sh && \
     run bash scripts/migrate.sh status && \
     run bash scripts/verify_live_production.sh

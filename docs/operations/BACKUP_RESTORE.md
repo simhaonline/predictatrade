@@ -347,6 +347,19 @@ the compose runner's shell environment). Configure by editing `infra/env/.env`
 (`BACKUP_S3_ENDPOINT=https://<accountid>.r2.cloudflarestorage.com`,
 `BACKUP_S3_BUCKET`, access key + secret). Verify with `dr-kit.sh verify-s3`.
 
+R2 object layout — **kept in SEPARATE prefixes** for clean restore / migration:
+
+| Prefix | Contents | Produced by |
+|---|---|---|
+| `predictatrade/wal/` | WAL archive segments (continuous PITR) | pat-backup-sync sidecar |
+| `predictatrade/db/` | logical `pg_dump` dumps + `.sha256` | pat-backup-sync (from `/var/backups/predictatrade`) |
+| `predictatrade/code/` | git bundle + working-tree tar (no secrets) + migration manifest | `dr-kit.sh codebase` (nightly cron) |
+
+The `code/` snapshot is migration-ready: it captures the full repo history, the
+working tree (excluding `*.env`/secrets), docker image digests, volume names,
+and a manifest listing the secret *file paths* (never their values) so a new
+server can be reconstructed.
+
 ### 10. Related Documents
 
 - [Disaster Recovery Plan](DR_PLAN.md)
