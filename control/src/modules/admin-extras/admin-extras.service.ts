@@ -18,19 +18,6 @@ export interface BackupDrData {
   components: BackupComponent[];
 }
 
-export interface ReleaseRow {
-  id: string;
-  component: string;
-  version: string;
-  channel: string;
-  download_url: string;
-  sha256: string;
-  signature_key_id: string | null;
-  mandatory: boolean;
-  published_at: string | null;
-  active: boolean;
-}
-
 export interface BrokerRow {
   broker: string;
   server: string;
@@ -132,41 +119,6 @@ export class AdminExtrasService {
     };
   }
 
-  /** Returns release registry rows from `licensing.client_releases` or an honest empty note. */
-  async getReleases(): Promise<{ items: ReleaseRow[]; note?: string }> {
-    try {
-      const exists = await this.pool.query(
-        `SELECT 1 FROM information_schema.tables WHERE table_schema = 'licensing' AND table_name = 'client_releases'`,
-      );
-      if (exists.rows.length === 0) {
-        return { items: [], note: 'No release registry configured' };
-      }
-      const r = await this.pool.query(
-        `SELECT id, component, version, channel, download_url, sha256, signature_key_id,
-                mandatory, published_at, active
-         FROM licensing.client_releases
-         ORDER BY published_at DESC NULLS LAST, created_at DESC NULLS LAST
-         LIMIT 100`,
-      );
-      const items: ReleaseRow[] = r.rows.map((row) => ({
-        id: String(row.id),
-        component: row.component,
-        version: row.version,
-        channel: row.channel,
-        download_url: row.download_url,
-        sha256: row.sha256,
-        signature_key_id: row.signature_key_id ?? null,
-        mandatory: !!row.mandatory,
-        published_at: row.published_at ? new Date(row.published_at).toISOString() : null,
-        active: !!row.active,
-      }));
-      return { items };
-    } catch (err) {
-      this.logger.warn(`releases read failed: ${err instanceof Error ? err.message : err}`);
-      return { items: [], note: 'No release registry configured' };
-    }
-  }
-
   /** Returns broker qualification rows from `market.broker_execution_profiles` or an honest empty note. */
   async getBrokerQualification(): Promise<{ items: BrokerRow[]; note?: string }> {
     try {
@@ -237,19 +189,6 @@ export class AdminExtrasService {
       this.logger.warn(`macro/news read failed: ${err instanceof Error ? err.message : err}`);
       return { items: [], note: 'No macro/news data source configured' };
     }
-  }
-
-  /** check.md 2026-08-30 — Publish Release (add new release row) */
-  async publishRelease(body: { component: string; version: string; channel?: string; download_url: string; sha256: string; release_notes?: string }) {
-    if (!body.component || !body.version || !body.download_url || !body.sha256) {
-      throw new BadRequestException('component, version, download_url, sha256 required');
-    }
-    const r = await this.pool.query(
-      `INSERT INTO licensing.client_releases (component, version, channel, download_url, sha256, release_notes)
-       VALUES ($1, $2, COALESCE($3, 'STABLE'), $4, $5, $6) RETURNING *`,
-      [body.component, body.version, body.channel, body.download_url, body.sha256, body.release_notes || null],
-    );
-    return r.rows[0];
   }
 
   /** check.md 2026-08-30 — Trigger Restore Test (drill: verify spool + write audit row) */

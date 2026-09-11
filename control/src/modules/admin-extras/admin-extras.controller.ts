@@ -13,11 +13,6 @@ export class AdminExtrasController {
     return this.adminExtrasService.getBackupDr();
   }
 
-  @Get('releases')
-  async releases() {
-    return this.adminExtrasService.getReleases();
-  }
-
   @Get('broker-qualification')
   async brokerQualification() {
     return this.adminExtrasService.getBrokerQualification();
@@ -26,11 +21,6 @@ export class AdminExtrasController {
   @Get('macro-news')
   async macroNews() {
     return this.adminExtrasService.getMacroNews();
-  }
-
-  @Post('releases')
-  async publishRelease(@Body() body: any) {
-    return this.adminExtrasService.publishRelease(body);
   }
 
   @Post('backup-dr/restore-test')

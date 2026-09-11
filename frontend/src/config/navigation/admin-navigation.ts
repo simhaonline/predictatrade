@@ -4,7 +4,7 @@ import {
   IconDeviceDesktop, IconFileAnalytics, IconTestPipe, IconClipboardList,
   IconTool, IconHeartbeat, IconSettings, IconActivity,
   IconAlertTriangle, IconListCheck, IconAdjustments, IconWallet,
-  IconReportMoney, IconBrain, IconBroadcast, IconWorld, IconRocket,
+  IconReportMoney, IconBrain, IconBroadcast, IconWorld,
   IconDatabase, IconFlag, IconBuildingBank, IconServer, IconDroplet, IconSparkles,
   IconMail, IconMessage2Star,
 } from '@tabler/icons-react';
@@ -73,7 +73,6 @@ export const adminNavigation: NavItem[] = [
   { label: 'System Health', href: '/admin/health', icon: IconHeartbeat, section: 'System Operations' },
   { label: 'Feature Flags', href: '/admin/feature-flags', icon: IconFlag, section: 'System Operations' },
   { label: 'Backup & DR', href: '/admin/backup-dr', icon: IconDatabase, section: 'System Operations' },
-  { label: 'Releases', href: '/admin/releases', icon: IconRocket, section: 'System Operations' },
   { label: 'Settings', href: '/admin/settings', icon: IconSettings, section: 'System Operations' },
 ];
 
