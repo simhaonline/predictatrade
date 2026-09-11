@@ -14,7 +14,7 @@ else
   echo "gitleaks not installed; skipping (install via 'brew install gitleaks' or apt)"
 fi
 
-echo "== Go vet (realtime + windows-agent) =="
+echo "== Go vet (realtime) =="
 if [ -d realtime ]; then
   ( cd realtime && go vet ./... ) && echo -e "${GREEN}go vet: clean${NC}" || { echo -e "${RED}go vet: issues${NC}"; fail=1; }
 fi

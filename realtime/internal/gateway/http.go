@@ -122,7 +122,7 @@ func NewHTTPServer(hub *WebSocketHub, persister *marketdata.Persister, states *f
 	LastSnapshotAt() time.Time
 }, valkeyCache *cache.ValkeyCache, xmEngine *crossmarket.Engine, newsEngine *news.RiskEngine, engTracker *engstatus.Tracker) *HTTPServer {
 	h := &HTTPServer{
-		// v1.19.0 (Option B): the Windows-agent hub is gone. agentHub is
+		// v1.19.0 (Option B): the agent WS hub is gone. agentHub is
 		// accepted for call-site compatibility and ignored; signals are
 		// delivered to customer EAs via licensing.edge_signal_queue (edge-poll).
 		agentProvider:     agentProvider,
@@ -985,7 +985,7 @@ func (h *HTTPServer) handleMarketSnapshot(w http.ResponseWriter, r *http.Request
 		// No data at all
 		response["snapshot"] = nil
 		response["status"] = "waiting"
-		response["message"] = "No Master Node snapshot received yet. Ensure Master Node EA is running and connected to Windows Agent."
+		response["message"] = "No Master Node snapshot received yet. Ensure the Master Node EA is running and connected to the platform."
 		response["timestamp"] = time.Now().UTC().Format(time.RFC3339)
 		response["server_time"] = time.Now().UTC().Format(time.RFC3339)
 	}

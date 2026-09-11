@@ -1,6 +1,7 @@
-// Package marketdata — AgentProvider receives real tick data from Windows MT5 Agent.
-// Architecture: MT5 Terminal → Windows Agent → wss://live.predictatrade.com/ws/v1/agent → Go RT engine
-// This provider does NOT generate fake data. It only processes real ticks from connected agents.
+// Package marketdata — AgentProvider receives real tick data from the Master
+// Node MT4/MT5 EA.
+// Architecture: MT5/MT4 Terminal (Master Node EA) → POST /ingest/agent (device JWT) → Go RT engine
+// This provider does NOT generate fake data. It only processes real ticks from connected EAs.
 package marketdata
 
 import (
@@ -44,7 +45,7 @@ func ParseSnapshotTime(s string) time.Time {
 	return parseMQLTimestamp(s)
 }
 
-// AgentTickMessage is the message format the Windows Agent sends with real MT5 tick data.
+// AgentTickMessage is the message format the Master Node EA sends with real MT5 tick data.
 type AgentTickMessage struct {
 	Type      string  `json:"type"` // "TICK", "HEARTBEAT", "BAR"
 	Symbol    string  `json:"symbol"`
@@ -231,8 +232,8 @@ type PositionDetail struct {
 	Symbol string  `json:"symbol"`
 }
 
-// AgentProvider receives real tick data from connected Windows MT5 Agents.
-// It does NOT generate fake data. If no agent is connected, it produces NO ticks
+// AgentProvider receives real tick data from connected Master Node EAs.
+// It does NOT generate fake data. If no EA is connected, it produces NO ticks
 // and the system degrades to NO-TRADE (SOW: data quality gate fails closed).
 type AgentProvider struct {
 	marketClosed       bool // last snapshot says broker market closed (liveness-only)
@@ -903,7 +904,7 @@ func (p *AgentProvider) Close() error {
 	return nil
 }
 
-// RegisterAgent creates a channel for a new Windows Agent connection.
+// RegisterAgent creates a channel for a new EA connection.
 func (p *AgentProvider) RegisterAgent(agentID string) chan *AgentTickMessage {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -947,7 +948,7 @@ func (p *AgentProvider) UnregisterAgent(agentID string) {
 	}
 }
 
-// HasConnectedAgents returns true if at least one Windows Agent is connected.
+// HasConnectedAgents returns true if at least one EA is connected.
 func (p *AgentProvider) HasConnectedAgents() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -1116,7 +1117,7 @@ func (p *AgentProvider) snapshotMergeLoop() {
 	}
 }
 
-// HandleAgentMessage processes a raw JSON message from a Windows Agent WebSocket connection.
+// HandleAgentMessage processes a raw JSON message from an EA WebSocket connection.
 // It detects the message type and routes accordingly:
 //   - "TICK" / "MASTER_TICK" → tick processing pipeline
 //   - "MARKET_SNAPSHOT" → market snapshot storage for dashboard/Command Center
@@ -1347,7 +1348,7 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 			}
 
 			// Hydrate safety-critical gates from live broker account data (P1-001).
-			// When the Windows Agent sends account_info with the snapshot, the
+			// When the EA sends account_info with the snapshot, the
 			// exposure and margin gates are hydrated from real broker state.
 			if p.brokerAccountHydrateFn != nil {
 				// Only hydrate if we have meaningful account data (balance > 0 means a real account is connected)
@@ -1435,7 +1436,7 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		}
 
 	case "LICENSE_CHECK":
-		// Signal EA's license check — forwarded by the Windows Agent pipe manager.
+		// Signal EA's license check — forwarded by the EA pipe manager.
 		// This is the PRIMARY license validation path because the Master Node EA
 		// sends "no_license":true and no license_key in its MASTER_INIT message.
 		// The signal EA's INIT/LICENSE_CHECK carries the real license_key.
@@ -1461,7 +1462,7 @@ func (p *AgentProvider) HandleAgentMessage(agentID string, data []byte) {
 		p.hydrateAccountFromJSON(agentID, data)
 	case "ACCOUNT_INFO":
 		// Periodic/INIT account telemetry from the signal (exec) EA, forwarded by
-		// the Windows Agent. Hydrates broker equity/free-margin/leverage so the
+		// the EA. Hydrates broker equity/free-margin/leverage so the
 		// margin gate and lot-sizing can compute (enables executable signals).
 		p.hydrateAccountFromJSON(agentID, data)
 	case "MASTER_DEINIT":

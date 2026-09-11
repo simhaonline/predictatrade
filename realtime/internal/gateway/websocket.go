@@ -211,7 +211,7 @@ func NewWebSocketHub(allowedOrigins []string) *WebSocketHub {
 			CheckOrigin: func(r *http.Request) bool {
 				origin := r.Header.Get("Origin")
 				if origin == "" {
-					return true // Non-browser clients (Windows Agent) have no Origin
+					return true // Non-browser EA clients (Master Node) have no Origin
 				}
 				return originsMap[origin]
 			},
@@ -472,7 +472,7 @@ func (h *WebSocketHub) BroadcastMarketSnapshot(snapshot interface{}) {
 	h.mu.RUnlock()
 }
 
-// AgentStatus represents the connection status of Windows Agents.
+// AgentStatus represents the connection status of connected Master Node EAs.
 type AgentStatus struct {
 	AgentsConnected     int        `json:"agents_connected"`
 	AgentsOnline        bool       `json:"agents_online"`

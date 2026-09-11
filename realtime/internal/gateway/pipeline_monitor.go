@@ -70,7 +70,7 @@ func (h *HTTPServer) handlePipelineMonitor(w http.ResponseWriter, r *http.Reques
 		},
 		{
 			"stage":  "Execution",
-			"name":   "Windows Agent → MetaTrader",
+			"name":   "Master Node EA → MetaTrader",
 			"status": execStatus,
 			"detail": "Spread/commission/slippage tracked per execution. SL distance filter + candle range filter (playbook §8).",
 		},

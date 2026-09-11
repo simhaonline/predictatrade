@@ -8,7 +8,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 export class LicensingController {
   constructor(private licensingService: LicensingService) {}
 
-  // Public endpoint — no JWT required (used by Windows Agent with license key only)
+  // Public endpoint — no JWT required (used by the EA with license key only)
   @Post('validate')
   async validateLicense(@Body() body: { license_key?: string }) {
     if (!body.license_key) {

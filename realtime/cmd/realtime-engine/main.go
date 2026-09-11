@@ -199,7 +199,7 @@ func intersectStrategies(have, allowed []string) []string {
 }
 
 // agentDevice maps the engine's in-memory agentID (WebSocket connection id) to the
-// control-plane device id (licensing.devices.id) reported by the Windows Agent.
+// control-plane device id (licensing.devices.id) reported by the EA.
 // Populated at license validation so the engine can publish authoritative live
 // connection state into the DB the Admin + User dashboards read.
 var (
@@ -212,7 +212,7 @@ var (
 // accepts agentId values that match the device JWT's subject, and device ids
 // are always UUIDs, so the agent id can be used directly as the
 // licensing.devices row id. The old SHA-1 fallback (uuid5("pat-rt:"+agentID))
-// created phantom 'Windows Agent' device rows that consumed license slots.
+// created phantom 'Master Node EA' device rows that consumed license slots.
 func deviceIDForAgent(agentID, provided string) string {
 	if provided != "" {
 		return provided
@@ -637,7 +637,7 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, signal *types.Signal) {
 	// #4 Off-platform signal alert (ntfy) — read-only mirror, never execution.
 	notifySignal(signal)
 
-	// Broadcast to Windows Agents for MT4/MT5 delivery
+	// Broadcast to Master Node EAs for MT4/MT5 delivery
 	// SERVER-SIDE STRATEGY FILTERING: Only send signals for strategies that
 	// the agent's license allows. A FREE subscriber should NOT receive
 	// ULTRA_SCALPING signals even if their EA has all checkboxes enabled.
@@ -651,7 +651,7 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, signal *types.Signal) {
 	// (prompt.md Section 17/29, SOW v1.15.0).
 	dir := string(signal.Direction)
 	if signal.Executable && (dir == "BUY" || dir == "SELL" || dir == "BUY_CANDIDATE" || dir == "SELL_CANDIDATE") {
-		// EA-direct delivery (Option B, v1.19.0): the Windows-agent WS hub is
+		// EA-direct delivery (Option B, v1.19.0): the agent WS hub is
 		// gone. EXECUTABLE signals are written directly into
 		// licensing.edge_signal_queue; customer EAs fetch them via
 		// POST /api/v1/devices/edge-poll (HMAC-signed) and ACK via edge-ack.
@@ -883,7 +883,7 @@ func startHealthMonitor(
 				}
 				alert(notifications.EventType("DATA_FEED_STALE"), "critical",
 					"XAUUSD data feed STALE",
-					"Engine has not received live market data (last snapshot: "+age+"). Agents are connected but not streaming; signals suspended (fail-closed). Check the Windows Agent / Master Node EA.")
+					"Engine has not received live market data (last snapshot: "+age+"). EAs are connected but not streaming; signals suspended (fail-closed). Check the Master Node EA.")
 			}
 			continue
 		}
@@ -1242,7 +1242,7 @@ func main() {
 		}
 	}
 
-	// Market data provider — default: "agent" (real MT5 data from Windows Agent)
+	// Market data provider — default: "agent" (real MT5 data from Master Node EA)
 	// "simulated" is DEV/TEST ONLY and must NEVER be used in production
 	symbol := "XAUUSD"
 	if len(cfg.Symbols) > 0 {
@@ -1285,7 +1285,7 @@ func main() {
 	}
 	if isAgentProvider {
 		log.Info().Msg("Using AgentProvider — waiting for Windows MT5 Agent connection for real tick data")
-		log.Info().Msg("Connect your MT5 Windows Agent to: wss://api.predictatrade.com/ws/v1/agent")
+		log.Info().Msg("Connect your MT5 Master Node EA to: wss://api.predictatrade.com/ws/v1/agent")
 	}
 
 	// Feature engines
@@ -1886,7 +1886,7 @@ func main() {
 
 	// ─── Live candle persistence safeguard (prompt.md: market.candles freshness) ───
 	// In live mode the aggregator runs in external-candle mode, so market.candles is
-	// otherwise fed ONLY by the Windows agent's CopyRates bar stream. If that stream
+	// otherwise fed ONLY by the EA's CopyRates bar stream. If that stream
 	// is slow/throttled, the DB falls behind the live market. This flusher persists the
 	// always-fresh in-memory bars (the SAME bars that drive live signals) on a fixed
 	// cadence, so market.candles can never lag the live feed independent of the agent.
@@ -2277,7 +2277,7 @@ func main() {
 
 	// #3 Delivery ledger + reliability: track per-device signal delivery state and
 	// sequence numbers (tables from migration 009). RecordDelivery is invoked per
-	// agent below. Full replay-on-reconnect requires the Windows Agent to ACK
+	// agent below. Full replay-on-reconnect requires the EA to ACK
 	// signals with (signal_id, device_id) — a pending MQL protocol change — so
 	// true resume is currently dormant; expiry hygiene runs regardless.
 	// Nil-guard FIX (P0): NewPersister can legitimately fail (postgres down /
@@ -2326,7 +2326,7 @@ func main() {
 	})
 	go wsHub.Run()
 
-	// v1.19.0 (Option B): the Windows-agent WS hubs are REMOVED. Customer MT4/MT5
+	// v1.19.0 (Option B): the agent WS hubs are REMOVED. Customer MT4/MT5
 	// EAs talk to the platform directly over HTTPS:
 	//   - Master (data) EAs POST ticks/snapshots to POST /ingest/agent (device JWT)
 	//   - Client (exec) EAs poll POST /api/v1/devices/edge-poll (device HMAC)
@@ -6083,7 +6083,7 @@ func refreshGateStates(reg *gates.Registry, stateMgr *features.StateManager, age
 		}
 
 		// Exposure, margin, and execution permit gates:
-		// These are hydrated from broker account data when the Windows Agent
+		// These are hydrated from broker account data when the EA
 		// sends a MARKET_SNAPSHOT with account_info. If they are already PASS,
 		// refresh their validity window. If they have expired (agent disconnected),
 		// they will fail closed automatically via the gate evaluation freshness check.
@@ -6193,7 +6193,7 @@ func dbHealthCheck(persister *marketdata.Persister) bool {
 }
 
 // hydrateBrokerAccountState initializes risk gates from live MT4/MT5 broker account data.
-// Called when a broker account snapshot is received from the Windows Agent.
+// Called when a broker account snapshot is received from the EA.
 func hydrateBrokerAccountState(reg *gates.Registry, balance, equity, freeMargin, usedMargin float64, openPositions int) {
 	now := time.Now().UTC()
 

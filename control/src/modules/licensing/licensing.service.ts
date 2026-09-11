@@ -167,7 +167,7 @@ export class LicensingService {
     installationId?: string;
     fingerprintHash?: string;
   }) {
-    // The Windows Agent sends the full `fingerprint` object (not a precomputed
+    // The EA sends the full `fingerprint` object (not a precomputed
     // `fingerprintHash`). Derive the stable SHA256 the agent uses
     // (machine_guid|system_uuid|motherboard|disk|installation_id) so device
     // binding/hardware-ID capture works without changing the agent contract.
@@ -290,7 +290,7 @@ export class LicensingService {
     return this.registerTerminal(userId, body);
   }
 
-  /** Update device heartbeat (called by Windows Agent periodically) */
+  /** Update device heartbeat (called by the EA periodically) */
   // P0-CP4 fix: ownerUserId scoping — cross-tenant heartbeats rejected
   async heartbeat(deviceId: string, body: { connectionStatus?: string; fingerprintHash?: string }, ownerUserId?: string) {
     const r = await this.pool.query(
@@ -778,7 +778,7 @@ export class LicensingService {
     return r.rows[0];
   }
 
-  /** Flag a device for forced upgrade (admin). Windows Agent must upgrade next lease. */
+  /** Flag a device for forced upgrade (admin). The EA must upgrade next lease. */
   async forceUpgradeDevice(id: string) {
     const r = await this.pool.query(
       `UPDATE licensing.devices
@@ -821,7 +821,7 @@ export class LicensingService {
     }
   }
 
-  /** Public license validation by license key (no JWT — used by Windows Agent) */
+  /** Public license validation by license key (no JWT — used by the EA) */
   async validateLicenseKey(licenseKey: string, mtAccount?: string, brokerName?: string, terminalBuild?: string, eaVersion?: string) {
     // 1. Look up the license
     const r = await this.pool.query(

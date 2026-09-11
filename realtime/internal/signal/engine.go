@@ -294,7 +294,7 @@ func (e *Engine) Decide(input DecisionInput) DecisionResult {
 			// The market thesis direction is PRESERVED (BUY/SELL/candidate) so the
 			// dashboard can show WHY the signal was blocked (gate diagnostics),
 			// but the signal is explicitly NOT executable — broadcastSignalToAll
-			// only delivers to the Windows Agent / EA when Executable == true, so a
+			// only delivers to the EA when Executable == true, so a
 			// vetoed signal can never reach the terminal for execution. This applies
 			// to candidates too — a proven-losing (negative live edge) strategy must
 			// not emit any executable candidate.

@@ -211,7 +211,7 @@ func (s *ArcanistStrategy) Evaluate(state *features.MarketState) (res StrategyRe
 	// CANDIDATE directions so the fail-closed EdgeValidationGate preserves the
 	// directional thesis as an ADVISORY signal delivered to entitled subscribers'
 	// dashboards, rather than downgrading BUY/SELL to NO-TRADE. Candidates are
-	// never routed to the Windows Agent / terminal for execution.
+	// never routed to the EA / terminal for execution.
 	if bias == types.DirectionBuy {
 		res.Direction = types.Direction("BUY_CANDIDATE")
 	} else {

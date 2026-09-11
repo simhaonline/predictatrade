@@ -66,7 +66,7 @@ func NormalizeTick(tick *types.Tick) {
 }
 
 // NewProvider creates a provider based on mode.
-// "agent" = real MT5 data from Windows Agent (PRODUCTION)
+// "agent" = real MT5/MT4 data from the Master Node EA (PRODUCTION)
 // "simulated" = fake data for DEV/TEST ONLY
 // "replay" = historical replay
 func NewProvider(mode, symbol string, basePrice float64, tickRateMs int) Provider {

@@ -13,7 +13,7 @@ import { DeviceAuthService } from '../device-auth/device-auth.service';
  * is exempt from the global throttle; abuse is bounded per-device by the
  * HMAC device identity (verifyRequestSignature) + nginx's 10r/s/IP zone.
  *
- * Auth: Proof-of-Device HMAC (same scheme as the Windows agent).
+ * Auth: Proof-of-Device HMAC (same scheme as the EA-direct transport).
  *   Headers:
  *     X-Device-Id:        <device uuid>
  *     X-Device-Timestamp: <unix ms>

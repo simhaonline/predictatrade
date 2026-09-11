@@ -8,7 +8,7 @@ import (
 )
 
 // P1-001: Verify the full gate hydration lifecycle from agent connection → broker account data.
-// This simulates what happens when a Windows Agent connects and sends a MARKET_SNAPSHOT.
+// This simulates what happens when an EA connects and sends a MARKET_SNAPSHOT.
 func TestFullGateHydrationLifecycleFromAgent(t *testing.T) {
 	reg := NewRegistry()
 	registerAllGates(reg)

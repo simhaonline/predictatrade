@@ -2,7 +2,8 @@ package gateway
 
 // ingest_http.go — EA-direct HTTP ingest endpoint (Option B, v1.19.0).
 //
-// The Windows-agent WebSocket transport (ws/v1/agent, ws/v1/data) is REMOVED.
+// The Master Node EA WebSocket transport (ws/v1/agent, ws/v1/data) is REMOVED.
+// EAs now ingest via POST /ingest/agent (device JWT).
 // Customer MT4/MT5 EAs now POST their messages (ticks, market snapshots,
 // heartbeats, MASTER_INIT, TRADE_RESULT, EXECUTION_ACK) directly to:
 //

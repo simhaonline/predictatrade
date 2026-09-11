@@ -6,7 +6,7 @@ import { DB_POOL } from '../../common/database.module';
  * EdgePollService — EA-direct signal delivery (Option B).
  *
  * Customer MT4/MT5 EAs poll POST /api/v1/devices/edge-poll using their device
- * HMAC signature (same Proof-of-Device scheme as the Windows agent). The
+// HMAC signature (same Proof-of-Device scheme as the EA-direct transport). The
  * realtime engine enqueues EXECUTABLE signals into licensing.edge_signal_queue
  * for devices not connected via the agent WebSocket hub; this service hands
  * them to the EA and takes back execution ACKs — no local binaries required.

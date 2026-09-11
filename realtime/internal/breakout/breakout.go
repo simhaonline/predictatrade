@@ -4,7 +4,7 @@
 // DISABLED BY DEFAULT — must be explicitly enabled via NEWS_BREAKOUT_ENABLED=true.
 //
 // This package creates LOGICAL breakout plans. It does NOT place broker orders.
-// Order execution is handled by the MT4/MT5 EA via the Windows Agent.
+// Order execution is handled by the MT4/MT5 EA directly (EA-direct delivery).
 package breakout
 
 import (

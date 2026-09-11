@@ -105,7 +105,7 @@ function buildComponents(control, sys, rt, fe, agents) {
     { name: 'Realtime Gateway', group: 'Trading', url: PUBLIC.live, status: statusOf(rt.ok), ms: rt.ms, critical: true },
     { name: 'TimescaleDB', group: 'Data', url: 'internal', status: statusOf(dbOk), ms: Math.round((control.ms + (sys.ms || 0)) / 2), critical: true },
     { name: 'Valkey Cache', group: 'Data', url: 'internal', status: statusOf(cacheOk), ms: sys.ms || 0, critical: true },
-    { name: 'Windows Agent Bridge', group: 'Trading', url: 'internal', status: agentOk ? (agentMaster ? 'operational' : 'degraded') : 'down', ms: agents.ms, critical: false },
+    { name: 'MT Data Feed', group: 'Trading', url: 'internal', status: agentOk ? (agentMaster ? 'operational' : 'degraded') : 'down', ms: agents.ms, critical: false },
     { name: 'Auth / IAM', group: 'Security', url: 'internal', status: statusOf(ctrlOk), ms: control.ms, critical: false },
     { name: 'Licensing', group: 'Control', url: 'internal', status: statusOf(ctrlOk), ms: control.ms, critical: false },
     { name: 'Payments / Billing', group: 'Financial', url: 'internal', status: statusOf(ctrlOk), ms: control.ms, critical: false },
