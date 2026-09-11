@@ -140,7 +140,7 @@ export default function AdminTradingReportsPage() {
           <div className="text-2xl font-bold text-pat-text-primary">
             {Number(agents?.agents_connected ?? 0)}
           </div>
-          <div className="text-xs text-pat-text-muted mt-1">Windows Agent connections</div>
+          <div className="text-xs text-pat-text-muted mt-1">Live Feed Connections</div>
         </div>
       </div>
 

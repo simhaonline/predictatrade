@@ -117,7 +117,7 @@ export default function UserLicensePage() {
       )}
 
       <DegradedNote>
-        License keys are hardware-bound per the Windows Agent. If you believe your license details are incorrect, contact support.
+        License keys are hardware-bound per device. If you believe your license details are incorrect, contact support.
       </DegradedNote>
     </div>
   );

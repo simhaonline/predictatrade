@@ -298,7 +298,7 @@ function DevicesTab() {
 
   if (isLoading) return <div className="text-sm text-pat-text-secondary">Loading devices…</div>;
   if (error) return <div className="rounded border border-pat-danger/30 p-4 text-sm text-pat-danger">Trusted devices unavailable.</div>;
-  if (!data || data.length === 0) return <EmptyState title="No trusted devices registered." hint="Install the Windows Agent to register a device." />;
+  if (!data || data.length === 0) return <EmptyState title="No trusted devices registered." hint="Register a device from the Predict-A-Trade terminal to bind a license." />;
 
   return (
     <div className="space-y-3">

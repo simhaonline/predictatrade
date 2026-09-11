@@ -169,7 +169,7 @@ export default function AdminDeviceAuthPage() {
           <div className="rounded-lg bg-pat-bg-surface-secondary/30 p-3">
             <div className="flex items-center gap-2 mb-1"><IconBrandWindows size={14} className="text-pat-info" /><span className="text-[10px] text-pat-text-muted uppercase">Agents</span></div>
             <div className="text-lg font-bold text-pat-text-primary tabular-nums">{agentsStatus?.agents_connected ?? 0}</div>
-            <div className="text-[10px] text-pat-text-muted">Windows Agent(s)</div>
+            <div className="text-[10px] text-pat-text-muted">Connected Terminals</div>
           </div>
           <div className="rounded-lg bg-pat-bg-surface-secondary/30 p-3">
             <div className="flex items-center gap-2 mb-1"><IconBroadcast size={14} className={agentsStatus?.agents_online ? "text-pat-success" : "text-pat-danger"} /><span className="text-[10px] text-pat-text-muted uppercase">Agents</span></div>
@@ -216,10 +216,10 @@ export default function AdminDeviceAuthPage() {
             <div className="flex items-start gap-2">
               <IconInfoCircle size={14} className="text-pat-info shrink-0 mt-0.5" />
               <div className="text-[11px] text-pat-text-muted leading-relaxed">
-                {agentsStatus?.agents_connected} Windows Agent(s) are connected to the Go engine and sending live data,
-                but no devices are registered in the licensing database yet. This means the agents connected to the
+                {agentsStatus?.agents_connected} terminal(s) are connected to the Go engine and sending live data,
+                but no devices are registered in the licensing database yet. This means the terminals connected to the
                 real-time engine but have not completed device registration with the control plane. Device registration
-                occurs when the Windows Agent sends its first heartbeat with a valid license key to the NestJS API.
+                occurs when the terminal sends its first heartbeat with a valid license key to the NestJS API.
               </div>
             </div>
           </div>

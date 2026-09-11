@@ -52,9 +52,9 @@ export default function AdminAgentMeshPage() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold text-pat-text-primary">Agent Mesh</h1>
+          <h1 className="text-xl font-bold text-pat-text-primary">Live Data Feed</h1>
           <p className="text-sm text-pat-text-secondary mt-1">
-            Windows Agent bridge + AI Agent Mesh connectivity (real-time, sourced from the Go engine).
+            Real-time market-data feed connectivity (sourced from the Go engine).
           </p>
         </div>
         {data?.timestamp && (

@@ -286,24 +286,24 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* Agents / Windows Agent */}
+        {/* Live Feed */}
         <div className="bg-pat-card-bg border border-pat-card-border rounded-lg p-4 shadow-sm">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-medium text-pat-text-primary">Agents</span>
+            <span className="text-sm font-medium text-pat-text-primary">Live Feed</span>
             <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${agentsOnline ? "bg-pat-badge-success-bg text-pat-badge-success-text border-pat-badge-success-bg" : "bg-pat-badge-danger-bg text-pat-badge-danger-text border-pat-badge-danger-bg"}`}>
               {agentsOnline ? "ONLINE" : "OFFLINE"}
             </span>
           </div>
           {hasAgents ? (
             <div className="space-y-2 text-xs">
-              <div className="flex justify-between"><span className="text-pat-text-muted">Connected Agents</span><span className="text-pat-text-primary">{agentCount}</span></div>
-              <div className="flex justify-between"><span className="text-pat-text-muted">Agents</span><span className={agentsOnline ? "text-pat-success" : "text-pat-danger"}>{agentsOnline ? "Connected" : "Disconnected"}</span></div>
+              <div className="flex justify-between"><span className="text-pat-text-muted">Connected Feeds</span><span className="text-pat-text-primary">{agentCount}</span></div>
+              <div className="flex justify-between"><span className="text-pat-text-muted">Feed</span><span className={agentsOnline ? "text-pat-success" : "text-pat-danger"}>{agentsOnline ? "Connected" : "Disconnected"}</span></div>
               <div className="flex justify-between"><span className="text-pat-text-muted">Snapshots</span><span className="text-pat-text-primary">{(agentsStatus?.snapshot_count as number) ?? 0}</span></div>
             </div>
           ) : (
             <div className="text-sm text-pat-text-muted py-4 text-center">
               <IconBroadcast size={24} className="mx-auto mb-2 text-pat-text-muted" />
-              No Windows Agent connected
+              No data feed connected
             </div>
           )}
         </div>
