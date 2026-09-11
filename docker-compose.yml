@@ -582,7 +582,9 @@ services:
       - PAT_POLL_INTERVAL_MS=30000
     networks:
       - pat-net
-    restart: always
+    # on-failure (not "always"): when disabled via empty DISCORD_BOT_TOKEN the
+    # bot exits 0 and stays down; it only restarts on a real crash (non-zero).
+    restart: on-failure
 
 volumes:
   pat-mail-spool:

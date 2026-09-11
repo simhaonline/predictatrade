@@ -64,6 +64,21 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: python -m pytest tests/ -v --tb=short
 
+  cloudflare:
+    name: Cloudflare Proxy Verify (live)
+    runs-on: ubuntu-latest
+    # Probes the live hosts (DNS anycast, API no-store, ingest alive, nginx
+    # real_ip ranges). Best-effort: the proxy DNS may still be propagating in
+    # CI, so a non-zero result is reported but does NOT fail the pipeline —
+    # run `make verify-cloudflare` locally/after-deploy for the gate.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dig (dnsutils)
+        run: sudo apt-get update && sudo apt-get install -y dnsutils
+      - name: Verify Cloudflare proxy posture
+        run: ./scripts/verify-cloudflare.sh
+
   security:
     name: Security Scan
     runs-on: ubuntu-latest

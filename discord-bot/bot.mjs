@@ -56,8 +56,11 @@ const BRAND = { blue: 0x2362ea, green: 0x22c55e, red: 0xef4444, amber: 0xe8a33d,
 function log(level, msg) { console.log(`[${new Date().toISOString()}] [${level}] ${msg}`); }
 
 if (!TOKEN || !CLIENT_ID) {
-  log('FATAL', 'DISCORD_BOT_TOKEN and DISCORD_CLIENT_ID are required');
-  process.exit(1);
+  // Operator opt-in is disabled (empty token/client id in compose). Exit cleanly
+  // (0) so `restart: always` does NOT spin a crash loop. The container stays
+  // "exited(0)" — the supported disabled state per docker-compose.yml.
+  log('INFO', 'DISCORD_BOT_TOKEN / DISCORD_CLIENT_ID not set — Discord bot disabled (exiting cleanly).');
+  process.exit(0);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
