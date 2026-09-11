@@ -198,11 +198,34 @@ export class DeviceAuthService {
         [crypto.randomUUID(), license.id, deviceId, sessionId, leaseExpires, sourceIp],
       );
 
-      // Record activation
+      // Record activation.
+      // H-fix (009-2026-09-11): the table has a UNIQUE index on
+      // (license_id, mt_account_login) [migration 073]. The original code did an
+      // unconditional INSERT, so any RE-activation of the same MT account/login
+      // (EA restart, chart re-attach, or re-image on a new machine) raised
+      // "duplicate key value violates unique constraint idx_device_act_license_mt_unique"
+      // which bubbled up as HTTP 500 to the MT4/MT5 EA ("Device activation failed").
+      // Make the insert idempotent: on conflict, UPDATE the existing activation row
+      // (revive if soft-deactivated, refresh mutable fields + activated_at).
       await client.query(
         `INSERT INTO licensing.device_activations (id, license_id, device_id, client_type, terminal_build, ea_version,
-         broker_name, broker_server, mt_account_login, installation_id, fingerprint_version, fingerprint_hash, fingerprint_components, activation_ip, activated_at, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'hwfp-v1', $11, $12, $13, now(), now())`,
+         broker_name, broker_server, mt_account_login, installation_id, fingerprint_version, fingerprint_hash, fingerprint_components, activation_ip, activated_at, created_at, deactivated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'hwfp-v1', $11, $12, $13, now(), now(), NULL)
+         ON CONFLICT (license_id, mt_account_login) WHERE mt_account_login IS NOT NULL AND mt_account_login != '' DO UPDATE SET
+           device_id = EXCLUDED.device_id,
+           client_type = EXCLUDED.client_type,
+           terminal_build = EXCLUDED.terminal_build,
+           ea_version = EXCLUDED.ea_version,
+           broker_name = EXCLUDED.broker_name,
+           broker_server = EXCLUDED.broker_server,
+           installation_id = EXCLUDED.installation_id,
+           fingerprint_version = EXCLUDED.fingerprint_version,
+           fingerprint_hash = EXCLUDED.fingerprint_hash,
+           fingerprint_components = EXCLUDED.fingerprint_components,
+           activation_ip = EXCLUDED.activation_ip,
+           activated_at = now(),
+           deactivated_at = NULL,
+           updated_at = now()`,
         [crypto.randomUUID(), license.id, deviceId, client_type, terminal?.build, terminal?.ea_version,
          mt_account?.broker, mt_account?.server, mt_account?.login, fingerprint.installation_id,
          this.computeFingerprintHash(fingerprint), JSON.stringify(this.hashFingerprintComponents(fingerprint)), sourceIp],
