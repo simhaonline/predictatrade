@@ -162,13 +162,6 @@ export default function AdminMtAccountsPage() {
       {/* Create form (LIVE wiring, may be limited by backend validation) */}
       <div className="bg-pat-card-bg border border-pat-card-border rounded-lg p-4 shadow-sm">
         <h2 className="text-sm font-medium text-pat-text-primary mb-3">Register MT Account</h2>
-        <DegradedBanner>
-          This page lists every MetaTrader account linked across the whole fleet (the table above
-          reads it from the backend's fleet-wide list). Registering a new account is intentionally
-          tied to a specific device: you must supply a valid device id that already has a license
-          bound to it, otherwise the backend rejects the request with a real error (no fake
-          success). Enter the device id in the field below.
-        </DegradedBanner>
         <form
           className="mt-3 grid grid-cols-1 md:grid-cols-5 gap-3"
           onSubmit={(e) => {
