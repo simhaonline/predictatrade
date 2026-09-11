@@ -346,7 +346,7 @@ export class LicensingService {
   /** Manually sync terminal account data */
   async syncTerminalAccount(userId: string, body: {
     client_type: string;
-    mt_account_login: string;
+    mt_account_login?: string;
     balance?: number;
     equity?: number;
     profit?: number;
@@ -357,21 +357,29 @@ export class LicensingService {
     total_lots?: number;
     floating_pnl?: number;
   }) {
-    // Find the device activation for this user's terminal
+    // Match the device's ACTIVE terminal row by device + client_type (the EA's
+    // true identity). We intentionally do NOT match on mt_account_login: the EA
+    // frequently syncs with a blank login, and matching on login would drop the
+    // live balance into a hidden blank-login row while the real-login row stays
+    // frozen (the original bug). If the EA does send a non-blank login, write it
+    // back onto the row so it becomes visible/auditable over time.
+    const login = body.mt_account_login && body.mt_account_login.trim() !== ''
+      ? body.mt_account_login.trim() : null;
     const result = await this.pool.query(
       `UPDATE licensing.device_activations da SET
         account_balance = $1, account_equity = $2, account_profit = $3,
         account_currency = $4, open_positions = $5, buy_positions = $6,
         sell_positions = $7, total_lots = $8, floating_pnl = $9,
-        last_account_update = now()
+        last_account_update = now(),
+        mt_account_login = COALESCE($13, da.mt_account_login)
        FROM licensing.devices d
        WHERE da.device_id = d.id AND d.user_id = $10
-       AND da.mt_account_login = $11 AND da.client_type = $12
+         AND da.client_type = $12 AND da.deactivated_at IS NULL
        RETURNING da.id, da.mt_account_login, da.account_balance, da.account_equity`,
       [body.balance || 0, body.equity || 0, body.profit || 0, body.currency || 'USD',
        body.open_positions || 0, body.buy_positions || 0, body.sell_positions || 0,
        body.total_lots || 0, body.floating_pnl || 0,
-       userId, body.mt_account_login, body.client_type],
+       userId, body.mt_account_login, body.client_type, login],
     );
     if (result.rows.length === 0) {
       return { success: false, message: 'Terminal not found for this user' };
@@ -928,10 +936,16 @@ export class LicensingService {
    *  includes live balance/connection/device data; the legacy licensing.mt_accounts
    *  table lacks those columns). */
   async listAllMtAccounts() {
+    // One row per DEVICE, using that device's most-recently-updated activation
+    // (DISTINCT ON d.id ordered by last_account_update DESC). The EA syncs live
+    // balance into the device's active terminal row (syncTerminalAccount matches
+    // by device+client_type, not login), so this surfaces the freshest balance
+    // even when the EA reports a blank login. Blank-login rows are NOT filtered
+    // out here — a device that synced with no login still carries real balance.
     const r = await this.pool.query(
-      `SELECT da.id, da.mt_account_login, da.broker_name, da.broker_server,
+      `SELECT DISTINCT ON (d.id) da.id, da.mt_account_login, da.broker_name, da.broker_server,
               da.client_type, da.account_balance, da.account_equity,
-              da.account_currency as currency, da.activated_at,
+              da.account_currency as currency, da.activated_at, da.last_account_update,
               d.device_name, d.hostname, d.connection_status,
               l.license_key, l.status AS license_status,
               u.email AS user_email
@@ -940,8 +954,8 @@ export class LicensingService {
        LEFT JOIN licensing.licenses l ON da.license_id = l.id
        LEFT JOIN iam.users u ON d.user_id = u.id
        WHERE da.deactivated_at IS NULL
-         AND da.mt_account_login IS NOT NULL AND da.mt_account_login <> ''
-       ORDER BY da.activated_at DESC LIMIT 500`,
+       ORDER BY d.id, da.last_account_update DESC NULLS LAST, da.activated_at DESC
+       LIMIT 500`,
     );
     return r.rows;
   }

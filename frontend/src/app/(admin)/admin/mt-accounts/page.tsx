@@ -23,6 +23,28 @@ function DegradedBanner({ children }: { children: React.ReactNode }) {
   );
 }
 
+function timeAgo(iso?: string): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const secs = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+// Balance is only as fresh as the last EA sync. Flag it stale past 1 hour so a
+// frozen number is never mistaken for a live broker balance.
+function isStale(iso?: string): boolean {
+  if (!iso) return false;
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return false;
+  return Date.now() - then > 60 * 60 * 1000;
+}
+
 export default function AdminMtAccountsPage() {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<CreateMtAccountBody>({
@@ -115,9 +137,17 @@ export default function AdminMtAccountsPage() {
                       </span>
                     </td>
                     <td className="px-3 py-2 text-pat-text-primary">
-                      {a.account_balance !== undefined && a.account_balance !== null
+                      {a.account_balance !== undefined && a.account_balance !== null && a.account_balance !== 0
                         ? `${a.account_balance.toLocaleString()} ${a.currency ?? ""}`.trim()
                         : "—"}
+                      {a.account_balance === 0 && (
+                        <span className="block text-[10px] text-pat-text-muted">not reported by EA</span>
+                      )}
+                      {a.last_account_update && (
+                        <span className={`block text-[10px] ${isStale(a.last_account_update) ? "text-pat-warning" : "text-pat-text-muted"}`}>
+                          synced {timeAgo(a.last_account_update)}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 font-mono text-xs text-pat-text-secondary">{a.license_key ?? "—"}</td>
                     <td className="px-3 py-2 text-pat-text-secondary">{a.user_email ?? "—"}</td>

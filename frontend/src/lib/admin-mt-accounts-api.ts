@@ -65,6 +65,7 @@ export interface AdminMtAccount {
   license_status?: string;
   user_email?: string;
   activated_at?: string;
+  last_account_update?: string;
 }
 
 export async function fetchAllMtAccountsAdmin(): Promise<AdminMtAccount[]> {
