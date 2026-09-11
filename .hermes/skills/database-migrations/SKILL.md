@@ -22,5 +22,15 @@ Authority: `Predict-A-Trade_FINAL_SCOPE_OF_WORK_v1.0.0.md` and `AGENTS.md`.
 
 ## Migrate: ./scripts/migrate.sh up | down | seed | test
 
+## Orphan-table cleanup & scheduled pruning (PAT lessons, 2026-09-11)
+Empty table != orphaned. See `references/postgres-operational-pitfalls.md` for:
+- **pg_cron is NOT bundled** in the PAT TimescaleDB image — `ALTER SYSTEM SET
+  shared_preload_libraries` with pg_cron CRASH-LOOPS postgres; recovery steps; use
+  `timescaledb.add_job` instead (already active).
+- Orphan-table discipline: grep the whole repo before dropping; `trading.agent_user_bindings`
+  and `market.gold_fix_windows` are live despite Windows-Agent-looking names.
+- The `system.data_retention_policies` / `pruning_runs` / `run_all_retention_policies()`
+  pruning framework (migration 147) — seed only safe, non-audit/non-financial tables.
+
 ## Validate
 Migration tests, query plans, restore path, financial/audit invariants.
