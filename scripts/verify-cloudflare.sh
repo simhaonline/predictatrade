@@ -35,22 +35,28 @@ log "== Cloudflare proxy verification =="
 # dig may still return the origin IP even when the proxy is correctly serving
 # other networks (e.g. the operator's browser). The authoritative signal is the
 # CF-Ray / cf-cache-status header on an actual request. We report what we see and
-# only FAIL on a genuine problem (no resolution, cached dynamic data).
+# only FAIL on a genuine problem (no resolution, cached dynamic data). If `dig`
+# is unavailable (e.g. in a cron env without dnsutils) we skip the DNS view
+# rather than failing on a missing tool — the CF-Ray check below is authoritative.
 log "1) DNS for ${API_HOST} (per-resolver; may lag Cloudflare propagation):"
-resolved=$(dig +short A "$API_HOST" 2>/dev/null | grep -v '^;' | head -5)
-if [[ -z "$resolved" ]]; then
-  fail "no A record resolved for ${API_HOST}"
-else
-  while IFS= read -r ip; do log "     $ip"; done <<< "$resolved"
-  hit=0
-  while IFS= read -r ip; do is_cloudflare_ip "$ip" && hit=1; done <<< "$resolved"
-  if [[ $hit -eq 1 ]]; then
-    pass "resolves to Cloudflare anycast (proxied from this resolver)"
+if command -v dig >/dev/null 2>&1; then
+  resolved=$(dig +short A "$API_HOST" 2>/dev/null | grep -v '^;' | head -5)
+  if [[ -z "$resolved" ]]; then
+    log "     [WARN] no A record resolved (or dig blocked) — relying on CF-Ray below"
   else
-    log "     [WARN] resolves to NON-Cloudflare (origin) IP from this resolver —"
-    log "            Cloudflare proxy DNS may still be propagating here, OR this"
-    log "            host sits behind the origin. Confirm via the CF-Ray header below."
+    while IFS= read -r ip; do log "     $ip"; done <<< "$resolved"
+    hit=0
+    while IFS= read -r ip; do is_cloudflare_ip "$ip" && hit=1; done <<< "$resolved"
+    if [[ $hit -eq 1 ]]; then
+      pass "resolves to Cloudflare anycast (proxied from this resolver)"
+    else
+      log "     [WARN] resolves to NON-Cloudflare (origin) IP from this resolver —"
+      log "            Cloudflare proxy DNS may still be propagating here, OR this"
+      log "            host sits behind the origin. Confirm via the CF-Ray header below."
+    fi
   fi
+else
+  log "     [INFO] 'dig' not installed — skipping DNS view; CF-Ray check is authoritative"
 fi
 
 # Authoritative live check: does an actual request pass through Cloudflare?

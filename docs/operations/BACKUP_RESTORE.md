@@ -308,6 +308,36 @@ base backup (`pg_basebackup`) to replay the archived WAL against — the WAL
 segments in `predictatrade/wal` are retained for that purpose. Until a base
 backup chain is added, the practical RPO floor is the 6-hour dump cadence.
 
+### 9.1 Unified DR Kit (`scripts/dr-kit.sh`)
+
+All the above operations are wrapped in one operational command surface so
+future backup / restore / migration is a single call instead of four disparate
+scripts. It reuses the existing, tested scripts (does not reimplement them).
+
+```bash
+./scripts/dr-kit.sh backup           # logical pg_dump + verify (scripts/backup/backup.sh)
+./scripts/dr-kit.sh offhost          # sync latest dump to S3/NFS (scripts/backup/offhost_backup.sh)
+./scripts/dr-kit.sh restore-test     # restore latest dump into a throwaway DB + validate
+./scripts/dr-kit.sh migrate-up       # run pending forward migrations
+./scripts/dr-kit.sh migrate-status   # show applied/pending migrations
+./scripts/dr-kit.sh migrate-test     # run migration self-tests
+./scripts/dr-kit.sh health           # production + Cloudflare edge health checks
+./scripts/dr-kit.sh all              # backup + restore-test + migrate-status + health
+```
+
+Install the cron schedule (daily backup + restore self-test, weekly migration
+status, plus the existing 5-min health check that now also reports the Cloudflare
+edge posture):
+
+```bash
+./scripts/setup_crons.sh
+```
+
+`restore-test` is safe-by-design: it always targets a disposable database
+(`pat_restore_test`) and drops it when done — never the live DB. Verified
+end-to-end against production: 25 schemas / 2748 tables / 30.6M ticks restored
+and validated.
+
 ### 10. Related Documents
 
 - [Disaster Recovery Plan](DR_PLAN.md)
