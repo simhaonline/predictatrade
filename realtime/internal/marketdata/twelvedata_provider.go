@@ -240,14 +240,22 @@ func (p *TwelveDataProvider) FetchAll(ctx context.Context) map[string]*MacroAsse
 
 // fetchBatchQuotes fetches multiple symbols in a SINGLE Twelve Data /quote call
 // (1 API credit for the whole batch) and returns a map of provider-symbol -> snapshot.
+// Twelve Data's batched /quote returns a JSON OBJECT keyed by symbol
+// ({"UVXY":{...},"BTC/USD":{...}}), NOT an array. Parse that form; fall back to a
+// single-object/array if needed. Symbols containing '/' (e.g. BTC/USD) are
+// URL-encoded so the request is well-formed.
 func (p *TwelveDataProvider) fetchBatchQuotes(ctx context.Context, symbols []string) (map[string]*MacroAssetSnapshot, error) {
 	// Respect the shared free-tier credit budget before issuing the call.
 	if err := acquireTwelveDataCredit(ctx); err != nil {
 		return nil, err
 	}
 
+	enc := make([]string, len(symbols))
+	for i, s := range symbols {
+		enc[i] = sanitizeSymbolForURL(s)
+	}
 	url := fmt.Sprintf("%s/quote?symbol=%s&apikey=%s&format=JSON",
-		p.apiBase, strings.Join(symbols, ","), p.apiKey)
+		p.apiBase, strings.Join(enc, ","), p.apiKey)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -270,19 +278,37 @@ func (p *TwelveDataProvider) fetchBatchQuotes(ctx context.Context, symbols []str
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Twelve Data returns either a single object (1 symbol) or an array (multiple).
-	var quotes []TwelveDataQuote
-	if perr := json.Unmarshal(body, &quotes); perr != nil {
-		// Try single-object form.
-		var single TwelveDataQuote
-		if serr := json.Unmarshal(body, &single); serr != nil {
-			return nil, fmt.Errorf("parse failed: %w", perr)
+	// Object-keyed form: {"UVXY":{...},"BTC/USD":{...}}.
+	var objForm map[string]TwelveDataQuote
+	if perr := json.Unmarshal(body, &objForm); perr != nil || len(objForm) == 0 {
+		// Fallback: array form or single object.
+		var quotes []TwelveDataQuote
+		if aerr := json.Unmarshal(body, &quotes); aerr == nil && len(quotes) > 0 {
+			objForm = make(map[string]TwelveDataQuote, len(quotes))
+			for _, q := range quotes {
+				key := q.Symbol
+				if key == "" {
+					continue
+				}
+				objForm[key] = q
+			}
+		} else {
+			var single TwelveDataQuote
+			if serr := json.Unmarshal(body, &single); serr != nil {
+				return nil, fmt.Errorf("batch parse failed: %w", perr)
+			}
+			if single.Symbol != "" {
+				objForm[single.Symbol] = single
+			}
 		}
-		quotes = []TwelveDataQuote{single}
 	}
 
-	out := make(map[string]*MacroAssetSnapshot, len(quotes))
-	for _, q := range quotes {
+	out := make(map[string]*MacroAssetSnapshot, len(objForm))
+	for sym, q := range objForm {
+		// Skip error entries (e.g. {"VIX":{"status":"error",...}} has no close).
+		if q.Close <= 0 {
+			continue
+		}
 		ts := time.Now().UTC()
 		if len(q.Timestamp) > 0 {
 			tsStr := strings.Trim(string(q.Timestamp), "\"")
@@ -292,9 +318,9 @@ func (p *TwelveDataProvider) fetchBatchQuotes(ctx context.Context, symbols []str
 				ts = parsed.UTC()
 			}
 		}
-		snap := &MacroAssetSnapshot{
-			CanonicalSymbol: q.Symbol,
-			ProviderSymbol:  q.Symbol,
+		out[sym] = &MacroAssetSnapshot{
+			CanonicalSymbol: sym,
+			ProviderSymbol:  sym,
 			Price:           q.Close,
 			Open:            q.Open,
 			High:            q.High,
@@ -303,18 +329,12 @@ func (p *TwelveDataProvider) fetchBatchQuotes(ctx context.Context, symbols []str
 			Timestamp:       ts,
 			Source:          "twelvedata",
 			Provider:        "twelvedata",
+			Status:          "AVAILABLE",
 			FetchedAt:       time.Now().UTC(),
 		}
-		if snap.Price <= 0 {
-			snap.Status = "UNAVAILABLE"
-			snap.ErrorMessage = "zero or negative price"
-		} else {
-			snap.Status = "AVAILABLE"
-		}
-		out[q.Symbol] = snap
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("batch returned no quotes")
+		return nil, fmt.Errorf("batch returned no usable quotes")
 	}
 	return out, nil
 }
