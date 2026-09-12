@@ -29,7 +29,9 @@
 
 ### Deployment & Operations
 - [Docker Deployment](operations/DOCKER_DEPLOYMENT.md) — Step-by-step Docker Compose guide (includes live terminal, broker timezone)
-- [Host Deployment](operations/HOST_DEPLOYMENT.md) — Step-by-step bare-metal/VPS guide (14 steps)- [Backup & Restore](operations/BACKUP_RESTORE.md) — 6-hourly pg_dump + continuous WAL archiving, Hetzner S3 off-host sync (pat-backup-sync), restore & PITR procedures, validation checklist
+- [Host Deployment](operations/HOST_DEPLOYMENT.md) — Step-by-step bare-metal/VPS guide (14 steps)
+- [Backup & Restore](operations/BACKUP_RESTORE.md) — 6-hourly pg_dump + continuous WAL archiving, Cloudflare R2 off-host sync (pat-backup-sync), restore & PITR procedures, validation checklist
+- [Server Migration](operations/SERVER_MIGRATION.md) — Move the platform + Hermes Agent to a new VPS: R2 migration snapshot, secret inventory, restore, DNS cutover, verification checklist
 - [Incident Response Plan](operations/INCIDENT_RESPONSE_PLAN.md) — Classification, response procedures, communication templates
 - [Disaster Recovery Plan](operations/DR_PLAN.md) — RTO/RPO, asset inventory, risk assessment, backup strategy, recovery procedures, testing schedule
 
