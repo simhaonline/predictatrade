@@ -1,13 +1,19 @@
 # Predict-A-Trade Project Manifest
 
-## Version: v1.29.0 — Docs & Repo Hygiene (2026-09-06)
+## Version: v1.29.2 — Platform Ops Hardening (2026-09-16)
 
 > Version lineage: v1.18.0 macro-audit remediation (2026-08-30) → v1.19.0 Option B
 > EA-direct transport (2026-09-01) → v1.24/1.25 tier-geometry + observability →
 > v1.26 STANDARD_SCALPING rebuild → v1.27 account-type detection → v1.28 EA
 > capital guards → v1.29.0 docs sweep (2026-09-05) → v1.29.1 EQFE/IMLR display
-> completion + repo cleanup (2026-09-06). Live structured-log version pin:
-> realtime v1.24.2. Changelog: `realtime/CHANGELOG.md`.
+> completion + repo cleanup (2026-09-06) → 2026-09-08/12: EA v1.30/v1.31 panel
+> + auth self-heal + telemetry, Cloudflare proxy hardening, R2 backup/DR kit,
+> Hetzner runbook, capacity plan, signal-delivery verification, EXECUTABLE
+> delivery (operator-authorized), TwelveData daily-credit budget guard (640 of
+> 800), COT CFTC fallback, SERVER_MIGRATION runbook → 2026-09-16: watchdog
+> reconcile hardening (pat-nginx name, env-dir mount, `up -d --no-recreate`,
+> TICKS_STALE alert-only) + stale WSS log-line fix. Live structured-log version
+> pin: realtime v1.24.2. Changelog: `realtime/CHANGELOG.md`.
 
 ## Repository Structure
 
@@ -18,7 +24,7 @@
 ├── README.md                  # System overview
 ├── docs.md                    # Full pipeline + maths + all 7 strategies in plain words (from live engine source)
 ├── Makefile                   # Canonical build/lint/test commands
-├── docker-compose.yml         # All services (16 containers)
+├── docker-compose.yml         # All services (17 containers incl. watchdog + backup-sync)
 ├── .gitleaks.toml             # Secret-scanning config
 ├── .gitignore                 # Comprehensive exclusions
 │
@@ -42,7 +48,7 @@
 │   │   ├── devilliquidity/    # Liquidity/stop-hunt analysis
 │   │   ├── engstatus/         # Engine status surface
 │   │   ├── features/          # 42-feature indicator engine
-│   │   ├── gates/             # 16 hard risk gates
+│   │   ├── gates/             # 23 hard risk gates (ordered, fail-closed)
 │   │   ├── gateway/           # HTTP + WebSocket server (pprof enabled)
 │   │   ├── hedging/           # Hedging engine
 │   │   ├── igs/               # Institutional Gold Intelligence layer
@@ -99,10 +105,10 @@
 │   ├── mt5/                   # PredictATrade_MT5.mq5 + MasterNode
 │   └── compiled_executable/   # Compiled .ex4/.ex5 mirrors
 │
-├── windows-agent/             # Windows Agent (legacy installers, v1.2.x — REMOVED from runtime in v1.19.0 Option B)
+├── windows-agent/             # REMOVED from the tree (v1.19.0 Option B) — no agent binaries, installers, or ports
 │
 ├── database/                  # SQL Migrations
-│   └── migrations/            # 99 files (unique prefixes, numbered to 138) + MIGRATION_ORDER.md
+│   └── migrations/            # 108 files (unique prefixes, numbered 001–148) + MIGRATION_ORDER.md
 │
 ├── infra/                     # Infrastructure
 │   ├── env/                   # Environment files (gitignored; secrets only here)
@@ -141,17 +147,17 @@
 
 | Metric | Value |
 |--------|-------|
-| Go Test Packages | 39 pass, 0 fail (container `golang:1.25`, host has no Go toolchain) |
-| Python Tests | 154 (152 pass, 2 skip) — `cd research && uv run pytest` |
+| Go Test Packages | 39 pass, 0 fail (container `golang:1.25` + gcc for cgo; host has no Go toolchain) |
+| Python Tests | 154 collected (152 pass, 2 skip) — `cd research && uv run pytest` |
 | Frontend Tests | 84 pass + 18 e2e; `tsc --noEmit` clean |
-| Control (NestJS) Tests | 14 suites / 174 pass; `tsc --noEmit` clean |
-| DB Migrations | 99 files (unique prefixes, numbered to 138), all applied to live DB |
-| ML Features | 42 (35 live, 7 warming) |
+| Control (NestJS) Tests | 20 spec files pass; `tsc --noEmit` clean |
+| DB Migrations | 108 files (unique prefixes, numbered 001–148), all applied to live DB; 235 live app-schema tables |
+| Feature Registry | ~90 populated feature fields; readiness map tracks 19 named capabilities (10 READY, 7 WARMING_UP, 2 swing-dependent) + 2 UNSUPPORTED_BY_DATA_SOURCE + COT external status |
 | ML Models | 5 (bootstrap placeholders — honest `bootstrap-v1.0.0`; NOT production-trained) |
 | Strategies | 7 (Standard Scalping, Ultra Scalping, Standard Swing, Trend Swing, EQFE, ATEN); IMLR = 7th, ADVISORY-only |
 | Strategy display naming | Internal IDs `MARNIE_FIB`/`ARCANIST` never user-facing — displayed as **EQFE**/**IMLR** everywhere |
-| Risk Gates | 16 (per-strategy/timeframe isolated, fail-closed) |
-| Indicators Live | 35/42 |
+| Risk Gates | 23 (per-strategy/timeframe isolated, fail-closed; source: types.go GateIDs + main.go RegisterOrdered) |
+| Indicators Live | 10 READY / 7 WARMING_UP in the readiness map (plus 2 data-source-limited, 2 swing-gated) |
 | API Latency | < 3ms |
 
 ## Service Inventory (Docker-First — no systemd)
@@ -161,11 +167,11 @@ Systemd units (in `infra/systemd/`) are DISABLED and must not be used.
 
 | Service | Container | Port | Status |
 |---------|-----------|------|--------|
-| Real-Time Engine | pat-realtime | 13081 | ✅ Active (paper/sandbox/advisory) |
+| Real-Time Engine | pat-realtime | 13081 | ✅ Active (paper/sandbox/advisory; EXECUTABLE delivery operator-authorized) |
 | Control Plane (HA pair) | pat-control / pat-control-b | 13080 | ✅ Active (dual-control + nginx failover) |
 | Frontend | pat-frontend | 13082 | ✅ Active |
 | Status Page | pat-status | 13083 | ✅ Active |
-| Backtest Service | pat-backtest | 8088 (127.0.0.1 only) | ✅ Active |
+| Backtest Service | pat-backtest | 8088 (127.0.0.1 only) | ✅ Active — ⚠️ removal candidate (control spawns the Go backtest-engine binary directly; no code consumer of :8088) |
 | Live Terminal | pat-live-terminal | 13090 | ✅ Active |
 | Mail Relay | pat-mail-relay | 25/587 | ✅ Active (send-only, spool+retry) |
 | PostgreSQL 17 + TimescaleDB | pat-postgres | 5432 | ✅ Active |
@@ -174,8 +180,10 @@ Systemd units (in `infra/systemd/`) are DISABLED and must not be used.
 | Prometheus | pat-prometheus | 9090 | ✅ Active |
 | Grafana | pat-grafana | 3001 | ✅ Active |
 | ntfy | pat-ntfy | 8091 | ✅ Active |
-| NATS (optional bus) | pat-nats | 4222 | ⚠️ Scheduled for removal — never wired (no code consumer; audit 0ab2502) |
-| Backup Sync | pat-backup-sync | — | Hetzner S3 WAL + pg_dump off-host sync |
+| Watchdog | pat-watchdog | — | ✅ Active (self-healing + alert mirrors; TICKS_STALE = alert-only, 2026-09-16) |
+| Backup Sync | pat-backup-sync | — | ✅ Active — Cloudflare R2 WAL + pg_dump + codebase backup off-host |
+| Discord Bot | pat-discord-bot | — | ⚙️ Opt-in — exits 0 when `DISCORD_BOT_TOKEN` unset (by design) |
+| NATS | — | — | ❌ REMOVED from compose (2026-09-10) — never wired, zero Go consumers (audit 0ab2502) |
 | Ollama | host/container | 11434 | ✅ Active (sentiment; NOT_AI_VERIFIED provenance) |
 
 ## Live Data Status

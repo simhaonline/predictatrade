@@ -2,7 +2,7 @@
 
 Multi-plane XAUUSD trading signal generation and analytics platform.
 
-**Engine v1.24.2 · EA v1.31 | Date:** 10 September 2026 | **Status:** GO — paper/sandbox/advisory signal operation. **LIVE TRADING ARMING AUTHORIZED BY OPERATOR (2026-08-30):** `LIVE_TRADING_AUTHORIZED=true` in `infra/env/realtime.env` (fail-closed capital-protection gates still require a verified broker equity/order feed; no self-promotion to live execution without it). **EA-direct cloud transport:** MetaTrader 4/5 EAs talk to the cloud directly over HTTPS (device activation → HMAC-signed edge-poll for signals/commands, Bearer ingest for market data). No local binaries, no services, no open ports on the trader's machine.
+**Engine v1.24.2 · EA v1.31 | Date:** 16 September 2026 | **Status:** GO — paper/sandbox/advisory signal operation. **LIVE TRADING ARMING AUTHORIZED BY OPERATOR (2026-08-30):** `LIVE_TRADING_AUTHORIZED=true` in `infra/env/realtime.env` (fail-closed capital-protection gates still require a verified broker equity/order feed; no self-promotion to live execution without it). **EA-direct cloud transport:** MetaTrader 4/5 EAs talk to the cloud directly over HTTPS (device activation → HMAC-signed edge-poll for signals/commands, Bearer ingest for market data). No local binaries, no services, no open ports on the trader's machine.
 
 ## Quick Start
 
@@ -22,36 +22,36 @@ curl http://localhost:13081/health
 ## Architecture
 
 ```
-MT4/MT5 (Master Node — data)  ──MARKET_SNAPSHOT──▶  Go Realtime Engine :13081
-MT4/MT5 (Client Node — exec)  ◀────signals/commands───┤
+MT4/MT5 (Master Node — data)  ──POST /ingest/agent──▶  Go Realtime Engine :13081
+MT4/MT5 (Client Node — exec)  ◀──edge-poll signals/commands──┤
                                                       │
                     ┌──────────────────────────────────┼───────────────────────┐
                     ▼                                  ▼                       ▼
             Market Ingestion                   Feature Registry         Strategy Engines
-            (candles/ticks)                   (42 indicators)          (7 engines)
+            (candles/ticks)                   (76 feature fields)       (7 engines)
                     │                                  │                       │
                     └──────────────────────────────────┴─────────┬─────────────┘
                                                                  ▼
-                                                   Signal Engine + 16 Risk Gates
+                                                   Signal Engine + 23 Risk Gates
                                                    (deterministic, fail-closed)
                                                                  │
                                          TimescaleDB + Valkey + WebSocket
                                                                  │
                            ┌───────────────────────────────────────┴───────────────┐
                            ▼                                                       ▼
-                   Next.js Frontend :13082                               NestJS Control :13080
+                   Next.js Frontend :13082                               NestJS Control :13080 ×2 (HA)
                    (Live Command Center)                                (IAM/billing/licensing)
 ```
 
-> **Option B (v1.19.0):** MetaTrader EAs connect DIRECTLY to the cloud — no Windows Agent.
-> The **Master EA** (data node, any MT4/MT5 terminal) ingests XAUUSD `MARKET_SNAPSHOT`s to
-> the engine via `POST /ingest/agent` (Bearer device JWT, `PROVIDER_MODE=agent`); the
-> **Client EA** activates its device with the license key and polls the control plane
-> (`edge-poll`, HMAC-signed) for executable signals and server commands, ACKing each.
-> Delivery is fail-closed and plan-filtered: only `Executable == true` signals enqueue,
-> and only for devices whose license + plan whitelist the signal's strategy. The engine
-> never fabricates ticks — when the Master EA stops streaming, the feed reports `NO_DATA`,
-> not a fake "live".
+> **Option B (v1.19.0):** MetaTrader EAs connect DIRECTLY to the cloud — no Windows Agent,
+> no WebSocket transport. The **Master EA** (data node, any MT4/MT5 terminal) ingests XAUUSD
+> snapshots to the engine via `POST /ingest/agent` (Bearer device JWT, `PROVIDER_MODE=agent`);
+> the **Client EA** activates its device with the license key and polls the control plane
+> (`POST /api/v1/devices/edge-poll`, HMAC-signed, 3s cadence) for executable signals and
+> server commands, ACKing each. Delivery is fail-closed and plan-filtered: only
+> `Executable == true` signals enqueue, and only for devices whose license + plan whitelist
+> the signal's strategy. The engine never fabricates ticks — when the Master EA stops
+> streaming, the feed reports `NO_DATA`, not a fake "live".
 
 ## Services
 
@@ -64,16 +64,17 @@ MT4/MT5 (Client Node — exec)  ◀────signals/commands───┤
 | Live Terminal | pat-live-terminal | 13090 | Public preview terminal + 5-min trials |
 | PostgreSQL | pat-postgres | 5432 | TimescaleDB hypertables |
 | Valkey | pat-valkey | 6379 | Cache and hot state |
-| Nginx | xauusd-nginx | 80/443 | Reverse proxy, TLS, WS routing |
+| Nginx | pat-nginx | 80/443 | Reverse proxy, TLS |
 | Prometheus | pat-prometheus | 9090 | Metrics collection |
 | Grafana | pat-grafana | 3001 | Dashboards |
 | ntfy | pat-ntfy | 8091 | Notifications |
 | Mail Relay | pat-mail-relay | 25/587 | DKIM-signed send-only SMTP relay |
-| Backtest (FastAPI) | pat-backtest | 8088 (127.0.0.1) | ⚠️ removal candidate — control spawns the Go backtest-engine directly; zero consumers |
-| Watchdog | pat-watchdog | — | Health reconcile + alert mirrors (ntfy/Telegram/Discord) |
-| Backup Sync | pat-backup-sync | — | Hetzner S3 WAL + pg_dump off-host sync |
-| Discord Bot | pat-discord-bot | — | Alerts/portfolio/prediction slash commands (operator opt-in) |
-| NATS | pat-nats | 4222 | ⚠️ removal candidate — never wired (audit 0ab2502) |
+| Backtest (FastAPI) | pat-backtest | 8088 (127.0.0.1) | ⚠️ removal candidate — control spawns the Go backtest-engine binary directly (bind-mounted `realtime/bin/backtest-engine`); no code consumer of :8088 was found |
+| Watchdog | pat-watchdog | — | Health reconcile + alert mirrors (ntfy/Telegram/Discord). TICKS_STALE is alert-only — the master-tick feed comes from the external MT5 agent, so an engine restart cannot heal staleness (and each boot resets the in-process TwelveData daily credit budget). |
+| Backup Sync | pat-backup-sync | — | Hetzner S3 (R2) WAL + pg_dump off-host sync |
+| Discord Bot | pat-discord-bot | — | Alerts/portfolio/prediction slash commands (operator opt-in; exits 0 when `DISCORD_BOT_TOKEN` unset) |
+
+Removed: `pat-nats` (never wired, zero Go consumers — audit 0ab2502; no longer in compose), `pat-control` legacy Windows Agent surface (v1.19.0 Option B).
 
 ## Strategy Engines
 
@@ -93,92 +94,44 @@ Source of truth: `realtime/internal/strategy/strategies.go` + `candidate_thresho
 
 ## Evidence Scoring
 
-13 pillars with family caps: TREND(0.35), MOMENTUM(0.30), STRUCTURE(0.25), LIQUIDITY(0.20), SMC(0.20), MTF(0.20), CANDLE(0.20), REGIME(0.15), VWAP(0.15), VOLATILITY(0.15), ML(0.25), SENTIMENT(0.25), SESSION_ORB(0.15)
+13 pillars with family caps (source: `realtime/internal/strategy/strategies.go` `applyFamilyCaps`): TREND(0.35), MOMENTUM(0.30), STRUCTURE(0.25), LIQUIDITY(0.20), SMC(0.20), MTF(0.20), CANDLE(0.20), REGIME(0.15), VWAP(0.15), VOLATILITY(0.15), ML(0.25), SENTIMENT(0.25), SESSION_ORB(0.15)
 
-76 feature fields across the feature registry (16 in the core indicator engine + structure/FVG/liquidity/session/ORB/VWAP/regime families), 35 live, 7 warming up.
+Feature registry: ~90 distinct feature fields populated across the engine modules (50 in the core `IndicatorFeatures` struct + structure/FVG/liquidity/session-ORB/regime/VWAP/fibonacci/ichimoku families). The readiness map (`features/registry.go`) tracks 19 named capabilities: 10 READY, 7 WARMING_UP (rolling stats / pivot windows), 2 with data-source constraints (`Fibonacci`/`Structure` need confirmed swings), plus `VolumeProfile`/`CumulativeDelta` = UNSUPPORTED_BY_DATA_SOURCE (broker tick volume only) and `COT` = external-dependency status.
 
-## Risk Gates (24 gates, ordered, per-(strategy, timeframe) isolated)
+## Risk Gates (23 gates, ordered, per-(strategy, timeframe) isolated)
 
-Source of truth: `realtime/internal/types/types.go:242-268` + `realtime/internal/gates/gates.go` (registry order). First veto short-circuits; unregistered/uninitialized gates fail closed.
+Source of truth: `realtime/internal/types/types.go` (GateID consts) + `realtime/internal/gates/gates.go` (`NewRegistry` base order) + `realtime/cmd/realtime-engine/main.go` (`RegisterOrdered` insertions). First veto short-circuits; unregistered/uninitialized gates fail closed.
 
-DataQuality → WrongSideSL → Session → News → Spread → Slippage → TotalCost → MinATR → StopHuntFilter → Exposure → Margin → RiskOversize → PositionCaps → DailyLoss → ProfitTarget → MartingaleBan → RRNetExpectancy → Profitability → Entitlement → License → ExecutionPermit → BrokerSymbolValidation → EdgeValidation → (GateConfigVersion/PolicyVersion metadata)
+DataQuality → WrongSideSL → Session → News → Spread → Slippage → TotalCost → MinATR → StopHuntFilter → Exposure → Margin → RiskOversize → PositionCaps → DailyLoss → ProfitTarget → MartingaleBan → RRNetExpectancy → Profitability → Entitlement → License → ExecutionPermit → EdgeValidation → BrokerSymbolValidation
 
-Gate state is isolated per (strategy, timeframe) to prevent cross-strategy contamination. Operator edge-arming enables per-strategy broker-position authorization for EXECUTABLE delivery.
+(The earlier "24 gates" claim over-counted by one: 23 distinct GateIDs exist and all 23 are registered. `GatePolicyVersion`/`GateConfigVersion` are metadata fields on the signal object, not gates.)
 
-## v1.17.x Features
+Gate state is isolated per (strategy, timeframe) to prevent cross-strategy contamination. Operator edge-arming (`LIVE_TRADING_AUTHORIZED=true` + `EDGE_ARMED_STRATEGIES` list) enables per-strategy broker-position authorization for EXECUTABLE delivery.
 
-- **Per-client risk isolation at delivery** — executable signals are forwarded only to clients whose own broker account has free margin; a blown client can never block others (fail-open on stale/unknown state).
-- **Ingest/signal decoupling seam (PLANNED, not implemented)** — a `pkg/bus` in-process/NATS abstraction was documented in earlier releases; no such code exists in the current tree and the `pat-nats` container is scheduled for removal (audit 0ab2502). Ingest currently runs in-process only.
-- **Silent data-feed detection + auto-recovery** — a data-independent 10s health monitor detects a dead `MARKET_SNAPSHOT` feed (not masked by ticks), alerts via ntfy, and nudges agents with `REQUEST_SNAPSHOT`.
-- **Master Node snapshot delivery fix** — `MasterAppend()` now truly appends (was truncating), so snapshots are no longer clobbered by tick writes.
-- **Launch-blocker remediation** — secrets moved out of `docker-compose.yml` (env-file injection), migrations renumbered to unique prefixes + reconciled, fabricated probability eliminated (VALIDATED-gated calibration), news gate fails closed, GDPR erasure service, RBAC roles+permissions guard, decimal.js money math.
+## Market-Data Providers
 
-## v1.16.0 Features (P2 — ACTIVE)
+| Feed | Provider | Notes |
+|------|----------|-------|
+| XAUUSD ticks/candles | MT5/MT4 Master Node EA → `POST /ingest/agent` | Authoritative; honest `NO_DATA` when the EA is offline |
+| DXY (mandatory) | TwelveData | `DXY_ENABLED=true`; a hard 429 ⇒ strategy **NO-TRADE** (fail-closed) |
+| Macro assets (VIX/BTC/WTI/EURUSD/USDCHF) | TwelveData batched `/quote` | 1 credit per batch call |
+| COT | FMP API, CFTC Socrata fallback | FMP 402/403 = permanent → CFTC public report (verified live) |
+| FRED real yield | FRED (DFII10) | No API key needed |
+| Sentiment | Ollama (local) | Advisory only, `NOT_AI_VERIFIED` provenance |
 
-- P2-001: Session ORB — Asian/London/NY opening ranges, breakout detection
-- P2-002: Pin Bar geometry — body/wick ratios, rejection scoring
-- P2-003: Pullback detection — depth %, ATR retracement, continuation
-- P2-004: Trade Group ID — multi-position signal tracking
-- P2-005: SLO targets — availability, latency, error budgets
+**TwelveData free-tier budget:** 800 credits/day hard cap. The engine self-limits to 640/day (80% safety margin, `realtime/internal/marketdata/twelve_data_ratelimit.go`) — shared UTC-day budget across DXY + macro providers, resets at UTC midnight. ⚠️ The budget is **in-process**: every `pat-realtime` restart resets it, so watchdog restart-churn can re-burn credits (this is why TICKS_STALE remediation no longer restarts the engine).
 
-### v1.16.0 Frontend Features
-- **Signal Panel pagination:** 20/page admin, 15/page user — prevents browser lockup with large signal volumes
-- **TP2/TP3 columns:** Displayed alongside TP1 in both admin and user signal tables with per-level R:R ratios
-- **Quality Grade:** A+, A, B, REJECTED badges on signal rows
-- **Expectancy metrics:** EV_R (expected value per unit risk) and ExpectancyScore (0-100)
-- **Capital-protection sizing:** SuggestedLot, RiskDollars, RiskPctOfEquity, SLDistancePoints displayed in expandable rows
-- **Calibrated probability:** Shows "Pending" until calibration model is validated (§16, §36)
-- **Signal Class:** ADVISORY vs EXECUTABLE classification with color coding
-- **Multi-tab strategy filtering:** All 7 strategy engines (including EQFE, ATEN and IMLR) with directional sub-filters
+## Current Development (16 September 2026)
 
-## v1.17.3 Features (29 August 2026)
-
-- **NestJS 10→12 + TypeScript 6 + Jest 30** — closes the last supply-chain residual (js-yaml prototype-pollution HIGH); production dependency tree now 0 high/critical (lodash eliminated, multer 2.2.0, express 5 via platform-express@12). Jest 30 required because Nest 12 is ESM-only (`--experimental-vm-modules`).
-- **BE-6 fill-level reconciliation (closed)** — TRADE_RESULT now closes the ACK→fill leg keyed by broker ticket; 30s reconciliation monitor with ACK TTL (2m) and fill TTL (10m), per-signal deduped ntfy alerts, Prometheus gauges `pat_reconciliation_{acks_timeout,fills_timeout,tracked_signals}`, retention pruning. Fail-observing only — never blocks trading.
-- **Devil Liquidity duplicate-mark fix** — the reversal candle could itself re-qualify as a NEW displacement mark (median body shifts after the first mark), double-charging the same level. Guard: level match normalized by the mark's DETECTION ATR + recency window (`RECLAIM_MAX_BARS` x timeframe duration).
-- **CI rebuilt** — YAML indentation bug (30 consecutive failed runs, 0 jobs) fixed; secret-scan self-exclusion glob fixed; control `.npmrc` legacy-peer-deps documented; psycopg2 importorskip; 6/6 jobs green.
-- **Dashboards runtime-audited (38/38 pages)** — every ADMIN and USER page probed against the live edge with USER + ADMIN tokens; fixed: `POST /subscriptions` 500 (PG17 `$5` type inference), stale e2e specs (cookie seeding, nav counts), 13 pre-existing lint errors.
-- **EA-direct transport verified end-to-end** — device activation → HMAC edge-poll → fail-closed plan-filtered enqueue → always-ACK; EA sources served from `https://downloads.predictatrade.com/mql/`.
-
-## Current Development (1 September 2026)
-
-- **v1.19.0 — Option B: EA-direct cloud transport (Windows Agent REMOVED).** The
-  `windows-agent/` tree (120MB), its installers, CI job, Makefile targets, compose
-  mounts, dedicated 13091 data-listener, and the `audit.agent_connections` table are
-  all deleted. Replaced by:
-  - **Go engine**: `POST /ingest/agent` (device JWT, `TYPE|{json}` lines) feeds the
-    unchanged `HandleAgentMessage` core; executable signals enqueue straight into
-    `licensing.edge_signal_queue` (fail-closed, plan-whitelisted in SQL).
-  - **Control plane**: `AgentsModule` deleted; the `edge-poll` API (HMAC-signed
-    poll/ack/heartbeat) is the sole EA delivery path, with an entitlement re-check
-    at poll time (license revoked or plan downgraded between enqueue and poll →
-    signal expired, never delivered).
-  - **EAs**: all four (MT4/MT5 × client/master) are single-file pure-MQL HTTPS
-    clients — device bootstrap (`PAT_device.txt`), token rotation, hand-rolled
-    SHA-256/HMAC byte-compatible with `verifyRequestSignature`, Bearer ingest with
-    one-shot 401 retry, HMAC edge-poll every 2s with always-ACK semantics, 15s
-    heartbeat. Version 1.19; MT5 `ea_version` 1.19.
-  - **Frontend**: the MetaTrader Client page is EA-only (WebRequest allowlist +
-    license key + compile steps — no agent installers); `mql/` sources sync to
-    `frontend/public/downloads/`.
-- **Engine "Market Feed Stale" fixes (honest status, no fake data):**
-  1. `realtime/internal/gateway/feeds.go` — the `/api/v1/feeds` divergence panel flagged
-     `degraded` at a 5s threshold, but the Master Node streams snapshots every ~30–60s by
-     design. Threshold realigned to 90s (`degraded`) / 180s (`stale`) to match the real
-     health windows.
-  2. `realtime/cmd/realtime-engine/main.go` — the candle-quality monitor marked the whole
-     market state `STALE` at 15s against tick-only timestamps (ticks arrive in bursts).
-     Now based on the actual last market-data arrival with a 90s window.
-  3. `realtime/internal/marketdata/agent_provider.go` — the engine only ingests
-     `MARKET_SNAPSHOT` from agents with the `data` role, but that role was set only via
-     `MASTER_INIT`, which the Master Node does **not** re-send on reconnect. After every
-     engine restart the reconnected data node's snapshots were silently dropped →
-     `NO_DATA`/`STALE`. Fixed: the `data` role is re-established on the first
-     `MARKET_SNAPSHOT` (only the data node ever sends them).
-  - Result: connections show `online`, the feed shows `LIVE` while data flows, and flips
-    to `NO_DATA` only when data truly stops (>90s). No fabricated ticks.
-- **Admin / Client dashboards** now reflect real agent connection + API state; the
-  Live Command Center relays engine state over `wss://platform.predictatrade.com/ws/v1/relay`.
+- **Watchdog reconcile hardening (2026-09-16):** nginx container-name fixed (`pat-nginx` everywhere — the stale `xauusd-nginx-1` caused a false CONTAINER_DOWN alarm every 30s + broken disk probes); stack-reconcile mounts the whole `infra/env` dir (env_file resolution previously always FAILED); reconcile is now `up -d --no-recreate` (the in-container compose's config-hash differs from the host's — a plain `up -d` "recreated" healthy containers as drift, killing the watchdog itself mid-command); TICKS_STALE is alert-only.
+- **TwelveData UTC-day credit budget guard (2026-09-13):** 800/day free tier guarded at 640; DXY/macro fail to NO-TRADE instead of feeding a 429 retry storm.
+- **COT CFTC fallback (2026-09-13):** FMP 402/403 permanent failures now fall back to the CFTC public report — COT stays AVAILABLE.
+- **EXECUTABLE delivery enabled (operator-authorized):** entitlement + gate cascade loosened per operator authorization; `LIVE_TRADING_AUTHORIZED=true` with armed strategies in `EDGE_ARMED_STRATEGIES`.
+- **Server Migration runbook (2026-09-12):** full VPS→VPS procedure with R2 snapshot, secret inventory, restore, DNS cutover (`docs/operations/SERVER_MIGRATION.md`).
+- **Capacity plan + tool (2026-09-11):** measured VPS vs dedicated sizing at 10k subscribers (`docs/operations/CAPACITY_PLAN.md`).
+- **Cloudflare proxy hardening (2026-09-10):** all nginx upstreams moved to resolver-backed variabled `proxy_pass` — forced engine recreates no longer 502 the public edge.
+- **v1.19.0 — Option B: EA-direct cloud transport (Windows Agent REMOVED).** See `docs/guides/EA_CLIENT_GUIDE.md`.
+- **Engine "Market Feed Stale" fixes (honest status, no fake data):** `/api/v1/feeds` thresholds realigned (90s degraded / 180s stale), candle-quality monitor on real data-arrival windows, data-role re-established on first MARKET_SNAPSHOT after reconnect.
 
 ## Plane Boundaries (mandatory)
 
@@ -190,32 +143,26 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 | Python Research | research/ | Backtesting, calibration, ML | Live tick dependency |
 | Windows/MQL Edge | mql/ | Order execution | Primary intelligence |
 
-## Current Status (29 August 2026)
+## Current Status (16 September 2026)
 
 | Check | Status |
 |-------|:------:|
-| Go tests (40/40 packages) | PASS |
-| Control tests (NestJS 12, Jest 30) 167/167 | PASS |
-| Frontend tests 84/84 + e2e 18/18 | PASS |
-| Python tests 154 (153 pass, 1 skip) | PASS |
-| CI — 6/6 jobs green | PASS |
-| All 13 containers healthy | PASS |
-| 16 risk gates active | PASS |
+| Go tests (39/39 packages, cgo-enabled run) | PASS |
+| Control tests (NestJS 12, Jest 30, NODE_OPTIONS=--experimental-vm-modules) | PASS |
+| Frontend tests + e2e | PASS |
+| Python tests (uv-managed) | PASS |
+| CI — 6/6 jobs green (+ docs-quality advisory job) | PASS |
+| All 17 compose services healthy | PASS |
+| 23 risk gates active (ordered, fail-closed) | PASS |
 | SL enforcement server-side | ACTIVE |
 | Broker symbol validation (P0-001) | ACTIVE |
 | Price precision rounding (P1-001) | ACTIVE |
 | Math parity (MAPE < 0.0001) | PASS |
-| 49/49 geometry validations | PASS |
-| Launch blockers (SEC-1/DB-1/DB-2/DB-5/BE-5/BE-4) | ALL CLOSED |
-| BE-6 reconciliation monitor (ACK + fill legs) | LIVE |
-| Supply chain (NestJS 12, 0 high/critical prod) | CLOSED |
-| Dashboards wiring (38/38 pages runtime-probed) | PASS |
-| EA-direct transport (all 4 EAs) + edge-poll + MQL downloads | VERIFIED (compile check: operator) |
-| Migration integrity (69 files, numbered to 099, unique prefixes) | PASS |
+| Migrations (108 files, numbered 001–148, unique prefixes) | PASS |
 | Secrets out of git (env-file injection) | PASS |
 | MT5 clients connected (EA attach + license) | Operator action |
 | Demo fill test (one signal round-trip) | Operator action |
-| Backup/restore drill | Operator action |
+| Backup/restore drill | Operator action (R2 snapshot verified 2026-09-12) |
 | Live automated trading arming | Authorized by operator (`LIVE_TRADING_AUTHORIZED=true`); fail-closed on verified broker equity feed |
 
 > **Deployment is Docker-First.** All services run via `docker compose --env-file infra/env/.env`.
@@ -227,12 +174,12 @@ Gate state is isolated per (strategy, timeframe) to prevent cross-strategy conta
 
 Located in `realtime/`. Key packages:
 
-- `internal/marketdata` — agent provider, tick/candle aggregation, COT, DXY providers
-- `internal/features` — feature registry (76 feature fields: indicators, structure, FVG/liquidity, regime, VWAP, Fibonacci, session/ORB, pivots)
+- `internal/marketdata` — agent provider (Option B ingest), tick/candle aggregation, COT (FMP + CFTC fallback), DXY, TwelveData multi-asset (batched + daily credit budget), FRED real yield
+- `internal/features` — feature registry (~90 feature fields: indicators, structure, FVG/liquidity, regime, VWAP, Fibonacci, session/ORB, pivots, readiness map)
 - `internal/strategy` — 7 strategy engines, evidence scoring, confluence, geometry
-- `internal/gates` — 24 hard risk gates (ordered, fail-closed)
+- `internal/gates` — 23 hard risk gates (ordered, fail-closed)
 - `internal/signal` — master decision engine, cooldown, duplicate prevention
-- `internal/gateway` — HTTP, dashboard WS handlers (browser relay; EA traffic is HTTPS ingest + edge-poll)
+- `internal/gateway` — HTTP + dashboard WS handlers (browser relay; EA traffic is HTTPS ingest + edge-poll)
 - `internal/crossmarket` — DXY, BTC, Oil macro module
 - `internal/ml` — ONNX model inference (advisory)
 - `internal/sentiment` — Ollama sentiment analysis (advisory)
@@ -242,20 +189,23 @@ Located in `realtime/`. Key packages:
 ## Documentation
 
 - [SCOPE_OF_WORK.md](realtime/SCOPE_OF_WORK.md) — Full project scope and specifications
-- [CHANGELOG.md](realtime/CHANGELOG.md) — Version history v1.0-v1.29.x
+- [CHANGELOG.md](realtime/CHANGELOG.md) — Version history v1.0–v1.29.x
 - [docs.md](docs.md) — Full pipeline, indicator maths, all 7 strategies in plain words (from live engine source)
-- [PRODUCTION_READINESS_AUDIT.md](realtime/PRODUCTION_READINESS_AUDIT.md) — Audit: 100/100
+- [indicator.md](indicator.md) — Indicator & signal-generation reference (candle reading, formulas, evidence scoring, gates)
+- [project-brief.md](project-brief.md) — Full-project reference: planes, services, lifecycle, delivery internals, maths layer, DB schema + ERD
 - [docs/](docs/) — Architecture, strategy playbooks, indicators, gates, API, database
-- [Docker Deployment Guide](docs/operations/DOCKER_DEPLOYMENT.md) — Step-by-step Docker Compose (14 steps)
-- [Host Deployment Guide](docs/operations/HOST_DEPLOYMENT.md) — Step-by-step bare-metal/VPS (14 steps)
+- [Docker Deployment Guide](docs/operations/DOCKER_DEPLOYMENT.md) — Step-by-step Docker Compose
+- [Hetzner Deployment Runbook](docs/operations/HETZNER_DEPLOYMENT.md) — VPS provisioning, R2-backed
+- [Server Migration Runbook](docs/operations/SERVER_MIGRATION.md) — VPS→VPS move (R2 snapshot, DNS cutover)
 - [Admin Guide](docs/guides/ADMIN_GUIDE.md) — System administration
 - [User Guide](docs/guides/USER_GUIDE.md) — Dashboard, strategies, MT4/MT5 setup
 - [EA Client Guide](docs/guides/EA_CLIENT_GUIDE.md) — Option B EA-direct transport: install, licensing, troubleshooting
+- [Runbooks](docs/runbooks/) — MT connectivity, edge-poll 429, signal-delivery verification, Discord/Telegram/WhatsApp desks, mail deliverability
 
 ## Canonical Project Files
 
 - [AGENTS.md](AGENTS.md) — Authoritative agent operational instructions (read first).
-- [MANIFEST.md](MANIFEST.md) — Project scope, structure, service inventory (v1.29.x).
+- [MANIFEST.md](MANIFEST.md) — Project scope, structure, service inventory.
 - [realtime/SCOPE_OF_WORK.md](realtime/SCOPE_OF_WORK.md) — Full statement of work.
 
 ## Build & Test
@@ -266,14 +216,17 @@ make build && make test && make lint
 
 # Individual planes
 make go-build          # Go realtime engine
-make go-test           # Go tests (39 packages — host has no Go; container golang:1.25)
+make go-test           # Go tests (39 packages — host has no Go; container golang:1.25 + gcc for cgo/mlengine)
 make control-build     # NestJS control plane
 make frontend-build    # Next.js frontend
-make research-test     # Python tests (154: 152 pass, 2 skip — uv-managed)
+make research-test     # Python tests (uv-managed)
 
 # Docker (ALL commands MUST use --env-file infra/env/.env)
 docker compose --env-file infra/env/.env up -d --build
 docker compose --env-file infra/env/.env ps
+
+# Deploy gotcha: pat-control and pat-control-b build to SEPARATE images.
+# After any control change: docker compose build control control-b frontend && docker compose up -d control control-b frontend
 ```
 
 ## Production Safety
