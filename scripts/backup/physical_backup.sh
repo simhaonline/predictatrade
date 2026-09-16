@@ -9,10 +9,13 @@
 # Install as root cron (host):
 #   0 */6 * * * /srv/predictatrade/xauusd/scripts/backup/physical_backup.sh >> /var/backups/predictatrade/basebackup.log 2>&1
 #
-# WAL archiving is already on (archive_mode=on, wal_level=replica) and
-# /var/lib/docker/volumes/xauusd_pat-pgdata/_data/wal_archive is synced to
-# Hetzner S3 continuously by pat-backup-sync. Base backups land in
-# /var/backups/predictatrade/base/ which pat-backup-sync ships to S3.
+# WAL archiving is on (archive_mode=on, wal_level=replica). The archive dir
+# left PGDATA on 2026-09-16: archive_command targets
+# /var/lib/postgresql/wal_archive (host bind dir
+# /srv/predictatrade/xauusd/infra/wal_archive) so pg_basebackup tars stay
+# cluster-only (~1.6GB) instead of swallowing the growing archive (76GB each,
+# 1.45TB total in S3 — the 44→76GB growth bug). pat-backup-sync ships the
+# archive from mount /pgwal and base backups from /pgbackups.
 set -euo pipefail
 
 CONTAINER_NAME="${CONTAINER_NAME:-pat-postgres}"

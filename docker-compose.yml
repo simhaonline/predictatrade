@@ -42,12 +42,19 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      # DB-5: initdb.d auto-run removed. scripts/migrate.sh is now the single
+      # DB-5: initdb.d auto-run removed. scripts/migrate.sh is the single
       # source of truth for schema. On a FRESH volume, run
       # `./scripts/migrate.sh up` (host, against 127.0.0.1:5432) or mount it
       # inside the postgres container and run it there BEFORE app services start.
       - pat-pgdata:/var/lib/postgresql/data
       - ./database/roles:/roles:ro
+      # WAL archive OUTSIDE PGDATA (2026-09-16): the archive previously lived at
+      # PGDATA/wal_archive, so every pg_basebackup tar swallowed the whole
+      # (growing) archive — base tars in S3 grew 44→76GB each and wal_archive
+      # hit 328GB. Host bind-mount keeps the archive visible for off-host sync,
+      # direct tar/rsync, and trivial retention pruning. archive_command points
+      # here via ALTER SYSTEM (see docs/operations/SERVER_MIGRATION.md §0).
+      - ./infra/wal_archive:/var/lib/postgresql/wal_archive
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pat_admin -d predictatrade"]
       interval: 5s
@@ -489,6 +496,10 @@ services:
     # directly from the env_file inside the container (see command below).
     volumes:
       - pat-pgdata:/pgdata:ro
+      # WAL archive: host bind-mount (same source as postgres' second volume).
+      # Path inside this container: /pgwal (NOT /pgdata/wal_archive — the
+      # archive left PGDATA on 2026-09-16; see postgres service comment).
+      - ./infra/wal_archive:/pgwal:ro
       # Host-side logical dumps produced by scripts/backup/backup.sh (every 6h cron)
       - /var/backups/predictatrade:/pgbackups:ro
     restart: always
@@ -511,8 +522,8 @@ services:
         export AWS_SECRET_ACCESS_KEY=$${BACKUP_S3_SECRET_KEY};
         export AWS_DEFAULT_REGION=$${BACKUP_S3_REGION:-auto};
         while true; do
-          echo "[backup-sync] $$(date -u) syncing /pgdata/wal_archive -> s3://$${BACKUP_S3_BUCKET}/$${BACKUP_S3_PREFIX}";
-          aws s3 sync /pgdata/wal_archive s3://$${BACKUP_S3_BUCKET}/$${BACKUP_S3_PREFIX} --endpoint-url $${BACKUP_S3_ENDPOINT} --no-progress 2>&1 || echo '[backup-sync] WAL sync failed, retrying';
+          echo "[backup-sync] $$(date -u) syncing /pgwal -> s3://$${BACKUP_S3_BUCKET}/$${BACKUP_S3_PREFIX}";
+          aws s3 sync /pgwal s3://$${BACKUP_S3_BUCKET}/$${BACKUP_S3_PREFIX} --endpoint-url $${BACKUP_S3_ENDPOINT} --no-progress 2>&1 || echo '[backup-sync] WAL sync failed, retrying';
           echo "[backup-sync] $$(date -u) syncing /pgbackups -> s3://$${BACKUP_S3_BUCKET}/$${BACKUP_S3_DB_PREFIX}";
           # Only timestamped dump artifacts (backup_2*.dump + sha256 sidecars) —
           # never logs, lock files, or old test dumps. A dump caught mid-write

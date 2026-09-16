@@ -1,8 +1,34 @@
 # Server Migration Runbook — Predict-A-Trade VPS → New VPS
 
-> **Status:** VERIFIED against live host 2026-09-12 (netcup, `152.53.67.111`).
-> Fresh migration-grade snapshot confirmed on Cloudflare R2 the same day.
+> **Status:** VERIFIED against live host 2026-09-12 (netcup, `152.53.67.111`);
+> **UPDATED 2026-09-16** — fresh artifacts staged on the new migration target:
+> **Hetzner hel1 Object Storage, bucket `pat-backup`** (creds in
+> `infra/env/.env` as `MIGRATION_S3_*`, gitignored). Old Cloudflare R2 bucket
+> stays live until cutover, then is wiped (operator instruction).
 > Owner: Mehul Kumar Bhatt. Companion docs: [BACKUP_RESTORE](BACKUP_RESTORE.md), [DR_PLAN](DR_PLAN.md), [HOST_DEPLOYMENT](HOST_DEPLOYMENT.md).
+
+## 0a. 2026-09-16 changes (read first — supersedes the R2-era sizing)
+
+- **WAL archive left PGDATA.** The 328 GB in-PGDATA `wal_archive` was bloating
+  every `pg_basebackup` tar (76 GB each, 1.45 TB total in S3). Now:
+  `archive_command` → `/var/lib/postgresql/wal_archive` (host bind dir
+  `./infra/wal_archive`), old archive deleted after full R2-parity check.
+  Clean base backup = **1.6 GB** (verified).
+- **New migration target (Hetzner `pat-backup` @ `hel1.your-objectstorage.com`)**
+  now holds the complete minimal migration set:
+  - `predictatrade/code/` — bundle + tree + manifest @ `6df51c9` (2026-09-16)
+  - `predictatrade/db/clean_base_20260916/` — physical base (1.58 GB base.tar.gz
+    + 46 MB pg_wal.tar.gz + manifest; covers WAL to segment `5C00000047`)
+  - `predictatrade/db/backup_20260916_031501_UTC.dump` (+ sha) — logical dump
+  - `predictatrade/wal/` — bridge segments `5C00000048…5B` (replay from the
+    clean base needs only ≥48; backup-sync retarget keeps appending at cutover)
+  - Everything else (950 GB stale through Sep 11) deleted on 2026-09-16.
+- **DB cluster actual size: ~6.5 GB** (data 6.0 + pg_wal 0.5). New-host disk
+  budget: ~70 GB total → fits a 320 GB VPS with ~250 GB free. **No separate
+  DB VPS needed.**
+- Old R2 (`predictatrade-backups`, 1.8 TB) stays the live backup-sync target
+  until cutover; after the new host's first backup lands and is verified,
+  its content is deleted (operator instruction 2026-09-16).
 
 ## 0. What is being migrated (verified inventory)
 
