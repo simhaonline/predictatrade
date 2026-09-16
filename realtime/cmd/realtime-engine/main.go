@@ -1285,7 +1285,7 @@ func main() {
 	}
 	if isAgentProvider {
 		log.Info().Msg("Using AgentProvider — waiting for Windows MT5 Agent connection for real tick data")
-		log.Info().Msg("Connect your MT5 Master Node EA to: wss://api.predictatrade.com/ws/v1/agent")
+		log.Info().Msg("Connect your MT5 Master Node EA ingest to: POST https://api.predictatrade.com/ingest/agent (device JWT; the old wss://.../ws/v1/agent transport was removed in v1.19.0)")
 	}
 
 	// Feature engines

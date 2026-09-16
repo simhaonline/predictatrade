@@ -113,7 +113,7 @@ func loadConfig() *Config {
 		StoppedGrace:      dur(getenv("STOPPED_GRACE", "20s")),
 		TickDegradeGrace:  dur(getenv("TICK_DEGRADE_GRACE", "120s")),
 		DiskMaxUsedPct:    intInt(getenv("DISK_MAX_USED_PCT", "85")),
-		DiskProbes:        parseDiskProbes(getenv("DISK_PROBES", "pat-postgres:/var/lib/postgresql/data pat-backup-sync:/pgbackups xauusd-nginx-1:/var/log/nginx xauusd-nginx-1:/etc/letsencrypt")),
+		DiskProbes:        parseDiskProbes(getenv("DISK_PROBES", "pat-postgres:/var/lib/postgresql/data pat-backup-sync:/pgbackups pat-nginx:/var/log/nginx pat-nginx:/etc/letsencrypt")),
 		RunbookBase:       getenv("RUNBOOK_BASE", "https://docs.predictatrade.com/runbooks"),
 		Services: strings.Fields(getenv(
 			"SUPERVISED_SERVICES",
@@ -197,9 +197,6 @@ func supervise(cfg *Config, state *watchState) []Finding {
 
 	for _, svc := range cfg.Services {
 	 cname := "pat-" + svc
-		if svc == "nginx" {
-			cname = "xauusd-nginx-1"
-		}
 		insp, err := inspect(cname)
 		if err != nil {
 			// Container object itself missing → compose artifact gone; escalate to stack-up.
@@ -271,9 +268,15 @@ func supervise(cfg *Config, state *watchState) []Finding {
 				Detail: "tick-freshness probe failed: " + err.Error()})
 		} else if age > cfg.TickMaxAge+cfg.TickDegradeGrace {
 			findings = append(findings, Finding{
-				Kind: "TICKS_STALE", Service: "realtime",
-				Detail:   fmt.Sprintf("no master tick for %s (threshold %s)", age.Round(time.Second), cfg.TickMaxAge+cfg.TickDegradeGrace),
-				Escalate: 2,
+				Kind:  "TICKS_STALE",
+				Service: "realtime",
+				Detail: fmt.Sprintf("no master tick for %s (threshold %s)", age.Round(time.Second), cfg.TickMaxAge+cfg.TickDegradeGrace),
+				// Alert-only, no auto-restart: master ticks come from the EXTERNAL
+				// Windows MT5 agent (AgentProvider), so restarting the engine cannot
+				// heal staleness — it only churns (and every boot re-burns fresh
+				// TwelveData credits, since the daily budget is in-process). A truly
+				// sick engine is caught by L3 (health probe) instead.
+				Escalate: 0,
 			})
 		}
 	}
@@ -328,10 +331,8 @@ func supervise(cfg *Config, state *watchState) []Finding {
 }
 
 // svcFromCname maps a container name back to its compose service key.
+// All containers carry the pat-<service> name (container_name in compose).
 func svcFromCname(cname string) string {
-	if cname == "xauusd-nginx-1" {
-		return "nginx"
-	}
 	return strings.TrimPrefix(cname, "pat-")
 }
 
@@ -376,11 +377,7 @@ func pgRunning(cfg *Config) bool {
 }
 
 func svcRunning(cfg *Config, svc string) bool {
-	cname := "pat-" + svc
-	if svc == "nginx" {
-		cname = "xauusd-nginx-1"
-	}
-	insp, err := inspect(cname)
+	insp, err := inspect("pat-" + svc)
 	return err == nil && insp.State.Running
 }
 
@@ -464,12 +461,17 @@ func remediate(cfg *Config, f Finding, state *watchState, now time.Time) (string
 		cname := cnameFor(f.Service)
 		action = "docker restart " + cname
 		out, err = docker("restart", "-t", "30", cname)
-	case 3: // stack reconcile (heals missing containers / compose drift)
-		action = "docker compose up -d (stack reconcile)"
-		out, err = docker(composeArgs(cfg, "up", "-d")...)
+	case 3: // stack reconcile (creates/starts MISSING containers only)
+		// --no-recreate is mandatory: the watchdog image ships its own
+		// docker-compose (docker:cli), whose config-hash differs from the
+		// host's — a plain `up -d` would "recreate" (kill) running healthy
+		// containers as drift, including the watchdog itself mid-command.
+		// Availability-heal only; real config-drift heals via host deploy.
+		action = "docker compose up -d --no-recreate (stack reconcile)"
+		out, err = docker(composeArgs(cfg, "up", "-d", "--no-recreate")...)
 	case 4: // ordered full-stack bring-up (used when postgres+engine both down)
-		action = "docker compose up -d (ordered stack up)"
-		out, err = docker(composeArgs(cfg, "up", "-d")...)
+		action = "docker compose up -d --no-recreate (ordered stack up)"
+		out, err = docker(composeArgs(cfg, "up", "-d", "--no-recreate")...)
 	}
 	if err != nil {
 		return fmt.Sprintf("%s FAILED: %v (%s)", action, err, strings.TrimSpace(out)), false
@@ -480,9 +482,6 @@ func remediate(cfg *Config, f Finding, state *watchState, now time.Time) (string
 }
 
 func cnameFor(svc string) string {
-	if svc == "nginx" {
-		return "xauusd-nginx-1"
-	}
 	return "pat-" + svc
 }
 
@@ -671,8 +670,10 @@ func remediationFor(f Finding) string {
 	switch f.Kind {
 	case "CONTAINER_DOWN":
 		return "docker start " + cnameFor(f.Service) + " (auto)"
-	case "UNHEALTHY", "TICKS_STALE":
+	case "UNHEALTHY":
 		return "docker restart " + cnameFor(f.Service) + " after cooldown (auto)"
+	case "TICKS_STALE":
+		return "external MT5 agent must reconnect to wss://api.predictatrade.com/ws/v1/agent — engine restart cannot heal this"
 	case "CRASHLOOP":
 		return "manual intervention required — restart policy churning"
 	case "DISK_HIGH":

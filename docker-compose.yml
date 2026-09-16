@@ -567,7 +567,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Compose file + env for stack-level reconcile actions
       - /srv/predictatrade/xauusd/docker-compose.yml:/srv/predictatrade/xauusd/docker-compose.yml:ro
-      - /srv/predictatrade/xauusd/infra/env/.env:/srv/predictatrade/xauusd/infra/env/.env:ro
+      # Whole env dir (not just .env): stack reconcile inside the container
+      # must resolve every service's env_file (realtime.env, control.env, ...)
+      - /srv/predictatrade/xauusd/infra/env:/srv/predictatrade/xauusd/infra/env:ro
     networks:
       - pat-net            # reach realtime /health and ntfy by service name
     restart: always
