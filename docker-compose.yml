@@ -346,6 +346,9 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      # Plesk edge (CF → Plesk → origin): plain-HTTP hop, firewall to the
+      # Plesk server IP ONLY (infra/env/.env PLESK_SERVER_IP)
+      - "8443:8443"
     volumes:
       - ./nginx/sites-available:/etc/nginx/sites-available:ro
       - ./nginx/snippets:/etc/nginx/snippets:ro
