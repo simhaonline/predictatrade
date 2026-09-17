@@ -64,3 +64,19 @@ ORDER BY n DESC;
 SELECT
   EXTRACT(EPOCH FROM (now() - max(created_at)))/60 AS minutes_since_last_outcome
 FROM trading.prediction_outcomes;
+
+\echo '=== 8. RAWVALUE COVERAGE (snapshot indicator reads, last 24h; target >90% non-zero) ==='
+WITH snap AS (
+  SELECT indicators FROM trading.signal_feature_snapshots
+  WHERE created_at > now() - interval '24 hours'
+)
+SELECT
+  count(*) AS snapshots,
+  round(100.0 * count(*) FILTER (WHERE (indicators->>'rsi')::numeric  IS NOT NULL AND (indicators->>'rsi')::numeric  <> 0) / NULLIF(count(*),0), 1) AS rsi_pct,
+  round(100.0 * count(*) FILTER (WHERE (indicators->>'adx')::numeric  IS NOT NULL AND (indicators->>'adx')::numeric  <> 0) / NULLIF(count(*),0), 1) AS adx_pct,
+  round(100.0 * count(*) FILTER (WHERE (indicators->>'atr')::numeric  IS NOT NULL AND (indicators->>'atr')::numeric  <> 0) / NULLIF(count(*),0), 1) AS atr_pct,
+  round(100.0 * count(*) FILTER (WHERE (indicators->>'cci')::numeric  IS NOT NULL AND (indicators->>'cci')::numeric  <> 0) / NULLIF(count(*),0), 1) AS cci_pct,
+  round(100.0 * count(*) FILTER (WHERE (indicators->>'ema9')::numeric IS NOT NULL AND (indicators->>'ema9')::numeric <> 0) / NULLIF(count(*),0), 1) AS ema9_pct,
+  round(100.0 * count(*) FILTER (WHERE (indicators->>'ema21')::numeric IS NOT NULL AND (indicators->>'ema21')::numeric <> 0) / NULLIF(count(*),0), 1) AS ema21_pct,
+  round(100.0 * count(*) FILTER (WHERE (indicators->>'psar')::numeric IS NOT NULL AND (indicators->>'psar')::numeric <> 0) / NULLIF(count(*),0), 1) AS psar_pct
+FROM snap;
