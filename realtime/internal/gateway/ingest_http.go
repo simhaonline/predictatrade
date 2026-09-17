@@ -31,12 +31,53 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
 // maxIngestBody bounds a single ingest request (a 200-bar multi-TF snapshot
 // with indicators is ~200KB; 4MB leaves generous headroom for batches).
 const maxIngestBody = 4 << 20 // 4MB
+
+// ingestLivenessThrottle: devices.last_seen_at / edge_device_state liveness are
+// updated at most once per this interval per device (EAs ingest up to 10/s;
+// a DB write per request would churn Postgres for zero information gain).
+// The connectivity watchdog marks a device OFFLINE after 3min staleness, and
+// dashboards derive mt4/mt5/data counts from edge_device_state — so WITHOUT
+// this, a continuously-streaming Master EA showed OFFLINE with 0 connections
+// while its feed was HEALTHY (observed live 2026-09-17: snapshots processed,
+// candles building, yet agents_connected=0 and watchdog flipping the device).
+const ingestLivenessInterval = 30 * time.Second
+
+// ingestLiveness tracks the last per-device liveness DB write (goroutine-safe:
+// HandleIngest runs on many goroutines concurrently).
+type ingestLiveness struct {
+	mu    sync.Mutex
+	lasts map[string]time.Time
+}
+
+var ingestLivenessTracker = &ingestLiveness{lasts: make(map[string]time.Time)}
+
+// touchIngestLiveness returns true when a liveness DB write is due for agentID
+// (throttled to one write per ingestLivenessInterval per device).
+func (t *ingestLiveness) touch(agentID string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := time.Now()
+	if last, ok := t.lasts[agentID]; ok && now.Sub(last) < ingestLivenessInterval {
+		return false
+	}
+	t.lasts[agentID] = now
+	// Bound the map: entries older than an hour are dropped opportunistically.
+	if len(t.lasts) > 512 {
+		for k, v := range t.lasts {
+			if now.Sub(v) > time.Hour {
+				delete(t.lasts, k)
+			}
+		}
+	}
+	return true
+}
 
 // ingestRateLimit per request batch: EAs post at most this many messages per
 // call; larger batches are rejected (EA should chunk).
@@ -128,6 +169,45 @@ func (h *HTTPServer) HandleIngest(w http.ResponseWriter, r *http.Request) {
 	// returns 200 (observed live 2026-09-02).
 	if h.roleRegistrar != nil {
 		h.roleRegistrar(agentID, role)
+	}
+
+	// Liveness write-through (throttled): a device that streams ingest is
+	// ONLINE by definition — keep licensing.devices.last_seen_at /
+	// connection_status and licensing.edge_device_state fresh so the
+	// connectivity watchdog doesn't mark a live Master OFFLINE and dashboards
+	// count it (v1.25.0 fix: data-role Masters showed OFFLINE + 0 connections
+	// while the feed was HEALTHY — only edge-poll/heartbeat wrote liveness).
+	if h.persister != nil && h.persister.GetDB() != nil && ingestLivenessTracker.touch(agentID) {
+		db := h.persister.GetDB()
+		// Derive the terminal family from the ingest User-Agent ("MetaTrader 4
+		// Terminal/..." vs "MetaTrader 5") — fills os_name on legacy device rows
+		// whose activation predates the os_name column, so dashboards split
+		// mt4_connected/mt5_connected correctly.
+		ua := strings.ToUpper(r.UserAgent())
+		terminal := ""
+		switch {
+		case strings.Contains(ua, "METATRADER 5") || strings.Contains(ua, "METATRADER5"):
+			terminal = "MT5"
+		case strings.Contains(ua, "METATRADER 4") || strings.Contains(ua, "METATRADER4"):
+			terminal = "MT4"
+		}
+		go func(deviceID, deviceRole, osHint string) {
+			_, _ = db.Exec(
+				`UPDATE licensing.devices
+				    SET last_seen_at = now(),
+				        connection_status = 'ONLINE',
+				        role = $2,
+				        os_name = COALESCE(NULLIF(os_name, ''), NULLIF($3, '')),
+				        updated_at = now()
+				  WHERE id = $1::uuid AND deleted_at IS NULL`,
+				deviceID, deviceRole, osHint)
+			_, _ = db.Exec(
+				`INSERT INTO licensing.edge_device_state (device_id, last_heartbeat_at, updated_at)
+				 VALUES ($1::uuid, now(), now())
+				 ON CONFLICT (device_id)
+				 DO UPDATE SET last_heartbeat_at = now(), updated_at = now()`,
+				deviceID)
+		}(agentID, role, terminal)
 	}
 
 	if h.ingestProvider == nil {
@@ -246,6 +326,7 @@ func (h *HTTPServer) queueCommand(command string, envelope map[string]interface{
 		   FROM licensing.devices d
 		  WHERE d.revoked_at IS NULL
 		    AND d.connection_status = 'ONLINE'
+		    AND d.role = 'exec'
 		    AND NOT EXISTS (
 		          SELECT 1 FROM licensing.edge_signal_queue q
 		           WHERE q.device_id = d.id AND q.signal_id = $1
