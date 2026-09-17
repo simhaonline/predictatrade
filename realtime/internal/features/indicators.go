@@ -39,6 +39,8 @@ type IndicatorEngine struct {
 	prevClose      decimal.Decimal
 	prevBollLower  decimal.Decimal
 	prevBollUpper  decimal.Decimal
+	prevADX        *decimal.Decimal // P1: previous ADX for slope
+	prevSqueezeOn  bool             // P1: previous squeeze state for release detection
 	macdHist       []decimal.Decimal
 	stochHist  []decimal.Decimal // %K history for Stochastic signal line (3-period SMA)
 
@@ -172,6 +174,40 @@ func (e *IndicatorEngine) Process(candle *types.Candle) IndicatorFeatures {
 		feat.ADXMinusDI = fdec(minusDI)
 	}
 
+	// === P1 volatility-state + geometry (prompt.md) ===
+	// Choppiness Index (14): compression context for the squeeze veto.
+	if len(e.fHighs) >= 14 {
+		h := decsFromFloats(e.fHighs)
+		l := decsFromFloats(e.fLows)
+		c := decsFromFloats(e.fCloses)
+		feat.Choppiness = ChoppinessIndex(h, l, c, 14)
+	}
+
+	// ADX slope: current vs previous ADX reading (delta across bars).
+	if e.prevADX != nil && !feat.ADX.IsZero() {
+		feat.ADXSlope = ADXSlope(feat.ADX, *e.prevADX)
+	}
+	if !feat.ADX.IsZero() {
+		adxCopy := feat.ADX
+		e.prevADX = &adxCopy
+	}
+
+	// LinReg slope (ATR-normalized) + R² over the last 20 closes.
+	if len(e.fCloses) >= 20 && !feat.ATR.IsZero() {
+		c := decsFromFloats(e.fCloses)
+		slope, r2 := LinRegSlopeR2(c, 20)
+		feat.LinR2 = r2
+		feat.LinSlopeATR = LinSlopeATR(slope, feat.ATR)
+	}
+
+	// CLV of the last closed bar (close-location value).
+	if len(e.fHighs) >= 1 {
+		lastH := decsFromFloats(e.fHighs[len(e.fHighs)-1:])
+		lastL := decsFromFloats(e.fLows[len(e.fLows)-1:])
+		lastC := decsFromFloats(e.fCloses[len(e.fCloses)-1:])
+		feat.CLV = CloseLocationValue(lastH[0], lastL[0], lastC[0])
+	}
+
 	// === Momentum Indicators ===
 
 	// OsMA — MACD_Main - MACD_Signal
@@ -236,6 +272,18 @@ func (e *IndicatorEngine) Process(candle *types.Candle) IndicatorFeatures {
 		if sma > 0 {
 			feat.BollWidth = fdec((4.0 * stdDev) / sma)
 		}
+	}
+
+	// P1 (prompt.md): Keltner Channels (20, 2×ATR) + squeeze state.
+	// KC(20,2): EMA20 ± 2×ATR14 — standard reference form.
+	if nC >= 20 && !feat.ATR.IsZero() {
+		ema20 := fdec(fEMAWindow(e.fCloses, 20))
+		kcUpper := ema20.Add(feat.ATR.Mul(decimal.NewFromInt(2)))
+		kcLower := ema20.Sub(feat.ATR.Mul(decimal.NewFromInt(2)))
+		sq := SqueezeState(feat.BollUpper, feat.BollLower, kcUpper, kcLower, e.prevSqueezeOn)
+		feat.SqueezeOn = sq.On
+		feat.SqueezeRelease = sq.Release
+		e.prevSqueezeOn = sq.On
 	}
 
 	// === Volume Indicators ===

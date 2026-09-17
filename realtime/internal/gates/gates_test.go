@@ -25,6 +25,8 @@ func registerAllGates(r *Registry) {
 	// live GateInput, seeded PASS like production main.go B-04).
 	r.Register(&MinAbsoluteATRGate{MinATR: 2.0})
 	r.Register(&StopHuntFilterGate{MinDistanceATR: 1.5})
+	// P1: RegimeAllows direction gate + squeeze veto (prompt.md)
+	r.Register(&RegimeDirectionGate{})
 }
 
 func setAllGateStatesPass(r *Registry) {
@@ -35,7 +37,7 @@ func setAllGateStatesPass(r *Registry) {
 		types.GateSpread, types.GateSlippage, types.GateTotalCost,
 		types.GateExposure, types.GateMargin, types.GateRRNetExpectancy,
 		types.GateProfitability, types.GateEntitlement, types.GateLicense, types.GateExecutionPermit,
-		types.GateMinATR, types.GateStopHuntFilter,
+		types.GateMinATR, types.GateStopHuntFilter, types.GateRegimeDirection,
 	} {
 		val := any(true)
 		if gid == types.GateSlippage {

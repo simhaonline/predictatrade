@@ -28,6 +28,8 @@ func setupEngineWithGates() *Engine {
 		// Self-evaluating precision gates are part of the canonical order
 		// (main.go registers + seeds them; mirror that here).
 		types.GateMinATR, types.GateStopHuntFilter,
+		// P1: RegimeAllows direction gate + squeeze veto (canonical order).
+		types.GateRegimeDirection,
 	} {
 		reg.Register(&passGate{gateID: gateID})
 		reg.UpdateState(gateID, gates.GateState{

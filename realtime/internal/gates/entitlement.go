@@ -83,6 +83,12 @@ func SeedConservativeGateStates(reg *Registry) {
 			State: types.GatePass, EvaluatedAt: now,
 			ValidUntil: now.Add(10 * time.Second), SourceVersion: "seed",
 		},
+		// P1: regime-direction reads its decision from live GateInput (like
+		// Session/News) — seeded PASS with short validity, refreshed per eval.
+		types.GateRegimeDirection: {
+			State: types.GatePass, EvaluatedAt: now,
+			ValidUntil: now.Add(10 * time.Second), SourceVersion: "seed",
+		},
 		types.GateSession: {
 			State: types.GatePass, EvaluatedAt: now,
 			ValidUntil: now.Add(10 * time.Second), SourceVersion: "seed",

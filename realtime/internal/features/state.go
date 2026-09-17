@@ -211,6 +211,19 @@ type IndicatorFeatures struct {
 	OBVZScore       decimal.Decimal // rolling Z-score of OBV (SOW Section 8)
 	TickVolumeZScore decimal.Decimal // rolling Z-score of tick volume (SOW Section 9)
 	BBWidthZScore   decimal.Decimal // rolling Z-score of BB width (SOW Section 10)
+	// P1 (prompt.md): volatility-state + geometry reads.
+	// ChoppinessIndex [0,100] (compression context), Squeeze state (BB-in-KC),
+	// LinReg slope (ATR-normalized) + R², ADX slope (trend-strength momentum).
+	Choppiness      decimal.Decimal
+	SqueezeOn       bool
+	SqueezeRelease  bool
+	LinSlopeATR     decimal.Decimal
+	LinR2           decimal.Decimal
+	ADXSlope        decimal.Decimal
+	CLV             decimal.Decimal
+	AsianSweepHigh  bool
+	AsianSweepLow   bool
+
 	// Volume Profile — UNAVAILABLE (requires real volume, broker provides tick volume only)
 	// Cumulative Delta — UNAVAILABLE (requires centralized order-flow, broker tick data only)
 	VWAP        decimal.Decimal // Session VWAP (from MT5 snapshot)
@@ -310,6 +323,9 @@ type SessionORBFeatures struct {
 	NYRange     decimal.Decimal `json:"ny_range,omitempty"`
 	Compression decimal.Decimal `json:"compression_ratio,omitempty"` // current range / avg range
 	BreakoutDir string          `json:"breakout_direction,omitempty"` // BUY/SELL or empty
+	// P1 (prompt.md): Asian-range sweeps (wick through, close back inside).
+	AsianSweepHigh bool `json:"asian_sweep_high,omitempty"`
+	AsianSweepLow  bool `json:"asian_sweep_low,omitempty"`
 	DistFromHi  decimal.Decimal `json:"dist_from_high,omitempty"`    // ATR-normalized
 	DistFromLo  decimal.Decimal `json:"dist_from_low,omitempty"`     // ATR-normalized
 }

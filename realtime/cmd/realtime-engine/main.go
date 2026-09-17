@@ -5416,6 +5416,9 @@ func registerGates(reg *gates.Registry, cfg *config.Config, newsLastSync func() 
 	reg.Register(&gates.SessionGate{})
 	reg.Register(gates.NewNewsGate(newsLastSync))
 	reg.Register(&gates.SpreadGate{MaxSpreadAbsolute: 0.80, MaxSpreadToATR: 0.50})
+	// P1 (prompt.md): RegimeAllows direction gate + squeeze veto — ordered
+	// after session/news context, before stop-hunt/oversize checks. Fail-closed.
+	reg.Register(&gates.RegimeDirectionGate{})
 	// Phase 3: New precision gates
 	// Stop-hunt guard: only veto entries sitting extremely close to the exact
 	// structural swing point (0.5×ATR), not the whole pullback zone. The previous

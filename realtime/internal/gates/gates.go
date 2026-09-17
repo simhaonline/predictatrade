@@ -171,6 +171,7 @@ func NewRegistry() *Registry {
 			types.GateSlippage,
 			types.GateTotalCost,
 			types.GateMinATR,
+			types.GateRegimeDirection, // P1: RegimeAllows + squeeze veto (after session/news context)
 			types.GateStopHuntFilter,
 			types.GateExposure,
 			types.GateMargin,

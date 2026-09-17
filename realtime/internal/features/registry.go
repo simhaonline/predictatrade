@@ -201,6 +201,11 @@ func (r *Registry) Evaluate(candle *types.Candle, allCandles map[types.Timeframe
 	// P2-001: Session ORB features (ACTIVE)
 	orb := r.orbEngine.Process(candle.Time, candle.Close)
 
+	// P1 (prompt.md): Asian-range sweeps — wick through the ORB Asian range,
+	// close back inside. Reuses orb.AsianHigh/Low (no new state, no overlap).
+	orb.AsianSweepHigh = AsianSweep(candle.High, candle.Low, candle.Close, orb.AsianHigh, orb.AsianLow, false)
+	orb.AsianSweepLow = AsianSweep(candle.High, candle.Low, candle.Close, orb.AsianHigh, orb.AsianLow, true)
+
 	state := &MarketState{
 		Symbol:     candle.Symbol,
 		Timestamp:  candle.Time,
@@ -299,6 +304,13 @@ func (r *Registry) buildFeatureReadiness(structure StructureFeatures, ind Indica
 	} else {
 		readiness["BBWidth_ZScore"] = simpleReadiness("WARMING_UP", "rolling stats warming up", "local")
 	}
+
+	// P1 (prompt.md): volatility-state + geometry indicators.
+	readiness["Choppiness"] = simpleReadiness("READY", "computed", "local")
+	readiness["Squeeze"] = simpleReadiness("READY", "computed", "local")
+	readiness["LinRegSlope_R2"] = simpleReadiness("READY", "computed", "local")
+	readiness["ADXSlope"] = simpleReadiness("READY", "computed", "local")
+	readiness["CLV"] = simpleReadiness("READY", "computed", "local")
 
 	// Structure
 	if len(structure.SwingHighs) > 0 && len(structure.SwingLows) > 0 {

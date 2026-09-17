@@ -94,6 +94,13 @@ func BuildFeatureSnapshotJSON(st *features.MarketState) ([]byte, error) {
 
 	// ── Volatility ──
 	putFloat(out, "atr", st.Indicators.ATR)
+	putFloat(out, "choppiness", st.Indicators.Choppiness)
+	putBool(out, "squeeze_on", st.Indicators.SqueezeOn, st.Indicators.SqueezeOn)
+	putBool(out, "squeeze_release", st.Indicators.SqueezeRelease, st.Indicators.SqueezeRelease)
+	putFloat(out, "lin_slope_atr", st.Indicators.LinSlopeATR)
+	putFloat(out, "lin_r2", st.Indicators.LinR2)
+	putFloat(out, "adx_slope", st.Indicators.ADXSlope)
+	putFloat(out, "clv", st.Indicators.CLV)
 	putFloat(out, "bb_upper", st.Indicators.BollUpper)
 	putFloat(out, "boll_lower", st.Indicators.BollLower)
 	putFloat(out, "boll_middle", st.Indicators.BollMiddle)
@@ -118,12 +125,32 @@ func BuildFeatureSnapshotJSON(st *features.MarketState) ([]byte, error) {
 		out["session"] = st.Session.CurrentSession
 	}
 	putBool(out, "is_overlap", st.Session.IsOverlap, st.Session.IsOverlap)
+	putBool(out, "asian_sweep_high", st.SessionORB.AsianSweepHigh, st.SessionORB.AsianSweepHigh)
+	putBool(out, "asian_sweep_low", st.SessionORB.AsianSweepLow, st.SessionORB.AsianSweepLow)
 	if st.Session.NewsRisk != "" {
 		out["news_risk"] = st.Session.NewsRisk
 	}
 	if st.Regime.Current != "" {
 		out["regime"] = string(st.Regime.Current)
 	}
+	// P1: regime-direction allowance + squeeze veto state (strategy pkg
+	// RegimeAllowsDirection mirrored here for the snapshot consumers).
+	out["regime_direction_allowed"] = regimeAllowsDirectionSnapshot(string(st.Regime.Current))
 
 	return json.Marshal(out)
+}
+// regimeAllowsDirectionSnapshot mirrors strategy.RegimeAllowsDirection for the
+// snapshot payload (marketdata cannot import strategy — dependency direction
+// is strategy → marketdata). Kept in lockstep with the gate by tests.
+func regimeAllowsDirectionSnapshot(regime string) string {
+	switch regime {
+	case "TRENDING_BULLISH":
+		return "BUY_ONLY"
+	case "TRENDING_BEARISH":
+		return "SELL_ONLY"
+	case "RANGE":
+		return "NONE" // squeeze veto
+	default:
+		return "BOTH"
+	}
 }

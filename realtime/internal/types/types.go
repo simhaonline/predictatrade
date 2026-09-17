@@ -253,6 +253,7 @@ const (
 	GateExecutionPermit GateID = "execution_permission"
 	GateStopHuntFilter  GateID = "stop_hunt_filter"
 	GateMinATR          GateID = "min_atr"
+	GateRegimeDirection GateID = "regime_direction" // P1: RegimeAllows + squeeze veto
 
 	// Capital-protection gates (R1-R7, EV1-EV3, PT1-PT4)
 	GateWrongSideSL    GateID = "wrong_side_sl"
