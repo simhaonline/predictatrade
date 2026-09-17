@@ -32,6 +32,9 @@ type HTTPServer struct {
 	hub       *WebSocketHub
 	persister *marketdata.Persister
 	states    *features.StateManager
+	// enrichIndicators (P2): attaches crossmarket + astro reads to the state
+	// returned by /api/v1/indicators/raw — injected from main.go. Nil-safe.
+	enrichIndicators func(*features.MarketState)
 	// v1.19.0 (Option B): agentHub/DataAgentHub fields REMOVED — the WS hub is gone.
 	agentProvider interface {
 		GetLastSnapshot() interface{}
@@ -1608,4 +1611,10 @@ func writeJSON(w http.ResponseWriter, v interface{}) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+// SetIndicatorsEnricher (P2): injects the crossmarket+astro read-through used
+// by /api/v1/indicators/raw. Called once from main.go at server assembly.
+func (h *HTTPServer) SetIndicatorsEnricher(fn func(*features.MarketState)) {
+	h.enrichIndicators = fn
 }

@@ -43,6 +43,16 @@ type VedicState struct {
 	Contamination      []string           `json:"contamination,omitempty"`
 	Eclipse            bool               `json:"eclipse"`
 	EclipseType        string             `json:"eclipse_type,omitempty"`
+
+	// P2 (prompt.md): Vedic depth — shadbala-lite per planet, classical yoga
+	// suite, demon hours, gandanta, and the astro sizing multiplier. Additive:
+	// existing fields and consumers unchanged.
+	ShadbalaLite     map[string]float64 `json:"shadbala_lite,omitempty"`
+	Yogas            YogaResult         `json:"yogas,omitempty"`
+	YogaBias         float64            `json:"yoga_bias,omitempty"`
+	DemonHours       DemonHourState     `json:"demon_hours,omitempty"`
+	IsGandantaNow    bool               `json:"is_gandanta,omitempty"`
+	SizingMultiplier float64            `json:"astro_sizing_multiplier,omitempty"`
 }
 
 type WesternState struct {
@@ -135,6 +145,33 @@ func Compute(t time.Time, marketClosed bool) *State {
 		}
 		cursor += yrs
 	}
+
+	// ── P2 (prompt.md): Vedic depth — shadbala-lite, yogas, demon hours,
+	// gandanta, sizing multiplier. Additive block; existing fields untouched.
+	// Where are the sidereal longitudes? Compute() builds them further down —
+	// recompute the needed subset here via mustLon (same source).
+	vedicLons := map[string]float64{}
+	for _, planet := range []string{"Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Rahu", "Ketu"} {
+		vedicLons[planet] = siderealOf(mustLon(planet, t), t)
+	}
+	st.Vedic.SiderealLongitudes = vedicLons
+
+	st.Vedic.ShadbalaLite = map[string]float64{}
+	for planet := range vedicLons {
+		st.Vedic.ShadbalaLite[planet] = ShadbalaLite(planet, vedicLons[planet], vedicLons["Moon"])
+	}
+	yogas := ComputeYogas(YogaContext{Longitudes: vedicLons})
+	st.Vedic.Yogas = yogas
+	st.Vedic.YogaBias = YogaScoreBias(yogas)
+	// Demon hours: sunrise 06:00 UTC / sunset 18:00 UTC assumption — documented
+	// (equinox-averaged solar day; the reference resolves sunrise ephemerally).
+	st.Vedic.DemonHours = ComputeDemonHours(t, 6, 18)
+	st.Vedic.IsGandantaNow = IsGandanta(vedicLons["Moon"])
+	// Sizing multiplier: gold karaka = Sun (reference: gold → Sun, else Mercury).
+	// This engine is XAUUSD-only → Sun is always the karaka.
+	st.Vedic.SizingMultiplier = AstroSizingMultiplier(
+		st.Vedic.ShadbalaLite["Sun"], st.Vedic.DemonHours.RahuKalam ||
+			st.Vedic.DemonHours.Yamaganda || st.Vedic.DemonHours.Gulika)
 
 	// Contamination + eclipse
 	eclipse, etype := isInEclipseWindow(t)

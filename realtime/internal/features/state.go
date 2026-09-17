@@ -51,6 +51,15 @@ type MarketState struct {
 	// Actual type: *ptb.MarketIntelligenceSnapshot
 	PTB interface{}
 
+	// P2 (prompt.md): crossmarket + astro read-through values for the feature
+	// snapshot. interface{} avoids import cycles (features ← crossmarket/astro);
+	// concrete types are attached by the engine when state is assembled.
+	// CrossMarketSnapshot: struct{ BiasX6 float64; MomPct map[DriverName]float64 }
+	// AstroSnapshot: *astro.State (Vedic depth fields incl. SizingMultiplier).
+	CrossMarketBiasX6 float64
+	CrossMarketMomPct map[string]float64
+	Astro             AstroSnapshotRef
+
 	// P2-001: Session ORB features — opening range metrics per session (shadow)
 	SessionORB SessionORBFeatures
 
@@ -309,6 +318,25 @@ type CandleIntelligence struct {
 	PinBarRejDirection string          `json:"pinbar_rejection_direction,omitempty"` // BUY/SELL
 	PinBarQuality      decimal.Decimal `json:"pinbar_quality,omitempty"`             // 0-1
 }
+
+// AstroSnapshot is the JSON-shaped mirror of the astro engine state fields
+// the feature snapshot consumes (avoids features→astro import cycle).
+type AstroSnapshot struct {
+	Vedic struct {
+		SizingMultiplier float64 `json:"astro_sizing_multiplier"`
+		YogaBias         float64 `json:"yoga_bias"`
+		DemonHours       struct {
+			RahuKalam bool `json:"rahu_kalam"`
+			Yamaganda bool `json:"yamaganda"`
+			Gulika    bool `json:"gulika"`
+		} `json:"demon_hours"`
+		IsGandantaNow bool `json:"is_gandanta"`
+	} `json:"vedic"`
+}
+
+// AstroSnapshotRef allows the engine to attach an *astro.State or a decoded
+// mirror without an import cycle.
+type AstroSnapshotRef = any
 
 // SessionORBFeatures holds P2-001 Opening Range Breakout metrics for each session.
 type SessionORBFeatures struct {

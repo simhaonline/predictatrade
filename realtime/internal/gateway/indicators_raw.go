@@ -32,6 +32,11 @@ func (h *HTTPServer) handleIndicatorsRaw(w http.ResponseWriter, r *http.Request)
 		http.Error(w, `{"error":"unknown symbol"}`, http.StatusNotFound)
 		return
 	}
+	// P2: enrich with astro + crossmarket reads (same values the per-signal
+	// snapshots carry). Provider injected from main.go; nil → plain reads.
+	if h.enrichIndicators != nil {
+		h.enrichIndicators(st)
+	}
 	b, err := marketdata.BuildFeatureSnapshotJSON(st)
 	if err != nil {
 		observability.Log.Warn().Err(err).Str("symbol", symbol).Msg("indicators/raw build failed")

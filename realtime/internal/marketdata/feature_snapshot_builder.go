@@ -136,6 +136,26 @@ func BuildFeatureSnapshotJSON(st *features.MarketState) ([]byte, error) {
 	// P1: regime-direction allowance + squeeze veto state (strategy pkg
 	// RegimeAllowsDirection mirrored here for the snapshot consumers).
 	out["regime_direction_allowed"] = regimeAllowsDirectionSnapshot(string(st.Regime.Current))
+	// P2 (prompt.md): crossmarket drivers + astro in the snapshot.
+	if st.CrossMarketBiasX6 != 0 {
+		out["macro_bias_x6"] = st.CrossMarketBiasX6
+	}
+	for name, v := range st.CrossMarketMomPct {
+		out["mom_pct_"+name] = v
+	}
+	if as, ok := st.Astro.(features.AstroSnapshot); ok {
+		out["astro_sizing_multiplier"] = as.Vedic.SizingMultiplier
+		out["astro_yoga_bias"] = as.Vedic.YogaBias
+		switch {
+		case as.Vedic.DemonHours.RahuKalam:
+			out["astro_demon_hour"] = "rahu_kalam"
+		case as.Vedic.DemonHours.Yamaganda:
+			out["astro_demon_hour"] = "yamaganda"
+		case as.Vedic.DemonHours.Gulika:
+			out["astro_demon_hour"] = "gulika"
+		}
+		out["astro_gandanta"] = as.Vedic.IsGandantaNow
+	}
 
 	return json.Marshal(out)
 }

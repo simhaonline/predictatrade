@@ -14,6 +14,11 @@ type Engine struct {
 	mu     sync.RWMutex
 	cfg    Config
 	drivers map[DriverName]DriverSnapshot
+	// P2 (prompt.md): bounded per-driver value history (MomPct + correlation
+	// matrix) and operator manual overlays (Real10y/FedCtx/CotNetChg).
+	// Additive — existing fields and methods unchanged.
+	history      *DriverHistory
+	manual       ManualOverlays
 	correlation *CorrelationDetector
 	safeHaven   *SafeHavenDetector
 	divergence  *DivergenceDetector
@@ -26,6 +31,7 @@ func NewEngine(cfg Config) *Engine {
 	return &Engine{
 		cfg:            cfg,
 		drivers:        make(map[DriverName]DriverSnapshot),
+		history:        NewDriverHistory(96), // 96 samples ≈ 2 days at 30-min cadence
 		correlation:    NewCorrelationDetector(cfg.CorrelationWindow),
 		safeHaven:      NewSafeHavenDetector(),
 		divergence:     NewDivergenceDetector(),
@@ -37,6 +43,7 @@ func NewEngine(cfg Config) *Engine {
 // UpdateDriver accepts a new normalized driver snapshot from a provider.
 // This is called by background refresh loops — NOT by the signal hot path.
 func (e *Engine) UpdateDriver(snap DriverSnapshot) {
+	e.history.Push(snap) // P2: retained for MomPct + correlation matrix
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.drivers[snap.Name] = snap

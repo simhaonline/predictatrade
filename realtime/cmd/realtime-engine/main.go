@@ -19,6 +19,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/predictatrade/realtime/internal/adaptation"
+	"github.com/predictatrade/realtime/internal/astro"
 	"github.com/predictatrade/realtime/internal/audit"
 	"github.com/predictatrade/realtime/internal/cache"
 	"github.com/predictatrade/realtime/internal/calibration"
@@ -3116,6 +3117,12 @@ func main() {
 	}
 
 	xmEngine := crossmarket.NewEngine(xmConfig)
+	// P2 (prompt.md): operator manual overlays — REAL10Y_OVERLAY / FED_CTX_OVERLAY /
+	// COT_NET_CHG_OVERLAY (0 = unset/no contribution; fail-soft by design).
+	xmEngine.SetOverlays(
+		envFloat("REAL10Y_OVERLAY", 0),
+		envFloat("FED_CTX_OVERLAY", 0),
+		envFloat("COT_NET_CHG_OVERLAY", 0))
 
 	// ─── Institutional Gold Signal (IGS) Engine ───
 	// Deterministic composite of institutional gold intelligence (check.md):
@@ -3293,6 +3300,30 @@ func main() {
 	emergencyHalt := &gateway.EmergencyHalt{}
 	httpServer.EmergencyHalt = emergencyHalt
 	globalEmergencyHalt = emergencyHalt
+	// P2 (prompt.md): enrich /api/v1/indicators/raw with crossmarket + astro
+	// reads so the live surface matches the per-signal feature snapshots.
+	httpServer.SetIndicatorsEnricher(func(st *features.MarketState) {
+		if st == nil {
+			return
+		}
+		st.CrossMarketBiasX6 = xmEngine.BiasX6()
+		st.CrossMarketMomPct = map[string]float64{}
+		for _, dn := range []crossmarket.DriverName{
+			crossmarket.DriverDXY, crossmarket.DriverVIX, crossmarket.DriverBTC,
+			crossmarket.DriverOil,
+		} {
+			if v := xmEngine.DriverMomPct(dn, 24); v != 0 {
+				st.CrossMarketMomPct[string(dn)] = v
+			}
+		}
+		if as := astro.Compute(time.Now().UTC(), false); as != nil {
+			var mirror features.AstroSnapshot
+			if b, err := json.Marshal(as.Vedic); err == nil {
+				_ = json.Unmarshal(b, &mirror.Vedic)
+			}
+			st.Astro = mirror
+		}
+	})
 	go func() {
 		addr := fmt.Sprintf("%s:%d", cfg.HTTPHost, cfg.HTTPPort)
 		log.Info().Str("addr", addr).Msg("HTTP server starting")
@@ -3890,6 +3921,29 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 	// from the MT5 snapshot AND computed features (structure, liquidity, regime, MTF)
 	// The strategies MUST use this merged state, not evalState (which only has local indicators)
 	mergedState := stateMgr.Get(candle.Symbol)
+	// P2 (prompt.md): attach crossmarket + astro read-through values so the
+	// per-signal feature snapshot carries driver momentum, macro bias (×6),
+	// astro sizing multiplier, yoga bias and demon-hour flags.
+	if mergedState != nil {
+		mergedState.CrossMarketBiasX6 = xmEngine.BiasX6()
+		mergedState.CrossMarketMomPct = map[string]float64{}
+		momBars := crossmarket.DefaultConfig().DriverMomentumBars
+		for _, dn := range []crossmarket.DriverName{
+			crossmarket.DriverDXY, crossmarket.DriverVIX, crossmarket.DriverBTC,
+			crossmarket.DriverOil,
+		} {
+			if v := xmEngine.DriverMomPct(dn, momBars); v != 0 {
+				mergedState.CrossMarketMomPct[string(dn)] = v
+			}
+		}
+		if as := astro.Compute(time.Now().UTC(), false); as != nil {
+			var mirror features.AstroSnapshot
+			if b, err := json.Marshal(as.Vedic); err == nil {
+				_ = json.Unmarshal(b, &mirror.Vedic)
+			}
+			mergedState.Astro = mirror
+		}
+	}
 	// Copy computed features into mergedState for strategy use
 	mergedState.Candle = evalState.Candle
 
@@ -5144,7 +5198,25 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 					riskCapPct = tierCap
 				}
 				sizing := risk.ComputeSizing(bs.Equity, riskCapPct, entryF, slF, baseLot, econ)
+				// P2 (prompt.md): astro sizing multiplier (0.5–1.5×, ×0.65 in
+				// demon hours) modulates the suggested lot — NEVER raises risk:
+				// it only modulates within the capital-protection budget already
+				// enforced by ComputeSizing. Flag-gated (ASTRO_SIZING=true).
+				if cfg.AstroSizing {
+					if am := astroSizingMultiplierNow(); am > 0 {
+						astroLot := sizing.SuggestedLot * am
+						// floor to lot step, never below min lot
+						if econ.LotStep > 0 {
+							astroLot = math.Floor(astroLot/econ.LotStep) * econ.LotStep
+						}
+						if astroLot >= econ.LotMin {
+							decision.Signal.SuggestedLot = decimal.NewFromFloat(astroLot)
+							sizing.SuggestedLot = astroLot
+						}
+					}
+				}
 				decision.Signal.SuggestedLot = decimal.NewFromFloat(sizing.SuggestedLot)
+				decision.Signal.RiskDollars = decimal.NewFromFloat(sizing.RiskDollars)
 				decision.Signal.RiskDollars = decimal.NewFromFloat(sizing.RiskDollars)
 				decision.Signal.RiskPctOfEquity = decimal.NewFromFloat(sizing.RiskPctOfEquity)
 				decision.Signal.SLDistancePoints = decimal.NewFromFloat(sizing.SLDistancePoints)
@@ -5409,6 +5481,32 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			}
 		}
 	}
+}
+
+
+// astroSizingMultiplierNow reads the current astro sizing multiplier from the
+// astro engine state (0 when disabled/unavailable — callers treat 0 as no-op).
+
+// envFloat reads a float env var (local helper — config.getEnvFloat is
+// package-private; engine reads raw env for operator overlays).
+func envFloat(key string, def float64) float64 {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return def
+	}
+	return f
+}
+
+func astroSizingMultiplierNow() float64 {
+	st := astro.Compute(time.Now().UTC(), false)
+	if st == nil {
+		return 0
+	}
+	return st.Vedic.SizingMultiplier
 }
 
 func registerGates(reg *gates.Registry, cfg *config.Config, newsLastSync func() time.Time) *gates.PositionCapsGate {

@@ -154,6 +154,8 @@ type ConfluenceResult struct {
 type Config struct {
 	Enabled            bool
 	Mode               Mode
+	// P2 (prompt.md): per-driver momentum window (reference InpDriverMomBars=24).
+	DriverMomentumBars int
 	MaxBonus           float64 // max positive score adjustment
 	MaxPenalty         float64 // max negative score adjustment
 	DXYEnabled         bool
@@ -179,6 +181,7 @@ type Config struct {
 // DefaultConfig returns safe defaults — SHADOW mode, zero production impact.
 func DefaultConfig() Config {
 	return Config{
+		DriverMomentumBars: 24, // P2: reference InpDriverMomBars default
 		Enabled:              true,
 		Mode:                 ModeShadow,
 		MaxBonus:             10.0,

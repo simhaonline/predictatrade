@@ -98,6 +98,9 @@ type Config struct {
 	// "funded" account in GetFundedAccount (risk-sizing source of truth).
 	// Accounts below this are demo/test and must not pin the broker state.
 	MinFundedEquity float64 // MIN_FUNDED_EQUITY
+	// P2 (prompt.md): astro sizing multiplier (0.5–1.5× lot modulation).
+	// Default OFF — operator enables via ASTRO_SIZING=true.
+	AstroSizing bool // ASTRO_SIZING
 	// MinATRByTimeframe lets operators set a different minimum ATR per decision
 	// timeframe (e.g. M1 needs a far smaller floor than H4). Loaded as JSON from
 	// MIN_ATR_BY_TIMEFRAME, e.g. {"M1":8,"M5":15,"H1":60,"H4":200}. The gate
@@ -277,6 +280,9 @@ func Default() *Config {
 		// floor, GetFundedAccount returns nil and the PnL loop falls back to
 		// the PaperEquity seed (existing behavior). Default 100.
 		MinFundedEquity:           getEnvFloat("MIN_FUNDED_EQUITY", 100),
+		// P2 (prompt.md): astro sizing multiplier (0.5–1.5× lot modulation).
+		// Default OFF — operator enables via ASTRO_SIZING=true.
+		AstroSizing:               getEnvBool("ASTRO_SIZING", false),
 		MinATRByTimeframe:         getEnvFloatMapJSON("MIN_ATR_BY_TIMEFRAME"),
 		SymbolVolatilityScale:     getEnvFloatMap("SYMBOL_VOLATILITY_SCALE"),
 		// P0-001: Broker symbol validation — zero means "no constraint" (gate degrades, not vetoes)
