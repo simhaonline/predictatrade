@@ -73,16 +73,16 @@ ing="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST https://api.
 cf="$(curl -sI --max-time 10 https://api.predictatrade.com/api/v1/health 2>/dev/null | grep -i '^cf-ray' | head -1)"
 [[ -n "$cf" ]] && pass "Cloudflare in chain ($cf" || echo "  [INFO] no CF-Ray header — api may be grey-cloud or CF bypassed"
 
-# ── 5. api-ipv4 direct-origin failover intact ──
-echo "── 5. EA direct-IP failover (api-ipv4, must bypass Plesk) ──"
-res="$(dig +short api-ipv4.predictatrade.com A 2>/dev/null | tail -1)"
-if [[ -n "$res" && "$res" == "$ORIGIN_IP" ]]; then
-  pass "api-ipv4 resolves DIRECT to origin ($res) — grey-cloud"
-elif [[ -n "$res" ]]; then
-  fail "api-ipv4 resolves to $res, expected origin $ORIGIN_IP (set DNS-only + A record to origin)"
-else
-  echo "  [INFO] dig unavailable or no record — verify api-ipv4 manually"
-fi
+# ── 5. canonical hostname dual-stack + TLS (api-ipv4 removed 2026-09-17) ──
+echo "── 5. canonical api hostname checks ──"
+a4="$(dig +short api.predictatrade.com A 2>/dev/null | tail -1)"
+a6="$(dig +short api.predictatrade.com AAAA 2>/dev/null | tail -1)"
+[[ -n "$a4" ]] && pass "api A record exists ($a4)" || fail "api A record missing"
+[[ -n "$a6" ]] && pass "api AAAA record exists ($a6) — dual-stack" || echo "  [INFO] no AAAA record (IPv4-only serving)"
+v4c="$(curl -sk -4 -o /dev/null -w '%{http_code}' --max-time 10 https://api.predictatrade.com/api/v1/health 2>/dev/null || echo 000)"
+v6c="$(curl -sk -6 -o /dev/null -w '%{http_code}' --max-time 10 https://api.predictatrade.com/api/v1/health 2>/dev/null || echo 000)"
+[[ "$v4c" == "200" ]] && pass "api over IPv4 -> $v4c" || echo "  [INFO] api over IPv4 -> $v4c"
+[[ "$v6c" == "200" ]] && pass "api over IPv6 -> $v6c" || echo "  [INFO] api over IPv6 -> $v6c (origin must serve AAAA or add one)"
 
 echo
 echo "== RESULT: $PASS passed, $FAIL failed =="

@@ -39,10 +39,12 @@ this repo).
    `websocket-proxy.conf` so the NestJS compliance/IP-trust logic always
    receives the real client IP.
 
-5. **EA IPv4 fallback** — `api-ipv4.predictatrade.com` is in the api vhost
-   `server_name`; EAs have a `PATCloudURLFallback` input (set it to
-   `https://api-ipv4.predictatrade.com` and recompile) to retry over IPv4 if a
-   primary request returns `HTTP -1`.
+5. **EA IPv4 fallback — REMOVED (2026-09-17).** The grey-cloud
+   `api-ipv4.predictatrade.com` host and the EA `PATCloudURLFallback` input
+   were removed: a direct-origin hostname bypassed Cloudflare and the Plesk
+   TLS edge (WAF, rate limits, TLS policy). One canonical dual-stack
+   hostname (`api.predictatrade.com`) serves both IPv4 and IPv6; ensure an
+   AAAA record exists so IPv6-first terminals connect over IPv6.
 
 **No backend or database code change was required.** NestJS
 `extractClientIp()` already trusts `cf-connecting-ip` + private docker ranges;

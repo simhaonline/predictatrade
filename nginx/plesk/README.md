@@ -45,8 +45,6 @@ Cloudflare SSL mode: **Full (Strict)**.
 ## DNS cutover
 
 - The 6 subdomains: A record → PLESK server IP (orange-cloud).
-- `api-ipv4.predictatrade.com`: stays grey-cloud, A → origin `2.29.23.42`
-  (EA direct-origin failover — bypasses Plesk AND Cloudflare).
 - `pat.predictatrade.com` (:465/:587 SMTP): stays DNS-direct to the origin.
   Never proxy mail through Plesk.
 
@@ -63,5 +61,4 @@ Deploy/verify on the origin: `scripts/deploy-plesk-proxy.sh`,
 ## After cutover
 
 Run `scripts/verify-plesk-proxy.sh` from the origin — checks :8443 directly,
-the Plesk edge per domain, the public CF path, api health/ingest, and the
-api-ipv4 failover record.
+the Plesk edge per domain, the public CF path and api health/ingest.
