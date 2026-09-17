@@ -1,0 +1,80 @@
+{
+ "label": "DRY-RUN/SHADOW",
+ "results": [
+  {
+   "strategy": "MARNIE_FIB",
+   "channel": "SHADOW",
+   "gate_status": "BLOCKED",
+   "n_linked": 3,
+   "baseline_oos_mean_r": null,
+   "candidate_oos_mean_r": null,
+   "effect_r": null,
+   "p_value": null,
+   "fdr_significant": null,
+   "decision": "REFUSED",
+   "notes": [
+    "sufficiency gate BLOCKED \u2014 harness refuses (fail-closed)"
+   ]
+  },
+  {
+   "strategy": "STANDARD_SCALPING",
+   "channel": "SHADOW",
+   "gate_status": "PASS",
+   "n_linked": 1336,
+   "baseline_oos_mean_r": -0.12401900009803268,
+   "candidate_oos_mean_r": -0.13825529775534906,
+   "effect_r": -0.014236297657316377,
+   "p_value": 0.5081,
+   "fdr_significant": false,
+   "decision": "HOLD",
+   "notes": [
+    "DRY-RUN placebo: candidate slice is the validation window (expected HOLD)"
+   ]
+  },
+  {
+   "strategy": "STANDARD_SWING",
+   "channel": "SHADOW",
+   "gate_status": "PASS",
+   "n_linked": 469,
+   "baseline_oos_mean_r": -0.13722828781595214,
+   "candidate_oos_mean_r": -0.3225455382270141,
+   "effect_r": -0.18531725041106195,
+   "p_value": 0.4958,
+   "fdr_significant": false,
+   "decision": "HOLD",
+   "notes": [
+    "DRY-RUN placebo: candidate slice is the validation window (expected HOLD)"
+   ]
+  },
+  {
+   "strategy": "TREND_SWING",
+   "channel": "SHADOW",
+   "gate_status": "PASS",
+   "n_linked": 309,
+   "baseline_oos_mean_r": -0.535095014853531,
+   "candidate_oos_mean_r": -0.5680750092000971,
+   "effect_r": -0.03297999434656618,
+   "p_value": 0.4669,
+   "fdr_significant": false,
+   "decision": "HOLD",
+   "notes": [
+    "DRY-RUN placebo: candidate slice is the validation window (expected HOLD)"
+   ]
+  },
+  {
+   "strategy": "ULTRA_SCALPING",
+   "channel": "SHADOW",
+   "gate_status": "PASS",
+   "n_linked": 652,
+   "baseline_oos_mean_r": 0.3273337329563546,
+   "candidate_oos_mean_r": 0.43979134059609887,
+   "effect_r": 0.11245760763974427,
+   "p_value": 0.4978,
+   "fdr_significant": false,
+   "decision": "HOLD",
+   "notes": [
+    "DRY-RUN placebo: candidate slice is the validation window (expected HOLD)"
+   ]
+  }
+ ]
+}
