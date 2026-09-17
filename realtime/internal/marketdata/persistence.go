@@ -143,6 +143,48 @@ func featureVersionDefault(strategyVersion string) string {
 	return strategyVersion
 }
 
+
+// ─── Outcome-pipeline value helpers (Phase 0.5) ─────────────────────────
+
+// numOrNull converts a numeric string to a SQL numeric, or NULL when empty.
+func numOrNull(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// uuidOrNull maps "" → SQL NULL for uuid columns.
+func uuidOrNull(id string) any {
+	if id == "" {
+		return nil
+	}
+	return id
+}
+
+// jsonOrNull maps empty bytes → SQL NULL for jsonb columns.
+func jsonOrNull(b []byte) any {
+	if len(b) == 0 {
+		return nil
+	}
+	return string(b)
+}
+
+// strOrNull maps "" → SQL NULL for text columns.
+func strOrNull(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// fOf parses a numeric string to float64 (0 on empty/invalid — callers use
+// it only for sign checks, never for output values).
+func fOf(s string) float64 {
+	f, _ := strconv.ParseFloat(s, 64)
+	return f
+}
+
 func (p *Persister) SaveSignal(ctx context.Context, s *types.Signal) error {
 	// P0-2: persist the feature snapshot FIRST, then reference it. Fail-open:
 	// a snapshot write failure never blocks canonical signal truth.

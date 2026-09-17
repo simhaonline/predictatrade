@@ -645,6 +645,17 @@ func broadcastSignalToAll(wsHub *gateway.WebSocketHub, signal *types.Signal) {
 			observability.Log.Warn().Str("signal_id", signal.ID).Err(perr).
 				Msg("Signal DB persist BEFORE delivery failed (continuing to deliver)")
 		}
+		// P0.5 (prompt.md, Candidate B): pre-registered expectation for every
+		// EXECUTABLE signal — the parent row the outcome pipeline links to.
+		// Fail-open: prediction persistence never blocks signal truth.
+		if signal.SignalClass == "EXECUTABLE" && signal.FeatureSnapshotID != "" {
+			pctx, pcancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer pcancel()
+			_ = globalPersister.SavePredictionFromSignal(pctx, signal)
+		} else if signal.SignalClass == "EXECUTABLE" {
+			observability.Log.Warn().Str("signal_id", signal.ID).
+				Msg("EXECUTABLE signal missing feature snapshot — prediction row deferred")
+		}
 	}
 	// Broadcast to frontend dashboard clients (entitlement-filtered)
 	wsHub.BroadcastSignal(signal)
