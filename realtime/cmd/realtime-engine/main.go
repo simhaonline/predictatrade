@@ -1261,6 +1261,14 @@ func main() {
 		globalAgentProvider = agentProvider
 		// Operator override for the broker UTC offset; 0 = auto-detect from ticks.
 		agentProvider.SetConfiguredOffset(cfg.BrokerUTCOffset)
+		// v1.25.1: demo-account guard for the funded-account selection — a
+		// $8.96 demo master must not pin the risk-sizing equity when no client
+		// EA streams a real account (observed live 2026-09-17: ATEN and every
+		// wide-SL strategy vetoed risk_undersize off the demo equity).
+		if cfg.MinFundedEquity > 0 {
+			agentProvider.SetMinFundedEquity(cfg.MinFundedEquity)
+			log.Info().Float64("min_funded_equity", cfg.MinFundedEquity).Msg("Funded-account equity floor active (MIN_FUNDED_EQUITY) — smaller accounts are treated as demo for risk sizing")
+		}
 		if cfg.BrokerUTCOffset != 0 {
 			log.Info().Int("offset_hours", cfg.BrokerUTCOffset).Msg("Broker UTC offset set from BROKER_UTC_OFFSET (candles aligned to broker sessions)")
 		} else {

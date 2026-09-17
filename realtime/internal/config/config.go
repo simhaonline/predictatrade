@@ -94,6 +94,10 @@ type Config struct {
 	// equity<=0, so entitled + authorized signals can become executable. In
 	// production with a real broker equity, this value is ignored.
 	PaperEquity float64 // PAT_PAPER_EQUITY
+	// MinFundedEquity: minimum equity for an account to qualify as the
+	// "funded" account in GetFundedAccount (risk-sizing source of truth).
+	// Accounts below this are demo/test and must not pin the broker state.
+	MinFundedEquity float64 // MIN_FUNDED_EQUITY
 	// MinATRByTimeframe lets operators set a different minimum ATR per decision
 	// timeframe (e.g. M1 needs a far smaller floor than H4). Loaded as JSON from
 	// MIN_ATR_BY_TIMEFRAME, e.g. {"M1":8,"M5":15,"H1":60,"H4":200}. The gate
@@ -266,6 +270,13 @@ func Default() *Config {
 		SlippageCostPoints:        getEnvFloat("SLIPPAGE_COST_POINTS", 0.10),
 		CommissionCostPoints:      getEnvFloat("COMMISSION_COST_POINTS", 0.06),
 		PaperEquity:               getEnvFloat("PAT_PAPER_EQUITY", 0),
+		// MinFundedEquity guards the funded-account selection: accounts below
+		// this equity are treated as demo/test and IGNORED for risk-sizing
+		// (a $8.96 demo master must not pin the risk view when no client EA
+		// is streaming a real account). When every known account is below the
+		// floor, GetFundedAccount returns nil and the PnL loop falls back to
+		// the PaperEquity seed (existing behavior). Default 100.
+		MinFundedEquity:           getEnvFloat("MIN_FUNDED_EQUITY", 100),
 		MinATRByTimeframe:         getEnvFloatMapJSON("MIN_ATR_BY_TIMEFRAME"),
 		SymbolVolatilityScale:     getEnvFloatMap("SYMBOL_VOLATILITY_SCALE"),
 		// P0-001: Broker symbol validation — zero means "no constraint" (gate degrades, not vetoes)

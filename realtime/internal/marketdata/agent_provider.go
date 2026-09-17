@@ -368,6 +368,10 @@ type AgentProvider struct {
 	// client's executable signals (no shared global account-driven gate).
 	agentAccMu    sync.Mutex
 	agentAccounts map[string]map[string]*agentAccountState // agentID -> accountLogin -> state
+	// minFundedEquity: accounts below this equity are demo/test and are
+	// IGNORED by GetFundedAccount (risk-sizing source of truth). Set via
+	// SetMinFundedEquity from config (MIN_FUNDED_EQUITY, default 100).
+	minFundedEquity float64
 
 	// lastMarketDataAt records the most recent time the engine received ANY live
 	// market data (tick or snapshot) from ANY agent. Used for coarse liveness.
@@ -638,6 +642,7 @@ func (p *AgentProvider) GetPrimaryAccount(agentID string) *SnapshotAccount {
 func (p *AgentProvider) GetFundedAccount() *SnapshotAccount {
 	p.agentAccMu.Lock()
 	defer p.agentAccMu.Unlock()
+	floor := p.minFundedEquity // 0 = no floor (legacy behavior)
 	var best *agentAccountState
 	for _, accts := range p.agentAccounts {
 		for _, st := range accts {
@@ -645,6 +650,13 @@ func (p *AgentProvider) GetFundedAccount() *SnapshotAccount {
 				continue
 			}
 			if time.Since(st.updatedAt) > 60*time.Second {
+				continue
+			}
+			// Demo/test guard: an account below the equity floor must never
+			// become the risk-sizing source of truth (a $8.96 demo master
+			// pinned the funded view when no client EA was streaming a real
+			// account, vetoing every wide-SL candidate risk_undersize).
+			if floor > 0 && st.equity < floor {
 				continue
 			}
 			if best == nil || st.equity > best.equity {
@@ -658,12 +670,21 @@ func (p *AgentProvider) GetFundedAccount() *SnapshotAccount {
 	return best.account
 }
 
+// SetMinFundedEquity configures the funded-account equity floor
+// (MIN_FUNDED_EQUITY; 0 disables the guard).
+func (p *AgentProvider) SetMinFundedEquity(v float64) {
+	p.agentAccMu.Lock()
+	p.minFundedEquity = v
+	p.agentAccMu.Unlock()
+}
+
 // FundedAccountPositions reports the open-position count of the funded account
 // (see GetFundedAccount). ok=false when no fresh funded account is known — the
 // caller must then NOT claim positions are known (fail-closed).
 func (p *AgentProvider) FundedAccountPositions() (int64, bool) {
 	p.agentAccMu.Lock()
 	defer p.agentAccMu.Unlock()
+	floor := p.minFundedEquity
 	var best *agentAccountState
 	for _, accts := range p.agentAccounts {
 		for _, st := range accts {
@@ -671,6 +692,11 @@ func (p *AgentProvider) FundedAccountPositions() (int64, bool) {
 				continue
 			}
 			if time.Since(st.updatedAt) > 60*time.Second {
+				continue
+			}
+			// Same demo guard as GetFundedAccount — the positions snapshot
+			// must come from the SAME account the risk gates size against.
+			if floor > 0 && st.equity < floor {
 				continue
 			}
 			if best == nil || st.equity > best.equity {
