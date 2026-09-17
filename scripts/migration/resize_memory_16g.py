@@ -55,14 +55,18 @@ print(f"rewrote {n} mem_limit lines")
 
 # validate compose before writing
 import subprocess
-open("/tmp/compose_candidate.yml", "w").write(new_text)
-r = subprocess.run(["docker","compose","--env-file","infra/env/.env","-f","/tmp/compose_candidate.yml","config","-q"],
+# validate compose before writing — candidate lives in the repo dir so the
+# relative env_file paths (./infra/env/*.env) resolve from the same base dir.
+open("docker-compose.candidate.yml", "w").write(new_text)
+r = subprocess.run(["docker","compose","--env-file","infra/env/.env","-f","docker-compose.candidate.yml","config","-q"],
                    capture_output=True, text=True)
 if r.returncode != 0:
     print("COMPOSE VALIDATION FAILED — not written:", r.stderr[-500:])
     sys.exit(1)
 
 open(COMPOSE, "w").write(new_text)
+import os
+os.remove("docker-compose.candidate.yml")
 print("COMPOSE-OK — written. Summary:")
 for svc, v in TARGET.items():
     if v:
