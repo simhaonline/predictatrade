@@ -262,14 +262,27 @@ func (r *Registry) GetEdgeState(strategyID types.StrategyID, tf types.Timeframe)
 // EvaluateAll runs all gates in short-circuit order.
 // SOW Section 131.4: The first hard veto terminates gate evaluation.
 func (r *Registry) EvaluateAll(input GateInput) (allPass bool, evaluations []GateEvaluation, firstVeto *GateEvaluation) {
+	// P0-fix (Phase 0 audit): snapshot the gate map under ONE RLock, then
+	// release. The previous implementation held r.mu.RLock across the whole
+	// loop while gates called r.GetState/GetEdgeState (recursive RLock).
+	// Go RWMutex blocks a recursive RLock once a writer is queued, so any
+	// hydrate loop (PnLAnchor/EdgeState/Entitlement, 5-10s tickers) queuing
+	// mid-evaluation self-deadlocked the engine (live incident 2026-09-17
+	// 12:27 UTC: strategy evaluation stopped entirely, no signals emitted).
+	// Snapshot-then-evaluate keeps reads consistent for the pass duration
+	// AND removes the lock from the hot loop entirely.
 	r.mu.RLock()
-	defer r.mu.RUnlock()
+	gatesSnap := make(map[types.GateID]Gate, len(r.gates))
+	for id, g := range r.gates {
+		gatesSnap[id] = g
+	}
+	r.mu.RUnlock()
 
 	allPass = true
 	evaluations = make([]GateEvaluation, 0, len(r.order))
 
 	for _, gateID := range r.order {
-		gate, exists := r.gates[gateID]
+		gate, exists := gatesSnap[gateID]
 		if !exists {
 			// Gate not registered — fail closed
 			eval := GateEvaluation{
