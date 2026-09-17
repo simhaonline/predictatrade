@@ -2598,7 +2598,19 @@ func main() {
 				 mae, mfe, trading_day, timeframe)
 			VALUES ($1,$2,$3,'XAUUSD',$4,
 				 $5,$6,$7,$8,$9,$10,
-				$11,$12,$13,$14,$15,$16,$17,$18,$19,CURRENT_DATE,$20)`,
+				$11,$12,$13,$14,$15,$16,$17,$18,$19,CURRENT_DATE,$20)
+			-- Phase 0.95 Task B: repeated TRADE_RESULT for the same position
+			-- (reconnect / EA restart re-delivery) upserts instead of double-counting.
+			ON CONFLICT (signal_id, broker_ticket) DO UPDATE SET
+				exit_price = EXCLUDED.exit_price,
+				pnl = EXCLUDED.pnl,
+				pnl_points = EXCLUDED.pnl_points,
+				close_reason = EXCLUDED.close_reason,
+				is_win = EXCLUDED.is_win,
+				is_loss = EXCLUDED.is_loss,
+				mae = EXCLUDED.mae,
+				mfe = EXCLUDED.mfe,
+				time_in_trade_seconds = EXCLUDED.time_in_trade_seconds`, 
 			signalID, "agent:"+agentID, tr.StrategyID,
 			direction,
 			fmt.Sprintf("%d", tr.Ticket), tr.Entry, tr.Exit, tr.StopLoss, tr.TakeProfit, tr.Lot,

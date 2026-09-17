@@ -99,22 +99,34 @@ def walk_forward_splits(rs: list[float], seed: int = 42) -> tuple[list[float], l
 
 
 def bootstrap_p_value(baseline: list[float], candidate: list[float], n_boot: int = BOOTSTRAP_N) -> float:
-    """Paired-bootstrap p for mean(candidate) - mean(baseline) > 0."""
+    """One-sided PERMUTATION-test p for mean(candidate) - mean(baseline) > 0.
+
+    H0: the two samples are exchangeable. Pool, permute labels n_boot times
+    (deterministic seed), take the fraction of permuted deltas at least as
+    extreme as the observed one. Exact power for a mean-difference effect and
+    distribution-free under exchangeability. Deterministic (seeded).
+    """
     import statistics
     if not baseline or not candidate:
         return 1.0
     obs = statistics.fmean(candidate) - statistics.fmean(baseline)
     if obs == 0:
         return 1.0
+    pooled = list(baseline) + list(candidate)
+    nb = len(baseline)
     rng = random.Random(7)
-    gt = 0
-    n = min(len(baseline), len(candidate))
+    extreme = 0
     for _ in range(n_boot):
-        b = statistics.fmean(rng.choice(baseline) for _ in range(n))
-        c = statistics.fmean(rng.choice(candidate) for _ in range(n))
-        if (c - b) >= obs:
-            gt += 1
-    return max(gt / n_boot, 1.0 / n_boot)
+        perm = list(pooled)
+        rng.shuffle(perm)
+        pb = statistics.fmean(perm[:nb])
+        pc = statistics.fmean(perm[nb:])
+        d = pc - pb
+        if obs > 0 and d >= obs:
+            extreme += 1
+        elif obs < 0 and d <= obs:
+            extreme += 1
+    return max(extreme / n_boot, 1.0 / n_boot)
 
 
 def benjamini_hochberg(pvals: dict[str, float], q: float = FDR_Q) -> dict[str, bool]:
@@ -178,6 +190,44 @@ def decide(res: StrategyResult) -> StrategyResult:
     return res
 
 
+def load_synthetic(path: str) -> dict[str, list[float]]:
+    """Load a QUARANTINED synthetic dataset (SYNTHETIC_DRYRUN label required).
+
+    The file must be JSON: {"label": "SYNTHETIC_DRYRUN", "strategies":
+    {"NAME": [r1, r2, ...]}}. Refuses to run without the exact label — the
+    synthetic series never touches a real table and is never counted as
+    execution evidence.
+    """
+    with open(path) as f:
+        doc = json.load(f)
+    if doc.get("label") != "SYNTHETIC_DRYRUN":
+        raise ValueError(f"refusing unlabeled synthetic dataset: {doc.get('label')!r} — "
+                         "label must be exactly SYNTHETIC_DRYRUN (quarantine contract)")
+    return {k: [float(v) for v in vs] for k, vs in doc.get("strategies", {}).items()}
+
+
+def run_synthetic(path: str) -> tuple[list[StrategyResult], int]:
+    """Task C: prove PROMOTE/HOLD/ROLLBACK branches on quarantined synthetic data."""
+    by_strategy = load_synthetic(path)
+    gates = enforce_gate({s: len(v) for s, v in by_strategy.items()})
+    results = [evaluate_strategy(s, "SYNTHETIC", v, gates[s])
+               for s, v in sorted(by_strategy.items())]
+    tested = [r for r in results if r.p_value is not None]
+    if tested:
+        sig = benjamini_hochberg({r.strategy: r.p_value for r in tested})
+        for r in results:
+            if r.p_value is not None:
+                r.fdr_significant = sig.get(r.strategy, False)
+            decide(r)
+    print(json.dumps({
+        "run_label": "SYNTHETIC_DRYRUN",
+        "gate_status_by_strategy": gates,
+        "strategies": [asdict(r) for r in results],
+        "note": "SYNTHETIC data — quarantined, never calibration evidence; decisions are recommendations only",
+    }, indent=1))
+    return results, 0
+
+
 def run(channel: str, dry_run: bool) -> tuple[list[StrategyResult], int]:
     outcomes = load_outcomes(channel)
     by_strategy: dict[str, list[float]] = {}
@@ -216,7 +266,13 @@ def main() -> int:
     ap.add_argument("--dry-run-shadow", action="store_true",
                     help="execute the harness against the SHADOW channel only (labeled DRY-RUN/SHADOW)")
     ap.add_argument("--output", default="", help="optional JSON output path")
+    ap.add_argument("--synthetic-file", default="",
+                    help="quarantined SYNTHETIC_DRYRUN JSON file — proves PROMOTE/HOLD/ROLLBACK branches without touching real data")
     args = ap.parse_args()
+
+    if args.synthetic_file:
+        _, code = run_synthetic(args.synthetic_file)
+        return code
 
     channel = "SHADOW" if args.dry_run_shadow else "EXECUTION"
     results, code = run(channel, dry_run=args.dry_run_shadow)

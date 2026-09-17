@@ -52,6 +52,24 @@ $PSQL "SELECT round(100.0*count(*) FILTER (WHERE link_status='UNLINKED')/NULLIF(
 hr "WRITER SILENCE (minutes since last outcome; alert >30 while signals emit)"
 $PSQL "SELECT round(EXTRACT(EPOCH FROM (now()-max(created_at)))/60,1) FROM trading.prediction_outcomes;"
 
+hr "FIRST-24H READINESS (after EA attach)"
+$PSQL "SELECT 'mae_mfe_nonzero_pct_1h', COALESCE(round(100.0*count(*) FILTER (WHERE COALESCE(mae,0)<>0 AND COALESCE(mfe,0)<>0)/NULLIF(count(*),0),1),0) FROM trading.trade_results WHERE created_at > now() - interval '1 hour';"
+$PSQL "SELECT 'linked_pct_1h', COALESCE(round(100.0*count(*) FILTER (WHERE link_status='LINKED')/NULLIF(count(*),0),1),0) FROM trading.prediction_outcomes WHERE created_at > now() - interval '1 hour';"
+$PSQL "SELECT strategy_id || '=' || count(*) FROM trading.prediction_outcomes WHERE created_at > now() - interval '1 hour' AND strategy_id <> '' GROUP BY strategy_id ORDER BY count(*) DESC LIMIT 6;"
+$PSQL "SELECT 'time-to-300 (weeks):', strategy_id || '=' || round(GREATEST((300 - count(*)),0)::numeric / GREATEST((SELECT count(*) FROM trading.prediction_outcomes o2 WHERE o2.strategy_id = po.strategy_id AND o2.created_at > now() - interval '24 hours'), 1), 1) FROM trading.prediction_outcomes po WHERE strategy_id <> '' GROUP BY po.strategy_id ORDER BY po.strategy_id LIMIT 6;"
+EAS_ATTACHED=$($PSQL "SELECT count(*) FROM licensing.devices WHERE role='exec' AND connection_status='ONLINE';")
+if [ "$EAS_ATTACHED" = "0" ]; then
+  echo "  NO EAs ATTACHED — first-24h watch not started; no false alarms expected."
+fi
+curl -s --max-time 5 "$API/health" | python3 -c '
+import json,sys
+try:
+    d = json.load(sys.stdin)
+    op = d.get("outcome_pipeline", {})
+    print("  writer:", op.get("outcome_writer"), "| schema_guard:", op.get("schema_guard"))
+except Exception as e:
+    print("parse error:", e)'
+
 echo
 echo "Legend: exec-device rows must be ONLINE for TRADE_RESULTs to flow."
 echo "Gate: Phase 1 tuning needs >=300 LINKED execution outcomes per strategy."
