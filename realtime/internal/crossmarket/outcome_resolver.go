@@ -19,6 +19,7 @@ type OutcomeResolver struct {
 	mu     sync.Mutex
 	db     *sql.DB
 	tickFn func() (bid, ask float64, ts time.Time)
+	logFn  func(msg string, err error) // optional; nil = silent (legacy behavior)
 }
 
 // NewOutcomeResolver creates a resolver that checks XAUUSD price against active shadow signals.
@@ -26,10 +27,18 @@ func NewOutcomeResolver(db *sql.DB, tickFn func() (bid, ask float64, ts time.Tim
 	return &OutcomeResolver{db: db, tickFn: tickFn}
 }
 
+// SetLogger injects an optional error logger. Without it the resolver is
+// silent — which hid a 19-day resolution outage (2026-08-29 → 2026-09-17).
+func (r *OutcomeResolver) SetLogger(logFn func(msg string, err error)) {
+	r.mu.Lock()
+	r.logFn = logFn
+	r.mu.Unlock()
+}
+
 // OutcomeEvent represents a single resolution event (TP hit, SL hit, etc).
 type OutcomeEvent struct {
 	SnapshotID uuid.UUID `json:"snapshot_id"`
-	EventType  string    `json:"event_type"`   // ENTRY_TRIGGERED, TP1_HIT, TP2_HIT, TP3_HIT, SL_HIT, EXPIRED
+	EventType  string    `json:"event_type"` // ENTRY_TRIGGERED, TP1_HIT, TP2_HIT, TP3_HIT, SL_HIT, EXPIRED
 	Price      float64   `json:"price"`
 	Timestamp  time.Time `json:"timestamp"`
 }
@@ -51,17 +60,28 @@ func (r *OutcomeResolver) Resolve(ctx context.Context) ([]OutcomeEvent, error) {
 	}
 	midPrice := (bid + ask) / 2
 
-	// Fetch unresolved snapshots with valid entry/SL/TP
+	// Fetch unresolved snapshots with valid entry/SL/TP.
+	// ORDER BY timestamp DESC + a 14-day window: the queue must always favor
+	// RECENT candidates. Legacy rows with zero expiry (0001-01-01) never expire
+	// and previously occupied the entire ASC-ordered 100-row window, starving
+	// every newer snapshot of resolution (observed 2026-08-29 → 2026-09-17:
+	// zero shadow resolves for 19 days while ~137k rows piled up UNRESOLVED).
+	// Rows older than the window stay UNRESOLVED as historical research data —
+	// they are never rewritten retroactively.
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, signal_id, strategy, direction, entry, stop_loss, tp1, tp2, tp3, expiry, timestamp
 		FROM trading.cross_market_shadow_snapshots
 		WHERE outcome = 'UNRESOLVED'
 		  AND entry > 0 AND stop_loss > 0 AND tp1 > 0
 		  AND direction IN ('BUY', 'SELL', 'BUY_CANDIDATE', 'SELL_CANDIDATE')
-		ORDER BY timestamp ASC
+		  AND timestamp > now() - interval '14 days'
+		ORDER BY timestamp DESC
 		LIMIT 100
 	`)
 	if err != nil {
+		if r.logFn != nil {
+			r.logFn("shadow resolver query failed", err)
+		}
 		return nil, err
 	}
 	defer rows.Close()
@@ -214,6 +234,9 @@ func (r *OutcomeResolver) Start(ctx context.Context, intervalSec int) {
 			events, err := r.Resolve(resolveCtx)
 			cancel()
 			if err != nil {
+				if r.logFn != nil {
+					r.logFn("shadow resolver pass failed", err)
+				}
 				continue
 			}
 			_ = events // events are logged/persisted in updateOutcome
@@ -283,8 +306,8 @@ func (r *OutcomeResolver) GetStats(ctx context.Context) ([]OutcomeStats, error) 
 // This is a defensive check to prevent reference assets from accidentally
 // entering signal generation, execution, or notification paths.
 type ProductScopeGuard struct {
-	TradableSymbols    []string
-	ReferenceSymbols   []string
+	TradableSymbols  []string
+	ReferenceSymbols []string
 }
 
 // NewProductScopeGuard creates the product scope guard.

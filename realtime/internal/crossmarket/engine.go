@@ -11,19 +11,22 @@ import (
 // confluence score, and produces a score adjustment that can be applied to
 // the existing signal scoring — NEVER overriding hard gates.
 type Engine struct {
-	mu     sync.RWMutex
-	cfg    Config
+	mu      sync.RWMutex
+	cfg     Config
 	drivers map[DriverName]DriverSnapshot
 	// P2 (prompt.md): bounded per-driver value history (MomPct + correlation
 	// matrix) and operator manual overlays (Real10y/FedCtx/CotNetChg).
 	// Additive — existing fields and methods unchanged.
-	history      *DriverHistory
-	manual       ManualOverlays
-	correlation *CorrelationDetector
-	safeHaven   *SafeHavenDetector
-	divergence  *DivergenceDetector
+	history        *DriverHistory
+	manual         ManualOverlays
+	correlation    *CorrelationDetector
+	safeHaven      *SafeHavenDetector
+	divergence     *DivergenceDetector
 	modelVersion   string
 	weightsVersion string
+	// driverSink: optional async persistence hook (SetDriverSink) — writes
+	// every accepted driver snapshot to trading.cross_market_driver_snapshots.
+	driverSink func(DriverSnapshot)
 }
 
 // NewEngine creates a cross-market confluence engine.
@@ -45,8 +48,22 @@ func NewEngine(cfg Config) *Engine {
 func (e *Engine) UpdateDriver(snap DriverSnapshot) {
 	e.history.Push(snap) // P2: retained for MomPct + correlation matrix
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	if e.driverSink != nil {
+		s := snap // copy for async hand-off
+		go e.driverSink(s)
+	}
 	e.drivers[snap.Name] = snap
+	e.mu.Unlock()
+}
+
+// SetDriverSink registers a best-effort persistence hook. It is invoked
+// asynchronously (goroutine) for every accepted driver snapshot so
+// trading.cross_market_driver_snapshots keeps receiving rows (RawValue
+// coverage for calibration research). Never touches the hot path.
+func (e *Engine) SetDriverSink(fn func(DriverSnapshot)) {
+	e.mu.Lock()
+	e.driverSink = fn
+	e.mu.Unlock()
 }
 
 // GetDriver returns a driver snapshot if available.

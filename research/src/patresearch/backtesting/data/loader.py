@@ -273,8 +273,18 @@ class DataLoader:
 
         conn = psycopg2.connect(db_url)
 
+        # market.candles holds MULTIPLE sources per (time, symbol, timeframe)
+        # bucket by design (PK = time+symbol+timeframe+source): live broker
+        # masters (MT4_MASTER/MT5_MASTER), the merged AGGREGATOR view, and bulk
+        # historical imports (KAGGLE_*). Loading all of them yields duplicate /
+        # non-monotonic timestamps, which the quality gate correctly fails
+        # closed on (ORDERING ERROR) — so every online backtest on live data
+        # died with DATA_QUALITY_FAILED (found 2026-09-17). Canonical dedupe:
+        # one candle per bucket, preferring AGGREGATOR (merged broker view),
+        # then MT5_MASTER, then MT4_MASTER, then anything else deterministically.
         query = """
-            SELECT time, open, high, low, close, volume, source
+            SELECT DISTINCT ON (time)
+                   time, open, high, low, close, volume, source
             FROM market.candles
             WHERE symbol = %s AND timeframe = %s
         """
@@ -290,7 +300,16 @@ class DataLoader:
             query += " AND source = %s"
             params.append(source)
 
-        query += " ORDER BY time ASC"
+        query += """
+            ORDER BY time,
+                     CASE source
+                         WHEN 'AGGREGATOR' THEN 0
+                         WHEN 'MT5_MASTER' THEN 1
+                         WHEN 'MT4_MASTER' THEN 2
+                         ELSE 3
+                     END,
+                     source ASC
+        """
 
         with conn.cursor() as cur:
             cur.execute(query, params)

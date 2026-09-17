@@ -3244,6 +3244,13 @@ func main() {
 			},
 		)
 		go xmResolver.Start(ctx, 30) // check every 30 seconds
+		xmResolver.SetLogger(func(msg string, err error) {
+			if err != nil {
+				log.Warn().Err(err).Str("component", "shadow_resolver").Msg(msg)
+			} else {
+				log.Info().Str("component", "shadow_resolver").Msg(msg)
+			}
+		})
 		log.Info().Msg("XAUUSD Shadow Outcome Resolver started")
 	}
 
@@ -3278,6 +3285,21 @@ func main() {
 
 	globalCrossMarketEngine = xmEngine
 	globalCrossMarketPersister = xmPersister
+
+	// Persist every accepted driver snapshot (best-effort, async) so
+	// trading.cross_market_driver_snapshots keeps receiving rows — RawValue
+	// coverage for calibration research (was silently dead since 2026-08-29).
+	if xmPersister != nil {
+		xmEngine.SetDriverSink(func(snap crossmarket.DriverSnapshot) {
+			sinkCtx, sinkCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer sinkCancel()
+			if err := xmPersister.SaveDriverSnapshot(sinkCtx, &snap); err != nil {
+				log.Warn().Err(err).Str("component", "xm_driver_sink").
+					Str("driver", string(snap.Name)).Msg("driver snapshot persist failed")
+			}
+		})
+		log.Info().Msg("cross-market driver snapshot persistence enabled (SetDriverSink)")
+	}
 	log.Info().Str("mode", string(xmConfig.Mode)).Msg("Cross-Market Confluence Engine initialized")
 
 	// Wire DXY provider → cross-market engine

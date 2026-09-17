@@ -16,7 +16,12 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EmailService, PasswordResetEmailInput, OtpEmailInput, WelcomeEmailInput } from './email.service';
+import type {
+	EmailService,
+	PasswordResetEmailInput,
+	OtpEmailInput,
+	WelcomeEmailInput,
+} from './email.service';
 import { renderBrandedEmail, textFooter } from './email-template';
 import * as nodemailer from 'nodemailer';
 

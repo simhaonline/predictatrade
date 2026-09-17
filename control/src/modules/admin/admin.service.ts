@@ -3,7 +3,8 @@ import { Pool } from 'pg';
 import { DB_POOL } from '../../common/database.module';
 import { LicensingService } from '../licensing/licensing.service';
 import { JwtService } from '@nestjs/jwt';
-import { EMAIL_SERVICE, EmailService } from '../../common/mail/email.service';
+import { EMAIL_SERVICE } from '../../common/mail/email.service';
+import type { EmailService } from '../../common/mail/email.service';
 import * as crypto from 'crypto';
 
 const ADMIN_RESET_TOKEN_EXPIRY_MIN = 120;

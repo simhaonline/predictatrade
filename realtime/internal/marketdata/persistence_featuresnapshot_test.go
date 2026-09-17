@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,17 +14,34 @@ import (
 )
 
 // P0-2 (prompt.md): per-signal feature snapshots — the verifiable indicator
-// reading flow. These tests hit the REAL control-plane DB when
-// PERSISTENCE_TEST_URL is set (pattern for this repo's DB-bound tests);
-// they skip otherwise so unit runs stay hermetic.
+// reading flow. These tests hit a REAL Postgres when PERSISTENCE_TEST_URL is
+// set (pattern for this repo's DB-bound tests); they skip otherwise so unit
+// runs stay hermetic.
+//
+// 2026-09-17 incident: a round-trip run pointed PERSISTENCE_TEST_URL at the
+// PRODUCTION predictatrade DB and left fixture rows in
+// trading.predictions / trading.prediction_outcomes / feature snapshots,
+// polluting the Phase-1 sample-sufficiency gate. The guard below refuses any
+// target whose database name does not contain "test" — round-trips must run
+// against a scratch DB (e.g. predictatrade_test), never prod.
 
 func openFeatureSnapshotTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	url := os.Getenv("PERSISTENCE_TEST_URL")
-	if url == "" {
+	target := os.Getenv("PERSISTENCE_TEST_URL")
+	if target == "" {
 		t.Skip("PERSISTENCE_TEST_URL not set — DB round-trip test skipped")
 	}
-	db, err := sql.Open("pgx", url)
+	// Fail-safe: never write fixture rows into a production database.
+	u, perr := url.Parse(target)
+	if perr != nil {
+		t.Skipf("PERSISTENCE_TEST_URL unparseable (%v) — DB round-trip test skipped", perr)
+	}
+	dbName := strings.TrimPrefix(u.Path, "/")
+	if dbName == "" || !strings.Contains(strings.ToLower(dbName), "test") {
+		t.Skipf("PERSISTENCE_TEST_URL must point at a scratch DB whose name contains "+
+			"\"test\" (got %q) — refusing to write fixture rows into %q", dbName, dbName)
+	}
+	db, err := sql.Open("pgx", target)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}

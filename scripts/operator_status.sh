@@ -46,8 +46,8 @@ $PSQL "SELECT strategy_id, count(*) FILTER (WHERE link_status='LINKED') AS n,
        CASE WHEN count(*) FILTER (WHERE link_status='LINKED') >= 300 THEN 'PASS' ELSE 'BLOCKED' END
 FROM trading.prediction_outcomes WHERE strategy_id <> '' GROUP BY 1 ORDER BY 2 DESC;"
 
-hr "UNLINKED RATIO (last 100 outcomes; alert >20%)"
-$PSQL "SELECT round(100.0*count(*) FILTER (WHERE link_status='UNLINKED')/NULLIF(count(*),0),1) FROM (SELECT link_status FROM trading.prediction_outcomes ORDER BY created_at DESC LIMIT 100) t;"
+hr "UNLINKED RATIO (last 24h outcomes; alert >20%)"
+$PSQL "SELECT round(100.0*count(*) FILTER (WHERE link_status='UNLINKED')/NULLIF(count(*),0),1) FROM trading.prediction_outcomes WHERE created_at > now() - interval '24 hours';"
 
 hr "WRITER SILENCE (minutes since last outcome; alert >30 while signals emit)"
 $PSQL "SELECT round(EXTRACT(EPOCH FROM (now()-max(created_at)))/60,1) FROM trading.prediction_outcomes;"
@@ -56,7 +56,7 @@ hr "FIRST-24H READINESS (after EA attach)"
 $PSQL "SELECT 'mae_mfe_nonzero_pct_1h', COALESCE(round(100.0*count(*) FILTER (WHERE COALESCE(mae,0)<>0 AND COALESCE(mfe,0)<>0)/NULLIF(count(*),0),1),0) FROM trading.trade_results WHERE created_at > now() - interval '1 hour';"
 $PSQL "SELECT 'linked_pct_1h', COALESCE(round(100.0*count(*) FILTER (WHERE link_status='LINKED')/NULLIF(count(*),0),1),0) FROM trading.prediction_outcomes WHERE created_at > now() - interval '1 hour';"
 $PSQL "SELECT strategy_id || '=' || count(*) FROM trading.prediction_outcomes WHERE created_at > now() - interval '1 hour' AND strategy_id <> '' GROUP BY strategy_id ORDER BY count(*) DESC LIMIT 6;"
-$PSQL "SELECT 'time-to-300 (weeks):', strategy_id || '=' || round(GREATEST((300 - count(*)),0)::numeric / GREATEST((SELECT count(*) FROM trading.prediction_outcomes o2 WHERE o2.strategy_id = po.strategy_id AND o2.created_at > now() - interval '24 hours'), 1), 1) FROM trading.prediction_outcomes po WHERE strategy_id <> '' GROUP BY po.strategy_id ORDER BY po.strategy_id LIMIT 6;"
+$PSQL "SELECT 'time-to-300 (weeks):', strategy_id || '=' || CASE WHEN (SELECT count(*) FROM trading.prediction_outcomes o2 WHERE o2.strategy_id = po.strategy_id AND o2.created_at > now() - interval '24 hours') = 0 THEN 'n/a (0 in last 24h)' ELSE round(GREATEST((300 - count(*)),0)::numeric / (SELECT count(*) FROM trading.prediction_outcomes o2 WHERE o2.strategy_id = po.strategy_id AND o2.created_at > now() - interval '24 hours') / 7.0, 1)::text END FROM trading.prediction_outcomes po WHERE strategy_id <> '' GROUP BY po.strategy_id ORDER BY po.strategy_id LIMIT 6;"
 EAS_ATTACHED=$($PSQL "SELECT count(*) FROM licensing.devices WHERE role='exec' AND connection_status='ONLINE';")
 if [ "$EAS_ATTACHED" = "0" ]; then
   echo "  NO EAs ATTACHED — first-24h watch not started; no false alarms expected."

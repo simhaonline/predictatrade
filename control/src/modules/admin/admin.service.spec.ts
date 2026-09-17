@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { JwtService } from '@nestjs/jwt';
 import { AdminService } from './admin.service';
 import { DB_POOL } from '../../common/database.module';
+import { EMAIL_SERVICE } from '../../common/mail/email.service';
 import { LicensingService } from '../licensing/licensing.service';
 import { CommissionsService } from '../commissions/commissions.service';
 import { Pool } from 'pg';
@@ -44,6 +46,8 @@ describe('AdminService', () => {
         { provide: DB_POOL, useValue: pool },
         { provide: CommissionsService, useValue: { getSummary: jest.fn() } },
         { provide: LicensingService, useValue: { ensureActiveLicenseForSubscription: jest.fn().mockResolvedValue(null) } },
+        { provide: JwtService, useValue: { sign: jest.fn().mockReturnValue('test-token') } },
+        { provide: EMAIL_SERVICE, useValue: { sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
     service = module.get<AdminService>(AdminService);
