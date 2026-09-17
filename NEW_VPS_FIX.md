@@ -32,6 +32,10 @@ ls -la /tmp/mig/clean_base/
 #        --recursive --endpoint-url https://hel1.your-objectstorage.com'
 
 # 3. wipe the (empty/initdb-crashed) volume and extract INTO it with correct ownership
+#    NOTE: `stop` keeps the container registered on the volume — volume rm needs
+#    the CONTAINER removed, not just stopped. Use `rm -f` (compose will recreate
+#    it on the next `up -d` with the same config).
+docker compose --env-file infra/env/.env rm -f postgres
 docker volume rm xauusd_pat-pgdata
 docker volume create xauusd_pat-pgdata
 
