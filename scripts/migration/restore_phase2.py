@@ -23,7 +23,7 @@ This script (idempotent):
   6. clears restore_command
   7. prints PROOF counts (tables, market.ticks)
 """
-import subprocess, sys, os, time, json
+import subprocess, sys, os, time, json, re
 
 VOL = os.environ.get("PGDATA_VOLUME", "xauusd_pat-pgdata")
 
@@ -70,14 +70,22 @@ ok("stopped")
 
 # ─── 3. stage the bridge into the volume ─────────────────────────────────────
 step(3, "stage WAL bridge into the volume")
-rb = sh('docker run --rm -v %s:/pgdata -v /tmp/mig/wal_bridge:/mnt/wb:ro alpine sh -c '
-        '"mkdir -p /pgdata/pg_wal_bridge && cp -n /mnt/wb/* /pgdata/pg_wal_bridge/ 2>/dev/null; '
-        'chown -R 1000:1000 /pgdata/pg_wal_bridge; echo staged=$(ls /pgdata/pg_wal_bridge | wc -l)"' % VOL,
+# Mount the PARENT /tmp/mig (known-good mount: clean_base was read from it) and
+# copy from /mnt/mig/wal_bridge inside. NO 2>/dev/null — a copy error must be
+# loud, not silently produce an empty dir (that's what bit the last run).
+rb = sh('docker run --rm -v %s:/pgdata -v /tmp/mig:/mnt/mig:ro alpine sh -c '
+        '"ls /mnt/mig/wal_bridge | wc -l | xargs echo source-files=; '
+        'mkdir -p /pgdata/pg_wal_bridge && '
+        'cp /mnt/mig/wal_bridge/* /pgdata/pg_wal_bridge/ && '
+        'chown -R 1000:1000 /pgdata/pg_wal_bridge; '
+        'echo staged=$(ls /pgdata/pg_wal_bridge | wc -l)"' % VOL,
         timeout=600)
 print(rb.stdout or rb.stderr)
-if "staged=" not in rb.stdout:
-    die("cannot stage bridge")
-ok("bridge staged")
+m = re.search(r"staged=(\d+)", rb.stdout or "")
+if not m or int(m.group(1)) < 10:
+    die(f"bridge staging produced {m.group(1) if m else '?'} files (expected ≥10)",
+        rb.stderr[-300:])
+ok(f"bridge staged: {m.group(1)} segments")
 
 # ─── 4. write recovery config BEFORE first start ────────────────────────────
 step(4, "write recovery config into auto.conf (before start)")
