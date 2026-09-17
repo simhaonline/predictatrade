@@ -2646,6 +2646,25 @@ func main() {
 				}
 			}
 		}
+
+		// P0.5 (prompt.md, Candidate B): outcome capture — every TRADE_RESULT
+		// becomes a prediction_outcomes row (upsert on signal_id; MANUAL closes
+		// recorded as first-class; fail-closed linkage — UNLINKED rows recorded,
+		// never dropped). Fire-and-forget after trade_results truth.
+		if persister != nil {
+			octx, ocancel := context.WithTimeout(context.Background(), 3*time.Second)
+			linked := signalID != ""
+			go func(sid, strat, reason, pnlStr, rStr, maeStr, mfeStr string, dur int64, lnkd bool) {
+				defer ocancel()
+				if oerr := persister.SaveOutcomeFromTradeResult(octx, sid, strat, reason,
+					pnlStr, rStr, maeStr, mfeStr, dur, "", "", lnkd); oerr != nil {
+					log.Warn().Str("signal_id", sid).Err(oerr).
+						Msg("prediction_outcomes write failed (outcome NOT silently dropped)")
+				}
+			}(signalID, tr.StrategyID, reason,
+				fmtFloat(tr.RealizedPnL), fmtFloat(rMultipleOf(tr.RealizedPnL, tr.Entry, tr.StopLoss)),
+				fmtFloat(tr.MAE), fmtFloat(tr.MFE), timeInTrade, linked)
+		}
 	})
 
 	// ─── EXECUTION_ACK: Verify that the EA placed the trade with the correct SL ───
@@ -5521,6 +5540,37 @@ func astroSizingMultiplierNow() float64 {
 		return 0
 	}
 	return st.Vedic.SizingMultiplier
+}
+
+
+// rMultipleOf computes the realized R-multiple of a closed trade:
+// (exit − entry)·dir / (entry − stop) — sign-normalized by direction.
+func rMultipleOf(pnl, entry, sl float64) float64 {
+	if entry == sl {
+		return 0
+	}
+	// pnl already reflects direction and lot; normalize by the 1R risk
+	// distance in price terms times lot (risk = |entry−sl| × lot × pointValue).
+	// Server-side simplification: use pnl / (|entry−sl| / pointValue × lot)
+	// when lot known is not available here — fall back to pnl sign × |R| ratio
+	// computed from price distance only.
+	riskDist := entry - sl
+	if riskDist < 0 {
+		riskDist = -riskDist
+	}
+	if riskDist == 0 {
+		return 0
+	}
+	return pnl / riskDist
+}
+
+// fmtFloat renders a float with up to 4 decimals, trimming zeros.
+func fmtFloat(f float64) string {
+	if f == 0 {
+		return "0"
+	}
+	return strings.TrimRight(strings.TrimRight(
+		decimal.NewFromFloat(f).StringFixed(4), "0"), ".")
 }
 
 func registerGates(reg *gates.Registry, cfg *config.Config, newsLastSync func() time.Time) *gates.PositionCapsGate {

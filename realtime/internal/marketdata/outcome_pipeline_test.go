@@ -79,8 +79,7 @@ func TestSaveOutcomeFromTradeResultRoundTrip(t *testing.T) {
 	// upsert twice → one row, idempotent on signal_id
 	for i := 0; i < 2; i++ {
 		oerr := p.SaveOutcomeFromTradeResult(ctx, sigID, "STANDARD_SCALPING",
-			"TP1", "12.34", "1.48", "5.2", "18.9", 3600, "0.12", "0.31",
-			"", true)
+			"TP1", "12.34", "1.48", "5.2", "18.9", 3600, "0.12", "0.31", true)
 		if oerr != nil {
 			t.Fatalf("SaveOutcomeFromTradeResult (pass %d): %v", i, oerr)
 		}
@@ -110,7 +109,7 @@ func TestSaveOutcomeFromTradeResultRoundTrip(t *testing.T) {
 	}
 	// MANUAL closes are first-class, not filtered
 	merr := p.SaveOutcomeFromTradeResult(ctx, "66666666-7777-8888-9999-000000000000",
-		"XAUUSD", "MANUAL", "-1.20", "-1.0", "0", "0", 120, "", "", "", true)
+		"XAUUSD", "MANUAL", "-1.20", "-1.0", "0", "0", 120, "", "", true)
 	if merr != nil {
 		t.Fatalf("MANUAL outcome write: %v", merr)
 	}

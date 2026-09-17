@@ -72,8 +72,7 @@ func (p *Persister) SavePrediction(ctx context.Context, signalID, symbol, timefr
 // a signal id resolves — UNLINKED rows are never fabricated or dropped.
 func (p *Persister) SaveOutcomeFromTradeResult(ctx context.Context, signalID,
 	strategyID, closeReason, realizedPnl, rMultiple, mae, mfe string,
-	durationSeconds int64, spreadAtEntry, spreadAtExit string,
-	tradeResultID string, linked bool,
+	durationSeconds int64, spreadAtEntry, spreadAtExit string, linked bool,
 ) error {
 	db := p.GetDB()
 	if db == nil {
@@ -96,6 +95,12 @@ func (p *Persister) SaveOutcomeFromTradeResult(ctx context.Context, signalID,
 	// prediction_id: resolve from trading.predictions when the signal is known;
 	// when UNLINKED the FK is not satisfiable — the row still records the
 	// outcome with link_status=UNLINKED (alert path handles it).
+	resolvedTradeResultID := any(nil)
+	if signalID != "" {
+		_ = db.QueryRowContext(ctx,
+			`SELECT id FROM trading.trade_results WHERE signal_id=$1::uuid ORDER BY closed_at DESC LIMIT 1`,
+			signalID).Scan(&resolvedTradeResultID)
+	}
 	var predID any
 	_ = db.QueryRowContext(ctx,
 		`SELECT id FROM trading.predictions WHERE signal_id=$1::uuid`, signalID).Scan(&predID)
@@ -143,7 +148,7 @@ func (p *Persister) SaveOutcomeFromTradeResult(ctx context.Context, signalID,
 		predID, uuidOrNull(signalID), link, strategyID, strOrNull(closeReason),
 		outcomeType, isWin, rMultiple, pnl, numOrNull(rMultiple),
 		numOrNull(mae), numOrNull(mfe), durationSeconds, numOrNull(spreadAtEntry),
-		numOrNull(spreadAtExit), uuidOrNull(tradeResultID))
+		numOrNull(spreadAtExit), resolvedTradeResultID)
 	return err
 }
 // SavePredictionFromSignal builds the prediction payload from a types.Signal
