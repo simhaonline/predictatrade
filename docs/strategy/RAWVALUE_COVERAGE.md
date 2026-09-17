@@ -44,6 +44,17 @@ RawValue non-zero on all indicator-bearing reads across the 4 core strategies.
 | TrendSwing | MTF | ALIGNMENT_* | `MTF.Score` |
 | TrendSwing | VWAP | ABOVE/BELOW_VWAP | `VWAP.SessionVWAP` |
 | TrendSwing | TREND | SAR_BULLISH/BEARISH | `Indicators.ParabolicSAR` |
+| MarnieFib | FIBONACCI | NEAR_GOLDEN_ZONE_BULL/BEAR | `ConfluenceScore` |
+| MarnieFib | FIBONACCI | DISTANT_GOLDEN_BULL/BEAR | `ConfluenceScore` |
+| MarnieFib | FIBONACCI | AT_FIB_LEVEL_BULL/BEAR | `NearestLevelPrice` |
+| MarnieFib | FIBONACCI | HIGH_CONFLUENCE | `ConfluenceScore` |
+| MarnieFib | TREND | EMA21_ABOVE/BELOW_EMA50 | `Indicators.EMA21` |
+| MarnieFib | MOMENTUM | RSI_OVERSOLD/OVERBOUGHT | `Indicators.RSI` |
+| MarnieFib | MOMENTUM | MACD_BULLISH/BEARISH | `Indicators.MACDHistogram` |
+| TrendTransition (aux) | TREND | ADX_EXPANSION_BULL/BEAR | `Indicators.ADX` |
+| TrendTransition (aux) | TREND | EMA_SLOPE_BULL/BEAR | `Indicators.EMA9` |
+| TrendTransition (aux) | VOLATILITY | BB_EXPANSION_UPPER/LOWER | `Indicators.BollWidth` |
+| TrendTransition (aux) | VOLATILITY | ATR_EXPANSION/_S | `Indicators.ATR` |
 
 ## Pre-existing wired sites (audited — RawValue is the real read, unchanged)
 

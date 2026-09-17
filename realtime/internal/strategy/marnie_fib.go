@@ -142,20 +142,24 @@ func (s *MarnieFibStrategy) Evaluate(state *features.MarketState) StrategyResult
 		if confluenceScore > 50 {
 			// Moderately close to golden zone
 			if fibFeat.Direction == "bullish" {
-				addEvidence(&evidence, "FIBONACCI", "NEAR_GOLDEN_ZONE_BULL", types.DirectionBuy, 12, 0.08, q,
-					fmt.Sprintf("Near golden zone (%.0f%% confluence)", confluenceScore))
+				addEvidenceRaw(&evidence, "FIBONACCI", "NEAR_GOLDEN_ZONE_BULL", types.DirectionBuy, 12, 0.08, q,
+					fmt.Sprintf("Near golden zone (%.0f%% confluence)", confluenceScore),
+					decimal.NewFromFloat(confluenceScore))
 			} else {
-				addEvidence(&evidence, "FIBONACCI", "NEAR_GOLDEN_ZONE_BEAR", types.DirectionSell, 12, 0.08, q,
-					fmt.Sprintf("Near golden zone (%.0f%% confluence)", confluenceScore))
+				addEvidenceRaw(&evidence, "FIBONACCI", "NEAR_GOLDEN_ZONE_BEAR", types.DirectionSell, 12, 0.08, q,
+					fmt.Sprintf("Near golden zone (%.0f%% confluence)", confluenceScore),
+					decimal.NewFromFloat(confluenceScore))
 			}
 		} else if confluenceScore > 25 {
 			// Far from golden zone but some confluence
 			if fibFeat.Direction == "bullish" {
-				addEvidence(&evidence, "FIBONACCI", "DISTANT_GOLDEN_BULL", types.DirectionBuy, 6, 0.04, q,
-					fmt.Sprintf("Distant from golden zone (%.0f%%)", confluenceScore))
+				addEvidenceRaw(&evidence, "FIBONACCI", "DISTANT_GOLDEN_BULL", types.DirectionBuy, 6, 0.04, q,
+					fmt.Sprintf("Distant from golden zone (%.0f%%)", confluenceScore),
+					decimal.NewFromFloat(confluenceScore))
 			} else {
-				addEvidence(&evidence, "FIBONACCI", "DISTANT_GOLDEN_BEAR", types.DirectionSell, 6, 0.04, q,
-					fmt.Sprintf("Distant from golden zone (%.0f%%)", confluenceScore))
+				addEvidenceRaw(&evidence, "FIBONACCI", "DISTANT_GOLDEN_BEAR", types.DirectionSell, 6, 0.04, q,
+					fmt.Sprintf("Distant from golden zone (%.0f%%)", confluenceScore),
+					decimal.NewFromFloat(confluenceScore))
 			}
 		}
 	}
@@ -169,11 +173,11 @@ func (s *MarnieFibStrategy) Evaluate(state *features.MarketState) StrategyResult
 		distF, _ := distPercent.Float64()
 		if distF < 0.01 { // Within 1% of range
 			if fibFeat.Direction == "bullish" {
-				addEvidence(&evidence, "FIBONACCI", "AT_FIB_LEVEL_BULL", types.DirectionBuy, 10, 0.06, q,
-					fmt.Sprintf("At Fib %s level", fibFeat.NearestLevel))
+				addEvidenceRaw(&evidence, "FIBONACCI", "AT_FIB_LEVEL_BULL", types.DirectionBuy, 10, 0.06, q,
+					fmt.Sprintf("At Fib %s level", fibFeat.NearestLevel), fibFeat.NearestLevelPrice)
 			} else {
-				addEvidence(&evidence, "FIBONACCI", "AT_FIB_LEVEL_BEAR", types.DirectionSell, 10, 0.06, q,
-					fmt.Sprintf("At Fib %s level", fibFeat.NearestLevel))
+				addEvidenceRaw(&evidence, "FIBONACCI", "AT_FIB_LEVEL_BEAR", types.DirectionSell, 10, 0.06, q,
+					fmt.Sprintf("At Fib %s level", fibFeat.NearestLevel), fibFeat.NearestLevelPrice)
 			}
 		}
 	}
@@ -186,34 +190,35 @@ func (s *MarnieFibStrategy) Evaluate(state *features.MarketState) StrategyResult
 		if fibFeat.Direction == "bearish" {
 			dir = types.DirectionSell
 		}
-		addEvidence(&evidence, "FIBONACCI", "HIGH_CONFLUENCE", dir, 15, 0.10, q,
-			fmt.Sprintf("Fib confluence: %.0f/100", fibFeat.ConfluenceScore))
+		addEvidenceRaw(&evidence, "FIBONACCI", "HIGH_CONFLUENCE", dir, 15, 0.10, q,
+			fmt.Sprintf("Fib confluence: %.0f/100", fibFeat.ConfluenceScore),
+			decimal.NewFromFloat(fibFeat.ConfluenceScore))
 	}
 
 	// ─── Trend Confirmation ───
 
 	// EMA alignment
 	if state.Indicators.EMA21.GreaterThan(state.Indicators.EMA50) {
-		addEvidence(&evidence, "TREND", "EMA21_ABOVE_EMA50", types.DirectionBuy, 10, 0.06, q, "")
+		addEvidenceRaw(&evidence, "TREND", "EMA21_ABOVE_EMA50", types.DirectionBuy, 10, 0.06, q, "", state.Indicators.EMA21)
 	} else {
-		addEvidence(&evidence, "TREND", "EMA21_BELOW_EMA50", types.DirectionSell, 10, 0.06, q, "")
+		addEvidenceRaw(&evidence, "TREND", "EMA21_BELOW_EMA50", types.DirectionSell, 10, 0.06, q, "", state.Indicators.EMA21)
 	}
 
 	// RSI — oversold/overbought for Fib reversal
 	rsiVal, _ := state.Indicators.RSI.Float64()
 	if rsiVal < 35 {
-		addEvidence(&evidence, "MOMENTUM", "RSI_OVERSOLD", types.DirectionBuy, 10, 0.06, q,
-			"RSI oversold — supports Fib bounce")
+		addEvidenceRaw(&evidence, "MOMENTUM", "RSI_OVERSOLD", types.DirectionBuy, 10, 0.06, q,
+			"RSI oversold — supports Fib bounce", state.Indicators.RSI)
 	} else if rsiVal > 65 {
-		addEvidence(&evidence, "MOMENTUM", "RSI_OVERBOUGHT", types.DirectionSell, 10, 0.06, q,
-			"RSI overbought — supports Fib reversal")
+		addEvidenceRaw(&evidence, "MOMENTUM", "RSI_OVERBOUGHT", types.DirectionSell, 10, 0.06, q,
+			"RSI overbought — supports Fib reversal", state.Indicators.RSI)
 	}
 
 	// MACD confirmation
 	if state.Indicators.MACDMain.GreaterThan(state.Indicators.MACDSignal) {
-		addEvidence(&evidence, "MOMENTUM", "MACD_BULLISH", types.DirectionBuy, 8, 0.05, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "MACD_BULLISH", types.DirectionBuy, 8, 0.05, q, "", state.Indicators.MACDHistogram)
 	} else {
-		addEvidence(&evidence, "MOMENTUM", "MACD_BEARISH", types.DirectionSell, 8, 0.05, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "MACD_BEARISH", types.DirectionSell, 8, 0.05, q, "", state.Indicators.MACDHistogram)
 	}
 
 	// Structure confirmation

@@ -29,21 +29,21 @@ func computeTrendTransitionEvidence(state *features.MarketState) []types.Evidenc
 	if adx > 18 && adx < 30 {
 		// ADX in the transition zone (18-30) — trend is building
 		if state.Indicators.ADXPlusDI.GreaterThan(state.Indicators.ADXMinusDI) {
-			addEvidence(&evidence, "TREND", "ADX_EXPANSION_BULLISH", types.DirectionBuy,
-				15, 0.10, q, "ADX expanding with bullish +DI")
+			addEvidenceRaw(&evidence, "TREND", "ADX_EXPANSION_BULLISH", types.DirectionBuy,
+				15, 0.10, q, "ADX expanding with bullish +DI", state.Indicators.ADX)
 		} else if state.Indicators.ADXMinusDI.GreaterThan(state.Indicators.ADXPlusDI) {
-			addEvidence(&evidence, "TREND", "ADX_EXPANSION_BEARISH", types.DirectionSell,
-				15, 0.10, q, "ADX expanding with bearish -DI")
+			addEvidenceRaw(&evidence, "TREND", "ADX_EXPANSION_BEARISH", types.DirectionSell,
+				15, 0.10, q, "ADX expanding with bearish -DI", state.Indicators.ADX)
 		}
 	}
 
 	// EMA slope — EMA9 above EMA21 suggests bullish momentum building
 	if state.Indicators.EMA9.GreaterThan(state.Indicators.EMA21) {
-		addEvidence(&evidence, "TREND", "EMA_SLOPE_BULLISH", types.DirectionBuy,
-			12, 0.08, q, "EMA9 above EMA21 — momentum building")
+		addEvidenceRaw(&evidence, "TREND", "EMA_SLOPE_BULLISH", types.DirectionBuy,
+			12, 0.08, q, "EMA9 above EMA21 — momentum building", state.Indicators.EMA9)
 	} else if state.Indicators.EMA9.LessThan(state.Indicators.EMA21) {
-		addEvidence(&evidence, "TREND", "EMA_SLOPE_BEARISH", types.DirectionSell,
-			12, 0.08, q, "EMA9 below EMA21 — momentum building")
+		addEvidenceRaw(&evidence, "TREND", "EMA_SLOPE_BEARISH", types.DirectionSell,
+			12, 0.08, q, "EMA9 below EMA21 — momentum building", state.Indicators.EMA9)
 	}
 
 	// BB width expansion — volatility expansion precedes breakouts
@@ -53,11 +53,11 @@ func computeTrendTransitionEvidence(state *features.MarketState) []types.Evidenc
 		if bbWidth > 0.01 {
 			// Price near upper BB → potential bullish breakout
 			if state.CurrentPrice.GreaterThan(state.Indicators.BollMiddle) {
-				addEvidence(&evidence, "VOLATILITY", "BB_EXPANSION_UPPER", types.DirectionBuy,
-					10, 0.06, q, "BB expanding, price in upper half")
+				addEvidenceRaw(&evidence, "VOLATILITY", "BB_EXPANSION_UPPER", types.DirectionBuy,
+					10, 0.06, q, "BB expanding, price in upper half", state.Indicators.BollWidth)
 			} else {
-				addEvidence(&evidence, "VOLATILITY", "BB_EXPANSION_LOWER", types.DirectionSell,
-					10, 0.06, q, "BB expanding, price in lower half")
+				addEvidenceRaw(&evidence, "VOLATILITY", "BB_EXPANSION_LOWER", types.DirectionSell,
+					10, 0.06, q, "BB expanding, price in lower half", state.Indicators.BollWidth)
 			}
 		}
 	}
@@ -67,10 +67,10 @@ func computeTrendTransitionEvidence(state *features.MarketState) []types.Evidenc
 		atrPct := state.Indicators.ATR.Div(state.CurrentPrice)
 		if atrPct.GreaterThan(decimal.NewFromFloat(0.0015)) {
 			// ATR > 0.15% of price — elevated volatility
-			addEvidence(&evidence, "VOLATILITY", "ATR_EXPANSION", types.DirectionBuy,
-				8, 0.04, q, "ATR elevated — breakout preparation")
-			addEvidence(&evidence, "VOLATILITY", "ATR_EXPANSION_S", types.DirectionSell,
-				8, 0.04, q, "ATR elevated — breakout preparation")
+			addEvidenceRaw(&evidence, "VOLATILITY", "ATR_EXPANSION", types.DirectionBuy,
+				8, 0.04, q, "ATR elevated — breakout preparation", state.Indicators.ATR)
+			addEvidenceRaw(&evidence, "VOLATILITY", "ATR_EXPANSION_S", types.DirectionSell,
+				8, 0.04, q, "ATR elevated — breakout preparation", state.Indicators.ATR)
 		}
 	}
 
