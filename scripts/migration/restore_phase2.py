@@ -182,10 +182,12 @@ ok("postgres accepting connections")
 # ─── 6. clear restore_command ─────────────────────────────────────────────────
 step(6, "clear restore_command")
 rc = run(["docker", "exec", CONTAINER, "psql", "-U", "pat_admin", "-d", "postgres", "-c",
-          "ALTER SYSTEM SET restore_command = ''; SELECT pg_reload_conf();"])
-print(rc.stdout or rc.stderr)
+          "ALTER SYSTEM SET restore_command = '';"])
 if rc.returncode != 0:
-    die("cannot clear restore_command")
+    die("cannot clear restore_command", (rc.stderr or "")[-300:])
+rc2 = run(["docker", "exec", CONTAINER, "psql", "-U", "pat_admin", "-d", "postgres", "-c",
+           "SELECT pg_reload_conf();"])
+print((rc.stdout or "") + (rc2.stdout or ""))
 ok("restore_command cleared")
 
 # ─── 7. PROOF ─────────────────────────────────────────────────────────────────
