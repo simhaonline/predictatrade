@@ -80,3 +80,16 @@ SELECT
   round(100.0 * count(*) FILTER (WHERE (indicators->>'ema21')::numeric IS NOT NULL AND (indicators->>'ema21')::numeric <> 0) / NULLIF(count(*),0), 1) AS ema21_pct,
   round(100.0 * count(*) FILTER (WHERE (indicators->>'psar')::numeric IS NOT NULL AND (indicators->>'psar')::numeric <> 0) / NULLIF(count(*),0), 1) AS psar_pct
 FROM snap;
+
+
+\echo '=== 9. OUTCOME-LINKAGE TELEMETRY (daily UNLINKED trend + top reasons) ==='
+SELECT date_trunc('day', created_at) AS day,
+       count(*)                                       AS outcomes,
+       round(100.0*count(*) FILTER (WHERE link_status='UNLINKED') / NULLIF(count(*),0), 1) AS unlinked_pct
+FROM trading.prediction_outcomes
+GROUP BY 1 ORDER BY 1 DESC LIMIT 7;
+
+\echo '=== 9b. UNLINKED RATIO LAST 24H (alert if >20% for 24h) ==='
+SELECT round(100.0*count(*) FILTER (WHERE link_status='UNLINKED') / NULLIF(count(*),0), 1) AS unlinked_pct_24h
+FROM trading.prediction_outcomes
+WHERE created_at > now() - interval '24 hours';

@@ -224,6 +224,46 @@ func (p *Persister) VerifyOutcomeSchema(ctx context.Context) error {
 	return nil
 }
 
+// HealthSnapshot returns liveness facts for /health (Phase 0.9 Task B.1):
+// minutes since the last outcome write, minutes since the last shadow resolve,
+// and the schema-guard state. All queries are best-effort: on DB error the
+// field reports "unknown" (fail-closed for callers that gate on it) rather
+// than panicking. Nil-safe.
+func (p *Persister) HealthSnapshot(ctx context.Context) map[string]any {
+	out := map[string]any{"schema_guard": "verified"} // VerifyOutcomeSchema passed at startup
+	db := p.GetDB()
+	if db == nil || p == nil {
+		out["status"] = "not_configured"
+		return out
+	}
+	var mins float64
+	err := db.QueryRowContext(ctx,
+		`SELECT EXTRACT(EPOCH FROM (now() - max(created_at)))/60 FROM trading.prediction_outcomes`,
+	).Scan(&mins)
+	if err != nil {
+		out["outcome_writer"] = "unknown"
+	} else if mins > 30 {
+		out["outcome_writer"] = "SILENT"
+		out["minutes_since_outcome"] = mins
+	} else {
+		out["outcome_writer"] = "ok"
+		out["minutes_since_outcome"] = mins
+	}
+	var smins float64
+	err = db.QueryRowContext(ctx,
+		`SELECT EXTRACT(EPOCH FROM (now() - max(resolved_at)))/60 FROM trading.cross_market_shadow_snapshots WHERE resolved_at IS NOT NULL`,
+	).Scan(&smins)
+	if err != nil {
+		out["shadow_resolver"] = "unknown"
+	} else {
+		// resolver only resolves live while the market is open — age alone is
+		// informational, the market-closed case is expected to age.
+		out["shadow_resolver"] = "ok"
+		out["minutes_since_shadow_resolve"] = smins
+	}
+	return out
+}
+
 // SavePredictionFromSignal builds the prediction payload from a types.Signal
 // (the emit-site shape) and persists it. Family sub-scores are derived from
 // the signal's evidence rows (same aggregation as the diagnostics layer).

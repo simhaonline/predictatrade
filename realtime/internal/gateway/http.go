@@ -311,11 +311,20 @@ func (h *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 			cacheStatus = "ok"
 		}
 	}
+	// Phase 0.9 Task B.1: outcome-pipeline + shadow-resolver liveness (fail-closed
+	// facts for unattended operation). Nil-safe; never blocks the health response.
+	outcomeHealth := map[string]interface{}{"status": "not_configured"}
+	if h.persister != nil {
+		hctx, hcancel := context.WithTimeout(r.Context(), 2*time.Second)
+		outcomeHealth = h.persister.HealthSnapshot(hctx)
+		hcancel()
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status": status,
 		"db":     dbStatus,
 		"cache":  cacheStatus,
+		"outcome_pipeline": outcomeHealth,
 		"emergency_halt": map[string]interface{}{
 			"active": haltActive,
 			"level":  haltLevel,
