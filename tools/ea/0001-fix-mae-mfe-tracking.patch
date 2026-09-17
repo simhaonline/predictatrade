@@ -1,0 +1,121 @@
+--- a/mql/mt5/PredictATrade_MT5.mq5
++++ b/mql/mt5/PredictATrade_MT5.mq5
+@@ -740,6 +740,15 @@
+ double  g_regTP3[PAT_REG_MAX];
+ double  g_regOrigLot[PAT_REG_MAX];
+ datetime g_regOpenTime[PAT_REG_MAX];
++// v1.30 MAE/MFE excursion tracking (per-magic, price + R):
++//   MAE = Max Adverse Excursion  — worst price move against the trade since entry
++//   MFE = Max Favorable Excursion — best price move in favor since entry
++// Updated per tick in PAT_ManagePositions; emitted per close in PAT_ReportResult
++// and per partial close in PAT_DoPartial path. R = excursion / initial risk distance.
++double  g_regMAE[PAT_REG_MAX];    // worst adverse excursion, price distance (>=0)
++double  g_regMFE[PAT_REG_MAX];    // best favorable excursion, price distance (>=0)
++double  g_regMAE_R[PAT_REG_MAX];  // MAE in R units (excursion / |entry - sl0|)
++double  g_regMFE_R[PAT_REG_MAX];  // MFE in R units
+ int     g_regCount = 0;
+ 
+ // v1.27: detected account type (lazy-cached inside CAccountTypeDetector).
+@@ -1256,10 +1265,56 @@
+     g_regTP3[idx]     = tp3;
+     g_regOrigLot[idx] = origLot;
+     g_regOpenTime[idx] = TimeCurrent();
++    // v1.30: reset excursion trackers on new registration (re-register of an
++    // existing magic intentionally resets — MAE/MFE are per-trade lifetimes).
++    g_regMAE[idx]   = 0.0;
++    g_regMFE[idx]   = 0.0;
++    g_regMAE_R[idx] = 0.0;
++    g_regMFE_R[idx] = 0.0;
+     return idx;
+ }
+ 
+ //+------------------------------------------------------------------+
++//| v1.30: MAE/MFE excursion update (called per tick per open position)|
++//| Tracks worst adverse / best favorable price move since entry, both |
++//| in price distance and normalized by initial risk (R). Purely       |
++//| additive telemetry — no trading behavior change.                   |
++//+------------------------------------------------------------------+
++void PAT_UpdateExcursions(long magic, bool isBuy, double entry, double sl0, double bid, double ask)
++{
++    int idx = PAT_RegFind(magic);
++    if(idx < 0) return;
++    double px = isBuy ? bid : ask;   // close-side price: worst/best realizable for this trade
++    double risk = MathAbs(entry - sl0);
++    if(risk <= 0) risk = 0;          // R stays 0 when risk unknown (warmup guard)
++    if(isBuy)
++    {
++        double fav = MathMax(0.0, px - entry);   // favorable for BUY = price above entry
++        double adv = MathMax(0.0, entry - px);   // adverse for BUY   = price below entry
++        if(fav > g_regMFE[idx]) g_regMFE[idx] = fav;
++        if(adv > g_regMAE[idx]) g_regMAE[idx] = adv;
++        if(risk > 0 && adv / risk > g_regMAE_R[idx]) g_regMAE_R[idx] = adv / risk;
++        if(risk > 0 && fav / risk > g_regMFE_R[idx]) g_regMFE_R[idx] = fav / risk;
++    }
++    else
++    {
++        double fav = MathMax(0.0, entry - px);
++        double adv = MathMax(0.0, px - entry);
++        if(fav > g_regMFE[idx]) g_regMFE[idx] = fav;
++        if(adv > g_regMAE[idx]) g_regMAE[idx] = adv;
++        if(risk > 0 && adv / risk > g_regMAE_R[idx]) g_regMAE_R[idx] = adv / risk;
++        if(risk > 0 && fav / risk > g_regMFE_R[idx]) g_regMFE_R[idx] = fav / risk;
++    }
++}
++
++// v1.30: snapshot-and-clear accessors for emit paths (partial close reports
++// deltas-so-far without resetting the lifetime trackers).
++double PAT_MAE_Price(long magic) { int i = PAT_RegFind(magic); return (i >= 0) ? g_regMAE[i]   : 0.0; }
++double PAT_MFE_Price(long magic) { int i = PAT_RegFind(magic); return (i >= 0) ? g_regMFE[i]   : 0.0; }
++double PAT_MAE_R(long magic)     { int i = PAT_RegFind(magic); return (i >= 0) ? g_regMAE_R[i] : 0.0; }
++double PAT_MFE_R(long magic)     { int i = PAT_RegFind(magic); return (i >= 0) ? g_regMFE_R[i] : 0.0; }
++
++//+------------------------------------------------------------------+
+ //| Stage persistence (survives EA reload via GlobalVariables)        |
+ //+------------------------------------------------------------------+
+ string PAT_GVName(long magic, string field) { return "PAT_M" + IntegerToString(magic) + "_" + field; }
+@@ -1334,8 +1389,12 @@
+     msg += ",\"realized_pnl\":" + DoubleToString(realizedPnl, 2);
+     msg += ",\"pnl_points\":" + DoubleToString(p_pnlPoints, 2);
+     msg += ",\"time_in_trade_seconds\":" + IntegerToString(p_timeInTradeSec);
+-    msg += ",\"mae\":0.0";
+-    msg += ",\"mfe\":0.0";
++    // v1.30: real excursion telemetry (was hardcoded 0.0 pre-1.30). R fields are
++    // additive — older servers parse the JSON leniently and ignore unknown keys.
++    msg += ",\"mae\":" + DoubleToString(p_mae, _Digits);
++    msg += ",\"mfe\":" + DoubleToString(p_mfe, _Digits);
++    msg += ",\"mae_r\":" + DoubleToString(p_maeR, 3);
++    msg += ",\"mfe_r\":" + DoubleToString(p_mfeR, 3);
+     msg += ",\"sl_correct\":" + (slCorrect ? "true" : "false");
+     msg += "}";
+     PAT_Send(msg);
+@@ -1461,9 +1520,19 @@
+             openedAt = FormatISO8601UTC(g_regOpenTime[idx]);
+             timeInTrade = (long)(TimeCurrent() - g_regOpenTime[idx]);
+         }
++        // v1.30: emit lifetime MAE/MFE with the final close, then reset trackers
++        // (the trade lifecycle for this magic is complete).
++        double rMae = PAT_MAE_R(magic), rMfe = PAT_MFE_R(magic);
+         PAT_ReportResult(magic, (long)dealTicket, sig, strat, reason, entry, exitPx,
+                         lots, pnl, true, ChartTimeframe, dir, openedAt, sl0, tp1,
+-                        pnlPoints, timeInTrade);
++                        pnlPoints, timeInTrade,
++                        PAT_MAE_Price(magic), PAT_MFE_Price(magic), rMae, rMfe);
++        int rIdx = PAT_RegFind(magic);
++        if(rIdx >= 0)
++        {
++            g_regMAE[rIdx] = 0.0; g_regMFE[rIdx] = 0.0;
++            g_regMAE_R[rIdx] = 0.0; g_regMFE_R[rIdx] = 0.0;
++        }
+         GlobalVariableSet(rptName, 1);
+     }
+ }
+@@ -1767,6 +1836,9 @@
+         double bid = SymbolInfoDouble(g_symbol, SYMBOL_BID);
+         double ask = SymbolInfoDouble(g_symbol, SYMBOL_ASK);
+ 
++        // v1.30: update MAE/MFE excursions every tick (telemetry only)
++        PAT_UpdateExcursions(magic, isBuy, openPx, sl0, bid, ask);
++
+         // ── STAGE 0 -> 1: TP1 hit — partial close ──
+         if(UsePartialClose && stage == 0 && tp1 > 0)
+         {
