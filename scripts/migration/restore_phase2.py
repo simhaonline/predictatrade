@@ -1,45 +1,40 @@
 #!/usr/bin/env python3
-"""restore_phase2.py — CORRECT + SHELL-SAFE pg_basebackup restore (final).
+"""restore_phase2.py — FINAL: correct restore path + built-in diagnostics.
 
 Run ON THE NEW HOST from the repo root:
     git pull origin main
     python3 scripts/migration/restore_phase2.py
 
-Design: EVERY docker invocation uses list-form argv (subprocess shell=False).
-No host-shell expansion exists anywhere — no $(), no quoting hazards, nothing
-can be mangled by a terminal or shell layer. Every step is verified (exit code
-+ output check) and the script stops at the first failure with a precise
-reason. Idempotent — safe to re-run.
+If postgres comes up: prints PROOF counts. If not: prints the FULL evidence
+bundle (why it died, OOM flags, kernel lines, logs) — paste that block back.
 
-Sequence (documented pg_basebackup tar restore):
-  stage bridge → auto.conf (memory + restore_command) → recovery.signal
-  → start → archive replay from bridge → promote → clear restore_command
-  → PROOF counts.
+Path bug fixed in this version: the restore_command must use the path INSIDE
+the pat-postgres container (/var/lib/postgresql/data/pg_wal_bridge/%f), not the
+helper-container mount (/pgdata). The earlier conf pointed at /pgdata — which
+does not exist inside pat-postgres, so every WAL fetch failed.
 """
-import subprocess, sys, os, time, re, io, tarfile
+import subprocess, sys, os, time, re, io, tarfile, json
 
 VOL = os.environ.get("PGDATA_VOLUME", "xauusd_pat-pgdata")
 CONTAINER = "pat-postgres"
 
 def run(argv, timeout=300):
-    """Run docker with LIST args — no shell, no expansion, ever."""
     return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
 
-def alpine(script):
-    """Run a shell script inside a root alpine container with both mounts."""
-    return run(["docker", "run", "--rm",
-                "-v", f"{VOL}:/pgdata",
-                "-v", "/tmp/mig:/mnt/mig:ro",
-                "alpine", "sh", "-c", script])
+def alpine(script, mounts=True):
+    argv = ["docker", "run", "--rm"]
+    if mounts:
+        argv += ["-v", f"{VOL}:/pgdata", "-v", "/tmp/mig:/mnt/mig:ro"]
+    argv += ["alpine", "sh", "-c", script]
+    return run(argv)
 
-def tar_into_volume(name, content_bytes, mode="600"):
-    """Write one file into the volume via a tar stream over stdin — byte-exact."""
+def tar_into_volume(name, content_bytes):
     buf = io.BytesIO()
     tf = tarfile.open(fileobj=buf, mode="w")
     ti = tarfile.TarInfo(name)
     ti.size = len(content_bytes)
     ti.mtime = 0
-    ti.mode = int(mode, 8)
+    ti.mode = 0o600
     tf.addfile(ti, io.BytesIO(content_bytes))
     tf.close()
     p = subprocess.Popen(
@@ -47,8 +42,11 @@ def tar_into_volume(name, content_bytes, mode="600"):
          "sh", "-c",
          f"tar -x -C /pgdata && chown 1000:1000 /pgdata/{name} && echo TARWRITE-OK"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    o_bytes, e_bytes = p.communicate(buf.getvalue())
-    return (o_bytes or b"").decode(), (e_bytes or b"").decode()
+    o, e = p.communicate(buf.getvalue())
+    return (o or b"").decode(), (e or b"").decode()
+
+def sh(cmd, timeout=120):
+    return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
 
 def ok(m):   print(f"  PASS  {m}")
 
@@ -56,6 +54,31 @@ def die(msg, hint=""):
     print(f"\n!! ABORTED: {msg}")
     if hint:
         print(f"   hint: {hint}")
+    print("\n===== DIAGNOSTIC BUNDLE (paste this whole block back) =====")
+    try:
+        print("-- container lifecycle --")
+        d = json.loads(run(["docker", "inspect", CONTAINER]).stdout)[0]["State"]
+        print(json.dumps({k: d.get(k) for k in
+            ("Running","Status","ExitCode","OOMKilled","Error","StartedAt","FinishedAt")}, indent=1))
+        print("-- docker logs (all attempts, last 120 lines) --")
+        print(run(["docker", "logs", CONTAINER, "--tail", "120"]).stdout[-8000:])
+        print("-- kernel OOM (last 15) --")
+        print(run("dmesg 2>/dev/null | grep -iE 'oom|killed process|out of memory' | tail -15 || "
+                  "journalctl -k --since '2 hours ago' 2>/dev/null | grep -iE 'oom|killed' | tail -15",
+                  shell=True).stdout or "(none)")
+        print("-- host memory --")
+        print(run("free -m", shell=True).stdout)
+        print("-- PGDATA pg_wal_bridge (via postgres-container mount path) --")
+        print(run(["docker", "exec", CONTAINER, "sh", "-c",
+                   "ls /var/lib/postgresql/data/pg_wal_bridge 2>&1 | head -4; "
+                   "ls /var/lib/postgresql/data/pg_wal_bridge 2>/dev/null | wc -l"]).stdout)
+        print("-- postmaster.pid --")
+        print(run(["docker", "exec", CONTAINER, "sh", "-c",
+                   "cat /var/lib/postgresql/data/postmaster.pid 2>/dev/null | head -3; echo rc=$?"]).stdout)
+        print("-- process tree --")
+        print(run(["docker", "top", CONTAINER]).stdout)
+    except Exception as e:
+        print("diag failed:", e)
     sys.exit(1)
 
 def step(n, label): print(f"\n== {n}. {label} ==")
@@ -77,11 +100,11 @@ if n_bridge < 10:
 
 # ─── 2. stop postgres ────────────────────────────────────────────────────────
 step(2, "stop postgres")
-sh = run(["docker", "compose", "--env-file", "infra/env/.env", "stop", "postgres"])
+run(["docker", "compose", "--env-file", "infra/env/.env", "stop", "postgres"])
 ok("stopped")
 
 # ─── 3. stage the bridge into the volume ─────────────────────────────────────
-step(3, "stage WAL bridge into the volume (no host shell — list args only)")
+step(3, "stage WAL bridge into the volume")
 r = alpine(
     "set -e; "
     "echo source-files=$(ls /mnt/mig/wal_bridge | wc -l); "
@@ -100,9 +123,11 @@ ok(f"bridge staged: {m.group(1)} segments")
 
 # ─── 4. auto.conf + recovery.signal BEFORE start ─────────────────────────────
 step(4, "recovery config written before first start")
+# NOTE the path: inside pat-postgres the volume is at /var/lib/postgresql/data
+RESTORE_CMD = "cp /var/lib/postgresql/data/pg_wal_bridge/%f %p"
+
 r = alpine("cat /pgdata/postgresql.auto.conf")
 conf = r.stdout
-
 lines = []
 for ln in conf.splitlines():
     s = ln.strip()
@@ -119,19 +144,18 @@ if not any("shared_buffers = 3900MB" in s for s in lines):
 if not any(s.startswith("archive_mode") for s in lines):
     lines += ["archive_mode = on",
               "archive_command = 'test ! -f /var/lib/postgresql/wal_archive/%f && cp %p /var/lib/postgresql/wal_archive/%f'"]
-lines += ["restore_command = 'cp /pgdata/pg_wal_bridge/%f %p'",
+lines += [f"restore_command = '{RESTORE_CMD}'",
           "recovery_target_timeline = 'current'"]
-clean = "# rebuilt by restore_phase2.py 2026-09-17\n" + "\n".join(lines) + "\n"
+clean = "# rebuilt by restore_phase2.py 2026-09-17 v2\n" + "\n".join(lines) + "\n"
 print(clean)
 
 o, e = tar_into_volume("postgresql.auto.conf", clean.encode())
 if "TARWRITE-OK" not in o:
-    die("cannot write auto.conf via tar stream", (e or "")[-300:])
-
+    die("cannot write auto.conf", (e or "")[-300:])
 o2, e2 = tar_into_volume("recovery.signal", b"")
 if "TARWRITE-OK" not in o2:
     die("cannot create recovery.signal", (e2 or "")[-300:])
-ok("auto.conf + recovery.signal written (tar stream, byte-exact)")
+ok(f"auto.conf written (restore_command → {RESTORE_CMD}) + recovery.signal created")
 
 # ─── 5. start → archive recovery → promote ───────────────────────────────────
 step(5, "start postgres (archive recovery)")
@@ -143,11 +167,8 @@ for i in range(60):
         ready = True
         break
 if not ready:
-    print(run(["docker", "logs", CONTAINER, "--tail", "40"]).stdout)
-    die("postgres not accepting after 180s", "logs above")
+    die("postgres not accepting after 180s", "diagnostic bundle above")
 ok("postgres accepting connections")
-logs = run(["docker", "logs", CONTAINER, "--since", "5m"]).stdout
-print(logs[-1500:])
 
 # ─── 6. clear restore_command ─────────────────────────────────────────────────
 step(6, "clear restore_command")
