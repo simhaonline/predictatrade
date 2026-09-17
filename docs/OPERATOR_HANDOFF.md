@@ -1,5 +1,8 @@
 # OPERATOR HANDOFF — Your 3 Actions
-Date: 2026-09-17 · Engineering is finished and waiting. Everything below is on your side.
+Date: 2026-09-17 · Updated after the resume-trigger session (same day): engineering
+executed a full bug-fix + production-readiness sweep and is live again. Details:
+`docs/operations/RESUME_TRIGGER_SESSION_REPORT_2026-09-17.md`. The three actions
+below are unchanged and remain entirely on your side.
 
 ## Action 1 — Patch + recompile the EA (fixes MAE/MFE tracking)
 

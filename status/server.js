@@ -98,6 +98,13 @@ function buildComponents(control, sys, rt, fe, agents) {
   // Bridge is healthy only when the data feed is actually fresh (not merely
   // "connected"). data_health=HEALTHY requires live, non-stale market data.
   const agentMaster = !!(agents.j && agents.j.agents_online && agents.j.data_health === 'HEALTHY');
+  // Outcome pipeline: writer ok → operational; SILENT while no client EAs are
+  // attached is EXPECTED (no TRADE_RESULTs to write) → degraded, not down.
+  // schema guard ≠ verified → down (fail-closed design must not be overridden).
+  const op = sys.j && sys.j.outcome_pipeline;
+  const writer = op && typeof op.outcome_writer === 'string' ? op.outcome_writer : 'unknown';
+  const opStatus = writer === 'ok' ? 'operational' : writer === 'SILENT' ? 'degraded' : 'down';
+  const schemaOk = !!(op && op.schema_guard === 'verified');
 
   return [
     { name: 'Platform Web', group: 'Presentation', url: PUBLIC.platform, status: statusOf(fe.ok), ms: fe.ms, critical: true },
@@ -106,6 +113,7 @@ function buildComponents(control, sys, rt, fe, agents) {
     { name: 'TimescaleDB', group: 'Data', url: 'internal', status: statusOf(dbOk), ms: Math.round((control.ms + (sys.ms || 0)) / 2), critical: true },
     { name: 'Valkey Cache', group: 'Data', url: 'internal', status: statusOf(cacheOk), ms: sys.ms || 0, critical: true },
     { name: 'MT Data Feed', group: 'Trading', url: 'internal', status: agentOk ? (agentMaster ? 'operational' : 'degraded') : 'down', ms: agents.ms, critical: false },
+    { name: 'Outcome Pipeline', group: 'Trading', url: 'internal', status: schemaOk ? opStatus : 'down', ms: sys.ms || 0, critical: false },
     { name: 'Auth / IAM', group: 'Security', url: 'internal', status: statusOf(ctrlOk), ms: control.ms, critical: false },
     { name: 'Licensing', group: 'Control', url: 'internal', status: statusOf(ctrlOk), ms: control.ms, critical: false },
     { name: 'Payments / Billing', group: 'Financial', url: 'internal', status: statusOf(ctrlOk), ms: control.ms, critical: false },

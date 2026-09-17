@@ -1463,6 +1463,18 @@ func (h *HTTPServer) handleSystemHealth(w http.ResponseWriter, r *http.Request) 
 		"agents_online":       edgeOnline,
 	}
 
+	// Outcome-pipeline + shadow-resolver liveness (same HealthSnapshot the
+	// public /health endpoint reports). Surfaced for the Admin health page and
+	// the status service: writer state, minutes since last outcome, minutes
+	// since last shadow resolve, and the startup schema-guard verdict.
+	outcomeHealth := map[string]interface{}{"status": "not_configured"}
+	if h.persister != nil {
+		octx, ocancel := context.WithTimeout(r.Context(), 2*time.Second)
+		outcomeHealth = h.persister.HealthSnapshot(octx)
+		ocancel()
+	}
+	health["outcome_pipeline"] = outcomeHealth
+
 	// Overall ready
 	health["ready"] = dbConnected && dbHealthy
 	health["ready_reason"] = ""

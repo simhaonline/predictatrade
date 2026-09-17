@@ -2,6 +2,24 @@
 
 Maintenance record for documentation restructuring. Historical records are retained deliberately; no sensitive values are reproduced here.
 
+## 2026-09-17 — Resume-trigger session: docs + dashboards updated
+
+- `docs/operations/RESUME_TRIGGER_SESSION_REPORT_2026-09-17.md` — new: full
+  bug-fix + production-readiness sweep record (7 fixes with verification
+  evidence, plus the no-action-needed list and remaining go-live gates).
+- `docs/OPERATOR_HANDOFF.md` — header updated to point at the session report;
+  the 3 operator actions unchanged (still the blockers for Phase 1).
+- `docs/strategy/STANDBY_PROTOCOL.md` — closed by operator resume trigger
+  (historical record retained; the Phase-1 ≥300 gate stays binding).
+- Admin **health page** (`frontend/src/app/(admin)/admin/health`) — new
+  "Outcome Pipeline (writer + shadow resolver)" service row sourced from the
+  Go engine's `/api/v1/system-health` (endpoint now includes the
+  `outcome_pipeline` block: writer state, minutes since last outcome, minutes
+  since last shadow resolve, schema guard). SILENT writer shown as DEGRADED
+  with the note that it is expected while no client EAs are attached.
+- `realtime/internal/gateway/http.go` — `/api/v1/system-health` now includes
+  the same `outcome_pipeline` liveness block the public `/health` reports.
+
 ## 2026-09-10 — Full documentation audit + cleanup (second-pass baseline)
 
 **Classification:** KEEP / UPDATE / MERGE / ARCHIVE / DELETE applied across ~60 active documents.

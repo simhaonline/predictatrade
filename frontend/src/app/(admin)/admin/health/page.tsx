@@ -11,6 +11,15 @@ interface HealthServiceStatus {
   details?: string;
 }
 
+interface OutcomePipelineHealth {
+  status?: string;
+  outcome_writer?: string;
+  minutes_since_outcome?: number;
+  minutes_since_shadow_resolve?: number;
+  shadow_resolver?: string;
+  schema_guard?: string;
+}
+
 export default function AdminHealthPage() {
   // Use Go engine's public system-health endpoint (no auth needed)
   const { data: goHealth, isLoading: goLoading, refetch } = useQuery({
@@ -61,6 +70,27 @@ export default function AdminHealthPage() {
     status: goHealth?.valkey?.connected ? 'HEALTHY' : 'OFFLINE',
     last_check: now,
     details: goHealth?.valkey?.connected ? 'Connected' : 'Disconnected',
+  });
+
+  // Outcome pipeline (writer + shadow resolver + schema guard). SILENT is
+  // EXPECTED while no client EAs are attached (no TRADE_RESULTs to write);
+  // it only indicates a fault while signals are actively emitting.
+  const op = goHealth?.outcome_pipeline;
+  const writer = typeof op?.outcome_writer === 'string' ? op.outcome_writer : 'unknown';
+  const writerStatus: HealthServiceStatus['status'] =
+    writer === 'ok' ? 'HEALTHY' : writer === 'SILENT' ? 'DEGRADED' : 'OFFLINE';
+  services.push({
+    service: 'Outcome Pipeline (writer + shadow resolver)',
+    status: writerStatus,
+    last_check: now,
+    details:
+      `writer=${writer}` +
+      (typeof op?.minutes_since_outcome === 'number'
+        ? ` · last outcome ${Math.round(op.minutes_since_outcome)}m ago` : '') +
+      ` · shadow_resolver=${op?.shadow_resolver ?? 'unknown'}` +
+      (typeof op?.minutes_since_shadow_resolve === 'number'
+        ? ` · last resolve ${Math.round(op.minutes_since_shadow_resolve)}m ago` : '') +
+      ` · schema_guard=${op?.schema_guard ?? 'unknown'}`,
   });
 
   if (goLoading) return <div className="text-sm text-pat-text-secondary">Loading health status...</div>;
