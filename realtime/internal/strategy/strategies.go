@@ -1009,9 +1009,9 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 		addEvidenceRaw(&evidence, "MOMENTUM", "MACD_BEARISH", types.DirectionSell, 10, 0.06, q, "", state.Indicators.MACDHistogram)
 	}
 	if state.Indicators.OsMA.GreaterThan(decimal.Zero) {
-		addEvidence(&evidence, "MOMENTUM", "OSMA_POSITIVE", types.DirectionBuy, 8, 0.05, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "OSMA_POSITIVE", types.DirectionBuy, 8, 0.05, q, "", state.Indicators.OsMA)
 	} else if state.Indicators.OsMA.LessThan(decimal.Zero) {
-		addEvidence(&evidence, "MOMENTUM", "OSMA_NEGATIVE", types.DirectionSell, 8, 0.05, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "OSMA_NEGATIVE", types.DirectionSell, 8, 0.05, q, "", state.Indicators.OsMA)
 	}
 
 	// RSI confirmation (not overbought/oversold extreme for scalping — mid-range trend)
@@ -1045,9 +1045,9 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 	// MTF alignment
 	mtfScore := state.MTF.Score
 	if mtfScore > 0 {
-		addEvidence(&evidence, "MTF", "ALIGNMENT_BULLISH", types.DirectionBuy, 10, float64(mtfScore)/100.0*0.05, q, "")
+		addEvidenceRaw(&evidence, "MTF", "ALIGNMENT_BULLISH", types.DirectionBuy, 10, float64(mtfScore)/100.0*0.05, q, "", decimal.NewFromInt(int64(mtfScore)))
 	} else if mtfScore < 0 {
-		addEvidence(&evidence, "MTF", "ALIGNMENT_BEARISH", types.DirectionSell, 10, float64(-mtfScore)/100.0*0.05, q, "")
+		addEvidenceRaw(&evidence, "MTF", "ALIGNMENT_BEARISH", types.DirectionSell, 10, float64(-mtfScore)/100.0*0.05, q, "", decimal.NewFromInt(int64(mtfScore)))
 	}
 
 	// Pivot points — daily/weekly reversal/continuation levels (SOW Section 13)
@@ -1055,9 +1055,9 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 		pp := state.Pivots.Daily.P
 		if !pp.IsZero() {
 			if state.CurrentPrice.GreaterThan(pp) {
-				addEvidence(&evidence, "STRUCTURE", "ABOVE_DAILY_PIVOT", types.DirectionBuy, 8, 0.04, q, "")
+				addEvidenceRaw(&evidence, "STRUCTURE", "ABOVE_DAILY_PIVOT", types.DirectionBuy, 8, 0.04, q, "", pp)
 			} else if state.CurrentPrice.LessThan(pp) {
-				addEvidence(&evidence, "STRUCTURE", "BELOW_DAILY_PIVOT", types.DirectionSell, 8, 0.04, q, "")
+				addEvidenceRaw(&evidence, "STRUCTURE", "BELOW_DAILY_PIVOT", types.DirectionSell, 8, 0.04, q, "", pp)
 			}
 		}
 	}
@@ -1210,10 +1210,10 @@ func (s *UltraScalping) Evaluate(state *features.MarketState) StrategyResult {
 
 	// M1 candle displacement — critical for Ultra (fast momentum)
 	if state.Candle.IsDisplacement && state.Candle.IsBullish {
-		addEvidence(&evidence, "CANDLE", "M1_BULLISH_DISPLACEMENT", types.DirectionBuy, 20, 0.15, q, "")
+		addEvidenceRaw(&evidence, "CANDLE", "M1_BULLISH_DISPLACEMENT", types.DirectionBuy, 20, 0.15, q, "", state.Candle.Range)
 	}
 	if state.Candle.IsDisplacement && state.Candle.IsBearish {
-		addEvidence(&evidence, "CANDLE", "M1_BEARISH_DISPLACEMENT", types.DirectionSell, 20, 0.15, q, "")
+		addEvidenceRaw(&evidence, "CANDLE", "M1_BEARISH_DISPLACEMENT", types.DirectionSell, 20, 0.15, q, "", state.Candle.Range)
 	}
 
 	// VWAP proximity — key for ultra scalping
@@ -1237,42 +1237,42 @@ func (s *UltraScalping) Evaluate(state *features.MarketState) StrategyResult {
 
 	// OsMA — fast momentum oscillator (locally computed from MACD, no longer external-only)
 	if state.Indicators.OsMA.GreaterThan(decimal.Zero) {
-		addEvidence(&evidence, "MOMENTUM", "OSMA_POSITIVE", types.DirectionBuy, 12, 0.08, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "OSMA_POSITIVE", types.DirectionBuy, 12, 0.08, q, "", state.Indicators.OsMA)
 	} else if state.Indicators.OsMA.LessThan(decimal.Zero) {
-		addEvidence(&evidence, "MOMENTUM", "OSMA_NEGATIVE", types.DirectionSell, 12, 0.08, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "OSMA_NEGATIVE", types.DirectionSell, 12, 0.08, q, "", state.Indicators.OsMA)
 	}
 
 	// Stochastic — fast cycle confirmation
 	if state.Indicators.StochMain.GreaterThan(state.Indicators.StochSignal) {
-		addEvidence(&evidence, "MOMENTUM", "STOCH_BULLISH_CROSS", types.DirectionBuy, 10, 0.06, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "STOCH_BULLISH_CROSS", types.DirectionBuy, 10, 0.06, q, "", state.Indicators.StochMain)
 	} else {
-		addEvidence(&evidence, "MOMENTUM", "STOCH_BEARISH_CROSS", types.DirectionSell, 10, 0.06, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "STOCH_BEARISH_CROSS", types.DirectionSell, 10, 0.06, q, "", state.Indicators.StochMain)
 	}
 
 	// MTF alignment — requires strong alignment for Ultra
 	mtfScore := state.MTF.Score
 	if mtfScore > 0 {
-		addEvidence(&evidence, "MTF", "ALIGNMENT_BULLISH", types.DirectionBuy, 15, float64(mtfScore)/100.0*0.08, q, "")
+		addEvidenceRaw(&evidence, "MTF", "ALIGNMENT_BULLISH", types.DirectionBuy, 15, float64(mtfScore)/100.0*0.08, q, "", decimal.NewFromInt(int64(mtfScore)))
 	} else if mtfScore < 0 {
-		addEvidence(&evidence, "MTF", "ALIGNMENT_BEARISH", types.DirectionSell, 15, float64(-mtfScore)/100.0*0.08, q, "")
+		addEvidenceRaw(&evidence, "MTF", "ALIGNMENT_BEARISH", types.DirectionSell, 15, float64(-mtfScore)/100.0*0.08, q, "", decimal.NewFromInt(int64(mtfScore)))
 	}
 
 	// ADX — needs strong trend for Ultra
 	adx, _ := state.Indicators.ADX.Float64()
 	if adx > s.cfg.MinADX {
 		if state.Indicators.ADXPlusDI.GreaterThan(state.Indicators.ADXMinusDI) {
-			addEvidence(&evidence, "TREND", "ADX_STRONG_BULLISH", types.DirectionBuy, 12, 0.08, q, "")
+			addEvidenceRaw(&evidence, "TREND", "ADX_STRONG_BULLISH", types.DirectionBuy, 12, 0.08, q, "", state.Indicators.ADX)
 		} else {
-			addEvidence(&evidence, "TREND", "ADX_STRONG_BEARISH", types.DirectionSell, 12, 0.08, q, "")
+			addEvidenceRaw(&evidence, "TREND", "ADX_STRONG_BEARISH", types.DirectionSell, 12, 0.08, q, "", state.Indicators.ADX)
 		}
 	}
 
 	// Bollinger — mean reversion context for ultra
 	if !state.Indicators.BollUpper.IsZero() {
 		if state.CurrentPrice.LessThanOrEqual(state.Indicators.BollLower) {
-			addEvidence(&evidence, "VOLATILITY", "BOLL_LOWER_TOUCH", types.DirectionBuy, 8, 0.05, q, "")
+			addEvidenceRaw(&evidence, "VOLATILITY", "BOLL_LOWER_TOUCH", types.DirectionBuy, 8, 0.05, q, "", state.Indicators.BollLower)
 		} else if state.CurrentPrice.GreaterThanOrEqual(state.Indicators.BollUpper) {
-			addEvidence(&evidence, "VOLATILITY", "BOLL_UPPER_TOUCH", types.DirectionSell, 8, 0.05, q, "")
+			addEvidenceRaw(&evidence, "VOLATILITY", "BOLL_UPPER_TOUCH", types.DirectionSell, 8, 0.05, q, "", state.Indicators.BollUpper)
 		}
 	}
 
@@ -1382,17 +1382,17 @@ func (s *StandardSwing) Evaluate(state *features.MarketState) StrategyResult {
 
 	// EMA 21/50 alignment — primary trend for swing
 	if state.Indicators.EMA21.GreaterThan(state.Indicators.EMA50) {
-		addEvidence(&evidence, "TREND", "EMA21_ABOVE_EMA50", types.DirectionBuy, 18, 0.14, q, "")
+		addEvidenceRaw(&evidence, "TREND", "EMA21_ABOVE_EMA50", types.DirectionBuy, 18, 0.14, q, "", state.Indicators.EMA21)
 	} else {
-		addEvidence(&evidence, "TREND", "EMA21_BELOW_EMA50", types.DirectionSell, 18, 0.14, q, "")
+		addEvidenceRaw(&evidence, "TREND", "EMA21_BELOW_EMA50", types.DirectionSell, 18, 0.14, q, "", state.Indicators.EMA21)
 	}
 
 	// SMA 200 — major trend filter
 	if !state.Indicators.SMA200.IsZero() {
 		if state.CurrentPrice.GreaterThan(state.Indicators.SMA200) {
-			addEvidence(&evidence, "TREND", "ABOVE_SMA200", types.DirectionBuy, 15, 0.10, q, "")
+			addEvidenceRaw(&evidence, "TREND", "ABOVE_SMA200", types.DirectionBuy, 15, 0.10, q, "", state.Indicators.SMA200)
 		} else {
-			addEvidence(&evidence, "TREND", "BELOW_SMA200", types.DirectionSell, 15, 0.10, q, "")
+			addEvidenceRaw(&evidence, "TREND", "BELOW_SMA200", types.DirectionSell, 15, 0.10, q, "", state.Indicators.SMA200)
 		}
 	}
 
@@ -1436,9 +1436,9 @@ func (s *StandardSwing) Evaluate(state *features.MarketState) StrategyResult {
 	adx, _ := state.Indicators.ADX.Float64()
 	if adx > s.cfg.MinADX {
 		if state.Indicators.ADXPlusDI.GreaterThan(state.Indicators.ADXMinusDI) {
-			addEvidence(&evidence, "TREND", "ADX_BULLISH", types.DirectionBuy, 12, 0.08, q, "")
+			addEvidenceRaw(&evidence, "TREND", "ADX_BULLISH", types.DirectionBuy, 12, 0.08, q, "", state.Indicators.ADX)
 		} else {
-			addEvidence(&evidence, "TREND", "ADX_BEARISH", types.DirectionSell, 12, 0.08, q, "")
+			addEvidenceRaw(&evidence, "TREND", "ADX_BEARISH", types.DirectionSell, 12, 0.08, q, "", state.Indicators.ADX)
 		}
 	}
 
@@ -1452,25 +1452,25 @@ func (s *StandardSwing) Evaluate(state *features.MarketState) StrategyResult {
 	// RSI — exactly 50 is neutral: no directional evidence.
 	rsi, _ := state.Indicators.RSI.Float64()
 	if rsi > 50 {
-		addEvidence(&evidence, "MOMENTUM", "RSI_ABOVE_50", types.DirectionBuy, 8, 0.05, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "RSI_ABOVE_50", types.DirectionBuy, 8, 0.05, q, "", state.Indicators.RSI)
 	} else if rsi < 50 {
-		addEvidence(&evidence, "MOMENTUM", "RSI_BELOW_50", types.DirectionSell, 8, 0.05, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "RSI_BELOW_50", types.DirectionSell, 8, 0.05, q, "", state.Indicators.RSI)
 	}
 
 	// Candle evidence — important closes for swing
 	if state.Candle.IsBreakout && state.Candle.IsBullish {
-		addEvidence(&evidence, "CANDLE", "BULLISH_BREAKOUT_CLOSE", types.DirectionBuy, 12, 0.08, q, "")
+		addEvidenceRaw(&evidence, "CANDLE", "BULLISH_BREAKOUT_CLOSE", types.DirectionBuy, 12, 0.08, q, "", state.Candle.Range)
 	}
 	if state.Candle.IsBreakout && state.Candle.IsBearish {
-		addEvidence(&evidence, "CANDLE", "BEARISH_BREAKOUT_CLOSE", types.DirectionSell, 12, 0.08, q, "")
+		addEvidenceRaw(&evidence, "CANDLE", "BEARISH_BREAKOUT_CLOSE", types.DirectionSell, 12, 0.08, q, "", state.Candle.Range)
 	}
 
 	// MTF alignment
 	mtfScore := state.MTF.Score
 	if mtfScore > 0 {
-		addEvidence(&evidence, "MTF", "ALIGNMENT_BULLISH", types.DirectionBuy, 12, float64(mtfScore)/100.0*0.06, q, "")
+		addEvidenceRaw(&evidence, "MTF", "ALIGNMENT_BULLISH", types.DirectionBuy, 12, float64(mtfScore)/100.0*0.06, q, "", decimal.NewFromInt(int64(mtfScore)))
 	} else if mtfScore < 0 {
-		addEvidence(&evidence, "MTF", "ALIGNMENT_BEARISH", types.DirectionSell, 12, float64(-mtfScore)/100.0*0.06, q, "")
+		addEvidenceRaw(&evidence, "MTF", "ALIGNMENT_BEARISH", types.DirectionSell, 12, float64(-mtfScore)/100.0*0.06, q, "", decimal.NewFromInt(int64(mtfScore)))
 	}
 
 	// Liquidity
@@ -1494,15 +1494,15 @@ func (s *StandardSwing) Evaluate(state *features.MarketState) StrategyResult {
 	// Tenkan/Kijun cross, cloud position — key swing signals
 	if !state.Indicators.IchimokuTenkan.IsZero() && !state.Indicators.IchimokuKijun.IsZero() {
 		if state.Indicators.IchimokuTenkan.GreaterThan(state.Indicators.IchimokuKijun) {
-			addEvidence(&evidence, "TREND", "ICHIMOKU_BULLISH_CROSS", types.DirectionBuy, 12, 0.06, q, "")
+			addEvidenceRaw(&evidence, "TREND", "ICHIMOKU_BULLISH_CROSS", types.DirectionBuy, 12, 0.06, q, "", state.Indicators.IchimokuTenkan)
 		} else {
-			addEvidence(&evidence, "TREND", "ICHIMOKU_BEARISH_CROSS", types.DirectionSell, 12, 0.06, q, "")
+			addEvidenceRaw(&evidence, "TREND", "ICHIMOKU_BEARISH_CROSS", types.DirectionSell, 12, 0.06, q, "", state.Indicators.IchimokuTenkan)
 		}
 	}
 	if state.Indicators.IchimokuAboveCloud {
-		addEvidence(&evidence, "TREND", "ABOVE_ICHIMOKU_CLOUD", types.DirectionBuy, 10, 0.05, q, "")
+		addEvidenceRaw(&evidence, "TREND", "ABOVE_ICHIMOKU_CLOUD", types.DirectionBuy, 10, 0.05, q, "", state.Indicators.IchimokuKijun)
 	} else if state.Indicators.IchimokuBelowCloud {
-		addEvidence(&evidence, "TREND", "BELOW_ICHIMOKU_CLOUD", types.DirectionSell, 10, 0.05, q, "")
+		addEvidenceRaw(&evidence, "TREND", "BELOW_ICHIMOKU_CLOUD", types.DirectionSell, 10, 0.05, q, "", state.Indicators.IchimokuKijun)
 	}
 
 	// Fibonacci retracement levels for swing (SOW Section 12)
@@ -1513,9 +1513,9 @@ func (s *StandardSwing) Evaluate(state *features.MarketState) StrategyResult {
 			zoneHi := level618.Add(state.Indicators.ATR.Mul(decimal.NewFromFloat(0.3)))
 			zoneLo := level618.Sub(state.Indicators.ATR.Mul(decimal.NewFromFloat(0.3)))
 			if state.Fibonacci.Direction == "bullish" && state.CurrentPrice.GreaterThanOrEqual(zoneLo) && state.CurrentPrice.LessThanOrEqual(zoneHi) {
-				addEvidence(&evidence, "STRUCTURE", "FIB_618_BOUNCE", types.DirectionBuy, 10, 0.05, q, "")
+				addEvidenceRaw(&evidence, "STRUCTURE", "FIB_618_BOUNCE", types.DirectionBuy, 10, 0.05, q, "", level618)
 			} else if state.Fibonacci.Direction == "bearish" && state.CurrentPrice.GreaterThanOrEqual(zoneLo) && state.CurrentPrice.LessThanOrEqual(zoneHi) {
-				addEvidence(&evidence, "STRUCTURE", "FIB_618_REJECTION", types.DirectionSell, 10, 0.05, q, "")
+				addEvidenceRaw(&evidence, "STRUCTURE", "FIB_618_REJECTION", types.DirectionSell, 10, 0.05, q, "", level618)
 			}
 		}
 	}
@@ -1708,35 +1708,35 @@ func (s *TrendSwing) Evaluate(state *features.MarketState) StrategyResult {
 	// SMA 200 — major trend direction (highest weight for trend swing)
 	if !state.Indicators.SMA200.IsZero() {
 		if state.CurrentPrice.GreaterThan(state.Indicators.SMA200) {
-			addEvidence(&evidence, "TREND", "ABOVE_SMA200", types.DirectionBuy, 25, 0.18, q, "")
+			addEvidenceRaw(&evidence, "TREND", "ABOVE_SMA200", types.DirectionBuy, 25, 0.18, q, "", state.Indicators.SMA200)
 		} else {
-			addEvidence(&evidence, "TREND", "BELOW_SMA200", types.DirectionSell, 25, 0.18, q, "")
+			addEvidenceRaw(&evidence, "TREND", "BELOW_SMA200", types.DirectionSell, 25, 0.18, q, "", state.Indicators.SMA200)
 		}
 	}
 
 	// EMA 50 — intermediate trend
 	if !state.Indicators.EMA50.IsZero() {
 		if state.CurrentPrice.GreaterThan(state.Indicators.EMA50) {
-			addEvidence(&evidence, "TREND", "ABOVE_EMA50", types.DirectionBuy, 15, 0.10, q, "")
+			addEvidenceRaw(&evidence, "TREND", "ABOVE_EMA50", types.DirectionBuy, 15, 0.10, q, "", state.Indicators.EMA50)
 		} else {
-			addEvidence(&evidence, "TREND", "BELOW_EMA50", types.DirectionSell, 15, 0.10, q, "")
+			addEvidenceRaw(&evidence, "TREND", "BELOW_EMA50", types.DirectionSell, 15, 0.10, q, "", state.Indicators.EMA50)
 		}
 	}
 
 	// EMA 21 — short-term trend within larger trend
 	if state.Indicators.EMA21.GreaterThan(state.Indicators.EMA50) {
-		addEvidence(&evidence, "TREND", "EMA21_ABOVE_EMA50", types.DirectionBuy, 12, 0.08, q, "")
+		addEvidenceRaw(&evidence, "TREND", "EMA21_ABOVE_EMA50", types.DirectionBuy, 12, 0.08, q, "", state.Indicators.EMA21)
 	} else {
-		addEvidence(&evidence, "TREND", "EMA21_BELOW_EMA50", types.DirectionSell, 12, 0.08, q, "")
+		addEvidenceRaw(&evidence, "TREND", "EMA21_BELOW_EMA50", types.DirectionSell, 12, 0.08, q, "", state.Indicators.EMA21)
 	}
 
 	// ADX with +DI/-DI — must have strong trend
 	adx, _ := state.Indicators.ADX.Float64()
 	if adx > s.cfg.MinADX {
 		if state.Indicators.ADXPlusDI.GreaterThan(state.Indicators.ADXMinusDI) {
-			addEvidence(&evidence, "TREND", "ADX_STRONG_BULLISH", types.DirectionBuy, 18, 0.12, q, "")
+			addEvidenceRaw(&evidence, "TREND", "ADX_STRONG_BULLISH", types.DirectionBuy, 18, 0.12, q, "", state.Indicators.ADX)
 		} else {
-			addEvidence(&evidence, "TREND", "ADX_STRONG_BEARISH", types.DirectionSell, 18, 0.12, q, "")
+			addEvidenceRaw(&evidence, "TREND", "ADX_STRONG_BEARISH", types.DirectionSell, 18, 0.12, q, "", state.Indicators.ADX)
 		}
 	} else {
 		// Weak ADX = no trend = no trend swing
@@ -1783,16 +1783,16 @@ func (s *TrendSwing) Evaluate(state *features.MarketState) StrategyResult {
 
 	// MACD — trend continuation
 	if state.Indicators.MACDMain.GreaterThan(state.Indicators.MACDSignal) {
-		addEvidence(&evidence, "MOMENTUM", "MACD_BULLISH_CONTINUATION", types.DirectionBuy, 10, 0.06, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "MACD_BULLISH_CONTINUATION", types.DirectionBuy, 10, 0.06, q, "", state.Indicators.MACDHistogram)
 	} else if state.Indicators.MACDMain.LessThan(state.Indicators.MACDSignal) {
-		addEvidence(&evidence, "MOMENTUM", "MACD_BEARISH_CONTINUATION", types.DirectionSell, 10, 0.06, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "MACD_BEARISH_CONTINUATION", types.DirectionSell, 10, 0.06, q, "", state.Indicators.MACDHistogram)
 	}
 
 	// CCI — momentum confirmation
 	if state.Indicators.CCI.GreaterThan(decimal.Zero) {
-		addEvidence(&evidence, "MOMENTUM", "CCI_BULLISH", types.DirectionBuy, 8, 0.05, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "CCI_BULLISH", types.DirectionBuy, 8, 0.05, q, "", state.Indicators.CCI)
 	} else if state.Indicators.CCI.LessThan(decimal.Zero) {
-		addEvidence(&evidence, "MOMENTUM", "CCI_BEARISH", types.DirectionSell, 8, 0.05, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "CCI_BEARISH", types.DirectionSell, 8, 0.05, q, "", state.Indicators.CCI)
 	}
 
 	// Candle — pullback continuation
@@ -1806,17 +1806,17 @@ func (s *TrendSwing) Evaluate(state *features.MarketState) StrategyResult {
 	// MTF alignment — critical for trend swing
 	mtfScore := state.MTF.Score
 	if mtfScore > 0 {
-		addEvidence(&evidence, "MTF", "ALIGNMENT_BULLISH", types.DirectionBuy, 15, float64(mtfScore)/100.0*0.07, q, "")
+		addEvidenceRaw(&evidence, "MTF", "ALIGNMENT_BULLISH", types.DirectionBuy, 15, float64(mtfScore)/100.0*0.07, q, "", decimal.NewFromInt(int64(mtfScore)))
 	} else if mtfScore < 0 {
-		addEvidence(&evidence, "MTF", "ALIGNMENT_BEARISH", types.DirectionSell, 15, float64(-mtfScore)/100.0*0.07, q, "")
+		addEvidenceRaw(&evidence, "MTF", "ALIGNMENT_BEARISH", types.DirectionSell, 15, float64(-mtfScore)/100.0*0.07, q, "", decimal.NewFromInt(int64(mtfScore)))
 	}
 
 	// VWAP context
 	if !state.VWAP.SessionVWAP.IsZero() {
 		if state.CurrentPrice.GreaterThan(state.VWAP.SessionVWAP) {
-			addEvidence(&evidence, "VWAP", "ABOVE_VWAP", types.DirectionBuy, 8, 0.05, q, "")
+			addEvidenceRaw(&evidence, "VWAP", "ABOVE_VWAP", types.DirectionBuy, 8, 0.05, q, "", state.VWAP.SessionVWAP)
 		} else {
-			addEvidence(&evidence, "VWAP", "BELOW_VWAP", types.DirectionSell, 8, 0.05, q, "")
+			addEvidenceRaw(&evidence, "VWAP", "BELOW_VWAP", types.DirectionSell, 8, 0.05, q, "", state.VWAP.SessionVWAP)
 		}
 	}
 
@@ -1824,9 +1824,9 @@ func (s *TrendSwing) Evaluate(state *features.MarketState) StrategyResult {
 	// SOW Section 5: Parabolic SAR wired for TrendSwing (was computed but unused).
 	if !state.Indicators.ParabolicSAR.IsZero() {
 		if state.Indicators.ParabolicSARLong {
-			addEvidence(&evidence, "TREND", "SAR_BULLISH", types.DirectionBuy, 10, 0.05, q, "")
+			addEvidenceRaw(&evidence, "TREND", "SAR_BULLISH", types.DirectionBuy, 10, 0.05, q, "", state.Indicators.ParabolicSAR)
 		} else {
-			addEvidence(&evidence, "TREND", "SAR_BEARISH", types.DirectionSell, 10, 0.05, q, "")
+			addEvidenceRaw(&evidence, "TREND", "SAR_BEARISH", types.DirectionSell, 10, 0.05, q, "", state.Indicators.ParabolicSAR)
 		}
 	}
 

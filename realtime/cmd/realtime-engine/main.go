@@ -1213,6 +1213,17 @@ func main() {
 			}
 		}
 		if err == nil && persister != nil {
+			// Phase 0.75 Task B: fail closed on outcome-schema drift — a silent
+			// mismatch ships empty-table no-op writes (Phase 0.5 lesson).
+			schemaCtx, schemaCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if serr := persister.VerifyOutcomeSchema(schemaCtx); serr != nil {
+				schemaCancel()
+				log.Error().Err(serr).Msg("outcome-pipeline schema drift — refusing degraded start")
+				persister.Close()
+				panic(serr) // fail closed: operator must apply the migration
+			}
+			schemaCancel()
+			log.Info().Msg("outcome-pipeline schema verified (predictions + prediction_outcomes)")
 			// Use persister's DB pool for exit profile configuration
 			strategy.InitExitProfileDB(persister.GetDB())
 			strategy.ClearProfileCache()

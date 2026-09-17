@@ -1,6 +1,8 @@
 package marketdata
 
 import (
+	"fmt"
+	"strings"
 	"context"
 	"encoding/json"
 	"testing"
@@ -120,5 +122,74 @@ func TestSaveOutcomeFromTradeResultRoundTrip(t *testing.T) {
 	}
 	if closeReason != "MANUAL" {
 		t.Fatalf("MANUAL close must be recorded, got %q", closeReason)
+	}
+}
+
+// ─── Phase 0.75 Task B: writer hardening ───
+
+// TestOutcomeReasonMappingLowercase — legacy EA lowercase close reasons map to
+// the canonical enum (sl→STOP etc.) instead of tripping the CHECK constraint.
+func TestOutcomeReasonMappingLowercase(t *testing.T) {
+	db := openFeatureSnapshotTestDB(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	p := &Persister{db: db}
+
+	cases := map[string]string{
+		"sl":         "STOP",
+		"tp1":        "TP1",
+		"manual":     "MANUAL",
+		"be":         "BE",
+		"trail":      "TRAIL",
+		"friday":     "FRIDAY_FLATTEN",
+		"hard_stop":  "HARD_STOP",
+		"timeout":    "TIMEOUT",
+		"tp2":        "TP2",
+		"tp3":        "TP3",
+	}
+	for raw, want := range cases {
+		sig := "70000000-0000-0000-0000-0000000000" + fmt.Sprintf("%02d", len(want))
+		if err := p.SaveOutcomeFromTradeResult(ctx, sig, "STANDARD_SCALPING",
+			raw, "1.0", "0.5", "0", "0", 60, "", "", true); err != nil {
+			t.Fatalf("reason %q write: %v", raw, err)
+		}
+		var got string
+		if err := db.QueryRowContext(ctx,
+			`SELECT close_reason FROM trading.prediction_outcomes WHERE signal_id=$1::uuid`,
+			sig).Scan(&got); err != nil {
+			t.Fatalf("reason %q read: %v", raw, err)
+		}
+		if got != want {
+			t.Fatalf("reason %q mapped to %q, want %q", raw, got, want)
+		}
+	}
+}
+
+// TestSchemaDriftGuardDetectsMissingColumn — the startup guard must fail when
+// trading.predictions / trading.prediction_outcomes lack a column the writer
+// expects (Phase 0.5 lesson: CREATE TABLE IF NOT EXISTS silently no-op'd on a
+// legacy table).
+func TestSchemaDriftGuardDetectsMissingColumn(t *testing.T) {
+	db := openFeatureSnapshotTestDB(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	p := &Persister{db: db}
+
+	if err := p.VerifyOutcomeSchema(ctx); err != nil {
+		t.Fatalf("expected schema OK, got drift: %v", err)
+	}
+
+	// Simulate drift: drop a column the writer requires.
+	if _, err := db.ExecContext(ctx, `ALTER TABLE trading.prediction_outcomes DROP COLUMN r_multiple`); err != nil {
+		t.Skipf("cannot drop column (permissions): %v", err)
+	}
+	defer db.ExecContext(ctx, `ALTER TABLE trading.prediction_outcomes ADD COLUMN r_multiple numeric`)
+
+	err := p.VerifyOutcomeSchema(ctx)
+	if err == nil {
+		t.Fatal("schema drift NOT detected — guard must fail closed")
+	}
+	if !strings.Contains(err.Error(), "r_multiple") {
+		t.Fatalf("drift error must name the missing column: %v", err)
 	}
 }
