@@ -27,3 +27,59 @@ groups:
         annotations:
           summary: "No signals generated for 15m during weekday"
           description: "Engine may be stalled, vetoing everything, or market data feed dead."
+
+  - name: outcome_pipeline
+    rules:
+      - alert: OutcomeWriterSilent
+        # Writer silent >30m while the engine still generates signals.
+        # NOTE: SILENT with ZERO exec devices online is the expected pre-attach
+        # state — the no-devices alert below covers that case explicitly.
+        expr: >
+          (sum(rate(pat_outcomes_written_total[30m])) == 0)
+          and on() (sum(rate(pat_signals_generated_total[15m])) > 0)
+          and on() (pat_edge_devices_online > 0)
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outcome writer SILENT while signals flow and EAs attached"
+          description: "TRADE_RESULTs are flowing (exec devices online) but no outcome rows written for 30m — outcome pipeline fault."
+
+      - alert: NoExecDevicesOnline
+        # Market-open hours only: zero client EAs online for 30m. Fires once
+        # per attach gap; informational (signals enqueue+expire meanwhile).
+        expr: >
+          (pat_edge_devices_online == 0)
+          and on() (day_of_week() >= 1 and day_of_week() <= 5)
+          and on() (hour() >= 7 and hour() <= 20)
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Zero client EAs online during market hours"
+          description: "No exec device has checked in within 2m during market hours — signals are enqueuing and expiring undelivered."
+
+      - alert: UnlinkedOutcomesHigh
+        # Link-quality: >20% of last-24h outcomes UNLINKED means the
+        # signal→trade linkage is degrading (reconciliation fault).
+        expr: pat_unlinked_ratio_24h > 20
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "UNLINKED outcome ratio >20% over last 24h"
+          description: "Signal→outcome linkage degraded — check reconciliation and TRADE_RESULT ingestion."
+
+      - alert: TickFeedStale
+        # No ticks ingested for 5m during market hours = data feed dead
+        # (masters must stream continuously when XAUUSD is open).
+        expr: >
+          (sum(rate(pat_ticks_received_total[5m])) == 0)
+          and on() (day_of_week() >= 1 and day_of_week() <= 5)
+          and on() (hour() >= 7 and hour() <= 20)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Zero ticks ingested for 5m during market hours"
+          description: "Master Node ingest is dead — all strategy evaluation is running on stale candles."

@@ -124,6 +124,9 @@ docker exec -i pat-postgres psql -U pat_admin -d predictatrade < scripts/sample_
 | 6 | ACK but no order | `AutoExecute=false`? Daily-loss block? | set `AutoExecute=true`; check Experts log `CAPITAL PROTECTION` lines |
 | 7 | Order but no TRADE_RESULT | position still open (wait) or HistoryPoll failing | EA polls history every ~30s; if closed position but no `TRADE_RESULT reported:` line in 5 min → Experts log excerpt to engineering |
 | 8 | TRADE_RESULT but no outcome row | `SELECT count(*) FROM trading.prediction_outcomes WHERE created_at > now() - interval '1 hour';` | outcome writer silent → `curl http://localhost:13081/health` on origin; check `outcome_pipeline` block; if schema_guard≠verified, an unapplied migration — do not self-fix, call engineering |
+| 9 | EA never asks for LicenseKey / "No device credentials and no LicenseKey" never appears | EA loaded a stale compiled `.ex5` (pre-license build) or a saved `.set` profile overrides inputs | delete the old `.ex5`, recompile the patched `.mq5` (F7), re-attach with a FRESH inputs dialog — do not load an old `.set` |
+| 10 | Device limit exceeded (`DEVICE_LIMIT_EXCEEDED`, HTTP 409) | old/test devices still occupy the license slots | Admin → Licenses → revoke stale devices (or raise max_devices); activation retries on the next EA cycle automatically |
+| 11 | Every ingest rejected (`[INGEST-AUTH] signature mismatch` storm in engine log) | engine JWT_SECRET ≠ control-plane JWT_SECRET (device tokens signed by control) | both must come from the same value (root `.env` → `${JWT_SECRET}`); after fixing, recreate `pat-realtime` AND `pat-live-terminal`; EA recovers by re-activating automatically |
 
 ## 8. Done-when (resume trigger — all four)
 

@@ -3,6 +3,8 @@
 package observability
 
 import (
+	"sync"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -42,11 +44,27 @@ var (
 		Help: "Total gate vetoes",
 	}, []string{"gate_id"})
 
-		// Data-only Master Node (data) agent connected gauge. Monitors
+	// Data-only Master Node (data) agent connected gauge. Monitors
 	// data-collection uptime independently from execution-agent health.
 	DataAgentConnected = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "pat_data_agent_connected",
 		Help: "Number of connected data-only Master Node agents",
+	})
+
+	// Outcome-pipeline liveness gauges (set by the metrics refresher loop):
+	// EdgeDevicesOnline mirrors edgeDeviceCount(2m); UnlinkedRatio24h exposes
+	// the 24h link-quality ratio (alert >20%).
+	OutcomesWrittenTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "pat_outcomes_written_total",
+		Help: "Total prediction_outcomes rows written by the outcome pipeline",
+	})
+	EdgeDevicesOnline = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "pat_edge_devices_online",
+		Help: "EA-direct devices with a fresh (<2m) edge_device_state check-in",
+	})
+	UnlinkedRatio24h = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "pat_unlinked_ratio_24h",
+		Help: "Percentage of last-24h prediction_outcomes that are UNLINKED",
 	})
 
 	// Strategy scores
@@ -59,8 +77,7 @@ var (
 		Name: "pat_calibrated_probability",
 		Help: "Calibrated probability",
 	}, []string{"strategy_id"})
-
-		)
+)
 
 // Cooldown and duplicate prevention metrics (SOW Section 17, 18, 37)
 var (
@@ -83,7 +100,6 @@ var (
 		Name: "pat_duplicate_errors_total",
 		Help: "Total duplicate check errors (Valkey failures)",
 	})
-
 )
 
 // ─── Advanced Risk, Adaptation, Hedging, ML/RL, Sentiment metrics ───
@@ -97,7 +113,7 @@ var (
 
 	// Phase 2: Regime and shadow metrics (SOW Section 34)
 
-								// StrategySignalTotal tracks BUY/SELL signals per strategy
+	// StrategySignalTotal tracks BUY/SELL signals per strategy
 	StrategySignalTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "pat_strategy_signals_total",
 		Help: "Total BUY/SELL signals per strategy",
@@ -120,3 +136,21 @@ var (
 		Help: "Signals currently tracked by the reconciliation registry",
 	})
 )
+
+// ObserveOutcomesTotal sets the outcomes counter from the DB row count.
+// The count can DECREASE (purges), which a Prometheus counter must not —
+// so the last observed value is tracked and only positive deltas are added.
+var (
+	outcomesMetricsMu   sync.Mutex
+	outcomesMetricsLast int64
+)
+
+// ObserveOutcomesTotal updates pat_outcomes_written_total from the DB row count.
+func ObserveOutcomesTotal(current int64) {
+	outcomesMetricsMu.Lock()
+	defer outcomesMetricsMu.Unlock()
+	if current > outcomesMetricsLast {
+		OutcomesWrittenTotal.Add(float64(current - outcomesMetricsLast))
+	}
+	outcomesMetricsLast = current
+}

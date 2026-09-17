@@ -106,6 +106,33 @@ ONLY when, on the EXECUTION channel with link_status='LINKED':
 Current status is reported in the Phase 0.75 report (fail-closed: if below,
 Phase 1 stays blocked — collection continues, no invention).
 
+### 7a. Subscription/entitlement invariants (added 2026-09-17, resume-trigger session)
+
+Phase-1 calibration interacts with live subscriptions; the following are
+binding preconditions and invariants for every Phase-1 action:
+
+1. **Entitlement-aware samples only.** Tuning may only consume LINKED exec
+   outcomes from signals that were delivered under a VALID, ACTIVE license
+   whose plan `allowed_strategies` included the strategy at delivery time.
+   Signals later marked `entitlement-revoked` in `edge_signal_queue.last_error`
+   are excluded from tuning datasets (they were never legitimately executable).
+2. **No parameter change may alter per-subscription entitlement surface.**
+   Phase 1 tunes signal geometry (thresholds, exits, sizing) — never plan
+   gating, `allowed_strategies`, `max_devices`, or delivery eligibility. Any
+   proposal touching those is out of Phase-1 scope by definition.
+3. **Plan-capacity check before canary.** A canary strategy must be within the
+   `allowed_strategies` of every license currently receiving it (verify via
+   `licensing.license_entitlements` + plan join); a canary may never deliver
+   signals a subscriber's plan does not cover.
+4. **Proven-negative veto stays authoritative.** Tuning cannot disable
+   `OVERRIDE_LIVE_EDGE_NEGATIVE=false` protection: a strategy proven-negative
+   on ≥50 linked exec outcomes (PF<1.0) is vetoed regardless of any Phase-1
+   candidate state. Re-enabling the override is an explicit operator decision,
+   logged, and out of Phase-1 scope.
+5. **Device/license hygiene before collection windows.** Stale devices are
+   revoked (slots freed) BEFORE counting collection windows; activations that
+   flip device slots mid-window are annotated in the experiment log.
+
 ## 8. Exit criteria for Phase 1
 
 All of:

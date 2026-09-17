@@ -3515,6 +3515,42 @@ func main() {
 		}
 	}()
 
+	// ─── Observability metrics refresher: outcome-pipeline liveness ───
+	// Mirrors operator_status.sh: outcomes counter (SILENT detection),
+	// edge-device online gauge, 24h UNLINKED ratio. One 60s loop, nil-safe.
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if globalPersister == nil {
+					continue
+				}
+				db := globalPersister.GetDB()
+				if db == nil {
+					continue
+				}
+				mctx, mcancel := context.WithTimeout(context.Background(), 5*time.Second)
+				var outcomes int64
+				var unlinked float64
+				_ = db.QueryRowContext(mctx,
+					`SELECT count(*) FROM trading.prediction_outcomes`).Scan(&outcomes)
+				_ = db.QueryRowContext(mctx,
+					`SELECT COALESCE(round(100.0*count(*) FILTER (WHERE link_status='UNLINKED')
+					  / NULLIF(count(*),0),1),0)
+					  FROM trading.prediction_outcomes
+					  WHERE created_at > now() - interval '24 hours'`).Scan(&unlinked)
+				mcancel()
+				observability.EdgeDevicesOnline.Set(float64(edgeDeviceCount(2 * time.Minute)))
+				observability.UnlinkedRatio24h.Set(unlinked)
+				observability.ObserveOutcomesTotal(outcomes)
+			}
+		}
+	}()
+
 	// Main processing loop — SELF-HEALING (P0 fix): the recover is on the
 	// per-message handling, not the whole goroutine. Previously ONE panic
 	// (e.g. nil-deref) terminated processTick/processCandle forever while
