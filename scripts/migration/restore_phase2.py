@@ -136,12 +136,20 @@ for ln in conf.splitlines():
         continue
     if s.startswith("restore_command") or s.startswith("recovery_target"):
         continue
+    # drop any stale memory-profile lines so the block below re-adds them fresh
+    if s.startswith(("shared_buffers", "max_connections", "work_mem",
+                     "maintenance_work_mem", "effective_cache_size", "wal_buffers",
+                     "max_wal_size", "min_wal_size", "max_locks_per_transaction",
+                     "max_wal_senders", "max_worker_processes")):
+        continue
     if "=" in s and all(ord(c) < 128 for c in s):
         lines.append(s)
-if not any("shared_buffers = 3900MB" in s for s in lines):
-    lines += ["shared_buffers = 3900MB", "max_connections = 80", "work_mem = 16MB",
-              "maintenance_work_mem = 256MB", "effective_cache_size = 11700MB",
-              "wal_buffers = 16MB", "max_wal_size = 2GB", "min_wal_size = 256MB"]
+# ALWAYS re-add the full PHASE 2 profile (idempotent — replaces stale values)
+lines += ["shared_buffers = 3900MB", "max_connections = 100", "work_mem = 16MB",
+          "maintenance_work_mem = 256MB", "effective_cache_size = 11700MB",
+          "wal_buffers = 16MB", "max_wal_size = 2GB", "min_wal_size = 256MB",
+          "max_locks_per_transaction = 1024", "max_wal_senders = 10",
+          "max_worker_processes = 35"]
 if not any(s.startswith("archive_mode") for s in lines):
     lines += ["archive_mode = on",
               "archive_command = 'test ! -f /var/lib/postgresql/wal_archive/%f && cp %p /var/lib/postgresql/wal_archive/%f'"]
