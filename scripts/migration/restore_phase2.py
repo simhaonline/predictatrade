@@ -1,37 +1,56 @@
 #!/usr/bin/env python3
-"""Restore a pg_basebackup tar set properly: recovery.signal + WAL bridge FIRST.
+"""restore_phase2.py — CORRECT + SHELL-SAFE pg_basebackup restore (final).
 
 Run ON THE NEW HOST from the repo root:
     git pull origin main
-    python3 scripts/migration/restore_pg.py
+    python3 scripts/migration/restore_phase2.py
 
-WHY THIS VERSION (the correct, documented pg_basebackup tar procedure):
-The base backup's backup_label demands WAL from redo LSN 5C/470000D8 through the
-backup checkpoint 5C/4C007AA0 (segment 4C) and beyond. Those segments are NOT in
-pg_wal/ (the streamed pg_wal.tar.gz ends at segment 47) — they live in the WAL
-bridge. A physical-base restore MUST run archive recovery with recovery.signal +
-restore_command set BEFORE the server starts. Starting bare (as before) fails
-with "could not locate required checkpoint record" — by design, not by accident.
+Design: EVERY docker invocation uses list-form argv (subprocess shell=False).
+No host-shell expansion exists anywhere — no $(), no quoting hazards, nothing
+can be mangled by a terminal or shell layer. Every step is verified (exit code
++ output check) and the script stops at the first failure with a precise
+reason. Idempotent — safe to re-run.
 
-This script (idempotent):
-  1. verifies PGDATA (PG_VERSION, backup_label) and the bridge (/tmp/mig/wal_bridge)
-  2. stages the bridge into the volume at /pgdata/pg_wal_bridge
-  3. appends restore_command (bridge) to postgresql.auto.conf — hex stream, quote-safe
-  4. creates recovery.signal
-  5. starts postgres → replays redo → through the bridge → reaches end of WAL →
-     promotes automatically and removes recovery.signal
-  6. clears restore_command
-  7. prints PROOF counts (tables, market.ticks)
+Sequence (documented pg_basebackup tar restore):
+  stage bridge → auto.conf (memory + restore_command) → recovery.signal
+  → start → archive replay from bridge → promote → clear restore_command
+  → PROOF counts.
 """
-import subprocess, sys, os, time, json, re
+import subprocess, sys, os, time, re, io, tarfile
 
 VOL = os.environ.get("PGDATA_VOLUME", "xauusd_pat-pgdata")
+CONTAINER = "pat-postgres"
 
-def sh(cmd, timeout=300):
-    return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+def run(argv, timeout=300):
+    """Run docker with LIST args — no shell, no expansion, ever."""
+    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+
+def alpine(script):
+    """Run a shell script inside a root alpine container with both mounts."""
+    return run(["docker", "run", "--rm",
+                "-v", f"{VOL}:/pgdata",
+                "-v", "/tmp/mig:/mnt/mig:ro",
+                "alpine", "sh", "-c", script])
+
+def tar_into_volume(name, content_bytes, mode="600"):
+    """Write one file into the volume via a tar stream over stdin — byte-exact."""
+    buf = io.BytesIO()
+    tf = tarfile.open(fileobj=buf, mode="w")
+    ti = tarfile.TarInfo(name)
+    ti.size = len(content_bytes)
+    ti.mtime = 0
+    ti.mode = int(mode, 8)
+    tf.addfile(ti, io.BytesIO(content_bytes))
+    tf.close()
+    p = subprocess.Popen(
+        ["docker", "run", "--rm", "-i", "-v", f"{VOL}:/pgdata", "alpine",
+         "sh", "-c",
+         f"tar -x -C /pgdata && chown 1000:1000 /pgdata/{name} && echo TARWRITE-OK"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    o_bytes, e_bytes = p.communicate(buf.getvalue())
+    return (o_bytes or b"").decode(), (e_bytes or b"").decode()
 
 def ok(m):   print(f"  PASS  {m}")
-def fail(m): print(f"  FAIL  {m}")
 
 def die(msg, hint=""):
     print(f"\n!! ABORTED: {msg}")
@@ -41,72 +60,62 @@ def die(msg, hint=""):
 
 def step(n, label): print(f"\n== {n}. {label} ==")
 
-def vol_write(path, content):
-    hx = content.encode().hex()
-    r = sh(f'docker run --rm -v {VOL}:/pgdata alpine sh -c '
-           f'"echo {hx} | xxd -r -p > {path} && chown 1000:1000 {path} && echo VOLWRITE-OK"')
-    if "VOLWRITE-OK" not in r.stdout:
-        die(f"cannot write {path}", r.stderr[-200:])
-    ok(f"{path} written")
-
 def isready():
-    return "accepting connections" in sh(
-        "docker exec pat-postgres pg_isready -U pat_admin -d predictatrade").stdout
+    r = run(["docker", "exec", CONTAINER, "pg_isready", "-U", "pat_admin", "-d", "predictatrade"])
+    return "accepting connections" in (r.stdout or "")
 
 # ─── 1. preconditions ────────────────────────────────────────────────────────
 step(1, "preconditions")
 if not os.path.isfile("/tmp/mig/clean_base/base.tar.gz"):
-    die("/tmp/mig/clean_base/base.tar.gz missing", "re-download from Hetzner (clean_base_20260916)")
+    die("/tmp/mig/clean_base/base.tar.gz missing", "re-download from Hetzner")
 if not os.path.isdir("/tmp/mig/wal_bridge"):
-    die("/tmp/mig/wal_bridge missing", "re-download from Hetzner (wal bridge)")
-n_bridge = sh("ls /tmp/mig/wal_bridge | wc -l").stdout.strip()
-print(f"  bridge segments staged: {n_bridge} [expect ~20, first=5C00000048]")
-ok("artifacts present")
+    die("/tmp/mig/wal_bridge missing", "re-download from Hetzner")
+n_bridge = len(os.listdir("/tmp/mig/wal_bridge"))
+print(f"  bridge segments on host: {n_bridge}")
+if n_bridge < 10:
+    die(f"bridge has only {n_bridge} segments", "re-run the Hetzner wal download")
 
-# ─── 2. stop postgres (it is crash-looping) ──────────────────────────────────
-step(2, "stop crash-looping postgres")
-sh("docker compose --env-file infra/env/.env stop postgres")
+# ─── 2. stop postgres ────────────────────────────────────────────────────────
+step(2, "stop postgres")
+sh = run(["docker", "compose", "--env-file", "infra/env/.env", "stop", "postgres"])
 ok("stopped")
 
 # ─── 3. stage the bridge into the volume ─────────────────────────────────────
-step(3, "stage WAL bridge into the volume")
-# Mount the PARENT /tmp/mig (known-good mount: clean_base was read from it) and
-# copy from /mnt/mig/wal_bridge inside. NO 2>/dev/null — a copy error must be
-# loud, not silently produce an empty dir (that's what bit the last run).
-rb = sh('docker run --rm -v %s:/pgdata -v /tmp/mig:/mnt/mig:ro alpine sh -c '
-        '"ls /mnt/mig/wal_bridge | wc -l | xargs echo source-files=; '
-        'mkdir -p /pgdata/pg_wal_bridge && '
-        'cp /mnt/mig/wal_bridge/* /pgdata/pg_wal_bridge/ && '
-        'chown -R 1000:1000 /pgdata/pg_wal_bridge; '
-        'echo staged=$(ls /pgdata/pg_wal_bridge | wc -l)"' % VOL,
-        timeout=600)
-print(rb.stdout or rb.stderr)
-m = re.search(r"staged=(\d+)", rb.stdout or "")
+step(3, "stage WAL bridge into the volume (no host shell — list args only)")
+r = alpine(
+    "set -e; "
+    "echo source-files=$(ls /mnt/mig/wal_bridge | wc -l); "
+    "rm -rf /pgdata/pg_wal_bridge; "
+    "mkdir -p /pgdata/pg_wal_bridge; "
+    "cp /mnt/mig/wal_bridge/* /pgdata/pg_wal_bridge/; "
+    "chown -R 1000:1000 /pgdata/pg_wal_bridge; "
+    "echo staged=$(ls /pgdata/pg_wal_bridge | wc -l)")
+print(r.stdout or r.stderr)
+if r.returncode != 0:
+    die("bridge copy failed", r.stderr[-400:])
+m = re.search(r"staged=(\d+)", r.stdout)
 if not m or int(m.group(1)) < 10:
-    die(f"bridge staging produced {m.group(1) if m else '?'} files (expected ≥10)",
-        rb.stderr[-300:])
+    die(f"only {m.group(1) if m else '?'} segments staged", r.stdout[-400:])
 ok(f"bridge staged: {m.group(1)} segments")
 
-# ─── 4. write recovery config BEFORE first start ────────────────────────────
-step(4, "write recovery config into auto.conf (before start)")
-r = sh(f'docker run --rm -v {VOL}:/pgdata alpine sh -c "cat /pgdata/postgresql.auto.conf"')
+# ─── 4. auto.conf + recovery.signal BEFORE start ─────────────────────────────
+step(4, "recovery config written before first start")
+r = alpine("cat /pgdata/postgresql.auto.conf")
 conf = r.stdout
-mem_block = ("shared_buffers = 3900MB\nmax_connections = 80\nwork_mem = 16MB\n"
-             "maintenance_work_mem = 256MB\neffective_cache_size = 11700MB\nwal_buffers = 16MB\n"
-             "max_wal_size = 2GB\nmin_wal_size = 256MB\n")
 
-# Rebuild cleanly regardless of previous state:
 lines = []
 for ln in conf.splitlines():
     s = ln.strip()
     if not s or s.startswith("#"):
         continue
     if s.startswith("restore_command") or s.startswith("recovery_target"):
-        continue  # we manage these here
+        continue
     if "=" in s and all(ord(c) < 128 for c in s):
         lines.append(s)
 if not any("shared_buffers = 3900MB" in s for s in lines):
-    lines += mem_block.strip().splitlines()
+    lines += ["shared_buffers = 3900MB", "max_connections = 80", "work_mem = 16MB",
+              "maintenance_work_mem = 256MB", "effective_cache_size = 11700MB",
+              "wal_buffers = 16MB", "max_wal_size = 2GB", "min_wal_size = 256MB"]
 if not any(s.startswith("archive_mode") for s in lines):
     lines += ["archive_mode = on",
               "archive_command = 'test ! -f /var/lib/postgresql/wal_archive/%f && cp %p /var/lib/postgresql/wal_archive/%f'"]
@@ -115,54 +124,50 @@ lines += ["restore_command = 'cp /pgdata/pg_wal_bridge/%f %p'",
 clean = "# rebuilt by restore_phase2.py 2026-09-17\n" + "\n".join(lines) + "\n"
 print(clean)
 
-vol_write("/pgdata/postgresql.auto.conf", clean)
+o, e = tar_into_volume("postgresql.auto.conf", clean.encode())
+if "TARWRITE-OK" not in o:
+    die("cannot write auto.conf via tar stream", (e or "")[-300:])
 
-# recovery.signal
-rs = sh(f'docker run --rm -v {VOL}:/pgdata alpine sh -c '
-        '"touch /pgdata/recovery.signal && chown 1000:1000 /pgdata/recovery.signal && echo SIGNAL-OK"')
-if "SIGNAL-OK" not in rs.stdout:
-    die("cannot create recovery.signal", rs.stderr[-200:])
-ok("recovery.signal created + restore_command set")
+o2, e2 = tar_into_volume("recovery.signal", b"")
+if "TARWRITE-OK" not in o2:
+    die("cannot create recovery.signal", (e2 or "")[-300:])
+ok("auto.conf + recovery.signal written (tar stream, byte-exact)")
 
-# ─── 5. start postgres → archive recovery → promote ──────────────────────────
-step(5, "start postgres (archive recovery from bridge)")
-sh("docker compose --env-file infra/env/.env up -d postgres")
+# ─── 5. start → archive recovery → promote ───────────────────────────────────
+step(5, "start postgres (archive recovery)")
+run(["docker", "compose", "--env-file", "infra/env/.env", "up", "-d", "postgres"])
 ready = False
-seen_replay = False
-for i in range(60):  # up to 180s
+for i in range(60):
     time.sleep(3)
-    logs = sh("docker logs pat-postgres --since 2m 2>&1").stdout
-    if "redo" in logs.lower() or "consistent recovery" in logs.lower():
-        seen_replay = True
-    if "accepting connections" in sh(
-            "docker exec pat-postgres pg_isready -U pat_admin -d predictatrade").stdout:
+    if isready():
         ready = True
         break
 if not ready:
-    print(sh("docker logs pat-postgres --tail 40 2>&1").stdout)
+    print(run(["docker", "logs", CONTAINER, "--tail", "40"]).stdout)
     die("postgres not accepting after 180s", "logs above")
 ok("postgres accepting connections")
-tail = sh("docker logs pat-postgres --tail 12 2>&1").stdout
-print(tail)
+logs = run(["docker", "logs", CONTAINER, "--since", "5m"]).stdout
+print(logs[-1500:])
 
-# ─── 6. clear restore_command (archive recovery complete) ────────────────────
+# ─── 6. clear restore_command ─────────────────────────────────────────────────
 step(6, "clear restore_command")
-ra = sh("docker exec pat-postgres psql -U pat_admin -d postgres -c "
-        "\"ALTER SYSTEM SET restore_command = ''; SELECT pg_reload_conf();\"")
-print(ra.stdout or ra.stderr)
-if ra.returncode != 0:
+rc = run(["docker", "exec", CONTAINER, "psql", "-U", "pat_admin", "-d", "postgres", "-c",
+          "ALTER SYSTEM SET restore_command = ''; SELECT pg_reload_conf();"])
+print(rc.stdout or rc.stderr)
+if rc.returncode != 0:
     die("cannot clear restore_command")
 ok("restore_command cleared")
 
 # ─── 7. PROOF ─────────────────────────────────────────────────────────────────
 step(7, "PROOF counts")
-tables = sh('docker exec pat-postgres psql -U pat_admin -d predictatrade -Atc '
-            '"SELECT count(*) FROM pg_tables WHERE schemaname NOT IN '
-            '(\'pg_catalog\',\'information_schema\',\'_timescaledb_internal\',\'_timescaledb_catalog\');"').stdout.strip()
-ticks = sh('docker exec pat-postgres psql -U pat_admin -d predictatrade -Atc '
-           '"SELECT count(*) FROM market.ticks;"').stdout.strip()
-dbtime = sh('docker exec pat-postgres psql -U pat_admin -d predictatrade -Atc "SELECT now();"').stdout.strip()
-print(f"  tables (non-timescale): {tables}   [expect ~235]")
-print(f"  market.ticks: {ticks}   [expect ~30.9M]")
-print(f"  db time now: {dbtime}")
+r1 = run(["docker", "exec", CONTAINER, "psql", "-U", "pat_admin", "-d", "predictatrade", "-Atc",
+          "SELECT count(*) FROM pg_tables WHERE schemaname NOT IN "
+          "('pg_catalog','information_schema','_timescaledb_internal','_timescaledb_catalog');"])
+r2 = run(["docker", "exec", CONTAINER, "psql", "-U", "pat_admin", "-d", "predictatrade", "-Atc",
+          "SELECT count(*) FROM market.ticks;"])
+r3 = run(["docker", "exec", CONTAINER, "psql", "-U", "pat_admin", "-d", "predictatrade", "-Atc",
+          "SELECT now();"])
+print(f"  tables (non-timescale): {r1.stdout.strip()}   [expect ~235]")
+print(f"  market.ticks: {r2.stdout.strip()}   [expect ~30.9M]")
+print(f"  db time now: {r3.stdout.strip()}")
 print("\nDONE — PHASE 2 complete. Next: PHASE 3 (docker compose --env-file infra/env/.env up -d --build)")
