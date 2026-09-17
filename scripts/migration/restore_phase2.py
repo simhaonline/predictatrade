@@ -112,6 +112,7 @@ r = alpine(
     "mkdir -p /pgdata/pg_wal_bridge; "
     "cp /mnt/mig/wal_bridge/* /pgdata/pg_wal_bridge/; "
     "chown -R 1000:1000 /pgdata/pg_wal_bridge; "
+    "chmod 644 /pgdata/pg_wal_bridge/*; "
     "echo staged=$(ls /pgdata/pg_wal_bridge | wc -l)")
 print(r.stdout or r.stderr)
 if r.returncode != 0:
