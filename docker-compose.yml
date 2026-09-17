@@ -26,7 +26,7 @@ services:
     image: timescale/timescaledb-ha:pg17
     container_name: pat-postgres
     <<: *svc-limits
-    mem_limit: 16g
+    mem_limit: 12g
     mem_reservation: 8g
     cpus: "4.0"
     # Fix for "No space left on device" / shared-memory exhaustion: Docker's
@@ -68,7 +68,7 @@ services:
     image: valkey/valkey:8.0
     container_name: pat-valkey
     <<: *svc-limits
-    mem_limit: 2g
+    mem_limit: 1g
     mem_reservation: 512m
     cpus: "1.0"
     command: valkey-server --save 60 1 --loglevel warning --maxmemory 1536mb --maxmemory-policy allkeys-lru
@@ -118,7 +118,7 @@ services:
       dockerfile: Dockerfile
     container_name: pat-realtime
     <<: *svc-limits
-    mem_limit: 3g
+    mem_limit: 2g
     mem_reservation: 1g
     cpus: "2.0"
     env_file:
@@ -176,7 +176,7 @@ services:
       dockerfile: Dockerfile
     container_name: pat-control
     <<: *svc-limits
-    mem_limit: 1.5g
+    mem_limit: 1g
     mem_reservation: 512m
     cpus: "1.5"
     env_file:
@@ -221,7 +221,7 @@ services:
       dockerfile: Dockerfile
     container_name: pat-control-b
     <<: *svc-limits
-    mem_limit: 1.5g
+    mem_limit: 1g
     mem_reservation: 512m
     cpus: "1.5"
     env_file:
@@ -254,7 +254,7 @@ services:
       dockerfile: services/backtest-service/Dockerfile
     container_name: pat-backtest
     <<: *svc-limits
-    mem_limit: 2g
+    mem_limit: 1g
     mem_reservation: 512m
     cpus: "2.0"
     environment:
@@ -288,7 +288,7 @@ services:
         NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-wss://platform.predictatrade.com/ws/v1/relay}
     container_name: pat-frontend
     <<: *svc-limits
-    mem_limit: 1.5g
+    mem_limit: 1g
     mem_reservation: 512m
     cpus: "1.5"
     env_file:
@@ -339,7 +339,7 @@ services:
     image: nginx:alpine
     container_name: pat-nginx
     <<: *svc-limits
-    mem_limit: 768m
+    mem_limit: 640m
     mem_reservation: 192m
     cpus: "1.0"
     # nginx proxy needs reload
@@ -415,7 +415,7 @@ services:
     image: prom/prometheus:latest
     container_name: pat-prometheus
     <<: *svc-limits
-    mem_limit: 2g
+    mem_limit: 1g
     mem_reservation: 512m
     cpus: "1.0"
     volumes:
@@ -430,7 +430,7 @@ services:
     image: grafana/grafana:latest
     container_name: pat-grafana
     <<: *svc-limits
-    mem_limit: 1g
+    mem_limit: 768m
     mem_reservation: 256m
     cpus: "0.5"
     environment:
@@ -480,7 +480,7 @@ services:
     image: amazon/aws-cli:latest
     container_name: pat-backup-sync
     <<: *svc-limits
-    mem_limit: 1g
+    mem_limit: 512m
     mem_reservation: 256m
     cpus: "1.0"
     depends_on:
