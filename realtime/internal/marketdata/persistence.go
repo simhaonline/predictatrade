@@ -92,7 +92,69 @@ func (p *Persister) SaveCandle(ctx context.Context, c *types.Candle) error {
 }
 
 // SaveSignal persists a signal to trading.signals table.
+// SaveFeatureSnapshot persists the per-signal raw indicator read set
+// (P0-2, prompt.md). The snapshot id IS the signal id (1:1) so the API
+// surface and feature_snapshot_id can address it directly. The payload is
+// schema-versioned JSONB carrying every indicator value used by the decision.
+// Idempotent: re-saving the same signal replaces the row (upsert).
+func (p *Persister) SaveFeatureSnapshot(ctx context.Context, signalID, symbol, timeframe, strategyID, strategyVersion string, indicators json.RawMessage) error {
+	db := p.GetDB()
+	if db == nil || len(indicators) == 0 {
+		return nil // fail-open: snapshot persistence must never block signal truth
+	}
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO trading.signal_feature_snapshots
+			(id, signal_id, symbol, timeframe, strategy_id, strategy_version,
+			 schema_version, feature_version, indicator_set_version, indicators)
+		VALUES ($1::uuid, $1::uuid, $2, $3, $4, $5, '1.0', $6, '1.0', $7::jsonb)
+		ON CONFLICT (id) DO UPDATE SET
+			indicators = EXCLUDED.indicators,
+			strategy_version = EXCLUDED.strategy_version,
+			feature_version = EXCLUDED.feature_version`,
+		signalID, symbol, timeframe, strategyID, featureVersionDefault(strategyVersion),
+		featureVersionConst, string(indicators))
+	return err
+}
+
+// GetFeatureSnapshot returns the persisted indicator read set for a signal.
+func (p *Persister) GetFeatureSnapshot(ctx context.Context, signalID string) (map[string]any, error) {
+	db := p.GetDB()
+	if db == nil {
+		return nil, fmt.Errorf("no db")
+	}
+	var raw []byte
+	if err := db.QueryRowContext(ctx,
+		`SELECT indicators FROM trading.signal_feature_snapshots WHERE id=$1::uuid`, signalID).Scan(&raw); err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+const featureVersionConst = "1.0"
+
+func featureVersionDefault(strategyVersion string) string {
+	if strategyVersion == "" {
+		return "1.0"
+	}
+	return strategyVersion
+}
+
 func (p *Persister) SaveSignal(ctx context.Context, s *types.Signal) error {
+	// P0-2: persist the feature snapshot FIRST, then reference it. Fail-open:
+	// a snapshot write failure never blocks canonical signal truth.
+	if len(s.FeatureSnapshotJSON) > 0 {
+		if serr := p.SaveFeatureSnapshot(ctx, s.ID, s.Symbol, string(s.Timeframe),
+			string(s.StrategyID), s.StrategyVersion, json.RawMessage(s.FeatureSnapshotJSON)); serr == nil {
+			s.FeatureSnapshotID = s.ID
+		} else {
+			// logged by caller context; keep signal insert unaffected
+			s.FeatureSnapshotID = ""
+		}
+	}
 	evidenceJSON, _ := json.Marshal(s.Evidence)
 	gateJSON, _ := json.Marshal(s.GateResults)
 	reasonsJSON, _ := json.Marshal(s.ReasonCodes)
@@ -121,13 +183,14 @@ func (p *Persister) SaveSignal(ctx context.Context, s *types.Signal) error {
 			gross_rr_tp1, gross_rr_tp2, gross_rr_tp3,
 			net_rr_tp1, net_rr_tp2, net_rr_tp3,
 			expected_cost, executable, failed_production_reason,
-			ai_verification, risk_decision
+			ai_verification, risk_decision, feature_snapshot_id
 		) VALUES (
 			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
 			$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,
 			$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,
 			$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,
-			$74,$75,$76,$77,$78,$79,$80,$81,$82,$83,$84
+			$74,$75,$76,$77,$78,$79,$80,$81,$82,$83,$84,
+			$85
 		)
 		ON CONFLICT (id, created_at) DO UPDATE SET
 			status = EXCLUDED.status,
@@ -161,7 +224,7 @@ func (p *Persister) SaveSignal(ctx context.Context, s *types.Signal) error {
 		s.GrossRRTP1.String(), s.GrossRRTP2.String(), s.GrossRRTP3.String(),
 		s.NetRRTP1.String(), s.NetRRTP2.String(), s.NetRRTP3.String(),
 		s.ExpectedCost.String(), s.Executable, s.FailedProductionReason,
-		s.AiVerification, s.RiskDecision,
+		s.AiVerification, s.RiskDecision, nullableUUID(s.FeatureSnapshotID),
 	)
 	if err != nil {
 		// SOW Section 13: canonical idempotency — duplicate signal for same
@@ -916,6 +979,15 @@ func (p *Persister) SaveCandidate(ctx context.Context, c *CandidateRecord) error
 		log.Printf("[RT] SaveCandidate error: %v (dir=%s regime=%s session=%s approval=%s reject=%s)", err, c.Direction, c.Regime, c.MarketSession, c.ApprovalState, c.RejectionGate)
 	}
 	return err
+}
+
+
+// nullableUUID maps "" -> SQL NULL for uuid columns.
+func nullableUUID(id string) any {
+	if id == "" {
+		return nil
+	}
+	return id
 }
 
 // SaveRiskDecision persists a risk gate decision to trading.risk_decisions.

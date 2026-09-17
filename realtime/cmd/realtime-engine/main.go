@@ -599,6 +599,20 @@ func seedMarketLevels(r *strategy.StrategyResult, bid, ask decimal.Decimal) {
 	}
 }
 
+
+// attachFeatureSnapshot (P0-2, prompt.md): builds the raw indicator read set
+// from the live MarketState and attaches it to the signal. The snapshot is
+// persisted 1:1 by SaveSignal (trading.signal_feature_snapshots) and exposed
+// via the indicators/raw surface — end-to-end verifiable reads.
+func attachFeatureSnapshot(sig *types.Signal, st *features.MarketState) {
+	if sig == nil || st == nil {
+		return
+	}
+	if b, err := marketdata.BuildFeatureSnapshotJSON(st); err == nil && len(b) > 0 {
+		sig.FeatureSnapshotJSON = b
+	}
+}
+
 func broadcastSignalToAll(wsHub *gateway.WebSocketHub, signal *types.Signal) {
 	if signal == nil {
 		return
@@ -4644,6 +4658,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 						}
 					}
 
+					attachFeatureSnapshot(sig, mergedState)
 					broadcastSignalToAll(wsHub, sig)
 					if persister != nil {
 						go func(s *types.Signal) {
@@ -4826,6 +4841,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			reconciler.RecordSignal(sig)
 			observability.SignalsGenerated.WithLabelValues(string(strat.ID()), "BLOCKED").Inc()
 			observability.CooldownRejections.WithLabelValues(string(strat.ID())).Inc()
+			attachFeatureSnapshot(sig, mergedState)
 			broadcastSignalToAll(wsHub, sig)
 			if persister != nil {
 				go func(s *types.Signal) {
@@ -4912,6 +4928,7 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 			reconciler.RecordSignal(sig)
 			observability.SignalsGenerated.WithLabelValues(string(strat.ID()), "BLOCKED").Inc()
 			observability.DuplicateRejections.WithLabelValues(string(strat.ID())).Inc()
+			attachFeatureSnapshot(sig, mergedState)
 			broadcastSignalToAll(wsHub, sig)
 			if persister != nil {
 				go func(s *types.Signal) {

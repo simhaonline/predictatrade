@@ -411,6 +411,12 @@ type Signal struct {
 	ExpiresAt         time.Time
 	ExitProfileID     string
 	GatePolicyVersion string
+	// FeatureSnapshot (P0-2): raw indicator read set used by this decision,
+	// persisted 1:1 into trading.signal_feature_snapshots (id = signal id)
+	// and referenced from trading.signals.feature_snapshot_id. Persistence-
+	// side only — sanitized out of the WS wire contract.
+	FeatureSnapshotJSON []byte `json:"-"`
+	FeatureSnapshotID   string `json:"-"`
 
 	// Phase 2: Versioning (SOW Section 33)
 	RegimeEngineVersion string

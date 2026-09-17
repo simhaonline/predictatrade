@@ -172,6 +172,8 @@ func (h *HTTPServer) registerRoutes() {
 	h.mux.HandleFunc("/api/v1/astro/mindmap", h.handleAstroMindMap)
 	h.mux.HandleFunc("/api/v1/astro/screens", h.handleAstroScreens)
 	h.mux.HandleFunc("/api/v1/strategies", h.handleStrategies)
+	// P0-3: raw indicator reads (prompt.md) — same builder as feature snapshots
+	h.mux.HandleFunc("/api/v1/indicators/raw", h.handleIndicatorsRaw)
 	h.mux.HandleFunc("/api/v1/market/snapshot", h.handleMarketSnapshot)
 	h.mux.HandleFunc("/api/v1/agents/status", h.handleAgentsStatus)
 	h.mux.HandleFunc("/api/v1/news", h.handleNews)

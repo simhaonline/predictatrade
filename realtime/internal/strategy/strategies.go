@@ -180,6 +180,25 @@ func addEvidence(evidence *[]types.EvidenceContribution, pillar, feature string,
 	})
 }
 
+// addEvidenceRaw is the indicator-bearing variant of addEvidence: RawValue
+// carries the ACTUAL indicator read (e.g. the live EMA9 price, the ADX value,
+// the VWAP z-score) so the reading is verifiable end-to-end — evidence row →
+// feature snapshot → API/WS surface (prompt.md P0-1). RawValue must never be
+// a placeholder or the signal direction. The legacy addEvidence stays for
+// boolean/structural facts with no scalar read (RawValue stays zero there).
+func addEvidenceRaw(evidence *[]types.EvidenceContribution, pillar, feature string, dir types.Direction,
+	weight, contrib float64, quality types.QualityState, reason string, raw decimal.Decimal) {
+	*evidence = append(*evidence, types.EvidenceContribution{
+		Pillar: pillar, Feature: feature, Direction: dir,
+		Weight:          decimal.NewFromFloat(weight),
+		Contribution:    decimal.NewFromFloat(contrib),
+		NormalizedValue: decimal.NewFromFloat(contrib), // CRITICAL: confluence engine uses this field
+		RawValue:        raw,
+		Quality:         quality, Source: pillar + "_engine", Version: "1.0",
+		ReasonCode: reason,
+	})
+}
+
 // applyFamilyCaps limits total contribution per evidence family to prevent
 // double-counting of correlated indicators.
 func applyFamilyCaps(evidence []types.EvidenceContribution) []types.EvidenceContribution {
@@ -863,17 +882,17 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 	// Equality = no information: emit NO evidence rather than tie-breaking
 	// into a fabricated one-sided signal (SOW Section 49 — no forced signals).
 	if state.Indicators.EMA9.GreaterThan(state.Indicators.EMA21) {
-		addEvidence(&evidence, "TREND", "EMA9_ABOVE_EMA21", types.DirectionBuy, 15, 0.12, q, "")
+		addEvidenceRaw(&evidence, "TREND", "EMA9_ABOVE_EMA21", types.DirectionBuy, 15, 0.12, q, "", state.Indicators.EMA9)
 	} else if state.Indicators.EMA9.LessThan(state.Indicators.EMA21) {
-		addEvidence(&evidence, "TREND", "EMA9_BELOW_EMA21", types.DirectionSell, 15, 0.12, q, "")
+		addEvidenceRaw(&evidence, "TREND", "EMA9_BELOW_EMA21", types.DirectionSell, 15, 0.12, q, "", state.Indicators.EMA9)
 	}
 
 	// VWAP relationship
 	if !state.VWAP.SessionVWAP.IsZero() {
 		if state.CurrentPrice.GreaterThan(state.VWAP.SessionVWAP) {
-			addEvidence(&evidence, "VWAP", "ABOVE_VWAP", types.DirectionBuy, 12, 0.08, q, "")
+			addEvidenceRaw(&evidence, "VWAP", "ABOVE_VWAP", types.DirectionBuy, 12, 0.08, q, "", state.VWAP.SessionVWAP)
 		} else if state.CurrentPrice.LessThan(state.VWAP.SessionVWAP) {
-			addEvidence(&evidence, "VWAP", "BELOW_VWAP", types.DirectionSell, 12, 0.08, q, "")
+			addEvidenceRaw(&evidence, "VWAP", "BELOW_VWAP", types.DirectionSell, 12, 0.08, q, "", state.VWAP.SessionVWAP)
 		}
 	}
 
@@ -902,9 +921,9 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 
 	// MACD/OsMA momentum — equal/zero values carry no directional evidence.
 	if state.Indicators.MACDMain.GreaterThan(state.Indicators.MACDSignal) {
-		addEvidence(&evidence, "MOMENTUM", "MACD_BULLISH", types.DirectionBuy, 10, 0.06, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "MACD_BULLISH", types.DirectionBuy, 10, 0.06, q, "", state.Indicators.MACDHistogram)
 	} else if state.Indicators.MACDMain.LessThan(state.Indicators.MACDSignal) {
-		addEvidence(&evidence, "MOMENTUM", "MACD_BEARISH", types.DirectionSell, 10, 0.06, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "MACD_BEARISH", types.DirectionSell, 10, 0.06, q, "", state.Indicators.MACDHistogram)
 	}
 	if state.Indicators.OsMA.GreaterThan(decimal.Zero) {
 		addEvidence(&evidence, "MOMENTUM", "OSMA_POSITIVE", types.DirectionBuy, 8, 0.05, q, "")
@@ -915,18 +934,18 @@ func (s *StandardScalping) Evaluate(state *features.MarketState) StrategyResult 
 	// RSI confirmation (not overbought/oversold extreme for scalping — mid-range trend)
 	rsi, _ := state.Indicators.RSI.Float64()
 	if rsi > 50 && rsi < 70 {
-		addEvidence(&evidence, "MOMENTUM", "RSI_BULLISH_MID", types.DirectionBuy, 8, 0.05, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "RSI_BULLISH_MID", types.DirectionBuy, 8, 0.05, q, "", state.Indicators.RSI)
 	} else if rsi < 50 && rsi > 30 {
-		addEvidence(&evidence, "MOMENTUM", "RSI_BEARISH_MID", types.DirectionSell, 8, 0.05, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "RSI_BEARISH_MID", types.DirectionSell, 8, 0.05, q, "", state.Indicators.RSI)
 	}
 
 	// ADX trend strength
 	adx, _ := state.Indicators.ADX.Float64()
 	if adx > s.cfg.MinADX {
 		if state.Indicators.ADXPlusDI.GreaterThan(state.Indicators.ADXMinusDI) {
-			addEvidence(&evidence, "TREND", "ADX_BULLISH", types.DirectionBuy, 10, 0.07, q, "")
+			addEvidenceRaw(&evidence, "TREND", "ADX_BULLISH", types.DirectionBuy, 10, 0.07, q, "", state.Indicators.ADX)
 		} else {
-			addEvidence(&evidence, "TREND", "ADX_BEARISH", types.DirectionSell, 10, 0.07, q, "")
+			addEvidenceRaw(&evidence, "TREND", "ADX_BEARISH", types.DirectionSell, 10, 0.07, q, "", state.Indicators.ADX)
 		}
 	}
 
@@ -1101,9 +1120,9 @@ func (s *UltraScalping) Evaluate(state *features.MarketState) StrategyResult {
 
 	// EMA 9/21 — immediate momentum direction
 	if state.Indicators.EMA9.GreaterThan(state.Indicators.EMA21) {
-		addEvidence(&evidence, "TREND", "EMA9_ABOVE_EMA21", types.DirectionBuy, 20, 0.15, q, "")
+		addEvidenceRaw(&evidence, "TREND", "EMA9_ABOVE_EMA21", types.DirectionBuy, 20, 0.15, q, "", state.Indicators.EMA9)
 	} else if state.Indicators.EMA9.LessThan(state.Indicators.EMA21) {
-		addEvidence(&evidence, "TREND", "EMA9_BELOW_EMA21", types.DirectionSell, 20, 0.15, q, "")
+		addEvidenceRaw(&evidence, "TREND", "EMA9_BELOW_EMA21", types.DirectionSell, 20, 0.15, q, "", state.Indicators.EMA9)
 	}
 
 	// M1 candle displacement — critical for Ultra (fast momentum)
@@ -1117,9 +1136,9 @@ func (s *UltraScalping) Evaluate(state *features.MarketState) StrategyResult {
 	// VWAP proximity — key for ultra scalping
 	if !state.VWAP.SessionVWAP.IsZero() {
 		if state.CurrentPrice.GreaterThan(state.VWAP.SessionVWAP) {
-			addEvidence(&evidence, "VWAP", "ABOVE_VWAP", types.DirectionBuy, 15, 0.10, q, "")
+			addEvidenceRaw(&evidence, "VWAP", "ABOVE_VWAP", types.DirectionBuy, 15, 0.10, q, "", state.VWAP.SessionVWAP)
 		} else if state.CurrentPrice.LessThan(state.VWAP.SessionVWAP) {
-			addEvidence(&evidence, "VWAP", "BELOW_VWAP", types.DirectionSell, 15, 0.10, q, "")
+			addEvidenceRaw(&evidence, "VWAP", "BELOW_VWAP", types.DirectionSell, 15, 0.10, q, "", state.VWAP.SessionVWAP)
 		}
 	}
 
@@ -1342,9 +1361,9 @@ func (s *StandardSwing) Evaluate(state *features.MarketState) StrategyResult {
 
 	// MACD
 	if state.Indicators.MACDMain.GreaterThan(state.Indicators.MACDSignal) {
-		addEvidence(&evidence, "MOMENTUM", "MACD_BULLISH", types.DirectionBuy, 10, 0.06, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "MACD_BULLISH", types.DirectionBuy, 10, 0.06, q, "", state.Indicators.MACDHistogram)
 	} else if state.Indicators.MACDMain.LessThan(state.Indicators.MACDSignal) {
-		addEvidence(&evidence, "MOMENTUM", "MACD_BEARISH", types.DirectionSell, 10, 0.06, q, "")
+		addEvidenceRaw(&evidence, "MOMENTUM", "MACD_BEARISH", types.DirectionSell, 10, 0.06, q, "", state.Indicators.MACDHistogram)
 	}
 
 	// RSI — exactly 50 is neutral: no directional evidence.
