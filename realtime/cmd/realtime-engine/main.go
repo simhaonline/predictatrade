@@ -4767,6 +4767,13 @@ func processCandle(candle *types.Candle, featureReg *features.RegistrySet, state
 							})
 						}(sig)
 					}
+					// Link the just-emitted candidate signal to its shadow snapshot so the
+// price-resolved shadow outcome becomes prediction-linkable (Phase 0.5).
+					if xmValidation != nil {
+						linkCtx, linkCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+						_ = xmValidation.LinkShadowSnapshotToSignal(linkCtx, sig.ID, string(strat.ID()))
+						linkCancel()
+					}
 					// Audit: Log CANDIDATE signal decision (prompt.md Section 8 — all signal types)
 					if auditLogger != nil && pipelineExecID != uuid.Nil {
 						ac, acCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)

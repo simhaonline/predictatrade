@@ -58,6 +58,34 @@ type ShadowSignalSnapshot struct {
 	ResolvedAt   *time.Time `json:"resolved_at"`
 }
 
+// LinkShadowSnapshotToSignal stamps the most recent UNRESOLVED shadow snapshot
+// for a strategy (within the recency window) with the emitted signal's ID, so
+// price-resolved shadow outcomes become linkable to predictions. Legacy rows
+// (pre-stamping) keep empty signal_id and stay unlinkable by design.
+func (p *ValidationPersister) LinkShadowSnapshotToSignal(ctx context.Context, signalID, strategyID string) error {
+	if p == nil || p.db == nil || signalID == "" || strategyID == "" {
+		return nil
+	}
+	tag, err := p.db.ExecContext(ctx, `
+		UPDATE trading.cross_market_shadow_snapshots
+		SET signal_id = $1
+		WHERE id = (
+			SELECT id FROM trading.cross_market_shadow_snapshots
+			WHERE strategy = $2
+			  AND outcome = 'UNRESOLVED'
+			  AND COALESCE(signal_id, '') = ''
+			  AND timestamp > now() - interval '90 seconds'
+			ORDER BY timestamp DESC
+			LIMIT 1
+		)
+	`, signalID, strategyID)
+	if err != nil {
+		return err
+	}
+	_, _ = tag.RowsAffected() // 0 rows is normal (no candidate snapshot this window)
+	return nil
+}
+
 // SaveShadowSnapshot persists a shadow signal snapshot for later validation.
 func (p *ValidationPersister) SaveShadowSnapshot(ctx context.Context, snap *ShadowSignalSnapshot) error {
 	if p == nil || p.db == nil {

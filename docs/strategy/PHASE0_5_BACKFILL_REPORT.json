@@ -1,0 +1,335 @@
+{
+ "total": 227,
+ "linked": 145,
+ "unlinked": 82,
+ "unlinked_reasons": [
+  {
+   "signal_id": "9b5b5fcb-ff9b-4e54-9465-5e79cf924e12",
+   "reason": "signal_id 9b5b5fcb... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "070b80b0-be47-4745-b402-6eb5d5c6c6b1",
+   "reason": "signal_id 070b80b0... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "ef0e91fe-81eb-49ed-aa5f-8045673c43a8",
+   "reason": "signal_id ef0e91fe... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "877c4eb6-698b-4fb8-950a-a46140641a74",
+   "reason": "signal_id 877c4eb6... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "26ae2170-f13d-4672-8450-1716f24f85b4",
+   "reason": "signal_id 26ae2170... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "38c2bcdb-5a1b-4447-bafd-858bb516da74",
+   "reason": "signal_id 38c2bcdb... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "44aee420-c7f1-40a6-84d6-526b85593347",
+   "reason": "signal_id 44aee420... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "a943bdbc-fcb1-4bc3-92ea-c8e7d4f4da6e",
+   "reason": "signal_id a943bdbc... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "e5ca7aa4-ab23-41f9-b6b4-b5f5277fecd6",
+   "reason": "signal_id e5ca7aa4... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "6c3a420e-08f0-4832-98f1-456749d5cec3",
+   "reason": "signal_id 6c3a420e... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "19989391-0669-4d06-bd47-c3944e4cbe7b",
+   "reason": "signal_id 19989391... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "4a194547-5357-4d8b-8409-4629e9e3e161",
+   "reason": "signal_id 4a194547... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "d75d635f-2b44-44a9-b4cd-1b762042b4c5",
+   "reason": "signal_id d75d635f... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "d0c00a9e-367d-4292-a1a3-a6d3ac9e7727",
+   "reason": "signal_id d0c00a9e... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "697dd75e-62d3-4941-b2fb-3c8076de8208",
+   "reason": "signal_id 697dd75e... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "d43eac2c-7413-410d-a30e-93aa3082c73b",
+   "reason": "signal_id d43eac2c... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "6585bc52-2d97-49b9-843e-4477f2a0bab8",
+   "reason": "signal_id 6585bc52... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "f70dead7-d702-43bc-9e02-b39c8439a97e",
+   "reason": "signal_id f70dead7... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "e09fe015-ed19-4b0b-a44b-339fe6d4f2f0",
+   "reason": "signal_id e09fe015... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "4cf79da6-07f7-485d-8d4f-1377c94bc2a1",
+   "reason": "signal_id 4cf79da6... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "f1269e78-7fb0-4637-9e86-9809bf6b53b0",
+   "reason": "signal_id f1269e78... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "bce405ed-abb1-4142-89e0-a04acea7163b",
+   "reason": "signal_id bce405ed... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "62ff26ba-384c-44b3-a5dd-2da4e5c42880",
+   "reason": "signal_id 62ff26ba... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "adf32e7f-1c33-408d-9cf6-c9a9ab897850",
+   "reason": "signal_id adf32e7f... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "40c7621e-6303-44e3-be55-158275ce9a77",
+   "reason": "signal_id 40c7621e... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "c4202d06-3073-49b3-87da-27f43dcb2ce0",
+   "reason": "signal_id c4202d06... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "62dc40aa-c9ac-4859-b483-e589637f9a73",
+   "reason": "signal_id 62dc40aa... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "03b814ab-087f-4605-b971-e4cf7c12cc7f",
+   "reason": "signal_id 03b814ab... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "a785191a-168a-4df1-8c63-697de4adb403",
+   "reason": "signal_id a785191a... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "82d9e939-8897-48ba-b404-df316b3d27a8",
+   "reason": "signal_id 82d9e939... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "72db4188-ed5a-46d4-8ccf-d86e0ffc008d",
+   "reason": "signal_id 72db4188... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "ba796846-ec7a-4cda-ab44-f3996d810b58",
+   "reason": "signal_id ba796846... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "1903ec5d-0c70-4c17-86e6-333b96c12686",
+   "reason": "signal_id 1903ec5d... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "1c1d239c-dff1-46c8-89c6-fa2fec784fef",
+   "reason": "signal_id 1c1d239c... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "8ef33865-b8d5-49aa-a64f-d343580efe07",
+   "reason": "signal_id 8ef33865... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "23e6bad3-bd99-4542-b21d-647a21f9e37f",
+   "reason": "signal_id 23e6bad3... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "4e7ddf31-c9fb-46ec-9eba-7444990428e2",
+   "reason": "signal_id 4e7ddf31... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "272d9f62-43f7-452a-a878-9230ef5f2ab7",
+   "reason": "signal_id 272d9f62... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "6fe197f3-5a3e-47a2-b902-e4516755a3ac",
+   "reason": "signal_id 6fe197f3... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "f6f09bea-1cdc-41b5-8aef-d6aa9f7a9139",
+   "reason": "signal_id f6f09bea... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "d9ad923f-958f-48fc-b60c-f6b73a923e05",
+   "reason": "signal_id d9ad923f... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "d513661f-23ad-4067-976e-0b52b53b7953",
+   "reason": "signal_id d513661f... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "08975baa-2fd1-4ffe-ac15-551a2c144f36",
+   "reason": "signal_id 08975baa... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "6035404e-5eb7-487b-8728-e6623748f1e9",
+   "reason": "signal_id 6035404e... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "c9d9f177-c009-4b89-a0ca-ea0d8310a19f",
+   "reason": "signal_id c9d9f177... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "c0d2d7c1-5ce2-408e-860d-b801a3c68536",
+   "reason": "signal_id c0d2d7c1... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "11e6c990-e4e9-4883-87a1-a5567c0e1888",
+   "reason": "signal_id 11e6c990... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "aa586789-bad8-4190-8e7b-274974b9f744",
+   "reason": "signal_id aa586789... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "6686f3ae-b63a-4a47-8020-f0ee45c97f12",
+   "reason": "signal_id 6686f3ae... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "db586dc7-8b9a-4ff9-87b7-a87e0698bf00",
+   "reason": "signal_id db586dc7... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "af89be44-42e5-469c-9b15-c0a154566008",
+   "reason": "signal_id af89be44... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "f0efeb27-4fd5-4189-8163-5906aca27d88",
+   "reason": "signal_id f0efeb27... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "f85f751c-4d29-432e-98c8-4a43230877e5",
+   "reason": "signal_id f85f751c... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "1bb5d025-cf54-4bdc-a1a8-5811edcf0551",
+   "reason": "signal_id 1bb5d025... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "7b14fad7-f41d-410f-b67a-25c110a9eb20",
+   "reason": "signal_id 7b14fad7... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "d50b5488-43d5-4c3e-917c-f903bc10af75",
+   "reason": "signal_id d50b5488... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "f3593cd7-2f17-4fd5-b3c9-53722d1034f3",
+   "reason": "signal_id f3593cd7... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "0d29d401-882b-4f2e-9d33-c8161d93d06f",
+   "reason": "signal_id 0d29d401... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "27c1c167-a6be-45e2-ac0d-3cffe2af005e",
+   "reason": "signal_id 27c1c167... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "e572f3f5-07a7-4402-b28b-5b6f903b21c8",
+   "reason": "signal_id e572f3f5... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "9610f662-0ffb-4d01-a496-28b320745733",
+   "reason": "signal_id 9610f662... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "a42deae6-654c-4cf5-aa93-556e092af060",
+   "reason": "signal_id a42deae6... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "02d91bc3-12d2-47b3-8fdb-cd034b8f5320",
+   "reason": "signal_id 02d91bc3... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "42730555-7528-4f14-8cb8-411f5d38ec4b",
+   "reason": "signal_id 42730555... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "3876ff35-d902-4362-b293-24f0a277ae5b",
+   "reason": "signal_id 3876ff35... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "9ed89920-024d-46bb-8937-3ad06249b68d",
+   "reason": "signal_id 9ed89920... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "165dd4d5-e189-437b-b5dd-828d8becd676",
+   "reason": "signal_id 165dd4d5... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "314ab859-c28b-414a-99eb-0edea8931268",
+   "reason": "signal_id 314ab859... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "7836732b-907d-44dd-b0e7-b4358229a949",
+   "reason": "signal_id 7836732b... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "e4270749-e58b-4055-91ab-a0ba246e1a78",
+   "reason": "signal_id e4270749... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "8e518fad-8bd3-422f-a582-35481f44c94c",
+   "reason": "signal_id 8e518fad... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "00da4ead-8a43-47ee-9ed1-43a825db5d04",
+   "reason": "signal_id 00da4ead... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "7c1fe3ed-0a72-491c-914d-5cc22a9da0ad",
+   "reason": "signal_id 7c1fe3ed... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "234f140b-aaf1-4f0e-a609-44c9b1af73e0",
+   "reason": "signal_id 234f140b... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "fb64f15a-7490-457f-88a1-b8dcf365754e",
+   "reason": "signal_id fb64f15a... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "bd164086-5d56-44df-97a9-057059d659e5",
+   "reason": "signal_id bd164086... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "bcef6aeb-f9d4-4a01-bd25-782c614d77e0",
+   "reason": "signal_id bcef6aeb... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "ba576b14-1eb4-47c3-b1f1-ea5f495e02bc",
+   "reason": "signal_id ba576b14... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "39570952-2a05-44bd-a672-b6aab2c3ecfd",
+   "reason": "signal_id 39570952... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "ae00fa68-f143-48a7-8f44-711ed0e6187b",
+   "reason": "signal_id ae00fa68... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "4be36885-6b06-4ac8-b8fd-d9d8957d31d5",
+   "reason": "signal_id 4be36885... does not resolve to trading.signals"
+  },
+  {
+   "signal_id": "5f08e1d2-b8a5-4b50-b57a-738d87855dea",
+   "reason": "signal_id 5f08e1d2... does not resolve to trading.signals"
+  }
+ ]
+}

@@ -1,5 +1,5 @@
 # Outcome Capture Pipeline — Design (Phase 0.5, Candidate B)
-Date: 2026-09-17 · Status: DESIGN — implementation starts after approval per prompt.md
+Date: 2026-09-17 · Status: IMPLEMENTED (Phase 0.5 complete — see PHASE0_5_REPORT.md)
 
 ## 1. Lifecycle (current, verified end-to-end)
 
