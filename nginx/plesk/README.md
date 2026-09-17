@@ -1,4 +1,4 @@
-# Predict-A-Trade — Plesk Edge Proxy Kit
+# Predict-A-Trade — Plesk Edge Proxy (per-domain, zero dependencies)
 
 Plesk (separate server) terminates public TLS for the 6 predictatrade.com
 subdomains and reverse-proxies to the Docker origin. Cloudflare stays
@@ -11,57 +11,57 @@ Browser / EA
 Cloudflare (orange-cloud, TLS)          ← unchanged
    │ HTTPS
    ▼
-PLESK SERVER (nginx vhosts, TLS)        ← THIS KIT (nginx/plesk/vhosts/)
+PLESK SERVER (per-domain nginx directives, TLS)
    │ HTTP  → origin 2.29.23.42:8443
    ▼
-pat-nginx :8443 (nginx/plesk/origin-8443.conf, HTTP only)
-   │ HTTP (docker network)
-   ▼
-containers (control ×2 / realtime / frontend / live-terminal / status / files)
+pat-nginx :8443 (origin side, already active) → containers
 ```
 
-Direct-origin failover kept for EAs:
-`api-ipv4.predictatrade.com` still terminates TLS on the origin :443
-(unchanged site config) — EAs with `PATCloudURLFallback` survive a Plesk
-outage.
+## Install — one file per domain, nothing global
 
-## Files
+For each domain: **Plesk → Domains → <domain> → Apache & nginx Settings
+→ "Additional nginx directives" → paste the whole file → OK → Apply**
 
-| File | Where it goes |
-|------|---------------|
-| `vhosts/api.predictatrade.com.plesk.conf` | Plesk → domain → Apache & nginx Settings → Additional nginx directives |
-| `vhosts/platform.predictatrade.com.plesk.conf` | same |
-| `vhosts/live.predictatrade.com.plesk.conf` | same |
-| `vhosts/status.predictatrade.com.plesk.conf` | same |
-| `vhosts/downloads.predictatrade.com.plesk.conf` | same |
-| `vhosts/docs.predictatrade.com.plesk.conf` | same |
-| `00-global.conf` | Tools & Settings → Nginx Settings (server-wide) OR /etc/nginx/conf.d/zz-pat-proxy.conf |
+| Domain | File to paste |
+|--------|---------------|
+| api.predictatrade.com | `vhosts/api.predictatrade.com.plesk.conf` |
+| platform.predictatrade.com | `vhosts/platform.predictatrade.com.plesk.conf` |
+| live.predictatrade.com | `vhosts/live.predictatrade.com.plesk.conf` |
+| status.predictatrade.com | `vhosts/status.predictatrade.com.plesk.conf` |
+| downloads.predictatrade.com | `vhosts/downloads.predictatrade.com.plesk.conf` |
+| docs.predictatrade.com | `vhosts/docs.predictatrade.com.plesk.conf` |
 
-## Origin-side (this server, committed)
-
-| File | Purpose |
-|------|---------|
-| `../plesk/origin-8443.conf` | :8443 HTTP-only edge — mirrors each site's 443 logic minus TLS |
-| `../snippets/plesk-edge-realip.conf` | trusts the Plesk IP for real-IP restoration |
-| `../snippets/forwarded-proto-https.conf` | X-Forwarded-Proto https on :8443 |
-
-## Deploy order (zero-downtime)
-
-1. Origin: firewall :8443 to PLESK_IP only (Hetzner firewall / ufw).
-2. Origin: fill `__PLESK_SERVER_IP__` in `nginx/snippets/plesk-edge-realip.conf`,
-   include both new snippets + `plesk/origin-8443.conf`, verify, reload.
-3. Plesk: paste `00-global.conf` server-wide; create the 6 vhosts; verify.
-4. DNS: switch the 6 subdomains' A records from origin-IP (CF → origin) to
-   CF → PLESK_IP. Keep `api-ipv4` pointed DIRECTLY at origin IP (grey cloud,
-   DNS-only) — EA failover must bypass both Plesk and CF.
-5. Run `scripts/verify-plesk-proxy.sh` on the origin.
+Each file is fully standalone: no `include`, no `map`, no global directives,
+no extra files on the Plesk server. Plesk keeps `listen`/`ssl_certificate`/
+`server_name`; the directives only add proxy locations. WebSocket upgrade
+uses a literal `Connection "upgrade"` header — no `$connection_upgrade` map
+(whose http-level definition Plesk's per-domain box cannot host).
 
 ## TLS on Plesk
 
-Use the Cloudflare Origin CA cert per domain (or Plesk Let's Encrypt).
-CF SSL mode: Full (Strict).
+Cloudflare Origin CA cert per domain (or Plesk Let's Encrypt).
+Cloudflare SSL mode: **Full (Strict)**.
 
-## SMTP — NOT proxied
+## DNS cutover
 
-pat.predictatrade.com :465/:587 stay DNS-direct to the origin IP. Do not
-proxy mail through Plesk (Plesk runs its own mail stack).
+- The 6 subdomains: A record → PLESK server IP (orange-cloud).
+- `api-ipv4.predictatrade.com`: stays grey-cloud, A → origin `2.29.23.42`
+  (EA direct-origin failover — bypasses Plesk AND Cloudflare).
+- `pat.predictatrade.com` (:465/:587 SMTP): stays DNS-direct to the origin.
+  Never proxy mail through Plesk.
+
+## Origin side (this server — already active, verified)
+
+| File | Purpose |
+|------|---------|
+| `../plesk/origin-8443.conf` | :8443 HTTP-only edge — mirrors each site's 443 logic minus TLS (included from the live nginx.conf; compose publishes 8443:8443) |
+| `../snippets/plesk-edge-realip.conf` | trusts the Plesk IP for real client-IP restore (activate: set `PLESK_SERVER_IP` in `infra/env/.env`, run `scripts/deploy-plesk-proxy.sh`) |
+
+Deploy/verify on the origin: `scripts/deploy-plesk-proxy.sh`,
+`scripts/verify-plesk-proxy.sh`.
+
+## After cutover
+
+Run `scripts/verify-plesk-proxy.sh` from the origin — checks :8443 directly,
+the Plesk edge per domain, the public CF path, api health/ingest, and the
+api-ipv4 failover record.
