@@ -1,3 +1,13 @@
+# STANDBY PROTOCOL — CLOSED 2026-09-17 by operator resume trigger
+
+**STATUS: EXITED.** The operator fired the resume trigger on 2026-09-17
+("resume trigger fired. fix all pending bugs, issue, task and resume trigger
+fired. prepare final production ready to go live"). This protocol is retained
+as a historical record; the daily-heartbeat and no-new-work rules no longer
+apply. The Phase-1 calibration gate (sample_sufficiency_gate.sql, n >= 300
+LINKED exec outcomes per strategy) remains the binding requirement before any
+tuning — that part was NOT waived.
+
 # STANDBY PROTOCOL — Engineering behavior while waiting for the operator
 Frozen 2026-09-17 · Cannot be renegotiated without operator approval.
 
