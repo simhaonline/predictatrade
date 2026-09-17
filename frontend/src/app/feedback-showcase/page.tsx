@@ -31,8 +31,14 @@ const CATEGORY_LABEL: Record<string, string> = {
 
 async function getFeatured(): Promise<FeaturedItem[]> {
   try {
+    // AbortSignal: during `next build` static generation the API may not be
+    // reachable yet (fresh host, stack still starting). Without a timeout the
+    // fetch hangs and Next kills the page after 60s × 3 attempts. Fail fast,
+    // the try/catch below returns [] and the page renders its empty state;
+    // ISR (revalidate 600) fills the data on first request.
     const res = await fetch(`${API_BASE}/feedback/public/featured?limit=12`, {
       next: { revalidate: 600 },
+      signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) return [];
     const data = (await res.json()) as { items: FeaturedItem[] };
