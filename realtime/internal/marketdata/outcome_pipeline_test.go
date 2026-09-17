@@ -179,11 +179,27 @@ func TestSchemaDriftGuardDetectsMissingColumn(t *testing.T) {
 		t.Fatalf("expected schema OK, got drift: %v", err)
 	}
 
-	// Simulate drift: drop a column the writer requires.
-	if _, err := db.ExecContext(ctx, `ALTER TABLE trading.prediction_outcomes DROP COLUMN r_multiple`); err != nil {
+	// Simulate drift NON-DESTRUCTIVELY: create a scratch table missing one column
+	// and point the guard's column list at it via a copy of the expected map.
+	scratch := "trading.prediction_outcomes_drift_probe"
+	_, _ = db.ExecContext(ctx, `DROP TABLE IF EXISTS ` + scratch)
+	defer db.ExecContext(ctx, `DROP TABLE IF EXISTS ` + scratch)
+	if _, err := db.ExecContext(ctx, `
+		CREATE TABLE ` + scratch + ` AS
+		SELECT * FROM trading.prediction_outcomes LIMIT 0`); err != nil {
+		t.Fatalf("scratch table: %v", err)
+	}
+	// remove one column to simulate legacy drift
+	if _, err := db.ExecContext(ctx, `ALTER TABLE ` + scratch + ` DROP COLUMN r_multiple`); err != nil {
 		t.Skipf("cannot drop column (permissions): %v", err)
 	}
-	defer db.ExecContext(ctx, `ALTER TABLE trading.prediction_outcomes ADD COLUMN r_multiple numeric`)
+
+	// Run the guard against the scratch table by temporarily extending the expected map.
+	orig := outcomeSchemaColumns
+	outcomeSchemaColumns = map[string][]string{
+		scratch: orig["trading.prediction_outcomes"],
+	}
+	defer func() { outcomeSchemaColumns = orig }()
 
 	err := p.VerifyOutcomeSchema(ctx)
 	if err == nil {
