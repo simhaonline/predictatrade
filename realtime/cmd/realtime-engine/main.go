@@ -3294,6 +3294,9 @@ func main() {
 		}
 	}
 
+	// P3 (prompt.md): execution-risk parameters from env — MAX_SL_USD (hard
+	// cap, 0=off), BROKER_STOPS_LEVEL + BROKER_POINT_SIZE (SL floor).
+	strategy.SetExecutionRiskConfig(cfg.MaxSlUSD, cfg.BrokerStopsLevel, cfg.BrokerPointSize)
 	httpServer := gateway.NewHTTPServer(wsHub, persister, stateMgr, agentProvider, valkeyCache, xmEngine, newsRiskEngine, engTracker)
 	// Server-authoritative trading halt (v1.15.0): EMERGENCY_STOP / KILL_SWITCH
 	// set this flag; signal generation and delivery consult it every cycle.

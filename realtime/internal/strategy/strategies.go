@@ -12,6 +12,7 @@ import (
 	"math"
 
 	"github.com/predictatrade/realtime/internal/features"
+	"github.com/predictatrade/realtime/internal/risk"
 	"github.com/predictatrade/realtime/internal/types"
 	"github.com/shopspring/decimal"
 )
@@ -119,6 +120,12 @@ type StrategyConfig struct {
 	MinConfluence    float64
 	MinMTFAlignment  float64
 	ATRMultiplierSL  float64
+	// P3 (prompt.md): MaxSlUSD hard cap on the SL distance (0 = disabled —
+	// existing 5%-of-entry cap unchanged). Set from MAX_SL_USD in main.go.
+	MaxSlUSD float64
+	// P3: broker-constraint SL floor inputs (0 = floor disabled).
+	BrokerStopsLevel int
+	BrokerPointSize  float64
 	ATRMultiplierTP1 float64
 	ATRMultiplierTP2 float64
 	ATRMultiplierTP3 float64
@@ -159,6 +166,22 @@ type StrategyConfig struct {
 // its real execution-market volatility.
 var symbolVolatilityScale = map[string]float64{}
 
+// executionRiskConfig (P3): process-wide MaxSlUSD / broker-constraint inputs,
+// set once from main.go via SetExecutionRiskConfig. Zero values = disabled
+// (identical geometry to before this addition).
+var executionRiskConfig struct {
+	MaxSlUSD         float64
+	BrokerStopsLevel int
+	BrokerPointSize  float64
+}
+
+// SetExecutionRiskConfig installs the global execution-risk parameters.
+func SetExecutionRiskConfig(maxSlUSD float64, brokerStopsLevel int, brokerPointSize float64) {
+	executionRiskConfig.MaxSlUSD = maxSlUSD
+	executionRiskConfig.BrokerStopsLevel = brokerStopsLevel
+	executionRiskConfig.BrokerPointSize = brokerPointSize
+}
+
 // SetSymbolVolatilityScale installs the per-symbol volatility-scale map from config.
 func SetSymbolVolatilityScale(m map[string]float64) {
 	if m != nil {
@@ -167,6 +190,26 @@ func SetSymbolVolatilityScale(m map[string]float64) {
 }
 
 // ─── Common helpers ───
+
+// ef converts a decimal to float64 for the risk-package pure helpers.
+func ef(d decimal.Decimal) float64 { f, _ := d.Float64(); return f }
+
+// efDirSL returns the SL distance from entry for the given direction (BUY: SL
+// below entry; SELL: SL above entry).
+func efDirSL(direction types.Direction, entry, sl decimal.Decimal) float64 {
+	if direction == types.DirectionSell {
+		f, _ := sl.Sub(entry).Float64()
+		if f < 0 {
+			f, _ = entry.Sub(sl).Float64()
+		}
+		return f
+	}
+	f, _ := entry.Sub(sl).Float64()
+	if f < 0 {
+		f, _ = sl.Sub(entry).Float64()
+	}
+	return f
+}
 
 func addEvidence(evidence *[]types.EvidenceContribution, pillar, feature string, dir types.Direction,
 	weight, contrib float64, quality types.QualityState, reason string) {
@@ -275,6 +318,33 @@ func computeEntrySLTP(state *features.MarketState, direction types.Direction, cf
 	if exitProfile != nil && exitProfile.CalculationMode == "PERCENTAGE" {
 		pSL, pTP1, pTP2, pTP3 := computePercentageSLTP(entry, direction, atr, exitProfile)
 		if !pSL.IsZero() {
+			// P3 (prompt.md): apply the broker floor + MaxSlUSD cap on the
+			// PERCENTAGE path too (it is the authoritative SL source for most
+			// strategies). Same order as the ATR path: floor first, cap wins.
+			if executionRiskConfig.BrokerStopsLevel > 0 && executionRiskConfig.BrokerPointSize > 0 {
+				floor := risk.SLFloorPoints(ef(entry), ef(state.Spread),
+					executionRiskConfig.BrokerStopsLevel, executionRiskConfig.BrokerPointSize)
+				floorDec := decimal.NewFromFloat(floor)
+				slDist := efDirSL(direction, entry, pSL)
+				if slDist < floor {
+					if direction == types.DirectionBuy {
+						pSL = entry.Sub(floorDec)
+					} else {
+						pSL = entry.Add(floorDec)
+					}
+				}
+			}
+			if executionRiskConfig.MaxSlUSD > 0 {
+				slDist := efDirSL(direction, entry, pSL)
+				if slDist > executionRiskConfig.MaxSlUSD {
+					capDec := decimal.NewFromFloat(executionRiskConfig.MaxSlUSD)
+					if direction == types.DirectionBuy {
+						pSL = entry.Sub(capDec)
+					} else {
+						pSL = entry.Add(capDec)
+					}
+				}
+			}
 			return entry, pSL, pTP1, pTP2, pTP3
 		}
 	}
@@ -298,6 +368,19 @@ func computeEntrySLTP(state *features.MarketState, direction types.Direction, cf
 	}
 	if atrTP3Dist.GreaterThan(maxDist) {
 		atrTP3Dist = maxDist
+	}
+	// P3 (prompt.md): broker-constraint floor + MaxSlUSD cap, in reference
+	// order — floor first (widen), then MaxSlUSD cap (narrow; capital
+	// protection beats broker widening if the two conflict).
+	if executionRiskConfig.BrokerStopsLevel > 0 && executionRiskConfig.BrokerPointSize > 0 {
+		floor := risk.SLFloorPoints(ef(entry), ef(state.Spread), executionRiskConfig.BrokerStopsLevel, executionRiskConfig.BrokerPointSize)
+		floorDec := decimal.NewFromFloat(floor)
+		if atrSLDist.LessThan(floorDec) {
+			atrSLDist = floorDec
+		}
+	}
+	if executionRiskConfig.MaxSlUSD > 0 && atrSLDist.GreaterThan(decimal.NewFromFloat(executionRiskConfig.MaxSlUSD)) {
+		atrSLDist = decimal.NewFromFloat(executionRiskConfig.MaxSlUSD)
 	}
 	if direction == types.DirectionBuy {
 		sl = entry.Sub(atrSLDist)

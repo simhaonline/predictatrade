@@ -22,6 +22,7 @@
 package strategy
 
 import (
+	"github.com/predictatrade/realtime/internal/risk"
 	"github.com/predictatrade/realtime/internal/features"
 	"github.com/predictatrade/realtime/internal/types"
 	"github.com/shopspring/decimal"
@@ -159,6 +160,21 @@ func BuildCandidateTradeGeometry(state *features.MarketState, direction types.Di
 	maxDist := geo.Entry.Mul(decimal.NewFromFloat(0.05))
 	if atrSL.GreaterThan(maxDist) {
 		atrSL = maxDist
+	}
+	// P3 (prompt.md): broker-constraint SL floor + MaxSlUSD hard cap, in
+	// reference order (floor widens first, cap wins on conflict). Applies to
+	// every emitted signal's SL — the candidate path is the authoritative
+	// geometry for delivery.
+	if executionRiskConfig.BrokerStopsLevel > 0 && executionRiskConfig.BrokerPointSize > 0 {
+		floor := risk.SLFloorPoints(ef(state.Spread), 0,
+			executionRiskConfig.BrokerStopsLevel, executionRiskConfig.BrokerPointSize)
+		floorDec := decimal.NewFromFloat(floor)
+		if atrSL.LessThan(floorDec) {
+			atrSL = floorDec
+		}
+	}
+	if executionRiskConfig.MaxSlUSD > 0 && atrSL.GreaterThan(decimal.NewFromFloat(executionRiskConfig.MaxSlUSD)) {
+		atrSL = decimal.NewFromFloat(executionRiskConfig.MaxSlUSD)
 	}
 	if atrTP1.GreaterThan(maxDist) {
 		atrTP1 = maxDist

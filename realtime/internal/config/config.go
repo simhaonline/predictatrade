@@ -101,6 +101,15 @@ type Config struct {
 	// P2 (prompt.md): astro sizing multiplier (0.5–1.5× lot modulation).
 	// Default OFF — operator enables via ASTRO_SIZING=true.
 	AstroSizing bool // ASTRO_SIZING
+	// P3 (prompt.md): MaxSlUSD hard cap on SL distance (reference
+	// InpMaxSlUSD=8). 0 disables (existing 5%-of-entry cap still applies).
+	MaxSlUSD float64 // MAX_SL_USD
+	// P3: broker stops level (points) + point size for the SL floor.
+	// 0 stops level = floor disabled (spread buffer still applies if spread set).
+	BrokerStopsLevel int     // BROKER_STOPS_LEVEL
+	BrokerPointSize  float64 // BROKER_POINT_SIZE
+	// P3: Friday flatten cutoff hour (UTC). 0 = disabled.
+	FridayCloseHourUTC int // FRIDAY_CLOSE_HOUR_UTC
 	// MinATRByTimeframe lets operators set a different minimum ATR per decision
 	// timeframe (e.g. M1 needs a far smaller floor than H4). Loaded as JSON from
 	// MIN_ATR_BY_TIMEFRAME, e.g. {"M1":8,"M5":15,"H1":60,"H4":200}. The gate
@@ -283,6 +292,10 @@ func Default() *Config {
 		// P2 (prompt.md): astro sizing multiplier (0.5–1.5× lot modulation).
 		// Default OFF — operator enables via ASTRO_SIZING=true.
 		AstroSizing:               getEnvBool("ASTRO_SIZING", false),
+		MaxSlUSD:                  getEnvFloat("MAX_SL_USD", 0),
+		BrokerStopsLevel:          getEnvInt("BROKER_STOPS_LEVEL", 0),
+		BrokerPointSize:           getEnvFloat("BROKER_POINT_SIZE", 0),
+		FridayCloseHourUTC:        getEnvInt("FRIDAY_CLOSE_HOUR_UTC", 0),
 		MinATRByTimeframe:         getEnvFloatMapJSON("MIN_ATR_BY_TIMEFRAME"),
 		SymbolVolatilityScale:     getEnvFloatMap("SYMBOL_VOLATILITY_SCALE"),
 		// P0-001: Broker symbol validation — zero means "no constraint" (gate degrades, not vetoes)
