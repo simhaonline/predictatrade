@@ -71,6 +71,9 @@ func (v *ValkeyCache) GetMarketState() (json.RawMessage, error) {
 }
 
 func (v *ValkeyCache) SetSnapshot(data interface{}) error {
+	if v == nil || v.client == nil {
+		return nil // cache unavailable — never crash the ingest hot path
+	}
 	b, err := json.Marshal(data)
 	if err != nil {
 		return err
@@ -220,6 +223,9 @@ func (v *ValkeyCache) GetLatestSignals() (json.RawMessage, error) {
 // This ensures the dashboard can display the last Master Node price even when the
 // market is closed, the agent reconnects, or the engine restarts.
 func (v *ValkeyCache) SetLastSnapshot(data interface{}) error {
+	if v == nil || v.client == nil {
+		return nil // cache unavailable — never crash the ingest hot path
+	}
 	if v.client == nil {
 		return nil
 	}
