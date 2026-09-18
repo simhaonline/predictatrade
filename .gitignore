@@ -119,3 +119,6 @@ realtime/live-terminal
 # windows-agent/deploy/install.ps1.template; build script materializes deploy/install.ps1.
 windows-agent/deploy/install.ps1
 reference.md
+
+# WAL archive: runtime data (archived WAL segments), never commit
+infra/wal_archive/
