@@ -2085,7 +2085,7 @@ void SendTickToAgent()
     msg += ",\"license_key\":\"" + g_licenseKey + "\"";
     // Broker session timezone — collected live so the engine works on Broker TF
     // (not UTC). True broker offset = TimeCurrent() - TimeGMT(). v1.35 FIX:
-    msg += ",\"broker_offset\":" + IntegerToString((int)MathRound((TimeCurrent() - TimeGMT()) / 3600.0));
+    msg += ",\"broker_offset\":" + IntegerToString((int)(((long)TimeCurrent() - (long)TimeGMT()) / 3600));
     msg += "}\n";
 
     PAT_Send(msg);

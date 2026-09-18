@@ -892,8 +892,9 @@ void SendBarClosedEvent(string tfName, ENUM_TIMEFRAMES tf, MqlRates &closedBar, 
     // v1.35.1: use the CACHED fresh offset (refreshed per tick). The old
     // inline TimeGMT()-TimeCurrent() skew bar timestamps on weekends when
     // TimeCurrent() is the stale last-tick time.
-    long utcOffset = g_brokerGmtOffsetKnown ? g_brokerGmtOffsetSec
-                     : (long)TimeGMT() - (long)TimeCurrent();
+    long utcOffset = 0;
+    if(g_brokerGmtOffsetKnown) utcOffset = g_brokerGmtOffsetSec;
+    else utcOffset = (long)TimeGMT() - (long)TimeCurrent();
     datetime barOpenUTC  = (datetime)((long)closedBar.time + utcOffset);
     datetime barCloseUTC = (datetime)((long)barCloseTime + utcOffset);
     datetime detectedUTC = TimeGMT();
@@ -1094,7 +1095,7 @@ void SendTickToAgent()
     msg += ",\"node\":\"MASTER\"";
     // Broker session timezone — collected live so the engine works on Broker TF
     // (not UTC). True broker offset = TimeCurrent() - TimeGMT(). v1.35 FIX:
-    msg += ",\"broker_offset\":" + IntegerToString((int)MathRound((TimeCurrent() - TimeGMT()) / 3600.0));
+    msg += ",\"broker_offset\":" + IntegerToString((int)(((long)TimeCurrent() - (long)TimeGMT()) / 3600));
     msg += "}\n";
 
     MasterAppend(msg);
@@ -1149,7 +1150,7 @@ void SendMarketSnapshot()
     if(marketClosed) msg += ",\"market_closed\":true";
     // Broker session timezone — collected live so the engine works on Broker TF
     // (not UTC). True broker offset = TimeCurrent() - TimeGMT(). v1.35 FIX:
-    msg += ",\"broker_offset\":" + IntegerToString((int)MathRound((TimeCurrent() - TimeGMT()) / 3600.0));
+    msg += ",\"broker_offset\":" + IntegerToString((int)(((long)TimeCurrent() - (long)TimeGMT()) / 3600));
 
     //--- Tick data
     long vol = 0;
@@ -1363,8 +1364,9 @@ string GetBarJSON(ENUM_TIMEFRAMES timeframe)
     // v1.35.1: use the CACHED fresh offset (refreshed per tick). The old
     // inline TimeGMT()-TimeCurrent() skew bar timestamps on weekends when
     // TimeCurrent() is the stale last-tick time.
-    long utcOffset = g_brokerGmtOffsetKnown ? g_brokerGmtOffsetSec
-                     : (long)TimeGMT() - (long)TimeCurrent();
+    long utcOffset = 0;
+    if(g_brokerGmtOffsetKnown) utcOffset = g_brokerGmtOffsetSec;
+    else utcOffset = (long)TimeGMT() - (long)TimeCurrent();
 
     string s = "{";
 

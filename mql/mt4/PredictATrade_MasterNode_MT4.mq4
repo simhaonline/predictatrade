@@ -832,7 +832,7 @@ void SendTickToAgent()
     g_lastKnownBid = bid;
     g_lastKnownAsk = ask;
     // v1.35.1: refresh the cached broker↔GMT offset while ticks are fresh.
-    g_brokerGmtOffsetSec = (int)TimeCurrent() - (int)TimeGMT();
+    g_brokerGmtOffsetSec = (int)((long)TimeCurrent() - (long)TimeGMT());
     g_brokerGmtOffsetKnown = true;
 
     g_tickCount++;
@@ -851,7 +851,7 @@ void SendTickToAgent()
     msg += ",\"node\":\"MASTER\"";
     // Broker session timezone — collected live so the engine works on Broker TF
     // (not UTC). True broker offset = TimeCurrent() - TimeGMT(). v1.35 FIX:
-    msg += ",\"broker_offset\":" + IntegerToString((int)MathRound((TimeCurrent() - TimeGMT()) / 3600.0));
+    msg += ",\"broker_offset\":" + IntegerToString((int)(((long)TimeCurrent() - (long)TimeGMT()) / 3600));
     msg += "}\n";
 
     MasterAppend(msg);
@@ -898,7 +898,7 @@ void SendMarketSnapshot()
     if(marketClosed) msg += ",\"market_closed\":true";
     // Broker session timezone — collected live so the engine works on Broker TF
     // (not UTC). True broker offset = TimeCurrent() - TimeGMT(). v1.35 FIX:
-    msg += ",\"broker_offset\":" + IntegerToString((int)MathRound((TimeCurrent() - TimeGMT()) / 3600.0));
+    msg += ",\"broker_offset\":" + IntegerToString((int)(((long)TimeCurrent() - (long)TimeGMT()) / 3600));
 
     //--- Tick data
     msg += ",\"tick\":{";
@@ -1094,7 +1094,10 @@ string GetBarJSON(int timeframe)
     s += ",\"volume\":" + IntegerToString((long)iVolume(g_symbol, timeframe, 0));
     // Use the actual broker bar open time (iTime) converted to UTC so the
     // engine candle time matches MT5 exactly (not the current wall-clock time).
-    s += ",\"time\":\"" + FormatISO8601UTC((datetime)((long)iTime(g_symbol, timeframe, 0) - (long)(g_brokerGmtOffsetKnown ? g_brokerGmtOffsetSec : ((int)TimeCurrent() - (int)TimeGMT())))) + "\"";
+    long barOffset = 0;
+    if(g_brokerGmtOffsetKnown) barOffset = g_brokerGmtOffsetSec;
+    else barOffset = (long)TimeCurrent() - (long)TimeGMT();
+    s += ",\"time\":\"" + FormatISO8601UTC((datetime)((long)iTime(g_symbol, timeframe, 0) - (long)barOffset)) + "\"";
 
     // Previous closed bar
     s += ",\"prev_open\":" + DoubleToStr(iOpen(g_symbol, timeframe, 1), 5);
