@@ -67,6 +67,7 @@ func TestAcquireTwelveDataCreditDailyGuard(t *testing.T) {
 		twelveDataLimiter = origLimiter
 	}()
 
+	budgetStateFile = t.TempDir() + "/td_budget_state.json" // isolated: no cross-test restore
 	twelveDataDaily = newDailyBudget(2)
 	twelveDataLimiter = newTokenBucket(10, time.Minute) // roomy: never blocks
 

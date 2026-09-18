@@ -27,6 +27,9 @@ package marketdata
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -128,7 +131,47 @@ type dailyBudget struct {
 }
 
 func newDailyBudget(limit int) *dailyBudget {
-	return &dailyBudget{limit: limit, day: time.Now().UTC().Unix() / 86400}
+	d := &dailyBudget{limit: limit, day: time.Now().UTC().Unix() / 86400}
+	d.restorePersisted() // survive engine restarts: budget is API-day-scoped, not process-scoped
+	return d
+}
+
+// persistPath: where the UTC-day credit counter survives restarts. The
+// in-memory counter resets on every engine restart, and restarts mid-API-day
+// (deploys, crash loops) would otherwise grant a fresh 640-credit allowance
+// each time — silently exceeding the provider's real 800/day cap (observed
+// 2026-09-18: 9,443 credits consumed vs 800 limit).
+// overridable for tests
+var budgetStateFile = "/var/lib/pat/td_budget_state"
+
+func (d *dailyBudget) restorePersisted() {
+	data, err := os.ReadFile(budgetStateFile)
+	if err != nil {
+		return
+	}
+	var st struct {
+		Day  int64 `json:"day"`
+		Used int   `json:"used"`
+	}
+	if json.Unmarshal(data, &st) != nil {
+		return
+	}
+	if st.Day == d.day && st.Used > 0 && st.Used < d.limit {
+		d.used = st.Used
+		if d.used >= d.limit {
+			d.exhausted = true
+		}
+	}
+}
+
+func (d *dailyBudget) persist() {
+	_ = os.MkdirAll(filepath.Dir(budgetStateFile), 0o755)
+	st := struct {
+		Day  int64 `json:"day"`
+		Used int   `json:"used"`
+	}{d.day, d.used}
+	b, _ := json.Marshal(st)
+	_ = os.WriteFile(budgetStateFile, b, 0o644)
 }
 
 // roll advances the budget to the current UTC day (resets state on day change).
@@ -138,6 +181,7 @@ func (d *dailyBudget) roll() {
 		d.day = today
 		d.used = 0
 		d.exhausted = false
+		d.persist()
 	}
 }
 
@@ -155,6 +199,7 @@ func (d *dailyBudget) tryConsume() bool {
 	if d.used >= d.limit {
 		d.exhausted = true
 	}
+	d.persist()
 	return true
 }
 
