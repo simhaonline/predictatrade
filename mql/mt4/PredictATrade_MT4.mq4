@@ -34,7 +34,7 @@
 // v1.31.1: single source of truth for the wire-version reported in telemetry
 // and activation (INIT/ACCOUNT_INFO hardcoded strings drifted from the
 // #property value across releases — server could not verify the client build).
-#define PAT_EA_VERSION "1.33"
+#define PAT_EA_VERSION "1.34"
 #property strict
 
 // v1.27 account-type detection (additive; MT4 build of CAccountTypeDetector)
@@ -600,7 +600,9 @@ input bool    ExecuteCandidates  = false;  // Execute BUY_CANDIDATE/SELL_CANDIDA
 #define SwapCutoffBuffer 15
 #define AvoidTripleSwapDay true
 #define TripleSwapDay "Wednesday"
-#define MaxSlippagePoints 3
+#define MaxSlippagePoints 60  // v1.34: gold-appropriate (was 3 — XAUUSD spread
+                              // alone is 20-40 points, so every fill tripped
+                              // the guard and instantly closed at the spread)
 #define RejectOnHighSlippage true
 #define MaxDailyLossPct 6.0
 #define WarningLossPct 3.0
@@ -614,10 +616,10 @@ input bool    ExecuteCandidates  = false;  // Execute BUY_CANDIDATE/SELL_CANDIDA
 #define MinEquityFloorPct 40.0
 #define OnMissingSL "CLOSE"
 #define ReEnableAfterHalt false
-#define UltraScalp_MaxSlippage 5
-#define StdScalp_MaxSlippage 10
-#define StdSwing_MaxSlippage 20
-#define TrendSwing_MaxSlippage 30
+#define UltraScalp_MaxSlippage 60
+#define StdScalp_MaxSlippage 60
+#define StdSwing_MaxSlippage 80
+#define TrendSwing_MaxSlippage 100
 // v1.25: per-strategy entry-drift budgets (points). The EA executes at CURRENT
 // market price with the signal's SL — if price ran from EntryPrice between the
 // engine decision and this EA's poll (spikes move XAUUSD 5-10 pts in seconds),

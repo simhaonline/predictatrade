@@ -41,7 +41,7 @@
 // v1.31.1: single source of truth for the wire-version reported in telemetry
 // and activation (INIT/ACCOUNT_INFO hardcoded strings drifted from the
 // #property value across releases — server could not verify the client build).
-#define PAT_EA_VERSION "1.33"
+#define PAT_EA_VERSION "1.34"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -620,7 +620,14 @@ input int    SwapCutoffHour     = 22;          // Swap cutoff hour (broker serve
 input int    SwapCutoffBuffer   = 15;          // Minutes before cutoff to start avoiding
 input bool   AvoidTripleSwapDay = true;        // NO-TRADE on the triple-swap weekday (operator-toggleable)
 input string TripleSwapDay      = "Wednesday"; // Weekday treated as triple-swap: Monday..Sunday
-#define MaxSlippagePoints 3
+#define MaxSlippagePoints 60   // v1.34: gold-appropriate. XAUUSD spread alone is
+                               // 20-40 points; the old 3-point threshold
+                               // (a tight-FX scalper value) guaranteed an
+                               // instant SLIPPAGE_REJECT close at the spread
+                               // on EVERY fill (verified 2026-09-18: 7/10
+                               // client trades closed in 0-3s, each losing
+                               // exactly the spread). 60 = spread + execution
+                               // tolerance; still rejects true slippage spikes.
 #define RejectOnHighSlippage true
 #define MaxDailyLossPct 6.0
 #define WarningLossPct 3.0
@@ -634,10 +641,10 @@ input string TripleSwapDay      = "Wednesday"; // Weekday treated as triple-swap
 #define MinEquityFloorPct 40.0
 #define OnMissingSL "CLOSE"
 #define ReEnableAfterHalt false
-#define UltraScalp_MaxSlippage 5
-#define StdScalp_MaxSlippage 10
-#define StdSwing_MaxSlippage 20
-#define TrendSwing_MaxSlippage 30
+#define UltraScalp_MaxSlippage 60
+#define StdScalp_MaxSlippage 60
+#define StdSwing_MaxSlippage 80
+#define TrendSwing_MaxSlippage 100
 // v1.24: per-strategy entry-drift budgets (points). The EA executes at CURRENT
 // market price with the signal's SL — if price ran from EntryPrice between the
 // engine decision and this EA's poll (spikes move XAUUSD 5-10 pts in seconds),
