@@ -34,7 +34,7 @@
 // v1.31.1: single source of truth for the wire-version reported in telemetry
 // and activation (INIT/ACCOUNT_INFO hardcoded strings drifted from the
 // #property value across releases — server could not verify the client build).
-#define PAT_EA_VERSION "1.32"
+#define PAT_EA_VERSION "1.33"
 #property strict
 
 // v1.27 account-type detection (additive; MT4 build of CAccountTypeDetector)
@@ -558,7 +558,7 @@ public:
 //+------------------------------------------------------------------+
 
 // ─── Signal/Execution inputs ───
-input bool    AutoExecute    = false;   // SIGNAL_ONLY=true by default (display only). Set true to auto-trade.
+input bool    AutoExecute    = true;    // AUTO-TRADING ON by default (v1.33): signals execute when SignalClass=EXECUTABLE and the license plan allows the strategy. Set false for display-only.
 input bool    BypassDailyLossBlock = false; // Allow new trades even after the soft daily-loss limit is hit. Hard halt (close-all at MaxDailyLossPct) is NEVER bypassed.
 input string  LicenseKey     = "";
 input string  PATCloudURL    = "https://api.predictatrade.com"; // Cloud API base URL (add to WebRequest allowlist)
@@ -1411,6 +1411,12 @@ int OnInit()
     {
         g_connection = "CONNECTED";
         Print("[Predict-A-Trade] Cloud device ready (", g_deviceId, ") — edge mode (v1.19).");
+        // v1.33: AutoExecute defaults ON — if the terminal blocks algo trading,
+        // the subscriber must know at attach time, not on the first missed trade.
+        if(AutoExecute && !IsTradeAllowed())
+            Print("*** AUTO-TRADING IS OFF: enable AutoTrading (toolbar or ",
+                  "Tools→Options→Expert Advisors) to execute signals. ",
+                  "Until then signals are display-only. ***");
         SendInitMessage();
         RequestLicenseValidation();
     }
@@ -2628,6 +2634,11 @@ void HandleSignal(string json)
     if(driftSell && !PAT_EntryDriftOK(g_signalStrategy, false)) { g_signalsFiltered++; return; }
 
     if(!PATUI_ExecAllowed()) { g_signalsFiltered++; return; } // v1.29.4: panel/F-key pause
+
+    // v1.33: terminal-level auto-trading readiness — with AutoExecute=true the
+    // subscriber expects execution; a disabled AutoTrading state must be
+    // surfaced ONCE with the exact fix, never a silent drop.
+    if(!PAT_TerminalTradeReady()) { g_signalsFiltered++; return; }
 
     if(AutoExecute && g_signalDirection == "BUY")
         ExecuteBuy();
@@ -4013,6 +4024,25 @@ string PAT_HmacSha256Hex(string key, string message)
         outp += StringSubstr(hexchars, digest[i] & 0x0F, 1);
     }
     return outp;
+}
+
+//--- PAT_TerminalTradeReady: terminal-level auto-trading readiness (v1.33).
+//    MT4: IsTradeAllowed() covers the AutoTrading-enabled state + EA trade
+//    permission. When blocked, prints ONE clear instruction per minute so a
+//    subscriber can self-serve — never a silent drop.
+bool PAT_TerminalTradeReady()
+{
+    if(IsTradeAllowed()) return true;
+    static uint lastTradeBlockedNote = 0;
+    if(GetTickCount() - lastTradeBlockedNote > 60000)
+    {
+        Print("[Predict-A-Trade] AUTO-TRADING BLOCKED by terminal: 'AutoTrading' is OFF ",
+              "(or this EA is not allowed to trade). Enable AutoTrading (toolbar or ",
+              "Tools→Options→Expert Advisors) to execute signals automatically. ",
+              "Signals are still received and displayed.");
+        lastTradeBlockedNote = GetTickCount();
+    }
+    return false;
 }
 
 //--- PAT_HTTPErrorText: human-readable meaning of a WebRequest failure.

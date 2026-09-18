@@ -66,13 +66,14 @@ three edits manually — every changed block is marked with a `v1.30` comment.)
    | `LicenseKey` | your license key | device activation |
    | `PATCloudURL` | `https://api.predictatrade.com` | server endpoint |
    | `ChartTimeframe` | `M1` (Ultra) or `M5`/`H1` (other strategies) | match your terminal's role |
-   | `AutoExecute` | `true` | trade signals automatically (demo) |
+   | `AutoExecute` | `true` (default since v1.33) | trade signals automatically |
    | `PATPollMs` | 3000 | default |
    Leave everything else default.
-3. **Allow WebRequest**: Tools → Options → Expert Advisors → check "Allow
+3. **AutoTrading button ON**: MT5 toolbar 'Algo Trading' / MT4 'AutoTrading' —
+   the EA prints `*** AUTO-TRADING IS OFF ***` at attach if it's disabled.
+4. **Allow WebRequest**: Tools → Options → Expert Advisors → check "Allow
    WebRequest…" and add `https://api.predictatrade.com` to the list (the EA
    prints this reminder itself if missed).
-4. Enable **AutoTrading** (toolbar button green).
 5. **Running looks like**: EA name + chart shows a normal (no-alert) state;
    Experts tab prints:
    ```
@@ -121,7 +122,7 @@ docker exec -i pat-postgres psql -U pat_admin -d predictatrade < scripts/sample_
 | 3 | EA attaches but device stays OFFLINE | Experts log for license/activation errors | check LicenseKey; confirm device not REVOKED: `SELECT connection_status, revocation_reason FROM licensing.devices ORDER BY last_seen_at DESC;` |
 | 4 | No signals arriving | `SELECT count(*) FROM licensing.edge_signal_queue WHERE created_at > now() - interval '1 hour';` | market closed or all-veto window (triple-swap day, session filter) — normal outside London/NY |
 | 5 | Signals enqueued, no ACK | EA Experts log for poll errors; device ONLINE? | WebRequest allowlist missing (§4 step 5); `PATCloudURL` typo |
-| 6 | ACK but no order | `AutoExecute=false`? Daily-loss block? | set `AutoExecute=true`; check Experts log `CAPITAL PROTECTION` lines |
+| 6 | ACK but no order | AutoTrading OFF (terminal toolbar)? Daily-loss block? Algo button OFF → Experts log prints `AUTO-TRADING BLOCKED` once/min since v1.33 | click 'Algo Trading' ON; `AutoExecute` now defaults true (v1.33); check Experts log `CAPITAL PROTECTION` lines |
 | 7 | Order but no TRADE_RESULT | position still open (wait) or HistoryPoll failing | EA polls history every ~30s; if closed position but no `TRADE_RESULT reported:` line in 5 min → Experts log excerpt to engineering |
 | 8 | TRADE_RESULT but no outcome row | `SELECT count(*) FROM trading.prediction_outcomes WHERE created_at > now() - interval '1 hour';` | outcome writer silent → `curl http://localhost:13081/health` on origin; check `outcome_pipeline` block; if schema_guard≠verified, an unapplied migration — do not self-fix, call engineering |
 | 9 | EA never asks for LicenseKey / "No device credentials and no LicenseKey" never appears | EA loaded a stale compiled `.ex5` (pre-license build) or a saved `.set` profile overrides inputs | delete the old `.ex5`, recompile the patched `.mq5` (F7), re-attach with a FRESH inputs dialog — do not load an old `.set` |

@@ -41,7 +41,7 @@
 // v1.31.1: single source of truth for the wire-version reported in telemetry
 // and activation (INIT/ACCOUNT_INFO hardcoded strings drifted from the
 // #property value across releases — server could not verify the client build).
-#define PAT_EA_VERSION "1.32"
+#define PAT_EA_VERSION "1.33"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -566,7 +566,7 @@ public:
 //+------------------------------------------------------------------+
 
 //=== Input Parameters ===
-input bool    AutoExecute    = false;   // SIGNAL_ONLY=true by default (display only). Set true to auto-trade.
+input bool    AutoExecute    = true;    // AUTO-TRADING ON by default (v1.33): signals execute when SignalClass=EXECUTABLE and the license plan allows the strategy. Set false for display-only.
 input bool    BypassDailyLossBlock = false; // Allow new trades even after the soft daily-loss limit is hit. Hard halt (close-all at MaxDailyLossPct) is NEVER bypassed.
 input string  LicenseKey     = "";      // Your Predict-A-Trade license key
 input string  ChartTimeframe = "M1";    // Chart/timeframe this EA instance trades (M1/M5/H1/...)
@@ -1501,6 +1501,11 @@ int OnInit()
     Print("License Key: ", (g_licenseKey == "" ? "NOT SET — SIGNALS WILL BE IGNORED" : g_licenseKey));
     Print("TRADE-CONFIG: AutoExecute=", AutoExecute, " ExecuteCandidates=", ExecuteCandidates,
           " AlgoTradingAllowed=", MQLInfoInteger(MQL_TRADE_ALLOWED), " Symbol=", g_symbol);
+    // v1.33: AutoExecute defaults ON — if the terminal blocks algo trading,
+    // the subscriber must know at attach time, not on the first missed trade.
+    if(AutoExecute && TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) == 0)
+        Print("*** AUTO-TRADING IS OFF: click the 'Algo Trading' toolbar button ON ",
+              "to execute signals. Until then signals are display-only. ***");
 
     // Restore equity-floor halt latch (persists across reloads)
     if(GlobalVariableCheck("PAT_EQUITY_HALT"))
@@ -2638,6 +2643,11 @@ void HandleSignal(string json)
     if(driftSell && !PAT_EntryDriftOK(g_signalStrategy, false)) { g_signalsFiltered++; return; }
 
     if(!PATUI_ExecAllowed()) { g_signalsFiltered++; return; } // v1.29.4: panel/F-key pause
+
+    // v1.33: terminal-level auto-trading readiness — with AutoExecute=true the
+    // subscriber expects execution; a disabled 'Algo Trading' button must be
+    // surfaced ONCE with the exact fix, never a silent drop.
+    if(!PAT_TerminalTradeReady()) { g_signalsFiltered++; return; }
 
     if(AutoExecute && g_signalDirection == "BUY")
         ExecuteBuy();
@@ -4198,6 +4208,27 @@ int    g_pollOkCount    = 0;
 int    g_pollErrCount   = 0;
 long   g_hmacCounter    = 0;      // monotonic nonce component
 
+//--- PAT_TradeAllowed: terminal-level auto-trading readiness (v1.33).
+//    Returns true when the terminal will actually accept orders. When the
+//    Algo Trading button is OFF (or the EA is not allowed to trade), prints
+//    ONE clear instruction (rate-limited, not a log flood) so a subscriber
+//    can self-serve in seconds. Real-world algo behavior: never silently
+//    drop orders with an opaque OrderSend error.
+bool PAT_TerminalTradeReady()
+{
+    if(TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) != 0)
+        return true;
+    static uint lastTradeBlockedNote = 0;
+    if(GetTickCount() - lastTradeBlockedNote > 60000) // once per minute
+    {
+        Print("[Predict-A-Trade] AUTO-TRADING BLOCKED by terminal: the 'Algo Trading' ",
+              "button in the toolbar is OFF (or this EA is not allowed to trade). ",
+              "Click 'Algo Trading' ON (toolbar) to execute signals automatically. ",
+              "Signals are still received and displayed.");
+        lastTradeBlockedNote = GetTickCount();
+    }
+    return false;
+}
 //--- PAT_HTTPErrorText: human-readable meaning of a WebRequest failure.
 //    WebRequest returns -1 on transport failure; GetLastError() carries the
 //    reason (5200-5206 in MQL5). Positive statuses >= 500 that some terminals
