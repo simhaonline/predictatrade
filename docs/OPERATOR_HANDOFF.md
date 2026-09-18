@@ -1,8 +1,16 @@
 # OPERATOR HANDOFF — Your 3 Actions
-Date: 2026-09-17 · Updated after the resume-trigger session (same day): engineering
-executed a full bug-fix + production-readiness sweep and is live again. Details:
-`docs/operations/RESUME_TRIGGER_SESSION_REPORT_2026-09-17.md`. The three actions
-below are unchanged and remain entirely on your side.
+Date: 2026-09-17 · **Updated 2026-09-18 (day-2 session).** Details:
+`docs/operations/RESUME_TRIGGER_SESSION_REPORT_2026-09-18.md`.
+
+**Immediate action (supersedes everything below until done): recompile both
+EAs at v1.34** — the slippage-guard fix (3→60 pts) is the difference between
+"every trade closes in 3 seconds at the spread" and real strategy execution.
+Pull the repo, F7, confirm `Predict-A-Trade EA v1.34` in the Experts log.
+
+**Daily-loss halt is ACTIVE on the Xelans account** after the −12.7% slippage
+day (hard band −12%, halt fired 12:33 UTC). It resets at 00:00 UTC (daily
+anchor = UTC calendar day) — tomorrow's London session is the clean baseline.
+The three actions below are unchanged and remain entirely on your side.
 
 ## Action 1 — Patch + recompile the EA (fixes MAE/MFE tracking)
 

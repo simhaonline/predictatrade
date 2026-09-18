@@ -28,8 +28,8 @@ docker compose --env-file infra/env/.env up -d nginx
 4. Attach the **Client EA** (`PredictATrade_MT5.mq5` / `.mq4`) to an **XAUUSD**
    chart and set:
    - `LicenseKey` → your license key (Dashboard → MetaTrader Client page)
-   - `AutoExecute` → `false` for the first pass (signal-only), then `true` for the
-     execution test
+   - `AutoExecute` → `true` is the **default since EA v1.34** (auto-trading).
+     For a signal-only first pass set it `false` explicitly, then restore `true`.
    - `Mode` → `SANDBOX` / `PAPER` (hard requirement for this phase)
    - Verify the broker's exact instrument name (e.g. `XAUUSD.e`) matches the
      symbol mapping

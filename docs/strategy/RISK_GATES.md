@@ -28,6 +28,16 @@ Highlights (source: `realtime/internal/gates/`):
 - Per-(strategy, timeframe) state isolation prevents cross-strategy
   contamination; operator edge-arming enables per-strategy broker-position
   authorization for EXECUTABLE delivery.
+- **EdgeValidationGate hardening (2026-09-18, e9089b6)**: a strategy that is
+  **neither armed nor proven now HARD-VETOES** (`edge_unproven`). Previously
+  un-armed strategies got a soft `GateDegraded`, which the candidate
+  promotion path treated as non-blocking — letting ATEN (0/261 shadow wins)
+  promote to EXECUTABLE past `EDGE_ARMED_STRATEGIES`. Also: the
+  proven-negative veto uses `EDGE_NEGATIVE_MIN_SAMPLE_SIZE` (50) per
+  (strategy, timeframe) scope; note the timeframe-scope blind spot — a
+  strategy proven-negative on M1 does not veto its un-proven M5 scope (by
+  design: an M1 edge is not an M5 edge, but it also means each (strategy,
+  timeframe) must build its own evidence).
 
 ### Key Changes (v1.17.x → v1.23 delivery model)
 

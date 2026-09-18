@@ -195,7 +195,7 @@ View the evidence chain by clicking any signal in the dashboard.
 - Compile errors → re-download the latest source; the fleet is single-file (no external `.mqh` needed).
 
 ### EA Features
-- **Auto-trade mode:** when `AutoExecute` is enabled, the EA executes received signals automatically. **Default is `false` (signal-only)** — the EA displays signals and you place trades manually.
+- **Auto-trade mode:** `AutoExecute` **defaults to `true` since EA v1.33** — attach, paste your LicenseKey, enable the terminal's Algo Trading button, and EXECUTABLE signals auto-execute. All safety layers still apply (server risk gates, license-plan strategy filtering, daily-loss halts). Set `AutoExecute=false` only if you want the EA to display signals while you place trades manually.
 - **Manual mode:** with `AutoExecute=false`, the EA shows signals and you place trades manually.
 - **Risk controls:** max lot size, max spread, and an EA-side daily-loss guard.
 - **Capital protection (EA-side daily-loss guard):** a **soft** limit blocks only *new* entries (and recovers intraday if the loss recedes); a **hard** limit closes *all* positions as an emergency backstop. The soft limit can be bypassed by the operator via the `BypassDailyLossBlock` EA input; the hard limit is never bypassable.
@@ -206,7 +206,7 @@ View the evidence chain by clicking any signal in the dashboard.
 ### Execution EA Input Parameters
 | Input | Default | Description |
 |-------|:-------:|-------------|
-| `AutoExecute` | **false** | When `true`, the EA auto-executes received signals. Default `false` = **signal-only** (display signals; you place trades manually). |
+| `AutoExecute` | **true** | When `true` (default since EA v1.33), the EA auto-executes received EXECUTABLE signals. Set `false` = **signal-only** (display signals; you place trades manually). |
 | `ExecuteCandidates` | false | When `true` (and `AutoExecute=true`), candidate signals are also executed as real trades. |
 | `BypassDailyLossBlock` | false | When `true`, the EA keeps trading past the **soft** daily-loss limit (new entries allowed). The **hard** halt at `MaxDailyLossPct` is **never** bypassed. Use with caution. |
 
@@ -225,7 +225,7 @@ The EA writes human-readable, prefixed lines to the terminal **Experts** log and
 | Daily-loss guard (soft) | EA blocks new entries after the soft daily-loss limit; recovers intraday if loss recedes. Bypassable via `BypassDailyLossBlock`. |
 | Daily-loss halt (hard) | At `MaxDailyLossPct` the EA closes **all** positions. Emergency backstop — **never** bypassable. |
 | Max spread gate | Signals blocked if spread exceeds limit |
-| Slippage guard | Post-fill slippage check, reports violations |
+| Slippage guard | Post-fill slippage check, reports violations. **v1.34: threshold 60 pts base (per-strategy 60/60/80/100)** — calibrated for XAUUSD's 20–40 pt spread; the old 3-pt value instantly closed every gold trade at the spread. Also enforced as order deviation (`SetDeviationInPoints`). |
 | Margin check | OrderCalcMargin before every order |
 | Martingale ban | MaxLotRatioVsBase = 1.0 (no doubling) |
 | License enforcement | EA checks license status, fails closed |

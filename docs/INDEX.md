@@ -30,7 +30,9 @@
 ### Deployment & Operations
 - [Docker Deployment](operations/DOCKER_DEPLOYMENT.md) — Step-by-step Docker Compose guide (includes live terminal, broker timezone)
 - [Host Deployment](operations/HOST_DEPLOYMENT.md) — Step-by-step bare-metal/VPS guide (14 steps)
-- [Backup & Restore](operations/BACKUP_RESTORE.md) — 6-hourly pg_dump + continuous WAL archiving, Cloudflare R2 off-host sync (pat-backup-sync), restore & PITR procedures, validation checklist
+- [Backup & Restore](operations/BACKUP_RESTORE.md) — 6-hourly pg_dump + continuous WAL archiving, Cloudflare R2 off-host sync (pat-backup-sync), restore & PITR procedures, validation checklist · **2026-09-18 status: pipeline resurrected after full outage — monthly 3-step verification drill inside**
+- [Resume-Trigger Session Report — Day 1 (2026-09-17)](operations/RESUME_TRIGGER_SESSION_REPORT_2026-09-17.md) — production-readiness sweep: data hygiene, silent-failure fixes, dashboards
+- [Resume-Trigger Session Report — Day 2 (2026-09-18)](operations/RESUME_TRIGGER_SESSION_REPORT_2026-09-18.md) — first live trades, loss-streak forensics (EA slippage root cause), ATEN armed-list bypass fix, backup-pipeline resurrection, EA v1.32–v1.34
 - [Server Migration](operations/SERVER_MIGRATION.md) — Move the platform + Hermes Agent to a new VPS: R2 migration snapshot, secret inventory, restore, DNS cutover, verification checklist
 - [Incident Response Plan](operations/INCIDENT_RESPONSE_PLAN.md) — Classification, response procedures, communication templates
 - [Disaster Recovery Plan](operations/DR_PLAN.md) — RTO/RPO, asset inventory, risk assessment, backup strategy, recovery procedures, testing schedule

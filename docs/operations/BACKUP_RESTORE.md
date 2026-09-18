@@ -1,6 +1,23 @@
 # Backup and Restore Procedure
 
 ## Predict-A-Trade v1.18.0 — 01 September 2026
+### 2026-09-18 STATUS UPDATE — pipeline verified live after a full outage
+The backup pipeline was found **fully broken** on 2026-09-18 (resume-trigger
+session day 2) and is now verified working:
+- `archive_command` target dir was root-owned → every WAL archive failed with
+  Permission denied since 2026-09-16 → 240GB of WAL piled up inside PGDATA
+  → disk 100% full → valkey MISCONF → ingest panics.
+- Fixed: dir chmod 1000:1000, 238GB pre-checkpoint WAL reclaimed, archiving
+  verified (archived_count rising, failed_count stable), fresh physical
+  base backup taken (`/var/backups/predictatrade/base/base_20260918_142252`,
+  2.4GB), 6-hourly `physical_backup.sh` cron installed (was never installed).
+- **Monthly verification** (5-min drill):
+  1. `ls -lh /var/backups/predictatrade/base/` — a tar younger than 6h.
+  2. `docker exec pat-postgres psql -U pat_admin -d predictatrade -c "SELECT
+     archived_count, failed_count FROM pg_stat_archiver;"` — failed_count 0.
+  3. `aws s3 ls s3://predictatrade-backups/predictatrade/wal/ --recursive |
+     tail` — fresh objects (backup-sync logs every minute).
+- See `RESUME_TRIGGER_SESSION_REPORT_2026-09-18.md` for the full incident.
 
 ### 1. Overview
 

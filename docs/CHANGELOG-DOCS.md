@@ -2,6 +2,29 @@
 
 Maintenance record for documentation restructuring. Historical records are retained deliberately; no sensitive values are reproduced here.
 
+## 2026-09-18 — Day-2 session: loss-streak forensics, EA v1.32–v1.34, backup-pipeline resurrection
+
+- `docs/operations/RESUME_TRIGGER_SESSION_REPORT_2026-09-18.md` — new: full
+  day-2 forensics (slippage-guard root cause with hold-time evidence, ATEN
+  armed-list bypass, backup-pipeline cascade, daily-loss halt timeline) and
+  5 binding operational takeaways.
+- **EA v1.34** (`mql/mt4|mt5/PredictATrade_MT{4,5}.mq5`) — slippage guard
+  3→60 pts, per-strategy 5/10/20/30→60/60/80/100 (XAUUSD spread is 20–40 pts;
+  old FX-scale values guaranteed instant spread-loss closes). Plus v1.32
+  transport hardening and v1.33 AutoExecute=true + terminal self-diagnostics.
+- **EdgeValidationGate** — un-armed + un-proven strategies now hard-veto
+  (was soft-degraded → ATEN promoted past the armed list).
+- **Backup pipeline resurrected** — archive dir permissions fixed, 238GB
+  pre-checkpoint WAL reclaimed, fresh physical base backup, 6-hourly cron.
+- **nginx per-IP rate limiting removed** (operator decision) — per-IP zones
+  throttle the single Plesk edge IP, not clients; app-layer auth is the
+  abuse boundary.
+- `docs/OPERATOR_WINDOWS_RUNBOOK.md` — failure modes 9–11 added (stale
+  binaries, DEVICE_LIMIT_EXCEEDED, JWT mismatch storm), AutoTrading step,
+  v1.33/v1.34 behavior notes.
+- `docs/strategy/PHASE1_CALIBRATION_PROTOCOL.md` — §7a subscription/
+  entitlement invariants added.
+
 ## 2026-09-17 — Resume-trigger session: docs + dashboards updated
 
 - `docs/operations/RESUME_TRIGGER_SESSION_REPORT_2026-09-17.md` — new: full

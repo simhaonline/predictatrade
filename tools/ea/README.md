@@ -1,5 +1,15 @@
 # EA Patch 0001 — MAE/MFE excursion tracking (fixes hardcoded 0.0)
 
+> **EA v1.34 note (2026-09-18):** the patch hunks still apply cleanly, but the
+> repo source now also carries v1.32 (HTTP transport hardening + retries),
+> v1.33 (`AutoExecute=true` default, terminal AutoTrading self-diagnostics),
+> and v1.34 (XAUUSD slippage thresholds 3→60 pts, per-strategy 60/60/80/100 —
+> the old 3-pt guard instantly closed every gold trade at the spread).
+> If your terminal binary is older than v1.34, a fresh recompile of the repo
+> source is preferable to patching an old copy — the MAE/MFE fix and the
+> transport/slippage fixes then arrive in one compile.
+> See `README_v1_32_TRANSPORT_HARDENING.md` for the failure-mode text mapping.
+
 Fixes `PredictATrade_MT5.mq5` TRADE_RESULT reporting: `mae`/`mfe` were hardcoded
 `0.0` (server-side confirmed — every outcome row had mae/mfe NULL/0), making
 excursion-based calibration impossible. This patch makes the EA track and emit
