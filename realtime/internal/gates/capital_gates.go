@@ -621,6 +621,20 @@ func (g *EdgeValidationGate) Evaluate(input GateInput, state GateState) GateEval
 	}
 	stats, ok := statsByStrategy[input.StrategyID]
 	if !ok || !stats.IsProven(g.MinProfitFactor, g.MinExpectancyR, g.MinSampleSize) {
+		// v1.25 HARDENING (2026-09-18, live-trade bleed): un-armed strategies
+		// must NEVER promote to EXECUTABLE. Previously an un-armed,
+		// un-proven strategy (e.g. ATEN — 0/261 shadow wins) got GateDegraded
+		// "edge_unproven", and the candidate path treats soft-degraded as
+		// non-blocking for high-conviction reads — so it promoted to
+		// EXECUTABLE anyway, bypassing the operator's armed list entirely.
+		// Fail closed: not armed + not proven = veto. Arming stays the only
+		// bootstrap path, and the proven-negative veto above still overrides
+		// arming itself.
+		if !g.IsArmed(input.StrategyID) {
+			eval.Result = types.GateVeto
+			eval.ReasonCodes = []string{ReasonEdgeUnproven}
+			return eval
+		}
 		eval.Result = types.GateDegraded
 		eval.ReasonCodes = []string{ReasonEdgeUnproven}
 		return eval

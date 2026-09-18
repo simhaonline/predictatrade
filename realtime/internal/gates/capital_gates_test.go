@@ -278,14 +278,16 @@ func TestEdgeValidationGate(t *testing.T) {
 			"STANDARD_SCALPING", types.GatePass,
 		},
 		{
-			"unproven edge forces advisory",
+			// v1.25 HARDENING: un-armed + un-proven = VETO (was Degraded —
+			// soft-degrade let ATEN promote to EXECUTABLE past the armed list).
+			"unproven edge vetoes un-armed strategy",
 			GateState{Value: map[types.StrategyID]risk.EdgeStats{"STANDARD_SCALPING": unprovenStats}},
-			"STANDARD_SCALPING", types.GateDegraded,
+			"STANDARD_SCALPING", types.GateVeto,
 		},
 		{
-			"empty history forces advisory",
+			"empty history vetoes un-armed strategy",
 			GateState{Value: map[types.StrategyID]risk.EdgeStats{}},
-			"TREND_SWING", types.GateDegraded,
+			"TREND_SWING", types.GateVeto,
 		},
 		{
 			"no hydrated stats (nil value) forces advisory",
