@@ -41,7 +41,7 @@
 // v1.31.1: single source of truth for the wire-version reported in telemetry
 // and activation (INIT/ACCOUNT_INFO hardcoded strings drifted from the
 // #property value across releases — server could not verify the client build).
-#define PAT_EA_VERSION "1.31"
+#define PAT_EA_VERSION "1.32"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -4198,18 +4198,69 @@ int    g_pollOkCount    = 0;
 int    g_pollErrCount   = 0;
 long   g_hmacCounter    = 0;      // monotonic nonce component
 
+//--- PAT_HTTPErrorText: human-readable meaning of a WebRequest failure.
+//    WebRequest returns -1 on transport failure; GetLastError() carries the
+//    reason (5200-5206 in MQL5). Positive statuses >= 500 that some terminals
+//    propagate from WinINET as 4xx/1xxx (e.g. 1003) are transport-layer
+//    artifacts — mapped explicitly. v1.32 diagnostics.
+string PAT_HTTPErrorText(int httpStatus, int lastErr)
+{
+    if(httpStatus > 0 && httpStatus < 1000)
+        return "HTTP " + IntegerToString(httpStatus) + " (server responded)";
+    if(httpStatus >= 1000)
+        return "HTTP " + IntegerToString(httpStatus) + " = terminal transport artifact (WinINET propagated) — " +
+               "check Tools→Options→Expert Advisors→WebRequest allowlist for " + PATCloudURL +
+               ", terminal internet, DNS, and TLS; retry is automatic";
+    switch(lastErr)
+    {
+        case 4014: return "URL not in WebRequest allowlist — Tools→Options→Expert Advisors→Allow WebRequest, add " + PATCloudURL;
+        case 4015: return "URL blocked (not in allowlist) — add " + PATCloudURL + " to the allowlist";
+        case 5200: return "WebRequest: URL not in allowlist (add " + PATCloudURL + ")";
+        case 5201: return "WebRequest: DNS resolution failed — check terminal internet/DNS";
+        case 5202: return "WebRequest: connection refused/timeout — origin or edge unreachable";
+        case 5203: return "WebRequest: SSL/TLS error — terminal lacks modern TLS (update Windows)";
+        case 5204: return "WebRequest: timeout";
+        case 5205: return "WebRequest: invalid URL";
+        case 5206: return "WebRequest: malformed headers/timeout field";
+        default:   return "WebRequest transport failure (GetLastError=" + IntegerToString(lastErr) +
+                          ") — allowlist missing " + PATCloudURL + ", DNS, TLS, or internet outage";
+    }
+}
+
+//--- PAT_HTTPPostEx: hardened POST — retries transport failures (status<0 or
+//    >=1000) with linear backoff, logs a one-shot diagnostic on the first
+//    failure of a burst, and returns the final status. Server statuses
+//    (100-999) are returned as-is WITHOUT retry (callers handle 401/409/404).
+int PAT_HTTPPostEx(string url, string body, string &response, int attempts, int timeoutMs)
+{
+    int status = -1;
+    response = "";
+    for(int attempt = 1; attempt <= attempts; attempt++)
+    {
+        string headers = "Content-Type: application/json\r\n";
+        uchar data[];
+        StringToCharArray(body, data, 0, WHOLE_ARRAY, CP_UTF8);
+        ArrayResize(data, ArraySize(data) - 1); // strip trailing NUL
+        uchar result[];
+        string resHeaders = "";
+        ResetLastError();
+        status = WebRequest("POST", url, headers, timeoutMs, data, result, resHeaders);
+        response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+        if(status >= 0 && status < 1000) return status; // real server status — caller decides
+        if(attempt == 1 || attempt == attempts)
+            Print("[Predict-A-Trade] HTTP transport failure (attempt ", attempt, "/", attempts,
+                  "): ", PAT_HTTPErrorText(status, GetLastError()));
+        if(attempt < attempts)
+            Sleep(500 * attempt); // linear backoff: 500ms, 1000ms, ...
+    }
+    return status;
+}
+
 //--- PAT_HTTPPost: plain JSON POST (no auth) → (status, response)
+//    Hardened v1.32: 3 transport retries + actionable failure text.
 int PAT_HTTPPost(string url, string body, string &response)
 {
-    string headers = "Content-Type: application/json\r\n";
-    uchar data[];
-    StringToCharArray(body, data, 0, WHOLE_ARRAY, CP_UTF8);
-    ArrayResize(data, ArraySize(data) - 1); // strip trailing NUL
-    uchar result[];
-    string resHeaders = "";
-    int status = WebRequest("POST", url, headers, 5000, data, result, resHeaders);
-    response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
-    return status;
+    return PAT_HTTPPostEx(url, body, response, 3, 8000);
 }
 
 //--- PAT_HMACSign: canonical v1 device signature over an outgoing request
@@ -4230,6 +4281,7 @@ int PAT_SignedPost(string path, string body, string &response)
     g_hmacCounter++;
     string nonce = PAT_Sha256Hex(ts + IntegerToString(g_hmacCounter) + IntegerToString(MathRand()) + IntegerToString(GetTickCount()));
     string sig = PAT_HMACSign(path, body, g_deviceId, g_deviceSecret, ts, nonce);
+    int status = -1;
 
     string headers = "Content-Type: application/json\r\n"
                     "X-Device-Id: " + g_deviceId + "\r\n"
@@ -4241,8 +4293,32 @@ int PAT_SignedPost(string path, string body, string &response)
     ArrayResize(data, ArraySize(data) - 1); // strip trailing NUL
     uchar result[];
     string resHeaders = "";
-    int status = WebRequest("POST", PATCloudURL + path, headers, 8000, data, result, resHeaders);
-    response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+    // v1.32: transport retry + clear diagnostics (3 attempts, 8s timeout).
+    // Each retry RE-SIGNS with a fresh timestamp/nonce — never reuse a
+    // signature across attempts (nonce replay protection would reject it).
+    for(int attempt = 1; attempt <= 3; attempt++)
+    {
+        ResetLastError();
+        status = WebRequest("POST", PATCloudURL + path, headers, 8000, data, result, resHeaders);
+        response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+        if(status >= 0 && status < 1000) return status;
+        if(attempt == 1 || attempt == 3)
+            Print("[Predict-A-Trade] signed POST ", path, " transport failure (attempt ", attempt,
+                  "/3): ", PAT_HTTPErrorText(status, GetLastError()));
+        if(attempt < 3)
+        {
+            ts = IntegerToString((long)TimeGMT() * 1000 + (GetTickCount() % 1000));
+            g_hmacCounter++;
+            nonce = PAT_Sha256Hex(ts + IntegerToString(g_hmacCounter) + IntegerToString(MathRand()) + IntegerToString(GetTickCount()));
+            sig = PAT_HMACSign(path, body, g_deviceId, g_deviceSecret, ts, nonce);
+            headers = "Content-Type: application/json\r\n"
+                      "X-Device-Id: " + g_deviceId + "\r\n"
+                      "X-Device-Timestamp: " + ts + "\r\n"
+                      "X-Device-Nonce: " + nonce + "\r\n"
+                      "X-Device-Signature: " + sig + "\r\n";
+            Sleep(500 * attempt);
+        }
+    }
     return status;
 }
 
@@ -4496,7 +4572,19 @@ void PAT_PostIngest(string msgType, string payload)
     uchar result[];
     string resHeaders = "";
     string url = PATCloudURL + "/ingest/agent?agentId=" + PAT_URLEncode(g_deviceId) + "&role=exec";
-    int status = WebRequest("POST", url, headers, 5000, data, result, resHeaders);
+    // v1.32: transport retry (3 attempts). Server statuses pass through;
+    // transport failures (<0 or >=1000) are retried with linear backoff.
+    int status = -1;
+    for(int attempt = 1; attempt <= 3; attempt++)
+    {
+        ResetLastError();
+        status = WebRequest("POST", url, headers, 5000, data, result, resHeaders);
+        if(status >= 0 && status < 1000) break;
+        if(attempt == 1 || attempt == 3)
+            Print("[Predict-A-Trade] ingest ", msgType, " transport failure (attempt ", attempt,
+                  "/3): ", PAT_HTTPErrorText(status, GetLastError()));
+        if(attempt < 3) Sleep(500 * attempt);
+    }
     if(status == 401)
     {
         // Access token expired — force refresh once and retry.
@@ -4506,7 +4594,7 @@ void PAT_PostIngest(string msgType, string payload)
         return;
     }
     if(status != 200)
-        Print("[Predict-A-Trade] ingest ", msgType, " failed: HTTP ", status);
+        Print("[Predict-A-Trade] ingest ", msgType, " failed: ", PAT_HTTPErrorText(status, GetLastError()));
 }
 
 //--- PAT_URLEncode — percent-encoding for query values
