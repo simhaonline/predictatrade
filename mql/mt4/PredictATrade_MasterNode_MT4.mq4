@@ -18,7 +18,7 @@
 //|   - Perform any financial operation                              |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.35"
+#property version   "1.35.1"
 #property strict
 
 // v1.27 account-type detection (additive; data-only node — tags snapshots)
@@ -580,6 +580,12 @@ string g_tfNames[TF_COUNT] = {"M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1", 
 string  g_symbol;
 string  g_connection   = "OFFLINE";
 double  g_lastKnownBid = 0;   // last valid price — weekend market_closed snapshots
+// v1.35.1: cached broker-server↔GMT offset, refreshed on EVERY tick while
+// TimeCurrent() is fresh. Bar-timestamp conversions must use this cache —
+// TimeCurrent() goes stale on weekends/tick-stalls and would skew bar UTC
+// timestamps by hours.
+int     g_brokerGmtOffsetSec = 0;   // TimeCurrent() - TimeGMT(), cached
+bool    g_brokerGmtOffsetKnown = false;
 double  g_lastKnownAsk = 0;
 string  g_accountID     = "—";
 string  g_broker        = "";
@@ -825,6 +831,9 @@ void SendTickToAgent()
 
     g_lastKnownBid = bid;
     g_lastKnownAsk = ask;
+    // v1.35.1: refresh the cached broker↔GMT offset while ticks are fresh.
+    g_brokerGmtOffsetSec = (int)TimeCurrent() - (int)TimeGMT();
+    g_brokerGmtOffsetKnown = true;
 
     g_tickCount++;
 
@@ -1085,7 +1094,7 @@ string GetBarJSON(int timeframe)
     s += ",\"volume\":" + IntegerToString((long)iVolume(g_symbol, timeframe, 0));
     // Use the actual broker bar open time (iTime) converted to UTC so the
     // engine candle time matches MT5 exactly (not the current wall-clock time).
-    s += ",\"time\":\"" + FormatISO8601UTC((datetime)((long)iTime(g_symbol, timeframe, 0) - (long)TimeCurrent() + (long)TimeGMT())) + "\"";
+    s += ",\"time\":\"" + FormatISO8601UTC((datetime)((long)iTime(g_symbol, timeframe, 0) - (long)(g_brokerGmtOffsetKnown ? g_brokerGmtOffsetSec : ((int)TimeCurrent() - (int)TimeGMT())))) + "\"";
 
     // Previous closed bar
     s += ",\"prev_open\":" + DoubleToStr(iOpen(g_symbol, timeframe, 1), 5);
@@ -1258,7 +1267,7 @@ void SendMasterInit()
 {
     string msg = "MASTER_INIT|{";
     msg += "\"type\":\"MASTER_INIT\"";
-    msg += ",\"ea_version\":\"1.35\"";
+    msg += ",\"ea_version\":\"1.35.1\"";
     msg += ",\"node\":\"MASTER\"";
     msg += ",\"platform\":\"MT4\"";
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";

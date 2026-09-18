@@ -18,7 +18,7 @@
 //|   - Perform any financial operation                              |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.35"
+#property version   "1.35.1"
 #property strict
 
 // v1.27 account-type detection (additive; data-only node — tags snapshots)
@@ -608,6 +608,13 @@ ulong   g_barEventSequence = 0;     // monotonic sequence for bar_closed events
 string  g_symbol;
 string  g_connection   = "OFFLINE";
 double  g_lastKnownBid = 0;   // last valid price — used for weekend market_closed snapshots
+// v1.35.1: cached broker-server↔GMT offset, refreshed on EVERY tick while
+// TimeCurrent() is fresh. Bar-timestamp conversions must use this cache —
+// TimeCurrent() goes stale on weekends/tick-stalls and would skew bar UTC
+// timestamps by hours (broker_offset reporting uses TimeCurrent only at tick
+// time, which is always fresh — different call site, already correct).
+long    g_brokerGmtOffsetSec = 0;   // TimeCurrent() - TimeGMT(), cached
+bool    g_brokerGmtOffsetKnown = false;
 double  g_lastKnownAsk = 0;
 string  g_accountID     = "—";
 string  g_broker        = "";
@@ -882,7 +889,11 @@ void SendBarClosedEvent(string tfName, ENUM_TIMEFRAMES tf, MqlRates &closedBar, 
     g_barEventSequence++;
 
     // Convert broker time to UTC: offset = GMT - server time
-    long utcOffset = (long)TimeGMT() - (long)TimeCurrent();
+    // v1.35.1: use the CACHED fresh offset (refreshed per tick). The old
+    // inline TimeGMT()-TimeCurrent() skew bar timestamps on weekends when
+    // TimeCurrent() is the stale last-tick time.
+    long utcOffset = g_brokerGmtOffsetKnown ? g_brokerGmtOffsetSec
+                     : (long)TimeGMT() - (long)TimeCurrent();
     datetime barOpenUTC  = (datetime)((long)closedBar.time + utcOffset);
     datetime barCloseUTC = (datetime)((long)barCloseTime + utcOffset);
     datetime detectedUTC = TimeGMT();
@@ -1061,6 +1072,9 @@ void SendTickToAgent()
     g_lastKnownBid = bid;
     g_lastKnownAsk = ask;
     g_tickCount++;
+    // v1.35.1: refresh the cached broker↔GMT offset while ticks are fresh.
+    g_brokerGmtOffsetSec = (long)TimeCurrent() - (long)TimeGMT();
+    g_brokerGmtOffsetKnown = true;
 
     long vol = 0;
     long volArr[1];
@@ -1346,7 +1360,11 @@ string GetBarJSON(ENUM_TIMEFRAMES timeframe)
     if(copied < 1)
         return "{}";
 
-    long utcOffset = (long)TimeGMT() - (long)TimeCurrent();
+    // v1.35.1: use the CACHED fresh offset (refreshed per tick). The old
+    // inline TimeGMT()-TimeCurrent() skew bar timestamps on weekends when
+    // TimeCurrent() is the stale last-tick time.
+    long utcOffset = g_brokerGmtOffsetKnown ? g_brokerGmtOffsetSec
+                     : (long)TimeGMT() - (long)TimeCurrent();
 
     string s = "{";
 
@@ -1544,7 +1562,7 @@ void SendMasterInit()
 {
     string msg = "MASTER_INIT|{";
     msg += "\"type\":\"MASTER_INIT\"";
-    msg += ",\"ea_version\":\"1.35\"";
+    msg += ",\"ea_version\":\"1.35.1\"";
     msg += ",\"node\":\"MASTER\"";
     msg += ",\"platform\":\"MT5\"";
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
