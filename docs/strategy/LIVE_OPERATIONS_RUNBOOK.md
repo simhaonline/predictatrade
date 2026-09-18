@@ -128,3 +128,26 @@ Equiti; any value matching the broker server time is correct).
 
 **Known-good baseline (2026-09-18)**: Equiti = UTC+3 (matches trade_results
 opened_at skew +2.9h vs UTC before the fix).
+
+## 10. TwelveData credit management (updated 2026-09-18)
+
+The free tier is **800 credits/day**. Engine-side budget: 640/day, **persisted
+across restarts** (`/var/lib/pat/td_budget_state`, v1.35 — restart-replay
+hole closed; verified 9,443 credits were consumed on 2026-09-18 vs the 800
+cap — an **external consumer of the same key** (not this engine) is draining
+the remainder).
+
+**Operator actions:**
+1. Register a second free TwelveData key and use it for any personal/
+   external tooling — never share the production key.
+2. Or upgrade to the paid tier (removes the 800/day cap; DXY + macro pillars
+   then never NO-TRADE on credits).
+3. Until then: DXY/macro pillars recover at 00:00 UTC daily; between the
+   external drain and midnight the engine fails closed to NO-TRADE on
+   DXY-dependent strategies (by design).
+
+**Consumers of the production key (keep under 640/day combined):**
+- DXY provider: 1 credit / 5 min (batched 6-symbol call) ≈ 288/day
+- Macro-asset provider (VIX/BTC/Oil/EURUSD/USDCHF): 1 credit / 5 min ≈ 288/day
+- ETF provider (IGS, optional): off by default
+- Any external/personal tooling: keep ≤ 60/day or use a separate key
