@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                          PredictATrade_MT5.mq5   |
-//|                              Predict-A-Trade v1.19.0 (Option B)  |
+//|                              Predict-A-Trade v1.34 (Option B)    |
 //+------------------------------------------------------------------+
 //| ARCHITECTURE: THIN EXECUTOR — EA-DIRECT HTTPS (v1.19.0, Option B)|
 //|                                                                  |

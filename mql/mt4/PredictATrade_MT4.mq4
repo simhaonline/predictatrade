@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                          PredictATrade_MT4.mq4   |
-//|                              Predict-A-Trade v1.19 (Option B)    |
+//|                              Predict-A-Trade v1.34 (Option B)    |
 //+------------------------------------------------------------------+
 //| ARCHITECTURE: THIN EXECUTOR (FINAL - NO RECOMPILE NEEDED)        |
 //|                                                                  |
