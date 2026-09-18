@@ -2630,10 +2630,10 @@ void HandleSignal(string json)
     // EntryPrice before any order is considered.
     bool driftBuy = (g_signalDirection == "BUY" || g_signalDirection == "BUY_CANDIDATE");
     bool driftSell = (g_signalDirection == "SELL" || g_signalDirection == "SELL_CANDIDATE");
-    if(driftBuy && !PAT_EntryDriftOK(g_signalStrategy, true))  { g_signalsFiltered++; return; }
-    if(driftSell && !PAT_EntryDriftOK(g_signalStrategy, false)) { g_signalsFiltered++; return; }
+    if(driftBuy && !PAT_EntryDriftOK(g_signalStrategy, true))  { Print("FILTER: entry drift exceeded (BUY) — price moved past MaxEntryDrift before execution"); g_signalsFiltered++; return; }
+    if(driftSell && !PAT_EntryDriftOK(g_signalStrategy, false)) { Print("FILTER: entry drift exceeded (SELL) — price moved past MaxEntryDrift before execution"); g_signalsFiltered++; return; }
 
-    if(!PATUI_ExecAllowed()) { g_signalsFiltered++; return; } // v1.29.4: panel/F-key pause
+    if(!PATUI_ExecAllowed()) { Print("FILTER: execution paused via on-chart panel"); g_signalsFiltered++; return; } // v1.29.4: panel/F-key pause
 
     // v1.33: terminal-level auto-trading readiness — with AutoExecute=true the
     // subscriber expects execution; a disabled AutoTrading state must be
