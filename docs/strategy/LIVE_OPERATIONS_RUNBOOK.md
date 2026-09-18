@@ -1,5 +1,25 @@
 # LIVE_OPERATIONS_RUNBOOK.md — Predict-A-Trade live operations
-Phase 0.9 Task B.8 · Owner: SRE/operator · Updated: 2026-09-17
+Phase 0.9 Task B.8 · Owner: SRE/operator · Updated: 2026-09-18
+
+## 0. Engine posture — ALL features LIVE (operator directive 2026-09-18)
+
+No shadow/non-live feature modes remain. Current flag posture
+(`infra/env/realtime.env`, gitignored):
+
+| Engine | Flag | State |
+|---|---|---|
+| Cross-Market Confluence | `CROSS_MARKET_MODE=active` | **LIVE** — bounded ±10/−15 score adjustment applies to strategy raw scores |
+| Institutional Gold Signal | `IGS_ENABLED=true` + `IGS_MODE=active` | **LIVE** — COT/USD-regime/real-yield composite feeds scoring |
+| News / calendar | `NEWS_MODE=PROTECT_ONLY` | LIVE protection posture (not a shadow feature) |
+| Devil Liquidity | confluence mode, store enabled | LIVE |
+| ML / Ollama | `ML_ENABLED=false`, `OLLAMA_ENABLED=false` | Off — optional engines requiring model artifacts; NOT shadow paths |
+
+Graceful degradation: missing drivers (e.g. DXY during a TwelveData
+rate-limit day) lower engine confidence — never fabricated, never blocking.
+
+The word "shadow" elsewhere in this repo refers ONLY to the shadow
+outcome-snapshot **data tables** (`cross_market_shadow_snapshots`) — a
+research dataset that keeps flowing; it is not a feature mode.
 
 ## 1. Deploy (engine)
 ```
