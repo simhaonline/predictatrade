@@ -101,3 +101,30 @@ Phase 1 tuning may begin ONLY when every target strategy shows gate=PASS
 ## 12. One-command operator status
 `bash scripts/operator_status.sh` (engine health, EA presence, enqueue/ack,
 TRADE_RESULT rate, outcomes 24h, per-strategy gate N, UNLINKED ratio, writer silence).
+
+## 9. Timezone chain (v1.35, 2026-09-18) — authoritative reference
+
+Every clock in the pipeline and its owner:
+
+| Clock | Owner | Used for |
+|---|---|---|
+| `TimeGMT()` | True UTC anchor (EA-side) | broker-offset calculation, token expiry |
+| `TimeCurrent()` | **Broker server clock** | candle bucketing, session gate, swap windows, hold time, daily-loss anchor |
+| `TimeLocal()` / `TimeGMTOffset()` | Operator PC clock | **NEVER for trading logic** (v1.35 bug fix: `TimeGMTOffset()` was the PC timezone) |
+| Server `now()` | UTC truth (Hetzner) | DB timestamps, dashboards, archives |
+
+**broker_offset reporting (all 4 EAs, v1.35)**:
+`broker_offset = round((TimeCurrent() - TimeGMT()) / 3600)`
+— the difference between the broker server clock and true GMT. `TimeGMTOffset()`
+was the operator PC's timezone (reported −4 instead of the broker's +3 →
+candles/sessions misaligned 7h).
+
+Propagation: EA → AgentProvider.ObserveMasterOffset → BrokerNow/BrokerOffsetHours
+→ `features.SetLiveBrokerOffset` → SessionGate (London/NY windows) + candle
+alignment + swap/hold windows. The corrected value propagates automatically on
+the next tick after recompile — verify with
+`curl -s http://localhost:13081/health | grep broker_offset` (expect +3 for
+Equiti; any value matching the broker server time is correct).
+
+**Known-good baseline (2026-09-18)**: Equiti = UTC+3 (matches trade_results
+opened_at skew +2.9h vs UTC before the fix).
