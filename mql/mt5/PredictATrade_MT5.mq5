@@ -4208,15 +4208,17 @@ int    g_pollOkCount    = 0;
 int    g_pollErrCount   = 0;
 long   g_hmacCounter    = 0;      // monotonic nonce component
 
-//--- PAT_TradeAllowed: terminal-level auto-trading readiness (v1.33).
-//    Returns true when the terminal will actually accept orders. When the
-//    Algo Trading button is OFF (or the EA is not allowed to trade), prints
+//--- PAT_TerminalTradeReady: terminal-level auto-trading readiness (v1.33).
+//    Returns true when the terminal will actually accept orders. Checks BOTH
+//    the terminal's Algo Trading button (TERMINAL_TRADE_ALLOWED) and this
+//    EA's own trade permission (MQL_TRADE_ALLOWED). When blocked, prints
 //    ONE clear instruction (rate-limited, not a log flood) so a subscriber
 //    can self-serve in seconds. Real-world algo behavior: never silently
 //    drop orders with an opaque OrderSend error.
 bool PAT_TerminalTradeReady()
 {
-    if(TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) != 0)
+    if(TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) != 0 &&
+       MQLInfoInteger(MQL_TRADE_ALLOWED) != 0)
         return true;
     static uint lastTradeBlockedNote = 0;
     if(GetTickCount() - lastTradeBlockedNote > 60000) // once per minute
