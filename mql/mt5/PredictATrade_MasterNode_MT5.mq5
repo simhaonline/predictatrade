@@ -608,7 +608,7 @@ ulong   g_barEventSequence = 0;     // monotonic sequence for bar_closed events
 string  g_symbol;
 string  g_connection   = "OFFLINE";
 double  g_lastKnownBid = 0;   // last valid price — used for weekend market_closed snapshots
-// v1.35.1: cached broker-server↔GMT offset, refreshed on EVERY tick while
+// v1.35.1: cached broker-server <-> GMT offset, refreshed on EVERY tick while
 // TimeCurrent() is fresh. Bar-timestamp conversions must use this cache —
 // TimeCurrent() goes stale on weekends/tick-stalls and would skew bar UTC
 // timestamps by hours (broker_offset reporting uses TimeCurrent only at tick
@@ -1073,7 +1073,7 @@ void SendTickToAgent()
     g_lastKnownBid = bid;
     g_lastKnownAsk = ask;
     g_tickCount++;
-    // v1.35.1: refresh the cached broker↔GMT offset while ticks are fresh.
+    // v1.35.1: refresh the cached broker <-> GMT offset while ticks are fresh.
     g_brokerGmtOffsetSec = (long)TimeCurrent() - (long)TimeGMT();
     g_brokerGmtOffsetKnown = true;
 
