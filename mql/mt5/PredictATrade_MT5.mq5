@@ -41,7 +41,7 @@
 // v1.31.1: single source of truth for the wire-version reported in telemetry
 // and activation (INIT/ACCOUNT_INFO hardcoded strings drifted from the
 // #property value across releases — server could not verify the client build).
-#define PAT_EA_VERSION "1.34"
+#define PAT_EA_VERSION "1.35"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -2084,8 +2084,8 @@ void SendTickToAgent()
     msg += ",\"account\":\"" + g_accountID + "\"";
     msg += ",\"license_key\":\"" + g_licenseKey + "\"";
     // Broker session timezone — collected live so the engine works on Broker TF
-    // (not UTC). TimeGMTOffset() returns the broker's GMT offset in seconds.
-    msg += ",\"broker_offset\":" + IntegerToString(TimeGMTOffset() / 3600);
+    // (not UTC). True broker offset = TimeCurrent() - TimeGMT(). v1.35 FIX:
+    msg += ",\"broker_offset\":" + IntegerToString((int)MathRound((TimeCurrent() - TimeGMT()) / 3600.0));
     msg += "}\n";
 
     PAT_Send(msg);

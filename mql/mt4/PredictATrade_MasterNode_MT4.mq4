@@ -841,8 +841,8 @@ void SendTickToAgent()
     msg += ",\"account\":\"" + g_accountID + "\"";
     msg += ",\"node\":\"MASTER\"";
     // Broker session timezone — collected live so the engine works on Broker TF
-    // (not UTC). TimeGMTOffset() returns the broker's GMT offset in seconds.
-    msg += ",\"broker_offset\":" + IntegerToString(TimeGMTOffset() / 3600);
+    // (not UTC). True broker offset = TimeCurrent() - TimeGMT(). v1.35 FIX:
+    msg += ",\"broker_offset\":" + IntegerToString((int)MathRound((TimeCurrent() - TimeGMT()) / 3600.0));
     msg += "}\n";
 
     MasterAppend(msg);
@@ -888,8 +888,8 @@ void SendMarketSnapshot()
     msg += ",\"node\":\"MASTER\"";
     if(marketClosed) msg += ",\"market_closed\":true";
     // Broker session timezone — collected live so the engine works on Broker TF
-    // (not UTC). TimeGMTOffset() returns the broker's GMT offset in seconds.
-    msg += ",\"broker_offset\":" + IntegerToString(TimeGMTOffset() / 3600);
+    // (not UTC). True broker offset = TimeCurrent() - TimeGMT(). v1.35 FIX:
+    msg += ",\"broker_offset\":" + IntegerToString((int)MathRound((TimeCurrent() - TimeGMT()) / 3600.0));
 
     //--- Tick data
     msg += ",\"tick\":{";
