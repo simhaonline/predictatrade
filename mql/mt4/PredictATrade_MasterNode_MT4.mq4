@@ -18,7 +18,7 @@
 //|   - Perform any financial operation                              |
 //+------------------------------------------------------------------+
 #property copyright "Predict-A-Trade"
-#property version   "1.29"
+#property version   "1.35"
 #property strict
 
 // v1.27 account-type detection (additive; data-only node — tags snapshots)
@@ -1258,7 +1258,7 @@ void SendMasterInit()
 {
     string msg = "MASTER_INIT|{";
     msg += "\"type\":\"MASTER_INIT\"";
-    msg += ",\"ea_version\":\"1.19\"";
+    msg += ",\"ea_version\":\"1.35\"";
     msg += ",\"node\":\"MASTER\"";
     msg += ",\"platform\":\"MT4\"";
     msg += ",\"broker\":\"" + EscapeJSON(g_broker) + "\"";
