@@ -40,3 +40,20 @@ CREATE INDEX IF NOT EXISTS idx_client_error_events_recent
 INSERT INTO audit.migration_history (filename, executed_by, notes)
 VALUES ('152_client_telemetry.sql', 'pat_migration', 'client telemetry + EA version columns')
 ON CONFLICT (filename) DO NOTHING;
+-- Follow-up fixes (2026-09-19): scheduler-callable overloads + prune proc
+CREATE OR REPLACE PROCEDURE licensing.prune_telemetry()
+LANGUAGE plpgsql AS $$
+BEGIN
+  DELETE FROM licensing.request_nonces WHERE expires_at < now() - interval '5 minutes';
+  DELETE FROM licensing.edge_signal_queue
+    WHERE status IN ('ACKED','EXPIRED') AND COALESCE(acked_at, created_at) < now() - interval '48 hours';
+  DELETE FROM licensing.client_error_events WHERE reported_at < now() - interval '30 days';
+  DELETE FROM licensing.refresh_tokens WHERE expires_at < now() - interval '7 days';
+  DELETE FROM licensing.session_leases WHERE status = 'EXPIRED' AND lease_expires_at < now() - interval '7 days';
+END $$;
+
+CREATE OR REPLACE PROCEDURE licensing.prune_telemetry(job_id int, config jsonb)
+LANGUAGE plpgsql AS $$
+BEGIN
+  CALL licensing.prune_telemetry();
+END $$;
