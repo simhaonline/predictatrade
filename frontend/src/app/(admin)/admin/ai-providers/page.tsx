@@ -107,7 +107,10 @@ export default function AdminAiProvidersPage() {
         {isLoading && <div className="text-xs text-pat-text-muted">Loading models...</div>}
         {!isLoading && (!models || models.length === 0) && (
           <div className="text-xs text-pat-text-muted">
-            No models returned from /operations/ai/models.
+            No models registered yet. The ai.models registry fills when the
+            research pipeline registers a trained artifact (via the model
+            registration job). The activation controls below activate once
+            models exist. Provider connectivity is independent — test it above.
           </div>
         )}
         <div className="space-y-2">
