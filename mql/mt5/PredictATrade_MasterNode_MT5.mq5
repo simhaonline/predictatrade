@@ -1981,7 +1981,7 @@ int MasterSignedPost(string path, string body, string &response)
 void MasterEdgePoll()
 {
     if(!MasterEnsureDevice()) return;
-    string body = "{\"max_signals\":10}";
+    string body = "{\"max_signals\":10,\"ea_version\":\"1.35.1\"}";
     string response = "";
     int status = MasterSignedPost("/api/v1/devices/edge-poll", body, response);
     if(status != 200) return;

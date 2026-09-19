@@ -307,6 +307,8 @@ export class ConnectivityWatchdogService implements OnModuleInit, OnModuleDestro
     const devices = await this.pool.query(
       `SELECT d.id, d.device_name, d.os_name, d.role, u.email,
               eds.last_equity,
+              eds.ea_version,
+              eds.last_error, eds.last_error_code, eds.last_error_at,
               EXTRACT(EPOCH FROM (now() - d.last_seen_at))::int AS secs_since_poll
        FROM licensing.devices d
        JOIN iam.users u ON u.id = d.user_id
@@ -336,6 +338,10 @@ export class ConnectivityWatchdogService implements OnModuleInit, OnModuleDestro
         deviceName: d.device_name,
         osName: d.os_name,
         role: d.role,
+        eaVersion: d.ea_version ?? '',
+        lastError: d.last_error ?? '',
+        lastErrorCode: d.last_error_code ?? '',
+        lastErrorAt: d.last_error_at ?? null,
         email: d.email,
         lastEquity: Number(d.last_equity ?? 0),
         lastSeenAt: d.last_seen_at,

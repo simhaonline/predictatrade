@@ -41,7 +41,7 @@
 // v1.31.1: single source of truth for the wire-version reported in telemetry
 // and activation (INIT/ACCOUNT_INFO hardcoded strings drifted from the
 // #property value across releases — server could not verify the client build).
-#define PAT_EA_VERSION "1.35"
+#define PAT_EA_VERSION "1.36"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -3113,6 +3113,7 @@ void CheckSlippage(ulong ticket, string direction, double requestedPrice)
     {
         g_slippageRejects++;
         Print("SLIPPAGE EXCEEDED: ticket=", ticket, " slip=", slippagePoints, " pts");
+        PAT_ReportClientError("SIZING", "Slippage exceeded on ticket " + IntegerToString((int)ticket) + " (" + DoubleToString(slippagePoints, 0) + " pts) - position closed");
         if(PositionSelectByTicket(ticket))
         {
             PAT_SetForcedReason(PositionGetInteger(POSITION_IDENTIFIER), "SLIPPAGE_REJECT");
@@ -4213,6 +4214,25 @@ string g_deviceFile     = PAT_DEVICE_FILE; // per-terminal state file, set in On
 string g_deviceFileSet  = "";     // which file the in-memory creds were loaded from
 int    g_pollOkCount    = 0;
 int    g_pollErrCount   = 0;
+// v1.36 client-error telemetry: the last client-side error surfaces in the
+// admin portal via the next edge-heartbeat (admin sees WHAT is happening on
+// a connected client — operator directive 2026-09-18).
+string g_lastErrCode    = "";   // machine-readable: HTTP_429 | AUTH | SIZING | WATCHDOG | TRANSPORT | LICENSE
+string g_lastErrText    = "";   // human-readable one-liner
+datetime g_lastErrAt    = 0;
+
+// PAT_SetClientError — record the most recent client-side issue. Rate-limited
+// by design: one heartbeat carries only the newest error, and identical
+// consecutive errors are not re-reported.
+void PAT_ReportClientError(string code, string text)
+{
+    if(StringLen(code) == 0 || StringLen(text) == 0) return;
+    if(code == g_lastErrCode && text == g_lastErrText) return; // unchanged: skip
+    g_lastErrCode = StringSubstr(code, 0, 40);
+    g_lastErrText = StringSubstr(text, 0, 500);
+    g_lastErrAt   = TimeGMT();
+    Print("[Predict-A-Trade][ERR] ", code, ": ", g_lastErrText);
+}
 long   g_hmacCounter    = 0;      // monotonic nonce component
 
 //--- PAT_TerminalTradeReady: terminal-level auto-trading readiness (v1.33).
@@ -4290,6 +4310,7 @@ int PAT_HTTPPostEx(string url, string body, string &response, int attempts, int 
         if(attempt == 1 || attempt == attempts)
             Print("[Predict-A-Trade] HTTP transport failure (attempt ", attempt, "/", attempts,
                   "): ", PAT_HTTPErrorText(status, GetLastError()));
+        PAT_ReportClientError("TRANSPORT", PAT_HTTPErrorText(status, GetLastError()));
         if(attempt < attempts)
             Sleep(500 * attempt); // linear backoff: 500ms, 1000ms, ...
     }
@@ -4558,14 +4579,17 @@ void PAT_EdgeHeartbeat()
     // v1.23: stream equity with every heartbeat so the platform can classify
     // the device's capital tier (MICRO/STANDARD/PRO) and deliver signals
     // suitable for the account size. Equity is account currency.
-    string body = "{\"terminal\":\"MT5\",\"account\":\"" + g_accountID + "\","
+    string body = "{\"terminal\":\"MT5\",\"account\":\"" + g_accountID + "\",
+                    \"ea_version\":\"" + PAT_EA_VERSION + "","
                   "\"broker\":\"" + AccountInfoString(ACCOUNT_COMPANY) + "\","
                   "\"server\":\"" + AccountInfoString(ACCOUNT_SERVER) + "\","
                   "\"symbol\":\"" + g_symbol + "\",\"build\":" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD)) + ","
                   "\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) +
                   ",\"account_type\":\"" + g_accountType + "\"" +
                   ",\"account_type_verified\":" + (CAccountTypeDetector::IsVerified() ? "true" : "false") +
-                  ",\"account_type_confirms\":" + IntegerToString(CAccountTypeDetector::ConfirmationCount()) + "}";
+                  ",\"account_type_confirms\":" + IntegerToString(CAccountTypeDetector::ConfirmationCount()) +
+                  (g_lastErrCode != "" ?
+                   ",\"last_error_code\":\"" + g_lastErrCode + "\",\"last_error\":\"" + g_lastErrText + "\"" : "") + "}";
     string response = "";
     int status = PAT_SignedPost("/api/v1/devices/edge-heartbeat", body, response);
     if(status != 200 && !g_netDiagnosticsShown)
@@ -4634,7 +4658,10 @@ void PAT_PostIngest(string msgType, string payload)
         return;
     }
     if(status != 200)
+    {
         Print("[Predict-A-Trade] ingest ", msgType, " failed: ", PAT_HTTPErrorText(status, GetLastError()));
+        PAT_ReportClientError("DELIVERY", "Ingest " + msgType + " failed: " + PAT_HTTPErrorText(status, GetLastError()));
+    }
 }
 
 //--- PAT_URLEncode — percent-encoding for query values

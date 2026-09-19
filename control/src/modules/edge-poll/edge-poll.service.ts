@@ -76,6 +76,19 @@ export class EdgePollService implements OnModuleInit {
   async poll(deviceId: string, body: Record<string, any>) {
     const maxSignals = Math.min(Math.max(parseInt(body?.max_signals, 10) || 10, 1), 20);
 
+    // v1.35 client telemetry: record the polling EA's build version (works for
+    // BOTH client and master nodes — masters poll edge-poll instead of
+    // heartbeat). Fail-open: absent field skipped.
+    const pollEaVersion = typeof body?.ea_version === 'string' ? body.ea_version.trim().slice(0, 20) : '';
+    if (pollEaVersion.length > 0) {
+      await this.pool.query(
+        `UPDATE licensing.edge_device_state
+            SET ea_version = $2, updated_at = now()
+          WHERE device_id = $1::uuid`,
+        [deviceId, pollEaVersion],
+      ).catch(() => {});
+    }
+
     // Reclaim stale IN_FLIGHT (EA crashed mid-batch) back to PENDING.
     // Dead-letter guard: rows whose attempts already exceed the cap (an old
     // EA build that never acks a payload type it doesn't understand) are
@@ -273,6 +286,35 @@ export class EdgePollService implements OnModuleInit {
                 updated_at = now()
           WHERE device_id = $1::uuid`,
         [deviceId, equity],
+      ).catch(() => {});
+    }
+
+    // v1.35 client telemetry: record the EA build version per device so the
+    // admin MT-clients page can surface stale binaries fleet-wide, and the
+    // client's own error report (if any) so an admin sees WHAT is happening
+    // on a connected client. Fail-open: absent fields are skipped.
+    const eaVersion = typeof body?.ea_version === 'string' ? body.ea_version.trim().slice(0, 20) : '';
+    if (eaVersion.length > 0) {
+      await this.pool.query(
+        `UPDATE licensing.edge_device_state
+            SET ea_version = $2, updated_at = now()
+          WHERE device_id = $1::uuid`,
+        [deviceId, eaVersion],
+      ).catch(() => {});
+    }
+    const errCode = typeof body?.last_error_code === 'string' ? body.last_error_code.trim().slice(0, 40) : '';
+    const errMsg = typeof body?.last_error === 'string' ? body.last_error.trim().slice(0, 500) : '';
+    if (errCode.length > 0 && errMsg.length > 0) {
+      await this.pool.query(
+        `UPDATE licensing.edge_device_state
+            SET last_error = $2, last_error_code = $3, last_error_at = now(), updated_at = now()
+          WHERE device_id = $1::uuid`,
+        [deviceId, errMsg, errCode],
+      ).catch(() => {});
+      await this.pool.query(
+        `INSERT INTO licensing.client_error_events (device_id, error_code, message)
+         VALUES ($1::uuid, $2, $3)`,
+        [deviceId, errCode, errMsg],
       ).catch(() => {});
     }
 

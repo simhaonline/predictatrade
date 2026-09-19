@@ -24,6 +24,10 @@ interface ConnectivityDevice {
   lastEquity?: number;
   lastSeenAt: string;
   secondsSincePoll: number;
+  eaVersion?: string;
+  lastError?: string;
+  lastErrorCode?: string;
+  lastErrorAt?: string | null;
 }
 
 interface ConnectivitySnapshot {
@@ -198,13 +202,15 @@ export default function MtClientsPage() {
               <th className="px-3 py-3 font-medium">Role</th>
               <th className="px-3 py-3 font-medium">Account</th>
               <th className="px-3 py-3 font-medium">Equity</th>
+              <th className="px-3 py-3 font-medium">EA build</th>
+              <th className="px-3 py-3 font-medium">Last issue</th>
               <th className="px-3 py-3 font-medium">Last poll</th>
               <th className="px-3 py-3 font-medium">State</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-pat-border">
             {devices.length === 0 ? (
-              <tr><td colSpan={7} className="px-3 py-8 text-center text-pat-text-muted text-sm">No devices match the current filters</td></tr>
+              <tr><td colSpan={9} className="px-3 py-8 text-center text-pat-text-muted text-sm">No devices match the current filters</td></tr>
             ) : (
               devices.map((d) => {
                 const f = freshness(Number(d.secondsSincePoll ?? 0));
@@ -216,6 +222,19 @@ export default function MtClientsPage() {
                     <td className="px-3 py-3 text-xs text-pat-text-secondary">{d.role === "data" ? "Data (master)" : "Exec"}</td>
                     <td className="px-3 py-3 text-xs text-pat-text-secondary">{d.email || "—"}</td>
                     <td className="px-3 py-3 text-xs text-pat-text-primary tabular-nums">{(d.lastEquity ?? 0) > 0 ? `$${Number(d.lastEquity).toFixed(0)}` : "—"}</td>
+                    <td className="px-3 py-3 text-xs font-mono text-pat-text-secondary">
+                      {d.eaVersion ? `v${d.eaVersion}` : <span className="text-pat-text-muted/60">unknown</span>}
+                    </td>
+                    <td className="px-3 py-3 text-xs">
+                      {d.lastError ? (
+                        <span className="text-pat-warning" title={`${d.lastError} (reported ${d.lastErrorAt ? new Date(d.lastErrorAt).toLocaleString() : "unknown"})`}>
+                          <span className="font-mono text-[10px] px-1 py-0.5 rounded bg-pat-warning/10 border border-pat-warning/30 mr-1">{d.lastErrorCode}</span>
+                          {d.lastError.length > 60 ? d.lastError.slice(0, 60) + "…" : d.lastError}
+                        </span>
+                      ) : (
+                        <span className="text-pat-text-muted">—</span>
+                      )}
+                    </td>
                     <td className={`px-3 py-3 text-xs tabular-nums ${f.cls}`}>
                       {Number(d.secondsSincePoll ?? 0) < 60 ? `${d.secondsSincePoll}s ago` : f.label}
                     </td>

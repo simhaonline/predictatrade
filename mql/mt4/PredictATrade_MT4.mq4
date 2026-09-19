@@ -34,7 +34,7 @@
 // v1.31.1: single source of truth for the wire-version reported in telemetry
 // and activation (INIT/ACCOUNT_INFO hardcoded strings drifted from the
 // #property value across releases — server could not verify the client build).
-#define PAT_EA_VERSION "1.35"
+#define PAT_EA_VERSION "1.36"
 #property strict
 
 // v1.27 account-type detection (additive; MT4 build of CAccountTypeDetector)
@@ -1974,6 +1974,7 @@ void CheckSlippage(int ticket, string direction, double requestedPrice)
               " filled=", filledPrice, " slip=", slippagePoints, " points (max=", MaxSlippagePoints, ")");
         PAT_SetForcedReason(ticket, "SLIPPAGE_REJECT");
         ClosePosition(ticket, "SLIPPAGE_REJECT");
+        PAT_ReportClientError("SIZING", "Slippage exceeded on ticket " + IntegerToString(ticket) + " (" + DoubleToString(slippagePoints, 0) + " points, max " + IntegerToString(MaxSlippagePoints) + ") - position closed");
     }
     else
     {
@@ -3876,6 +3877,25 @@ datetime g_tokenExpiry  = 0;
 bool   g_netDiagnosticsShown = false;
 int    g_pollOkCount    = 0;
 int    g_pollErrCount   = 0;
+// v1.36 client-error telemetry: the last client-side error surfaces in the
+// admin portal via the next edge-heartbeat (admin sees WHAT is happening on
+// a connected client - operator directive 2026-09-18).
+string g_lastErrCode    = "";   // machine-readable: HTTP_429 | AUTH | SIZING | WATCHDOG | TRANSPORT | LICENSE
+string g_lastErrText    = "";   // human-readable one-liner
+datetime g_lastErrAt    = 0;
+
+// PAT_ReportClientError - record the most recent client-side issue. Rate-limited
+// by design: one heartbeat carries only the newest error, and identical
+// consecutive errors are not re-reported.
+void PAT_ReportClientError(string code, string text)
+{
+    if(StringLen(code) == 0 || StringLen(text) == 0) return;
+    if(code == g_lastErrCode && text == g_lastErrText) return;
+    g_lastErrCode = StringSubstr(code, 0, 40);
+    g_lastErrText = StringSubstr(text, 0, 500);
+    g_lastErrAt   = TimeGMT();
+    Print("[Predict-A-Trade][ERR] ", code, ": ", g_lastErrText);
+}
 long   g_hmacCounter    = 0;
 
 #define PAT_DEVICE_FILE "PAT_device_mt4.txt" // LEGACY shared name (v1.26 reads it only for one-time migration)
@@ -4293,6 +4313,8 @@ bool PAT_EnsureDevice()
     if(status != 200)
     {
         Print("[Predict-A-Trade] Device activation failed: HTTP ", status, " — ", StringSubstr(response, 0, 200));
+        PAT_ReportClientError(status == 409 ? "LICENSE" : "ACTIVATION",
+                              "Device activation failed (HTTP " + IntegerToString(status) + ")");
         return false;
     }
     g_deviceId     = ExtractJSONString(response, "device_id");
@@ -4488,6 +4510,7 @@ void PAT_PostIngest(string msgType, string payload)
         if(!g_netDiagnosticsShown)
         {
             Print("[Predict-A-Trade] ingest failed: ", PAT_HTTPErrorText(status, GetLastError()), " type=", msgType);
+            PAT_ReportClientError("DELIVERY", "Ingest " + msgType + " failed: " + PAT_HTTPErrorText(status, GetLastError()));
             g_netDiagnosticsShown = true;
         }
         return;
@@ -4599,14 +4622,20 @@ void PAT_EdgeHeartbeat()
     // v1.24: stream equity with every heartbeat so the platform can classify
     // the device's capital tier (MICRO/STANDARD/PRO) and deliver signals
     // suitable for the account size. Equity is account currency.
+    // v1.35/v1.36: stream the EA build version + the client's last reported
+    // error so the admin portal can surface stale binaries AND live client
+    // issues per connected device (operator directive 2026-09-18).
     string body = "{\"terminal\":\"MT4\",\"account\":\"" + g_accountID + "\","
+                  "\"ea_version\":\"" + PAT_EA_VERSION + "\","
                   "\"broker\":\"" + PAT_JSONEscape(AccountCompany()) + "\","
                   "\"server\":\"" + PAT_JSONEscape(AccountServer()) + "\","
                   "\"symbol\":\"" + g_symbol + "\",\"build\":" + IntegerToString((int)TerminalInfoInteger(TERMINAL_BUILD)) + ","
                   "\"equity\":" + DoubleToString(AccountEquity(), 2) +
                   ",\"account_type\":\"" + g_accountType + "\"" +
                   ",\"account_type_verified\":" + (CAccountTypeDetector::IsVerified() ? "true" : "false") +
-                  ",\"account_type_confirms\":" + IntegerToString(CAccountTypeDetector::ConfirmationCount()) + "}";
+                  ",\"account_type_confirms\":" + IntegerToString(CAccountTypeDetector::ConfirmationCount()) +
+                  (g_lastErrCode != "" ?
+                   ",\"last_error_code\":\"" + g_lastErrCode + "\",\"last_error\":\"" + g_lastErrText + "\"" : "") + "}";
     string response = "";
     int status = PAT_SignedPost("/api/v1/devices/edge-heartbeat", body, response);
     if(status != 200 && !g_netDiagnosticsShown)
