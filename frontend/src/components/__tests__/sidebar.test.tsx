@@ -32,7 +32,10 @@ describe('Admin Sidebar', () => {
     expect(screen.getByText('Signal Monitor')).toBeInTheDocument();
     expect(screen.getByText('Indicator Monitor')).toBeInTheDocument();
     expect(screen.getByText('Scoring Board')).toBeInTheDocument();
-    expect(screen.getByText('Platform Operations')).toBeInTheDocument();
+    // Platform Operations merged into Risk Center (2026-09-19) — the nav shows
+    // the single merged entry; the old label must NOT reappear.
+    expect(screen.getByText('Risk Center')).toBeInTheDocument();
+    expect(screen.queryByText('Platform Operations')).not.toBeInTheDocument();
     expect(screen.getByText('System Health')).toBeInTheDocument();
   });
 

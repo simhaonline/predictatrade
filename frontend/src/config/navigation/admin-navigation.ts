@@ -2,7 +2,7 @@ import {
   IconDashboard, IconChartLine, IconCategory, IconBolt, IconChartBar,
   IconKey, IconShield, IconUsers, IconReceipt, IconCoin,
   IconDeviceDesktop, IconFileAnalytics, IconTestPipe, IconClipboardList,
-  IconTool, IconHeartbeat, IconSettings, IconActivity,
+  IconHeartbeat, IconSettings, IconActivity,
   IconAlertTriangle, IconListCheck, IconAdjustments, IconWallet,
   IconReportMoney, IconBrain, IconBroadcast, IconWorld,
   IconDatabase, IconFlag, IconBuildingBank, IconServer, IconDroplet, IconSparkles,
@@ -68,7 +68,6 @@ export const adminNavigation: NavItem[] = [
   { label: 'Broker Qualification', href: '/admin/broker-qualification', icon: IconBuildingBank, section: 'Market Data & Intelligence' },
 
   // ── System Operations ──
-  { label: 'Platform Operations', href: '/admin/operations', icon: IconTool, section: 'System Operations' },
   { label: 'Logs & Audit', href: '/admin/logs', icon: IconClipboardList, section: 'System Operations' },
   { label: 'System Health', href: '/admin/health', icon: IconHeartbeat, section: 'System Operations' },
   { label: 'Feature Flags', href: '/admin/feature-flags', icon: IconFlag, section: 'System Operations' },

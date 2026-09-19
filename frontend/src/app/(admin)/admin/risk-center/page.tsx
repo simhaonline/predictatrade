@@ -1,4 +1,12 @@
 "use client";
+// Merged Operations + Risk Center page (2026-09-19): /admin/operations was a
+// near-duplicate of /admin/risk-center (same state block, same 4 emergency
+// controls, same confirm dialog). This page now hosts the union:
+//   - Live platform state + emergency controls (was duplicated)
+//   - Risk guardrail config + 12 hard gates (unique to risk-center)
+//   - Active operations history (unique to operations)
+// /admin/operations redirects here.
+
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -12,10 +20,11 @@ import {
   saveRiskConfig,
   reportRiskGateStatus,
 } from "@/lib/admin-api";
+import { customInstance } from "@/lib/axios-instance";
 import ConfirmDialog from "@/components/admin/confirm-dialog";
 import StatusBadge from "@/components/ui/status-badge";
 import { toast } from "sonner";
-import { IconShield, IconAlertTriangle, IconBolt } from "@tabler/icons-react";
+import { IconShield, IconAlertTriangle, IconBolt, IconHistory } from "@tabler/icons-react";
 
 interface TradingState {
   trading_halted: boolean;
@@ -26,6 +35,15 @@ interface TradingState {
 
 interface MarketState {
   [key: string]: unknown;
+}
+
+interface ActiveOp {
+  id: string;
+  operation_type: string;
+  status: string;
+  actor_id: string;
+  reason: string;
+  created_at: string;
 }
 
 const HARD_GATES = [
@@ -113,8 +131,12 @@ export default function AdminRiskCenterPage() {
     queryFn: async () => (await fetchMarketState()) as MarketState,
   });
 
-
-
+  // Active operations history (unique to the old /admin/operations page).
+  const { data: activeOps } = useQuery<ActiveOp[]>({
+    queryKey: ["ops-active"],
+    queryFn: async () => (await customInstance.get("/operations/active")).data,
+    refetchInterval: 10000,
+  });
 
   const mutation = useMutation({
     mutationFn: async (fn: () => Promise<unknown>) => { await fn(); },
@@ -246,12 +268,14 @@ export default function AdminRiskCenterPage() {
   }, [marketQ.data]);
   // Map market state fields to gates when available.
 
-
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-pat-text-primary">Risk Center</h1>
-        <p className="text-sm text-pat-text-secondary mt-1">Live trading controls and risk guardrail configuration.</p>
+        <h1 className="text-xl font-bold text-pat-text-primary">Risk Center &amp; Platform Operations</h1>
+        <p className="text-sm text-pat-text-secondary mt-1">
+          Single control surface: live emergency controls, risk guardrails, hard-gate
+          monitoring and the active-operations audit trail. All actions are audited.
+        </p>
       </div>
 
       {/* Live Platform State */}
@@ -375,6 +399,28 @@ export default function AdminRiskCenterPage() {
             );
           })}
         </div>
+      </div>
+
+      {/* Active Operations History (unique to the former /admin/operations) */}
+      <div className="bg-pat-card-bg border border-pat-card-border rounded-lg p-4 shadow-sm">
+        <h2 className="text-sm font-medium text-pat-text-primary mb-3 flex items-center gap-2">
+          <IconHistory size={16} /> Active Operations
+        </h2>
+        {activeOps && activeOps.length > 0 ? (
+          <div className="space-y-2">
+            {activeOps.map((op) => (
+              <div key={op.id} className="flex items-center justify-between rounded-md bg-pat-bg-surface-secondary px-3 py-2 text-xs">
+                <span className="text-pat-text-primary">{op.operation_type}</span>
+                <span className="text-pat-text-muted">{op.reason}</span>
+                <StatusBadge status={op.status} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-xs text-pat-text-muted">
+            No active operations. Emergency actions above appear here (with actor + reason) while they are in effect.
+          </div>
+        )}
       </div>
 
       <ConfirmDialog
