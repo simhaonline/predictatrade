@@ -1,7 +1,7 @@
 "use client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { IconBrain, IconPlus, IconAlertTriangle } from "@tabler/icons-react";
+import { IconBrain, IconHeartbeat, IconRefresh } from "@tabler/icons-react";
 import { ProvidersCRUD } from "@/components/admin/providers-crud";
 import {
   fetchAIModels,
@@ -10,19 +10,27 @@ import {
   type AIModel,
 } from "@/lib/admin-ai-providers-api";
 
-function DegradedBanner({ children }: { children: React.ReactNode }) {
+function statusChip(status?: string) {
+  const map: Record<string, string> = {
+    ACTIVE: "bg-pat-success/15 text-pat-success",
+    TRAINING: "bg-pat-warning/15 text-pat-warning",
+    INACTIVE: "bg-gray-100 text-gray-500",
+    ARCHIVED: "bg-gray-100 text-gray-500",
+  };
   return (
-    <div className="bg-pat-warning/10 border border-pat-warning/20 rounded-lg p-3 flex items-start gap-2">
-      <IconAlertTriangle size={16} className="text-pat-warning mt-0.5 shrink-0" />
-      <div className="text-xs text-pat-warning">{children}</div>
-<ProvidersCRUD />
-    </div>
+    <span
+      className={`text-xs px-2 py-0.5 rounded-full ${
+        map[status ?? ""] ?? "bg-gray-100 text-gray-500"
+      }`}
+    >
+      {status ?? "UNKNOWN"}
+    </span>
   );
 }
 
 export default function AdminAiProvidersPage() {
   const queryClient = useQueryClient();
-  const { data: models, isLoading } = useQuery<AIModel[]>({
+  const { data: models, isLoading, isFetching, refetch } = useQuery<AIModel[]>({
     queryKey: ["ai-models-providers"],
     queryFn: fetchAIModels,
     refetchInterval: 20000,
@@ -33,20 +41,62 @@ export default function AdminAiProvidersPage() {
       if (m.status === "ACTIVE") return deactivateModel(m.id);
       return activateModel(m.id);
     },
-    onSuccess: () => {
+    onSuccess: (_d, m: AIModel) => {
       queryClient.invalidateQueries({ queryKey: ["ai-models-providers"] });
-      toast.success("Model activation state updated");
+      toast.success(
+        m.status === "ACTIVE"
+          ? "Model deactivated — engine falls back to next ACTIVE model of the same type"
+          : "Model activated",
+      );
     },
     onError: () => toast.error("Failed to update model activation state"),
   });
 
+  const activeCount = (models ?? []).filter((m) => m.status === "ACTIVE").length;
+  const trainingCount = (models ?? []).filter((m) => m.status === "TRAINING").length;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-pat-text-primary">AI Providers</h1>
-        <p className="text-sm text-pat-text-secondary mt-1">
-          AI/ML models + provider registry — full CRUD via /operations/ai/providers.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold text-pat-text-primary">AI Providers</h1>
+          <p className="text-sm text-pat-text-secondary mt-1">
+            Inference provider registry + model activation — the live control surface
+            for which models score predictions.
+          </p>
+        </div>
+        <button
+          onClick={() => refetch()}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-pat-input-border bg-pat-input-bg text-pat-input-text hover:bg-pat-bg-surface-secondary"
+        >
+          <IconRefresh size={14} className={isFetching ? "animate-spin" : ""} /> Refresh
+        </button>
+      </div>
+
+      {/* Summary strip */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-pat-card-bg border border-pat-card-border rounded-lg p-3">
+          <div className="text-xs text-pat-text-muted">Active models</div>
+          <div className="text-lg font-semibold text-pat-success">{activeCount}</div>
+        </div>
+        <div className="bg-pat-card-bg border border-pat-card-border rounded-lg p-3">
+          <div className="text-xs text-pat-text-muted">Training</div>
+          <div className="text-lg font-semibold text-pat-warning">{trainingCount}</div>
+        </div>
+        <div className="bg-pat-card-bg border border-pat-card-border rounded-lg p-3">
+          <div className="text-xs text-pat-text-muted">Registered providers</div>
+          <div className="text-lg font-semibold text-pat-text-primary">
+            {(models ?? []).length}
+          </div>
+        </div>
+      </div>
+
+      {/* LIVE: provider registry CRUD */}
+      <div className="bg-pat-card-bg border border-pat-card-border rounded-lg p-4 shadow-sm">
+        <h2 className="text-sm font-medium text-pat-text-primary mb-3 flex items-center gap-2">
+          <IconHeartbeat size={16} /> Provider Registry (LIVE)
+        </h2>
+        <ProvidersCRUD />
       </div>
 
       {/* LIVE: model activation */}
@@ -56,7 +106,9 @@ export default function AdminAiProvidersPage() {
         </h2>
         {isLoading && <div className="text-xs text-pat-text-muted">Loading models...</div>}
         {!isLoading && (!models || models.length === 0) && (
-          <div className="text-xs text-pat-text-muted">No models returned from /operations/ai/models.</div>
+          <div className="text-xs text-pat-text-muted">
+            No models returned from /operations/ai/models.
+          </div>
         )}
         <div className="space-y-2">
           {models?.map((m) => (
@@ -64,23 +116,27 @@ export default function AdminAiProvidersPage() {
               key={m.id}
               className="flex items-center justify-between rounded-md bg-pat-bg-surface-secondary px-3 py-2"
             >
-              <div>
-                <span className="text-xs text-pat-text-primary">{m.name}</span>
-                <span className="text-xs text-pat-text-muted ml-2">v{m.version ?? "1"}</span>
-                {m.model_type && (
-                  <span className="text-xs text-pat-text-muted ml-2">· {m.model_type}</span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-pat-text-primary font-medium">{m.name}</span>
+                  <span className="text-xs text-pat-text-muted">v{m.version ?? "1"}</span>
+                  {m.model_type && (
+                    <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-pat-bg-surface text-pat-text-muted">
+                      {m.model_type}
+                    </span>
+                  )}
+                </div>
+                {m.metrics && Object.keys(m.metrics).length > 0 && (
+                  <div className="text-[10px] text-pat-text-muted font-mono mt-0.5 truncate">
+                    {Object.entries(m.metrics)
+                      .slice(0, 4)
+                      .map(([k, v]) => `${k}=${typeof v === "number" ? Number(v).toFixed(4) : String(v)}`)
+                      .join("  ")}
+                  </div>
                 )}
               </div>
-              <div className="flex items-center gap-3">
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full ${
-                    m.status === "ACTIVE"
-                      ? "bg-green-100 text-green-700"
-                      : "bg-gray-100 text-gray-500"
-                  }`}
-                >
-                  {m.status ?? "UNKNOWN"}
-                </span>
+              <div className="flex items-center gap-3 shrink-0">
+                {statusChip(m.status)}
                 <button
                   onClick={() => toggleMutation.mutate(m)}
                   disabled={toggleMutation.isPending}
@@ -92,40 +148,6 @@ export default function AdminAiProvidersPage() {
             </div>
           ))}
         </div>
-      </div>
-
-      {/* DEGRADED: add provider */}
-      <div className="bg-pat-card-bg border border-pat-card-border rounded-lg p-4 shadow-sm opacity-80">
-        <h2 className="text-sm font-medium text-pat-text-primary mb-3 flex items-center gap-2">
-          <IconPlus size={16} /> Add Provider
-        </h2>
-        <DegradedBanner>
-          No dedicated provider-management endpoint exists. The form below is schema-only and disabled.
-          Model activation above is the only LIVE capability for this page.
-        </DegradedBanner>
-        <form className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3" onSubmit={(e) => e.preventDefault()}>
-          <input
-            disabled
-            placeholder="Provider name"
-            className="rounded-md border border-pat-input-border bg-pat-input-bg px-3 py-2 text-sm text-pat-input-text opacity-60"
-          />
-          <input
-            disabled
-            placeholder="API base URL"
-            className="rounded-md border border-pat-input-border bg-pat-input-bg px-3 py-2 text-sm text-pat-input-text opacity-60"
-          />
-          <input
-            disabled
-            placeholder="Default model"
-            className="rounded-md border border-pat-input-border bg-pat-input-bg px-3 py-2 text-sm text-pat-input-text opacity-60"
-          />
-          <button
-            disabled
-            className="md:col-span-3 px-3 py-2 text-sm rounded-md bg-pat-primary text-pat-primary-foreground opacity-50 cursor-not-allowed"
-          >
-            Create Provider (disabled — backend pending)
-          </button>
-        </form>
       </div>
     </div>
   );

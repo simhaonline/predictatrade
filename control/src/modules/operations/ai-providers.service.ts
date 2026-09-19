@@ -57,14 +57,25 @@ export class AiProvidersService {
     return r.rows[0];
   }
 
-  /** Test connectivity to the provider's base_url without exposing the API key */
+  /** Test connectivity to the provider's base_url without exposing the API key.
+   * Probe path is provider-type-aware: Ollama exposes /api/tags, OpenAI-compatible
+   * endpoints expose /models (v1), generic custom providers get a plain HEAD. */
   async testConnection(id: string) {
     const p = await this.get(id);
     const started = Date.now();
     try {
+      const base = p.base_url.replace(/\/$/, '');
+      let probe = base + '/api/tags';
+      let method = 'GET';
+      if (p.provider === 'openai') {
+        probe = base.replace(/\/v\d+$/, '') + '/models';
+      } else if (p.provider === 'custom') {
+        method = 'HEAD';
+      }
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch(p.base_url.replace(/\/$/, '') + '/api/tags', {
+      const res = await fetch(probe, {
+        method,
         signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
       });
