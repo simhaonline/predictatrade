@@ -113,14 +113,8 @@ export default function AdminRiskCenterPage() {
     queryFn: async () => (await fetchMarketState()) as MarketState,
   });
 
-  // Report real gate health to the backend so an admin is notified (ntfy) when any
-  // hard-risk gate degrades. The backend dedupes + rate-limits the notification and
-  // auto-resolves the alert when the gate recovers. Never pushes fabricated state.
-  useEffect(() => {
-    if (!marketQ.data) return;
-    const gates = HARD_GATES.map((g) => ({ gate: g, status: marketGateStatus(g) }));
-    reportRiskGateStatus(gates).catch(() => undefined);
-  }, [marketQ.data]);
+
+
 
   const mutation = useMutation({
     mutationFn: async (fn: () => Promise<unknown>) => { await fn(); },
@@ -212,7 +206,6 @@ export default function AdminRiskCenterPage() {
     return hour >= 0 && hour < 23;
   })();
 
-  // Map market state fields to gates when available.
   // /api/v1/market/state returns a `market_snapshot` object (top-level
   // `timestamp` + `tick.spread`), NOT a `states[]` array — the previous reader
   // looked for the wrong shape and so both data-quality and spread gates were
@@ -243,7 +236,16 @@ export default function AdminRiskCenterPage() {
       default:
         return "active";
     }
-  };
+  };  // Report real gate health to the backend so an admin is notified (ntfy) when any
+  // hard-risk gate degrades. The backend dedupes + rate-limits the notification and
+  // auto-resolves the alert when the gate recovers. Never pushes fabricated state.
+  useEffect(() => {
+    if (!marketQ.data) return;
+    const gates = HARD_GATES.map((g) => ({ gate: g, status: marketGateStatus(g) }));
+    reportRiskGateStatus(gates).catch(() => undefined);
+  }, [marketQ.data]);
+  // Map market state fields to gates when available.
+
 
   return (
     <div className="space-y-6">

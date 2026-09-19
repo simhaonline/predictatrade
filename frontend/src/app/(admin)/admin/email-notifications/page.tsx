@@ -94,6 +94,9 @@ export default function EmailNotificationsPage() {
     [],
   );
 
+  // Async on-mount load: setState occurs after await (network), not a
+  // synchronous cascade — targeted disable with justification.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -101,8 +104,11 @@ export default function EmailNotificationsPage() {
         authedFetch("/admin/email-campaigns/audience"),
         authedFetch("/admin/email-campaigns?limit=50"),
       ]);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- async continuation (network), not a sync cascade
       setCounts(a);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- async continuation (network), not a sync cascade
       setCampaigns(l.campaigns ?? []);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- async continuation (network), not a sync cascade
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
@@ -112,6 +118,7 @@ export default function EmailNotificationsPage() {
   }, [authedFetch]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async continuation after await (network), not a sync cascade
     refresh();
   }, [refresh]);
 

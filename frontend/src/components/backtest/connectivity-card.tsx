@@ -52,6 +52,9 @@ export default function ConnectivityCard() {
   const [snap, setSnap] = useState<ConnectivitySnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Async on-mount (+polling) load: setState occurs after await (network),
+  // not a synchronous cascade — targeted disable with justification.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   const load = useCallback(async () => {
     try {
       const token = getAccessToken();
@@ -68,6 +71,7 @@ export default function ConnectivityCard() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async continuation after await (network), not a sync cascade
     void load();
     const t = setInterval(() => void load(), POLL_MS);
     return () => clearInterval(t);

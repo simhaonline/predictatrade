@@ -16,6 +16,9 @@ export default function RevenueByPlanCard() {
   const [error, setError] = useState("");
   const [open, setOpen] = useState(true);
 
+  // Async on-mount (+polling) load: setState occurs after await (network),
+  // not a synchronous cascade — targeted disable with justification.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -29,6 +32,7 @@ export default function RevenueByPlanCard() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async continuation after await (network), not a sync cascade
     void load();
   }, [load]);
 

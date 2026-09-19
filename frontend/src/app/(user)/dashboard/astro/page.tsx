@@ -96,7 +96,7 @@ export default function AstroPanel() {
       </div>
 
       {q.isLoading && <div className="text-sm text-pat-text-muted">Computing ASTRO state…</div>}
-      {q.isError && <div className="text-sm text-pat-danger">Failed to load: {(q.error as any)?.message}</div>}
+      {q.isError && <div className="text-sm text-pat-danger">Failed to load: {q.error instanceof Error ? q.error.message : "Failed to load"}</div>}
       {!st && !q.isLoading && !q.isLoading && null}
 
       {st && tab === "overview" && (

@@ -33,10 +33,13 @@ export default function DataTable<T>({ data, columns, loading, error, onRetry, p
 
   // Keep the internal page in range when the data slice shrinks (e.g. the
   // parent's server page changed) — otherwise the table can render empty.
-  React.useEffect(() => {
-    const maxPage = Math.max(0, Math.ceil((data?.length ?? 0) / pageSize) - 1);
-    if (page > maxPage) setPage(maxPage);
-  }, [data, pageSize, page]);
+  // React 19 pattern: derived-state clamp computed during render (no
+  // setState-in-effect cascade); the state write happens in the event
+  // handler only.
+  const maxPage = Math.max(0, Math.ceil((data?.length ?? 0) / pageSize) - 1);
+  const [pageOverride, setPageOverride] = React.useState<number | null>(null);
+  const clampedPage = Math.min(Math.max(0, pageOverride ?? page), maxPage);
+  if (clampedPage !== page) setPage(clampedPage);
 
   const sorted = React.useMemo(() => {
     if (!sortKey || !data) return data || [];

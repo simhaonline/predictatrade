@@ -63,7 +63,7 @@ export default function AdminPaymentsPage() {
       <div className="rounded-lg border border-pat-card-border bg-pat-card-bg p-4 shadow-sm">
         <h2 className="text-sm font-medium text-pat-text-primary mb-3">Payment Ledger</h2>
         {q.isLoading && <div className="text-xs text-pat-text-muted">Loading payments…</div>}
-        {q.isError && <div className="text-xs text-pat-danger">Failed to load payments: {(q.error as any)?.message}</div>}
+        {q.isError && <div className="text-xs text-pat-danger">Failed to load payments: {q.error instanceof Error ? q.error.message : "Failed to load"}</div>}
         {q.data && Array.isArray(q.data) && q.data.length === 0 && (
           <div className="text-xs text-pat-text-muted">No payments yet.</div>
         )}
@@ -81,12 +81,12 @@ export default function AdminPaymentsPage() {
                 </tr>
               </thead>
               <tbody>
-                {q.data.map((p: any) => (
+                {q.data.map((p: { id: string; provider_payment_id?: string; user_id?: string; amount?: number; currency?: string; status?: string; created_at?: string; processed_at?: string }) => (
                   <tr key={p.id} className="border-b border-pat-border/50">
                     <td className="px-3 py-2 font-mono text-xs text-pat-text-primary">{(p.provider_payment_id ?? p.id).slice(0, 14)}</td>
                     <td className="px-3 py-2 text-pat-text-secondary">{p.user_id?.slice(0, 8)}</td>
                     <td className="px-3 py-2 text-pat-text-primary">{p.amount} {p.currency}</td>
-                    <td className="px-3 py-2"><StatusBadge status={p.status} /></td>
+                    <td className="px-3 py-2"><StatusBadge status={p.status ?? "unknown"} /></td>
                     <td className="px-3 py-2 text-xs text-pat-text-muted">{p.created_at?.slice(0, 10)}</td>
                     <td className="px-3 py-2 text-xs text-pat-text-muted">{p.processed_at?.slice(0, 10) ?? "—"}</td>
                   </tr>

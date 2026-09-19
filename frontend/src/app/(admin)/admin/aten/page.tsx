@@ -57,6 +57,13 @@ interface MindMapNode {
   count?: number;
 }
 
+interface AtenFactor {
+  label: string;
+  detail?: string;
+  weight: number;
+  score: number;
+}
+
 export default function AtenPage() {
   const [tab, setTab] = useState<"overview" | "mindmap" | "screens">("overview");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ vedic: true, western: true, factors: true });
@@ -126,7 +133,7 @@ etod      {node.children && node.children.length > 0 && (
       </div>
 
       {q.isLoading && <div className="text-sm text-pat-text-muted">Computing ASTRO state…</div>}
-      {q.isError && <div className="text-sm text-pat-danger">Failed to load ATEN state: {(q.error as any)?.message}</div>}
+      {q.isError && <div className="text-sm text-pat-danger">Failed to load ATEN state: {q.error instanceof Error ? q.error.message : "Failed to load"}</div>}
 
       {st && tab === "overview" && (
         <div className="space-y-4">
@@ -264,7 +271,7 @@ etod      {node.children && node.children.length > 0 && (
                     {screensQ.data.composite_score > 0 ? "+" : ""}{screensQ.data.composite_score.toFixed(1)}
                   </span>
                 </div>
-                {(screensQ.data.factors ?? []).map((f: any, i: number) => (
+                {(screensQ.data.factors ?? []).map((f: AtenFactor, i: number) => (
                   <div key={i} className="flex items-center justify-between rounded border border-pat-border/40 px-3 py-2">
                     <div>
                       <div className="text-sm text-pat-text-primary">{f.label}</div>

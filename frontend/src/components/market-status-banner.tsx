@@ -3,7 +3,7 @@
 // shows the last closing price with a "market closed" notice + live countdown
 // to the next FX re-open (Sun 22:00 UTC). Rendered on admin + user consoles.
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { fetchAgentsStatus } from "@/lib/admin-api";
 
 interface AgentsStatus {
@@ -13,19 +13,41 @@ interface AgentsStatus {
   last_snapshot_at?: string;
 }
 
-function useCountdown(target?: string) {
-  const [, force] = useState(0);
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-    const t = setInterval(() => force((x) => x + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
-  // SSR renders a stable placeholder; the live countdown (Date.now()-based,
-  // non-deterministic) mounts client-side only — prevents React #418.
-  if (!mounted) return null;
-  if (!target) return null;
-  const ms = new Date(target).getTime() - Date.now();
+// ─── useNow(): external store holding a 1s-ticking timestamp ───
+// React-19 sanctioned way to read a moving clock during render without
+// "impure function during render" or setState-in-effect: the clock is an
+// external store; useSyncExternalStore subscribes and re-renders per tick.
+const clockListeners = new Set<() => void>();
+let clockNow = 0;
+let clockTimer: ReturnType<typeof setInterval> | null = null;
+function startClock() {
+  clockNow = Date.now();
+  clockTimer = setInterval(() => {
+    clockNow = Date.now();
+    for (const l of clockListeners) l();
+  }, 1000);
+}
+function subscribeClock(l: () => void) {
+  clockListeners.add(l);
+  if (clockTimer === null) startClock();
+  return () => {
+    clockListeners.delete(l);
+    if (clockListeners.size === 0 && clockTimer !== null) {
+      clearInterval(clockTimer);
+      clockTimer = null;
+    }
+  };
+}
+function useNow(): number {
+  return useSyncExternalStore(
+    subscribeClock,
+    () => clockNow,
+    () => 0, // server snapshot: neutral (no countdown on SSR)
+  );
+}
+
+function fmtCountdown(target: string, now: number): string {
+  const ms = new Date(target).getTime() - now;
   if (ms <= 0) return "opening…";
   const s = Math.floor(ms / 1000);
   const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
@@ -36,13 +58,7 @@ function useCountdown(target?: string) {
 }
 
 export function MarketStatusBanner() {
-  const [, force] = useState(0);
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-    const t = setInterval(() => force((x) => x + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
+  const now = useNow();
   const q = useQuery({
     queryKey: ["agents-status-banner"],
     queryFn: async () => (await fetchAgentsStatus()) as AgentsStatus,
@@ -62,19 +78,11 @@ export function MarketStatusBanner() {
         </div>
         {d.next_market_open_utc && (
           <div className="rounded bg-pat-bg-surface px-3 py-1.5 text-xs text-pat-text-secondary">
-            Re-opens in <b className="text-pat-text-primary">{mounted ? (d.next_market_open_utc ? fmt(d.next_market_open_utc) : "…") : "…"}</b>{" "}
+            Re-opens in <b className="text-pat-text-primary">{now > 0 ? fmtCountdown(d.next_market_open_utc, now) : "…"}</b>{" "}
             <span className="opacity-70">({new Date(d.next_market_open_utc).toISOString()})</span>
           </div>
         )}
       </div>
     </div>
   );
-}
-
-function fmt(target: string): string {
-  const ms = new Date(target).getTime() - Date.now();
-  if (ms <= 0) return "now";
-  const s = Math.floor(ms / 1000);
-  const dd = Math.floor(s / 86400), hh = Math.floor((s % 86400) / 3600), mm = Math.floor((s % 3600) / 60);
-  return `${dd > 0 ? dd + "d " : ""}${hh}h ${mm}m`;
 }

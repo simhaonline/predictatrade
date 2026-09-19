@@ -1,4 +1,5 @@
 "use client";
+import { useMounted, useNow } from "@/components/mounted-hook";
 import { useQuery } from "@tanstack/react-query";
 import { customInstance } from "@/lib/axios-instance";
 import { getGlobalWs, type WsMessage, type ConnectionState } from "@/lib/websocket";
@@ -148,8 +149,7 @@ export default function AdminDashboardPage() {
   })();
   const engineAlive = engineEvaluating;
   const agentCount = Number(agentsStatus?.agents_connected ?? 0) || (Array.isArray(agentsStatus?.agents) ? agentsStatus.agents.length : 0);
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useMounted();
   const hasAgents = agentCount > 0;
   const wsConnected = wsState === 'CONNECTED';
   const agentsOnline = agentsStatus?.agents_online ?? false;
@@ -157,9 +157,9 @@ export default function AdminDashboardPage() {
   // it reports open the next-open window tells us we are pre-open (no live ticks
   // expected). Treat both as a genuine closure so the UI shows CLOSED/STANDBY
   // instead of falsely alarming STALE/OFFLINE (prompt.md market_closed handling).
+  const nowMs = useNow();
   const nextOpenStr = agentsStatus?.next_market_open_utc as string | undefined;
   const nextOpen = nextOpenStr ? new Date(nextOpenStr).getTime() : null;
-  const nowMs = Date.now();
   const hoursToOpen = nextOpen !== null ? (nextOpen - nowMs) / 3600000 : null;
   const preOpenClosed = hoursToOpen !== null && hoursToOpen > 0 && hoursToOpen < 48;
   const marketClosed = agentsStatus?.market_closed === true || preOpenClosed;

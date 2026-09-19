@@ -61,6 +61,9 @@ export default function MtClientsPage() {
   const [filter, setFilter] = useState<"ALL" | "ONLINE" | "OFFLINE">("ALL");
   const [roleFilter, setRoleFilter] = useState<"ALL" | "exec" | "data">("ALL");
 
+  // Async on-mount + polling load: setState occurs after await (network),
+  // not a synchronous cascade — targeted disable with justification.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   const load = useCallback(async () => {
     try {
       const token = getAccessToken();
@@ -77,6 +80,7 @@ export default function MtClientsPage() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async continuation after await (network), not a sync cascade
     void load();
     const t = setInterval(() => void load(), POLL_MS);
     return () => clearInterval(t);

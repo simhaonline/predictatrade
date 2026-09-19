@@ -23,7 +23,7 @@ export function ProvidersCRUD() {
   });
   const test = useMutation({
     mutationFn: async (id: string) => (await customInstance.post(`/operations/ai/providers/${id}/test`)).data,
-    onSuccess: (d: any) => { qc.invalidateQueries({ queryKey: ["ai-providers"] }); toast.success(d.ok ? `Connected in ${d.latency_ms}ms` : `Unreachable: ${d.error || d.http_status}`); },
+    onSuccess: (d: { ok?: boolean; latency_ms?: number; error?: string; http_status?: number }) => { qc.invalidateQueries({ queryKey: ["ai-providers"] }); toast.success(d.ok ? `Connected in ${d.latency_ms ?? 0}ms` : `Unreachable: ${d.error ?? d.http_status ?? "unknown"}`); },
   });
   const del = useMutation({
     mutationFn: async (id: string) => (await customInstance.delete(`/operations/ai/providers/${id}`)).data,
@@ -47,7 +47,7 @@ export function ProvidersCRUD() {
       </div>
 
       {q.isLoading && <div className="text-xs text-pat-text-muted">Loading providers…</div>}
-      {(q.data ?? []).map((p: any) => (
+      {(q.data ?? []).map((p: { id: string; name: string; provider: string; model?: string; enabled: boolean; base_url?: string }) => (
         <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 border border-pat-border rounded-lg p-3">
           <div>
             <div className="text-sm text-pat-text-primary">{p.name} <span className="text-xs text-pat-text-muted">({p.provider})</span></div>
@@ -63,7 +63,7 @@ export function ProvidersCRUD() {
           </div>
         </div>
       ))}
-      {q.isError && <div className="text-xs text-pat-danger">Failed to load providers: {String((q.error as any)?.message || "")}</div>}
+      {q.isError && <div className="text-xs text-pat-danger">Failed to load providers: {q.error instanceof Error ? q.error.message : "Failed to load providers"}</div>}
     </div>
   );
 }
