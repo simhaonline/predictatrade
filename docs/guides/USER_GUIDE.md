@@ -10,7 +10,7 @@ Predict-A-Trade generates XAUUSD trading signals using 7 strategy engines, 42 te
 ## 1. Getting Started
 
 ### Registration
-1. Go to `https://platform.predictatrade.com/signup`
+1. Go to `https://platform.predictatrade.com/register` (`/signup` redirects here)
 2. Enter email, password, and accept Terms of Service + Privacy Policy
 3. Verify email (check inbox for verification link)
 4. Log in at `https://platform.predictatrade.com/login`

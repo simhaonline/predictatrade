@@ -95,6 +95,10 @@ export class BillingService {
 
   /** True when the invoice belongs to the given user. */
   async assertInvoiceOwnership(userId: string, invoiceId: string) {
+    // UUID_GUARD: malformed ids (e.g. a GET to /invoices/generate) must 404,
+    // not bubble a Postgres "invalid input syntax for type uuid" as a 500.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(invoiceId)) throw new NotFoundException('Invoice not found');
     const r = await this.pool.query(
       `SELECT 1 FROM billing.invoices WHERE id = $1 AND user_id = $2`,
       [invoiceId, userId],
