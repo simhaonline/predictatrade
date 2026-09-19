@@ -1,5 +1,11 @@
 # EA Patch 0001 — MAE/MFE excursion tracking (fixes hardcoded 0.0)
 
+> **Removed 2026-09-19:** the old `PredictATrade_MT5.mq5.patched` reference copy
+> (v1.30 era) was deleted — it predated v1.32–v1.35 and mislead compiles.
+> The live source of truth is `mql/mt5/PredictATrade_MT5.mq5` (v1.36) and
+> `mql/mt5/PredictATrade_MasterNode_MT5.mq5` (v1.35.1) — recompile those.
+
+
 > **EA v1.34 note (2026-09-18):** the patch hunks still apply cleanly, but the
 > repo source now also carries v1.32 (HTTP transport hardening + retries),
 > v1.33 (`AutoExecute=true` default, terminal AutoTrading self-diagnostics),
